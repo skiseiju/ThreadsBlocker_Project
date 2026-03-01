@@ -166,10 +166,12 @@ Desktop: click(handleGlobalClick, capture: true) + ontouchend(stopPropagation)
 | `hege_block_db_v1` | localStorage (JSON) | 已封鎖使用者歷史 |
 | `hege_pending_users` | sessionStorage (JSON) | 當前選取的使用者 |
 | `hege_active_queue` | localStorage (JSON) | 背景 Worker 的待處理佇列 |
-| `hege_bg_status` | localStorage (JSON) | Worker 狀態 (state, current, progress, total, lastUpdate) |
+| `hege_bg_status` | localStorage (JSON) | Worker 狀態 (state, current, progress, total, ETA, stats) |
 | `hege_bg_command` | localStorage | Worker 控制指令 (如 'stop') |
 | `hege_failed_queue` | localStorage (JSON) | 封鎖失敗的使用者 |
-| `hege_return_url` | localStorage | Mobile Worker 完成後要返回的頁面 URL |
+| `hege_cooldown_queue` | localStorage (JSON) | 觸發冷卻時備份的待處理佇列（含回滾名單） |
+| `hege_rate_limit_until` | localStorage | 12 小時冷卻解除的時間戳記 |
+| `hege_block_timestamps` | localStorage (JSON) | 紀錄最近 50 筆封鎖歷史用於智慧回滾 |
 
 ---
 
@@ -196,6 +198,37 @@ Desktop: click(handleGlobalClick, capture: true) + ontouchend(stopPropagation)
 
 | 結果 | 處理 |
 |---|---|
-| `success` / `already_blocked` | 從 BG_QUEUE 移除，加入 DB_KEY |
+| `success` / `already_blocked` | 進入 **自適應驗證 (Adaptive Verification)**。若驗證成功則移出佇列並寫入 DB。 |
 | `failed` | 從 BG_QUEUE 移除，加入 FAILED_QUEUE |
-| `cooldown` | 停止執行，顯示警告 |
+| `cooldown` | 觸發 `triggerCooldown()`，12小時鎖定並備份名單 |
+
+---
+
+## 🛡防護機制：自適應驗證 (Adaptive Verification)
+
+**目的**：對抗 Threads 伺服器的「假性成功」（UI 顯示已封鎖但實際未生效）。
+
+**機制**：
+1. **動態抽樣**：根據連續失敗次數調整驗證頻率。
+   - Level 0 (預設): 每 5 次封鎖抽樣驗證 1 次。
+   - Level 1 (發生過失敗): 每 3 次驗證 1 次。
+   - Level 2 (頻繁失敗): 每次都驗證。
+2. **驗證方式 (`verifyBlock`)**：重啟該用戶的「更多」選單，若出現「解除封鎖 (Unblock)」代表真成功；若仍是「封鎖 (Block)」，代表遇到靜默限制。
+3. 若 Level 2 連續 5 次驗證失敗，將視為遭到嚴格限制，強制進入**冷卻模式**。
+
+---
+
+## ❄️防護機制：12 小時冷卻鎖 (Rate-Limit Protection)
+
+**檔案**：`worker.js:triggerCooldown`
+
+**觸發條件**：
+1. `autoBlock` 中偵測到「稍後再試」等官方對話框。
+2. 自適應驗證系統連續 5 次偵測到「假性成功」。
+
+**執行流程 (智慧回滾 Auto-Rollback)**：
+1. 立即停止當前 Worker 迴圈。
+2. 將剩餘排隊名單全數移入 `COOLDOWN_QUEUE` (`hege_cooldown_queue`)。
+3. **回滾歷史**：從 `DB_TIMESTAMPS` 中抓出最近 50 筆已當作成功的帳號，自動從 `DB_KEY` 中拔除，並塞回 `COOLDOWN_QUEUE`（防止這些人也是因靜默限制而漏鎖）。
+4. 設定 `hege_rate_limit_until` 為當下時間 + 12 小時。
+5. 前台 UI (`main.js`) 會因為 Storage Event 即時鎖住所有封鎖按鈕並顯示紅色警告。12 小時清醒後，名單將無損回填。

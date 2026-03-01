@@ -39,6 +39,7 @@
 ## 📝 版本紀錄 (Changelog)
 
 詳細版本紀錄請參閱 **[CHANGELOG.md](./CHANGELOG.md)**。
+架構與防護機制說明請參閱 **[docs/BLOCKING_ARCHITECTURE.md](./docs/BLOCKING_ARCHITECTURE.md)**。
 
 ## 📂 專案結構 (Structure)
 
