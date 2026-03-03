@@ -62,8 +62,37 @@ import { Worker } from './worker.js';
                 const cooldownUntil = parseInt(Storage.get(CONFIG.KEYS.COOLDOWN) || '0');
                 if (cooldownUntil > Date.now()) {
                     const remainHrs = Math.ceil((cooldownUntil - Date.now()) / (1000 * 60 * 60));
-                    UI.showToast(`⛔ 系統限制保護中，約 ${remainHrs} 小時後才可再次執行`);
-                    return;
+                    if (confirm(`⚠️ 目前處於冷卻保護中（約 ${remainHrs} 小時後自動解除）\n\n強制取消冷卻並繼續封鎖？\n\n若您確認今日封鎖未超過 100 位，這可能是系統誤判，可放心繼續執行。\n\n若已大量封鎖，後續操作可能失敗，Meta 也可能對您的帳號施加額外限制。`)) {
+                        // Force cancel cooldown and resume
+                        const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
+                        const currentQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+                        const pendingArr = Array.from(pending);
+                        const merged = [...new Set([...currentQueue, ...cooldownQueue, ...pendingArr])];
+                        Storage.setJSON(CONFIG.KEYS.BG_QUEUE, merged);
+                        Storage.remove(CONFIG.KEYS.COOLDOWN_QUEUE);
+                        Storage.remove(CONFIG.KEYS.COOLDOWN);
+                        Storage.invalidate(CONFIG.KEYS.COOLDOWN);
+                        Storage.invalidate(CONFIG.KEYS.COOLDOWN_QUEUE);
+
+                        if (pendingArr.length > 0) {
+                            Core.pendingUsers.clear();
+                            Storage.setSessionJSON(CONFIG.KEYS.PENDING, []);
+                        }
+
+                        Core.updateControllerUI();
+                        UI.showToast(`已恢復佇列，共 ${merged.length} 筆，開始執行`);
+
+                        // Directly start worker with restored queue
+                        Storage.remove(CONFIG.KEYS.BG_CMD);
+                        if (Utils.isMobile()) {
+                            Core.runSameTabWorker();
+                        } else {
+                            window.open('https://www.threads.net/?hege_bg=true', 'HegeBlockWorker', 'width=800,height=600');
+                        }
+                        return;
+                    } else {
+                        return;
+                    }
                 }
 
                 if (pending.size === 0) { UI.showToast('請先勾選用戶！'); return; }

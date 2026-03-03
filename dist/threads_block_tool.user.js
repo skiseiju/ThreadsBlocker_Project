@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         留友封 (Threads 封鎖工具)
 // @namespace    http://tampermonkey.net/
-// @version      2.1.0
+// @version      2.1.1-beta4
 // @description  Modular Refactor Build
 // @author       海哥
 // @match        https://www.threads.net/*
@@ -14,10 +14,10 @@
 
 (function() {
     'use strict';
-    console.log('[HegeBlock] Content Script Injected, Version: 2.1.0');
+    console.log('[HegeBlock] Content Script Injected, Version: 2.1.1-beta4');
 // --- config.js ---
 const CONFIG = {
-    VERSION: '2.1.0', // Official Release: Worker UI 2.0 & Cooldown Protection
+    VERSION: '2.1.1-beta4', // Official Release: Worker UI 2.0 & Cooldown Protection
     DEBUG_MODE: true,
     DB_KEY: 'hege_block_db_v1',
     KEYS: {
@@ -487,7 +487,7 @@ const UI = {
             const svgs = document.querySelectorAll('svg');
             for (let svg of svgs) {
                 const label = (svg.getAttribute('aria-label') || '').trim();
-                if (label === '功能表' || label === 'Menu' || label === 'Settings' || label === '設定' | label === '更多選項') {
+                if (label === '功能表' || label === 'Menu' || label === 'Settings' || label === '設定' || label === '更多選項') {
                     anchor = svg.closest('div[role="button"]') || svg;
                     break;
                 }
@@ -873,16 +873,23 @@ const Core = {
                     }
                 }, { passive: false });
             } else {
-                container.ontouchend = (e) => {
-                    if (e.target.closest('.hege-checkbox-container')) {
-                        e.stopPropagation();
-                    }
-                };
+                // Desktop (Chrome + Safari): intercept pointer/mouse events before React steals them
+                container.addEventListener('pointerdown', (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                }, true);
+                container.addEventListener('pointerup', (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                }, true);
+                container.addEventListener('mousedown', (e) => {
+                    e.stopPropagation();
+                    if (e.shiftKey) e.preventDefault();
+                }, true);
+                container.addEventListener('mouseup', (e) => {
+                    e.stopPropagation();
+                }, true);
             }
-
-            container.onmousedown = (e) => {
-                if (e.shiftKey) e.preventDefault();
-            };
 
             // Bind directly to the element using a capture phase listener.
             // This is the most bulletproof way to intercept clicks before React or <a> tags steal them.
@@ -1616,7 +1623,9 @@ const Worker = {
     verifyBlock: async (user) => {
         // Re-open the "More" menu to check if "Unblock" appears (= block succeeded)
         try {
-            await Utils.sleep(1500);
+            // Level 2 needs longer wait for React to sync post-block state
+            const verifyDelay = Worker.verifyLevel >= 2 ? 3500 : 1500;
+            await Utils.sleep(verifyDelay);
 
             // Find "More" button again
             let profileBtn = null;
@@ -1961,8 +1970,37 @@ const Worker = {
                 const cooldownUntil = parseInt(Storage.get(CONFIG.KEYS.COOLDOWN) || '0');
                 if (cooldownUntil > Date.now()) {
                     const remainHrs = Math.ceil((cooldownUntil - Date.now()) / (1000 * 60 * 60));
-                    UI.showToast(`⛔ 系統限制保護中，約 ${remainHrs} 小時後才可再次執行`);
-                    return;
+                    if (confirm(`⚠️ 目前處於冷卻保護中（約 ${remainHrs} 小時後自動解除）\n\n強制取消冷卻並繼續封鎖？\n\n若您確認今日封鎖未超過 100 位，這可能是系統誤判，可放心繼續執行。\n\n若已大量封鎖，後續操作可能失敗，Meta 也可能對您的帳號施加額外限制。`)) {
+                        // Force cancel cooldown and resume
+                        const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
+                        const currentQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+                        const pendingArr = Array.from(pending);
+                        const merged = [...new Set([...currentQueue, ...cooldownQueue, ...pendingArr])];
+                        Storage.setJSON(CONFIG.KEYS.BG_QUEUE, merged);
+                        Storage.remove(CONFIG.KEYS.COOLDOWN_QUEUE);
+                        Storage.remove(CONFIG.KEYS.COOLDOWN);
+                        Storage.invalidate(CONFIG.KEYS.COOLDOWN);
+                        Storage.invalidate(CONFIG.KEYS.COOLDOWN_QUEUE);
+
+                        if (pendingArr.length > 0) {
+                            Core.pendingUsers.clear();
+                            Storage.setSessionJSON(CONFIG.KEYS.PENDING, []);
+                        }
+
+                        Core.updateControllerUI();
+                        UI.showToast(`已恢復佇列，共 ${merged.length} 筆，開始執行`);
+
+                        // Directly start worker with restored queue
+                        Storage.remove(CONFIG.KEYS.BG_CMD);
+                        if (Utils.isMobile()) {
+                            Core.runSameTabWorker();
+                        } else {
+                            window.open('https://www.threads.net/?hege_bg=true', 'HegeBlockWorker', 'width=800,height=600');
+                        }
+                        return;
+                    } else {
+                        return;
+                    }
                 }
 
                 if (pending.size === 0) { UI.showToast('請先勾選用戶！'); return; }

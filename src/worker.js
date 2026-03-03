@@ -399,7 +399,9 @@ export const Worker = {
     verifyBlock: async (user) => {
         // Re-open the "More" menu to check if "Unblock" appears (= block succeeded)
         try {
-            await Utils.sleep(1500);
+            // Level 2 needs longer wait for React to sync post-block state
+            const verifyDelay = Worker.verifyLevel >= 2 ? 3500 : 1500;
+            await Utils.sleep(verifyDelay);
 
             // Find "More" button again
             let profileBtn = null;

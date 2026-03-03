@@ -311,16 +311,23 @@ export const Core = {
                     }
                 }, { passive: false });
             } else {
-                container.ontouchend = (e) => {
-                    if (e.target.closest('.hege-checkbox-container')) {
-                        e.stopPropagation();
-                    }
-                };
+                // Desktop (Chrome + Safari): intercept pointer/mouse events before React steals them
+                container.addEventListener('pointerdown', (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                }, true);
+                container.addEventListener('pointerup', (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                }, true);
+                container.addEventListener('mousedown', (e) => {
+                    e.stopPropagation();
+                    if (e.shiftKey) e.preventDefault();
+                }, true);
+                container.addEventListener('mouseup', (e) => {
+                    e.stopPropagation();
+                }, true);
             }
-
-            container.onmousedown = (e) => {
-                if (e.shiftKey) e.preventDefault();
-            };
 
             // Bind directly to the element using a capture phase listener.
             // This is the most bulletproof way to intercept clicks before React or <a> tags steal them.

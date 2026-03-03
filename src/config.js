@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.1.0', // Official Release: Worker UI 2.0 & Cooldown Protection
+    VERSION: '2.1.1-beta4', // Official Release: Worker UI 2.0 & Cooldown Protection
     DEBUG_MODE: true,
     DB_KEY: 'hege_block_db_v1',
     KEYS: {

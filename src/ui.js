@@ -263,7 +263,7 @@ export const UI = {
             const svgs = document.querySelectorAll('svg');
             for (let svg of svgs) {
                 const label = (svg.getAttribute('aria-label') || '').trim();
-                if (label === '功能表' || label === 'Menu' || label === 'Settings' || label === '設定' | label === '更多選項') {
+                if (label === '功能表' || label === 'Menu' || label === 'Settings' || label === '設定' || label === '更多選項') {
                     anchor = svg.closest('div[role="button"]') || svg;
                     break;
                 }

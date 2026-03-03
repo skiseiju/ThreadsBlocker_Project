@@ -29,7 +29,7 @@ else
     # Bump or add beta tag
     if [[ "$OLD_VERSION" == *"-beta"* ]]; then
         BASE=$(echo "$OLD_VERSION" | sed -E 's/-beta.*//')
-        BETA_NUM=$(echo "$OLD_VERSION" | grep -oE '-beta[0-9]+' | grep -oE '[0-9]+' | tr -d '\n\r ')
+        BETA_NUM=$(echo "$OLD_VERSION" | sed -E 's/.*-beta//')
         APP_VERSION="$BASE-beta$((BETA_NUM + 1))"
     else
         # E.g. 2.0.6 -> 2.0.7-beta1
