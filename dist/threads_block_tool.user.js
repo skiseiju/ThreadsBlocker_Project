@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         留友封 (Threads 封鎖工具)
 // @namespace    http://tampermonkey.net/
-// @version      2.1.1-beta8
+// @version      2.1.1-beta9
 // @description  Modular Refactor Build
 // @author       海哥
 // @match        https://www.threads.net/*
@@ -14,10 +14,10 @@
 
 (function() {
     'use strict';
-    console.log('[HegeBlock] Content Script Injected, Version: 2.1.1-beta8');
+    console.log('[HegeBlock] Content Script Injected, Version: 2.1.1-beta9');
 // --- config.js ---
 const CONFIG = {
-    VERSION: '2.1.1-beta8', // Official Release: Worker UI 2.0 & Cooldown Protection
+    VERSION: '2.1.1-beta9', // Official Release: Worker UI 2.0 & Cooldown Protection
     DEBUG_MODE: true,
     DB_KEY: 'hege_block_db_v1',
     KEYS: {
@@ -2120,6 +2120,30 @@ const Worker = {
             }
 
             if (!confirmBtn) {
+                // Diagnostic dump: what's in the dialogs (or lack thereof)
+                const dialogs = document.querySelectorAll('div[role="dialog"]');
+                if (window.hegeLog) {
+                    window.hegeLog(`[DIAG] @${user} 找不到確認對話框`);
+                    window.hegeLog(`[DIAG] Dialogs 數量: ${dialogs.length}`);
+                    for (let i = 0; i < dialogs.length; i++) {
+                        const d = dialogs[i];
+                        const btns = d.querySelectorAll('div[role="button"], button');
+                        const btnTexts = Array.from(btns).map(b => (b.innerText || b.textContent || '').trim().substring(0, 40)).filter(t => t.length > 0);
+                        const dialogText = (d.innerText || '').trim().substring(0, 150);
+                        window.hegeLog(`[DIAG] Dialog[${i}] 按鈕(${btnTexts.length}): ${JSON.stringify(btnTexts)}`);
+                        window.hegeLog(`[DIAG] Dialog[${i}] 內容: ${dialogText}`);
+                    }
+                    if (dialogs.length === 0) {
+                        // Check if maybe the block succeeded without confirmation
+                        const menuItems = document.querySelectorAll('div[role="menuitem"]');
+                        const menuTexts = Array.from(menuItems).map(el => (el.innerText || '').trim().substring(0, 30));
+                        window.hegeLog(`[DIAG] 無 dialog，可能已直接封鎖？ menuitem: ${JSON.stringify(menuTexts)}`);
+                        // Check page for any "Unblock" indication
+                        const pageText = document.body.innerText || '';
+                        const hasUnblock = pageText.includes('解除封鎖') || pageText.includes('Unblock');
+                        window.hegeLog(`[DIAG] 頁面含「解除封鎖」: ${hasUnblock}`);
+                    }
+                }
                 setStep('找不到確認');
                 return 'failed';
             }
@@ -2138,6 +2162,17 @@ const Worker = {
                 }
                 if (checkForError()) {
                     return 'cooldown';
+                }
+            }
+
+            // Diagnostic dump: dialog didn't close
+            if (window.hegeLog) {
+                const dialogs = document.querySelectorAll('div[role="dialog"]');
+                window.hegeLog(`[DIAG] @${user} 確認後 dialog 未關閉`);
+                window.hegeLog(`[DIAG] 殘留 Dialogs: ${dialogs.length}`);
+                for (let i = 0; i < dialogs.length; i++) {
+                    const text = (dialogs[i].innerText || '').trim().substring(0, 200);
+                    window.hegeLog(`[DIAG] Dialog[${i}]: ${text}`);
                 }
             }
 
