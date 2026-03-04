@@ -174,6 +174,39 @@ Desktop: click(handleGlobalClick, capture: true) + ontouchend(stopPropagation)
 | `hege_rate_limit_until` | localStorage | 12 小時冷卻解除的時間戳記 |
 | `hege_block_timestamps` | localStorage (JSON) | 紀錄最近 50 筆封鎖歷史用於智慧回滾 |
 | `hege_verify_pending` | localStorage | Reload 驗證時暫存的待驗證使用者名稱 |
+| `hege_post_fallback` | localStorage | 貼文備案封鎖開關 (`true`/`false`，預設 `true`) |
+
+---
+
+## 🔍 SVG 結構參考：「更多」按鈕
+
+頁面上有兩種「更多 (⋯)」按鈕，SVG 內部結構不同：
+
+### Profile 層級（個人檔案頁右上方）
+```
+svg[aria-label="更多"] viewBox="0 0 24 24"
+├── circle cx=12 cy=12 r=10  ← 大背景圓（半徑 10）
+├── path (畫 7.5 的小圓點)
+├── path (畫 12 的小圓點)
+└── path (畫 16.5 的小圓點)
+```
+**特徵：1 個 circle (r=10) + 3 個 path**
+
+### Post 層級（貼文旁邊）
+```
+svg[aria-label="更多"] viewBox="0 0 24 24"
+├── circle cx=12 cy=12 r=1.5  ← 小圓點
+├── circle cx=6  cy=12 r=1.5  ← 小圓點
+└── circle cx=18 cy=12 r=1.5  ← 小圓點
+```
+**特徵：3 個 circle (r=1.5) + 0 個 path**
+
+### 判斷方式
+
+| 用途 | 判斷邏輯 | 備註 |
+|------|---------|------|
+| 找 Profile 按鈕 | `circle` 存在 **且** `path >= 3` | 不依賴 px 大小（手機可能不同） |
+| 找 Post 按鈕 (Fallback) | DOM 位置：從 `a[href*="/@user/post/"]` 往上爬找 SVG | 不判斷 SVG 結構 |
 
 ---
 
@@ -183,12 +216,18 @@ Desktop: click(handleGlobalClick, capture: true) + ontouchend(stopPropagation)
 
 ```
 1. 等待頁面載入 (2.5s)
-2. Polling 尋找「更多」SVG 按鈕 (最多 12s)
+2. Polling 尋找 Profile「更多」SVG 按鈕 (最多 12s)
    └─ 檢查 SVG 結構：circle + path ≥ 3
 3. simClick 點擊「更多」按鈕
-4. Polling 等待選單出現 (最多 8s)
+4. Polling 等待選單出現 (最多 8s，3s 後自動重試 click)
    ├─ 偵測到「解除封鎖」→ return 'already_blocked'
    └─ 偵測到「封鎖」→ 點擊
+4b. [Post Fallback] Profile 選單沒有封鎖按鈕時（開關啟用時）：
+   ├─ 按 Escape 關閉選單
+   ├─ 找 a[href*="/@user/post/"] 貼文連結
+   ├─ 從連結往上爬 DOM → 找到貼文的 svg「更多」
+   ├─ 點擊 → 等選單 → 找「封鎖」
+   └─ 全失敗 → return 'rate_limited'
 5. Polling 等待確認對話框 (最多 5s)
    ├─ 偵測到限制訊息 → return 'cooldown'
    └─ 點擊紅色確認按鈕
@@ -200,8 +239,9 @@ Desktop: click(handleGlobalClick, capture: true) + ontouchend(stopPropagation)
 
 | 結果 | 處理 |
 |---|---|
-| `success` / `already_blocked` | 進入 **自適應驗證 (Adaptive Verification)**。若驗證成功則移出佇列並寫入 DB。 |
+| `success` / `already_blocked` | 進入 **自適應驗證 (Adaptive Verification)**。若驗證成功則移出佇列並寫入 DB。三振計數器歸零。 |
 | `failed` | 從 BG_QUEUE 移除，加入 FAILED_QUEUE |
+| `rate_limited` | 三振累計 +1。第 1~2 次：標記失敗並靜置 3 秒。**連續 3 次**：觸發 12 小時冷卻。 |
 | `cooldown` | 觸發 `triggerCooldown()`，12小時鎖定並備份名單 |
 
 ---
@@ -231,8 +271,9 @@ Desktop: click(handleGlobalClick, capture: true) + ontouchend(stopPropagation)
 **檔案**：`worker.js:triggerCooldown`
 
 **觸發條件**：
-1. `autoBlock` 中偵測到「稍後再試」等官方對話框。
+1. `autoBlock` 中偵測到「稍後再試」等官方對話框 → `return 'cooldown'`。
 2. 自適應驗證系統連續 5 次偵測到「假性成功」。
+3. **三振空選單**：`autoBlock` 連續 3 次回傳 `rate_limited`（Profile + Post Fallback 都無法取得封鎖選項）。
 
 **執行流程 (智慧回滾 Auto-Rollback)**：
 1. 立即停止當前 Worker 迴圈。

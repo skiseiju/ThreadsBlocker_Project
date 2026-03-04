@@ -1886,6 +1886,9 @@ const Worker = {
                 Worker.updateStatus('error', '⚠️ 頻率限制觸發，請稍後再試');
                 const stopBtn = document.getElementById('hege-worker-stop');
                 if (stopBtn) stopBtn.style.display = 'none';
+            } else if (result === 'navigating') {
+                // Post Fallback 正在跳轉到 /replies，等頁面 reload 後會自動繼續
+                return;
             }
         }
     },
@@ -2059,199 +2062,272 @@ const Worker = {
             setStep('載入中...');
             await Utils.sleep(2500);
 
-            // 1. Wait for "More" button (Polling up to 12s)
-            let profileBtn = null;
-
-            for (let i = 0; i < 25; i++) {
-                const moreSvgs = document.querySelectorAll('svg[aria-label="更多"], svg[aria-label="More"]');
-                for (let svg of moreSvgs) {
-                    if (svg.querySelector('circle') && svg.querySelectorAll('path').length >= 3) {
-                        profileBtn = svg.closest('div[role="button"]');
-                        if (profileBtn) break;
-                    }
-                }
-
-                // Fallback
-                if (!profileBtn && moreSvgs.length > 0) {
-                    profileBtn = moreSvgs[0].closest('div[role="button"]');
-                }
-
-                if (profileBtn) break;
-                await Utils.sleep(500);
-            }
-
-            if (!profileBtn) {
-                // Diagnostic dump: collect all SVG info on page
-                const allSvgs = document.querySelectorAll('svg[aria-label]');
-                const svgLabels = Array.from(allSvgs).map(s => s.getAttribute('aria-label'));
-                const moreSvgs = document.querySelectorAll('svg[aria-label="更多"], svg[aria-label="More"]');
-                const svgDetails = Array.from(moreSvgs).map(s => {
-                    const hasCircle = !!s.querySelector('circle');
-                    const pathCount = s.querySelectorAll('path').length;
-                    const vb = s.getAttribute('viewBox');
-                    return `circle=${hasCircle},paths=${pathCount},viewBox=${vb}`;
-                });
-                const dialogCount = document.querySelectorAll('div[role="dialog"]').length;
-                if (window.hegeLog) {
-                    window.hegeLog(`[DIAG] @${user} 找不到更多按鈕`);
-                    window.hegeLog(`[DIAG] URL: ${location.pathname}`);
-                    window.hegeLog(`[DIAG] 頁面 SVG aria-labels(${svgLabels.length}): ${JSON.stringify(svgLabels)}`);
-                    window.hegeLog(`[DIAG] 更多按鈕 SVG(${moreSvgs.length}): ${JSON.stringify(svgDetails)}`);
-                    window.hegeLog(`[DIAG] Dialogs: ${dialogCount}`);
-                }
-                return 'failed';
-            }
-
-            setStep('開啟選單...');
-            if (window.hegeLog && profileBtn) {
-                const rect = profileBtn.getBoundingClientRect();
-                let parentText = '';
-                try {
-                    let parent = profileBtn.parentElement;
-                    for (let p = 0; p < 3 && parent; p++) {
-                        parentText += (parent.textContent || '').substring(0, 10).replace(/\n/g, '') + '|';
-                        parent = parent.parentElement;
-                    }
-                } catch (e) { }
-                window.hegeLog(`[DIAG] 準備點擊按鈕 x=${Math.round(rect.x)}, y=${Math.round(rect.y)}, 父層文案=${parentText}`);
-            }
-            await Utils.sleep(500);
-            profileBtn.scrollIntoView({ block: 'center', inline: 'center' });
-            await Utils.sleep(500);
-            Utils.simClick(profileBtn);
-
-
-            // 2. Wait for Menu (Polling up to 8s, retry click if menu doesn't open)
+            // Post Fallback: 如果是從 /replies 重新載入的，跳過 Profile 直接搜尋貼文
             let blockBtn = null;
-            let clickRetried = false;
-            for (let i = 0; i < 16; i++) {
-                await Utils.sleep(500);
+            let skipToConfirm = false;
+            const postFallbackUser = sessionStorage.getItem('hege_post_fallback_user');
+            if (postFallbackUser === user && window.location.pathname.includes('/replies')) {
+                sessionStorage.removeItem('hege_post_fallback_user');
+                if (window.hegeLog) window.hegeLog(`[DIAG] 已在 replies 頁，直接搜尋貼文的三個點`);
 
-                // After 3s (6 iterations) with no menuitem, retry the click
-                if (i === 6 && !clickRetried) {
-                    const testMenu = document.querySelectorAll('div[role="menuitem"]');
-                    if (testMenu.length === 0) {
-                        clickRetried = true;
-                        if (window.hegeLog) window.hegeLog(`[DIAG] 選單未開啟，重試 simClick...`);
-                        Utils.simClick(profileBtn);
-                        await Utils.sleep(500);
-                    }
-                }
+                const postLinks = document.querySelectorAll(`a[href*="/@${user}/post/"]`);
+                if (window.hegeLog) window.hegeLog(`[DIAG] 在 replies 頁找到 ${postLinks.length} 篇貼文連結`);
 
-                const menuItems = document.querySelectorAll('div[role="menuitem"], div[role="button"]');
-                for (let item of menuItems) {
-                    const t = item.innerText || item.textContent;
-                    if (!t) continue;
-
-                    if (t.includes('解除封鎖') || t.includes('Unblock')) {
-                        setStep('已封鎖 (略過)');
-                        return 'already_blocked';
-                    }
-
-                    if ((t.includes('封鎖') && !t.includes('解除')) || (t.includes('Block') && !t.includes('Un'))) {
-                        blockBtn = item;
+                for (const link of postLinks) {
+                    let container = link;
+                    let postMoreBtn = null;
+                    for (let lvl = 0; lvl < 8; lvl++) {
+                        container = container.parentElement;
+                        if (!container) break;
+                        const svg = container.querySelector('svg[aria-label="更多"], svg[aria-label="More"]');
+                        if (!svg) continue;
+                        const btn = svg.closest('div[role="button"]');
+                        if (!btn) continue;
+                        postMoreBtn = btn;
                         break;
                     }
-                }
-                if (blockBtn) break;
-            }
+                    if (!postMoreBtn) continue;
 
-            if (!blockBtn) {
-                const menuItems = document.querySelectorAll('div[role="menuitem"], div[role="button"]');
-                for (let item of menuItems) {
-                    const t = item.innerText || item.textContent;
-                    if (t && (t.includes('解除封鎖') || t.includes('Unblock'))) {
-                        setStep('已封鎖 (略過)');
-                        return 'already_blocked';
-                    }
-                }
+                    if (window.hegeLog) window.hegeLog(`[DIAG] 嘗試回覆貼文「更多」: ${link.getAttribute('href')}`);
+                    postMoreBtn.scrollIntoView({ block: 'center' });
+                    await Utils.sleep(500);
+                    Utils.simClick(postMoreBtn);
 
-                // === Post-Level Fallback (開關控制) ===
-                const postFallbackEnabled = Storage.get(CONFIG.KEYS.POST_FALLBACK) !== 'false';
-                if (postFallbackEnabled) {
-                    setStep('Profile 選單無效，嘗試貼文備案...');
-                    if (window.hegeLog) window.hegeLog(`[DIAG] Profile 選單無封鎖鈕，啟動貼文備案`);
-
-                    // 關閉 Profile 選單
-                    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-                    await Utils.sleep(800);
-
-                    // 找該使用者的貼文連結
-                    const postLinks = document.querySelectorAll(`a[href*="/@${user}/post/"]`);
-                    if (window.hegeLog) window.hegeLog(`[DIAG] 找到 ${postLinks.length} 篇貼文連結`);
-
-                    for (const link of postLinks) {
-                        // 從貼文連結往上爬 DOM，尋找包含「更多」SVG 的共同容器
-                        let container = link;
-                        let postMoreBtn = null;
-                        for (let lvl = 0; lvl < 8; lvl++) {
-                            container = container.parentElement;
-                            if (!container) break;
-                            const svg = container.querySelector('svg[aria-label="更多"], svg[aria-label="More"]');
-                            if (!svg) continue;
-                            const btn = svg.closest('div[role="button"]');
-                            if (!btn) continue;
-                            postMoreBtn = btn;
-                            break;
-                        }
-
-                        if (!postMoreBtn) continue;
-
-                        if (window.hegeLog) window.hegeLog(`[DIAG] 嘗試貼文「更多」按鈕: ${link.getAttribute('href')}`);
-
-                        // 點擊 Post 層的三個點
-                        postMoreBtn.scrollIntoView({ block: 'center' });
+                    for (let pi = 0; pi < 12; pi++) {
                         await Utils.sleep(500);
-                        Utils.simClick(postMoreBtn);
-
-                        // 等選單 + 尋找封鎖按鈕 (polling up to 6s)
-                        for (let pi = 0; pi < 12; pi++) {
-                            await Utils.sleep(500);
-                            const pMenuItems = document.querySelectorAll('div[role="menuitem"], div[role="button"]');
-                            for (let item of pMenuItems) {
-                                const t = item.innerText || item.textContent;
-                                if (!t) continue;
-                                if (t.includes('解除封鎖') || t.includes('Unblock')) {
-                                    setStep('已封鎖 (略過)');
-                                    return 'already_blocked';
-                                }
-                                if ((t.includes('封鎖') && !t.includes('解除')) || (t.includes('Block') && !t.includes('Un'))) {
-                                    blockBtn = item;
-                                    break;
-                                }
+                        const pMenuItems = document.querySelectorAll('div[role="menuitem"], div[role="button"]');
+                        for (let item of pMenuItems) {
+                            const t = item.innerText || item.textContent;
+                            if (!t) continue;
+                            if (t.includes('解除封鎖') || t.includes('Unblock')) return 'already_blocked';
+                            if ((t.includes('封鎖') && !t.includes('解除')) || (t.includes('Block') && !t.includes('Un'))) {
+                                blockBtn = item;
+                                break;
                             }
-                            if (blockBtn) break;
                         }
-
-                        if (blockBtn) {
-                            if (window.hegeLog) window.hegeLog(`[DIAG] ✅ 貼文備案成功找到封鎖鈕！`);
-                            break;
-                        }
-
-                        // 這篇失敗，關閉選單繼續下一篇
-                        if (window.hegeLog) window.hegeLog(`[DIAG] 貼文備案此篇無效，嘗試下一篇...`);
-                        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-                        await Utils.sleep(500);
+                        if (blockBtn) break;
                     }
+                    if (blockBtn) {
+                        if (window.hegeLog) window.hegeLog(`[DIAG] ✅ 回覆備案成功找到封鎖鈕！`);
+                        skipToConfirm = true;
+                        break;
+                    }
+                    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+                    await Utils.sleep(500);
                 }
 
                 if (!blockBtn) {
-                    // 全部失敗 — 診斷 dump + rate_limited
-                    const allMenuItems = document.querySelectorAll('div[role="menuitem"]');
-                    const menuTexts = Array.from(allMenuItems).map(el => (el.innerText || el.textContent || '').trim().substring(0, 30));
-                    const allBtns = document.querySelectorAll('div[role="button"]');
-                    const btnTexts = Array.from(allBtns).map(el => (el.innerText || el.textContent || '').trim().substring(0, 30)).filter(t => t.length > 0);
-                    const dialogCount = document.querySelectorAll('div[role="dialog"]').length;
-                    if (window.hegeLog) {
-                        window.hegeLog(`[DIAG] @${user} 找不到封鎖鈕 (含貼文備案)`);
-                        window.hegeLog(`[DIAG] menuitem(${menuTexts.length}): ${JSON.stringify(menuTexts)}`);
-                        window.hegeLog(`[DIAG] buttons(${btnTexts.length}): ${JSON.stringify(btnTexts.slice(0, 15))}`);
-                        window.hegeLog(`[DIAG] Dialogs: ${dialogCount}`);
-                    }
-                    setStep('錯誤: 找不到封鎖鈕 (可能遭限制)');
+                    if (window.hegeLog) window.hegeLog(`[DIAG] replies 頁也無法封鎖，回報 rate_limited`);
+                    setStep('錯誤: 找不到封鎖鈕 (含回覆備案)');
                     return 'rate_limited';
                 }
             }
+
+            if (!skipToConfirm) {
+                // 1. Wait for "More" button (Polling up to 12s)
+                let profileBtn = null;
+
+                for (let i = 0; i < 25; i++) {
+                    const moreSvgs = document.querySelectorAll('svg[aria-label="更多"], svg[aria-label="More"]');
+                    for (let svg of moreSvgs) {
+                        if (svg.querySelector('circle') && svg.querySelectorAll('path').length >= 3) {
+                            profileBtn = svg.closest('div[role="button"]');
+                            if (profileBtn) break;
+                        }
+                    }
+
+                    // Fallback
+                    if (!profileBtn && moreSvgs.length > 0) {
+                        profileBtn = moreSvgs[0].closest('div[role="button"]');
+                    }
+
+                    if (profileBtn) break;
+                    await Utils.sleep(500);
+                }
+
+                if (!profileBtn) {
+                    // Diagnostic dump: collect all SVG info on page
+                    const allSvgs = document.querySelectorAll('svg[aria-label]');
+                    const svgLabels = Array.from(allSvgs).map(s => s.getAttribute('aria-label'));
+                    const moreSvgs = document.querySelectorAll('svg[aria-label="更多"], svg[aria-label="More"]');
+                    const svgDetails = Array.from(moreSvgs).map(s => {
+                        const hasCircle = !!s.querySelector('circle');
+                        const pathCount = s.querySelectorAll('path').length;
+                        const vb = s.getAttribute('viewBox');
+                        return `circle=${hasCircle},paths=${pathCount},viewBox=${vb}`;
+                    });
+                    const dialogCount = document.querySelectorAll('div[role="dialog"]').length;
+                    if (window.hegeLog) {
+                        window.hegeLog(`[DIAG] @${user} 找不到更多按鈕`);
+                        window.hegeLog(`[DIAG] URL: ${location.pathname}`);
+                        window.hegeLog(`[DIAG] 頁面 SVG aria-labels(${svgLabels.length}): ${JSON.stringify(svgLabels)}`);
+                        window.hegeLog(`[DIAG] 更多按鈕 SVG(${moreSvgs.length}): ${JSON.stringify(svgDetails)}`);
+                        window.hegeLog(`[DIAG] Dialogs: ${dialogCount}`);
+                    }
+                    return 'failed';
+                }
+
+                setStep('開啟選單...');
+                if (window.hegeLog && profileBtn) {
+                    const rect = profileBtn.getBoundingClientRect();
+                    let parentText = '';
+                    try {
+                        let parent = profileBtn.parentElement;
+                        for (let p = 0; p < 3 && parent; p++) {
+                            parentText += (parent.textContent || '').substring(0, 10).replace(/\n/g, '') + '|';
+                            parent = parent.parentElement;
+                        }
+                    } catch (e) { }
+                    window.hegeLog(`[DIAG] 準備點擊按鈕 x=${Math.round(rect.x)}, y=${Math.round(rect.y)}, 父層文案=${parentText}`);
+                }
+                await Utils.sleep(500);
+                profileBtn.scrollIntoView({ block: 'center', inline: 'center' });
+                await Utils.sleep(500);
+                Utils.simClick(profileBtn);
+
+
+                // 2. Wait for Menu (Polling up to 8s, retry click if menu doesn't open)
+                let clickRetried = false;
+                for (let i = 0; i < 16; i++) {
+                    await Utils.sleep(500);
+
+                    // After 3s (6 iterations) with no menuitem, retry the click
+                    if (i === 6 && !clickRetried) {
+                        const testMenu = document.querySelectorAll('div[role="menuitem"]');
+                        if (testMenu.length === 0) {
+                            clickRetried = true;
+                            if (window.hegeLog) window.hegeLog(`[DIAG] 選單未開啟，重試 simClick...`);
+                            Utils.simClick(profileBtn);
+                            await Utils.sleep(500);
+                        }
+                    }
+
+                    const menuItems = document.querySelectorAll('div[role="menuitem"], div[role="button"]');
+                    for (let item of menuItems) {
+                        const t = item.innerText || item.textContent;
+                        if (!t) continue;
+
+                        if (t.includes('解除封鎖') || t.includes('Unblock')) {
+                            setStep('已封鎖 (略過)');
+                            return 'already_blocked';
+                        }
+
+                        if ((t.includes('封鎖') && !t.includes('解除')) || (t.includes('Block') && !t.includes('Un'))) {
+                            blockBtn = item;
+                            break;
+                        }
+                    }
+                    if (blockBtn) break;
+                }
+
+                if (!blockBtn) {
+                    const menuItems = document.querySelectorAll('div[role="menuitem"], div[role="button"]');
+                    for (let item of menuItems) {
+                        const t = item.innerText || item.textContent;
+                        if (t && (t.includes('解除封鎖') || t.includes('Unblock'))) {
+                            setStep('已封鎖 (略過)');
+                            return 'already_blocked';
+                        }
+                    }
+
+                    // === Post-Level Fallback (開關控制) ===
+                    const postFallbackEnabled = Storage.get(CONFIG.KEYS.POST_FALLBACK) !== 'false';
+                    if (postFallbackEnabled) {
+                        setStep('Profile 選單無效，嘗試貼文備案...');
+                        if (window.hegeLog) window.hegeLog(`[DIAG] Profile 選單無封鎖鈕，啟動貼文備案`);
+
+                        // 關閉 Profile 選單
+                        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+                        await Utils.sleep(500);
+
+                        // 如果還不在 /replies 頁面，先跳過去
+                        const repliesPath = `/@${user}/replies`;
+                        if (!window.location.pathname.includes('/replies')) {
+                            if (window.hegeLog) window.hegeLog(`[DIAG] 跳轉至 ${repliesPath} 尋找回覆`);
+                            sessionStorage.setItem('hege_post_fallback_user', user);
+                            history.replaceState(null, '', repliesPath + '?hege_bg=true');
+                            location.reload();
+                            return 'navigating';
+                        }
+
+                        // 已在 /replies 頁面，等待載入後搜尋貼文連結
+                        await Utils.sleep(2000);
+                        const postLinks = document.querySelectorAll(`a[href*="/@${user}/post/"]`);
+                        if (window.hegeLog) window.hegeLog(`[DIAG] 在 replies 頁找到 ${postLinks.length} 篇貼文連結`);
+
+                        for (const link of postLinks) {
+                            // 從貼文連結往上爬 DOM，尋找包含「更多」SVG 的共同容器
+                            let container = link;
+                            let postMoreBtn = null;
+                            for (let lvl = 0; lvl < 8; lvl++) {
+                                container = container.parentElement;
+                                if (!container) break;
+                                const svg = container.querySelector('svg[aria-label="更多"], svg[aria-label="More"]');
+                                if (!svg) continue;
+                                const btn = svg.closest('div[role="button"]');
+                                if (!btn) continue;
+                                postMoreBtn = btn;
+                                break;
+                            }
+
+                            if (!postMoreBtn) continue;
+
+                            if (window.hegeLog) window.hegeLog(`[DIAG] 嘗試貼文「更多」按鈕: ${link.getAttribute('href')}`);
+
+                            // 點擊 Post 層的三個點
+                            postMoreBtn.scrollIntoView({ block: 'center' });
+                            await Utils.sleep(500);
+                            Utils.simClick(postMoreBtn);
+
+                            // 等選單 + 尋找封鎖按鈕 (polling up to 6s)
+                            for (let pi = 0; pi < 12; pi++) {
+                                await Utils.sleep(500);
+                                const pMenuItems = document.querySelectorAll('div[role="menuitem"], div[role="button"]');
+                                for (let item of pMenuItems) {
+                                    const t = item.innerText || item.textContent;
+                                    if (!t) continue;
+                                    if (t.includes('解除封鎖') || t.includes('Unblock')) {
+                                        setStep('已封鎖 (略過)');
+                                        return 'already_blocked';
+                                    }
+                                    if ((t.includes('封鎖') && !t.includes('解除')) || (t.includes('Block') && !t.includes('Un'))) {
+                                        blockBtn = item;
+                                        break;
+                                    }
+                                }
+                                if (blockBtn) break;
+                            }
+
+                            if (blockBtn) {
+                                if (window.hegeLog) window.hegeLog(`[DIAG] ✅ 貼文備案成功找到封鎖鈕！`);
+                                break;
+                            }
+
+                            // 這篇失敗，關閉選單繼續下一篇
+                            if (window.hegeLog) window.hegeLog(`[DIAG] 貼文備案此篇無效，嘗試下一篇...`);
+                            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+                            await Utils.sleep(500);
+                        }
+                    }
+
+                    if (!blockBtn) {
+                        // 全部失敗 — 診斷 dump + rate_limited
+                        const allMenuItems = document.querySelectorAll('div[role="menuitem"]');
+                        const menuTexts = Array.from(allMenuItems).map(el => (el.innerText || el.textContent || '').trim().substring(0, 30));
+                        const allBtns = document.querySelectorAll('div[role="button"]');
+                        const btnTexts = Array.from(allBtns).map(el => (el.innerText || el.textContent || '').trim().substring(0, 30)).filter(t => t.length > 0);
+                        const dialogCount = document.querySelectorAll('div[role="dialog"]').length;
+                        if (window.hegeLog) {
+                            window.hegeLog(`[DIAG] @${user} 找不到封鎖鈕 (含貼文備案)`);
+                            window.hegeLog(`[DIAG] menuitem(${menuTexts.length}): ${JSON.stringify(menuTexts)}`);
+                            window.hegeLog(`[DIAG] buttons(${btnTexts.length}): ${JSON.stringify(btnTexts.slice(0, 15))}`);
+                            window.hegeLog(`[DIAG] Dialogs: ${dialogCount}`);
+                        }
+                        setStep('錯誤: 找不到封鎖鈕 (可能遭限制)');
+                        return 'rate_limited';
+                    }
+                }
+            } // end if (!skipToConfirm)
 
             setStep('點擊封鎖...');
             await Utils.sleep(800);
