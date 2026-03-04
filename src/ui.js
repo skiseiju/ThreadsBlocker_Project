@@ -147,7 +147,7 @@ export const UI = {
                 </div>
                 
                 <div class="hege-menu-item" id="hege-post-fallback-item">
-                    <span>貼文備案封鎖</span>
+                    <span>進階封鎖</span>
                     <span class="status" id="hege-post-fallback-status">開</span>
                 </div>
                 
