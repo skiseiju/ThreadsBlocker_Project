@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         留友封 (Threads 封鎖工具)
 // @namespace    http://tampermonkey.net/
-// @version      2.2.1-beta2
+// @version      2.2.1-beta3
 // @description  Modular Refactor Build
 // @author       海哥
 // @match        https://www.threads.net/*
@@ -14,10 +14,10 @@
 
 (function() {
     'use strict';
-    console.log('[HegeBlock] Content Script Injected, Version: 2.2.1-beta2');
+    console.log('[HegeBlock] Content Script Injected, Version: 2.2.1-beta3');
 // --- config.js ---
 const CONFIG = {
-    VERSION: '2.2.1-beta2', // Bug Report System & Stability
+    VERSION: '2.2.1-beta3', // Bug Report System & Stability
     DEBUG_MODE: true,
     DB_KEY: 'hege_block_db_v1',
     KEYS: {
@@ -2003,34 +2003,59 @@ const Worker = {
             await Utils.sleep(2500);
 
             // 1. Wait for "More" button (Polling up to 12s)
-            //    IMPORTANT: Filter out SVGs inside div[role="navigation"] to avoid
-            //    clicking the sidebar "More" menu instead of the profile "More" button.
+            //    Strategy: Find the profile "More" button, NOT the sidebar navigation one.
+            //    Tier 1: Find "More" SVG near profile elements (追蹤/Follow button)
+            //    Tier 2: Position filter - skip far-left sidebar SVGs (x < 100px)
+            //    Tier 3: Last resort - any "More" SVG
             let profileBtn = null;
 
             for (let i = 0; i < 25; i++) {
                 const moreSvgs = document.querySelectorAll('svg[aria-label="更多"], svg[aria-label="More"]');
-                const candidateSvgs = Array.from(moreSvgs).filter(svg => !svg.closest('div[role="navigation"]'));
 
-                // Strict match: circle + paths >= 3
-                for (let svg of candidateSvgs) {
-                    if (svg.querySelector('circle') && svg.querySelectorAll('path').length >= 3) {
+                // Tier 1: Find "More" SVG that shares a container with profile elements
+                if (!profileBtn) {
+                    for (let svg of moreSvgs) {
+                        let parent = svg.closest('div[role="button"]');
+                        if (!parent) continue;
+                        // Walk up to find a container also holding "追蹤"/"Follow"/"粉絲"/"followers"
+                        let container = parent.parentElement;
+                        for (let d = 0; d < 6 && container; d++) {
+                            const text = container.textContent || '';
+                            if ((text.includes('追蹤') || text.includes('Follow')) &&
+                                (text.includes('粉絲') || text.includes('follower'))) {
+                                profileBtn = parent;
+                                break;
+                            }
+                            container = container.parentElement;
+                        }
+                        if (profileBtn) break;
+                    }
+                }
+
+                // Tier 2: Position-based - skip SVGs in far-left sidebar
+                if (!profileBtn) {
+                    for (let svg of moreSvgs) {
+                        const rect = svg.getBoundingClientRect();
+                        if (rect.width === 0) continue; // Hidden
+                        if (rect.x < 100) continue;     // Sidebar area
                         profileBtn = svg.closest('div[role="button"]');
                         if (profileBtn) break;
                     }
                 }
 
-                // Fallback: first candidate outside navigation
-                if (!profileBtn && candidateSvgs.length > 0) {
-                    profileBtn = candidateSvgs[0].closest('div[role="button"]');
-                }
-
-                // Last resort: any SVG (including nav) — better than nothing
+                // Tier 3: Last resort
                 if (!profileBtn && moreSvgs.length > 0) {
                     profileBtn = moreSvgs[0].closest('div[role="button"]');
                 }
 
                 if (profileBtn) break;
                 await Utils.sleep(500);
+            }
+
+            // Log which tier was used
+            if (profileBtn && window.hegeLog) {
+                const rect = profileBtn.getBoundingClientRect();
+                window.hegeLog(`[DIAG] 更多按鈕 x=${Math.round(rect.x)} y=${Math.round(rect.y)}`);
             }
 
             if (!profileBtn) {
