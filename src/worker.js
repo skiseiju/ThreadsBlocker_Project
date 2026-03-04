@@ -664,10 +664,23 @@ export const Worker = {
             await Utils.sleep(500);
             Utils.simClick(profileBtn);
 
-            // 2. Wait for Menu (Polling up to 8s)
+            // 2. Wait for Menu (Polling up to 8s, retry click if menu doesn't open)
             let blockBtn = null;
+            let clickRetried = false;
             for (let i = 0; i < 16; i++) {
                 await Utils.sleep(500);
+
+                // After 3s (6 iterations) with no menuitem, retry the click
+                if (i === 6 && !clickRetried) {
+                    const testMenu = document.querySelectorAll('div[role="menuitem"]');
+                    if (testMenu.length === 0) {
+                        clickRetried = true;
+                        if (window.hegeLog) window.hegeLog(`[DIAG] 選單未開啟，重試 simClick...`);
+                        Utils.simClick(profileBtn);
+                        await Utils.sleep(500);
+                    }
+                }
+
                 const menuItems = document.querySelectorAll('div[role="menuitem"], div[role="button"]');
                 for (let item of menuItems) {
                     const t = item.innerText || item.textContent;
