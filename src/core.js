@@ -538,6 +538,11 @@ export const Core = {
                 mainText = `背景執行中 剩餘 ${bgStatus.total}`;
                 headerColor = '#4cd964';
                 badgeText = `(${bgStatus.total}剩餘)`; // Show progress in header badge explicitly
+            } else if (bgq.size > 0) {
+                // Worker stopped/idle but queue has remaining items from a previous run
+                mainText = `繼續封鎖 (${bgq.size} 筆待處理)`;
+                headerColor = '#ff9500';
+                badgeText = `(${bgq.size}待處理)`;
             }
         }
 

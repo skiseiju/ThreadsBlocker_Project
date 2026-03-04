@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.2.1-beta1', // Bug Report System & Stability
+    VERSION: '2.2.1-beta2', // Bug Report System & Stability
     DEBUG_MODE: true,
     DB_KEY: 'hege_block_db_v1',
     KEYS: {
