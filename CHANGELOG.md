@@ -4,6 +4,11 @@
 
 ## v2.1.1 — 冷卻機制精修與佇列保護
 
+*   **Reload 驗證機制**：封鎖後驗證改為重新載入頁面再檢查，解決 React 狀態未同步導致的大量誤判，避免不必要的冷卻觸發。
+*   **佇列完整保護**：冷卻觸發時，`BG_QUEUE` 剩餘用戶與 `FAILED_QUEUE` 全數保存至 `COOLDOWN_QUEUE`，冷卻結束後無損恢復，不再遺漏任何待處理名單。
+*   **失敗重試修復**：修正 Controller 頁面未監聽 `FAILED_QUEUE` 變更，導致重試按鈕始終隱藏的問題。
+*   **Safari / Desktop 相容性**：修正 Safari 勾選框點擊無反應、面板錨點判斷錯誤、強制取消冷卻等多項問題。
+
 ### beta7
 *   **修正失敗重試按鈕不顯示**：`main.js` 的 `storage` 事件監聽與 polling 備份缺少 `FAILED_QUEUE`，導致 Controller 頁面無法偵測到失敗清單更新，重試按鈕始終隱藏。
 

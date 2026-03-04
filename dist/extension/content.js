@@ -1,9 +1,9 @@
 (function() {
     'use strict';
-    console.log('[HegeBlock] Content Script Injected, Version: 2.1.1-beta7');
+    console.log('[HegeBlock] Content Script Injected, Version: 2.1.1');
 // --- config.js ---
 const CONFIG = {
-    VERSION: '2.1.1-beta7', // Official Release: Worker UI 2.0 & Cooldown Protection
+    VERSION: '2.1.1', // Official Release: Worker UI 2.0 & Cooldown Protection
     DEBUG_MODE: true,
     DB_KEY: 'hege_block_db_v1',
     KEYS: {
