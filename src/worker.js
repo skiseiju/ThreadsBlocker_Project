@@ -508,15 +508,18 @@ export const Worker = {
         Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, timestamps);
         Storage.setJSON(CONFIG.KEYS.DB_KEY, [...db]);
 
-        // 3. Backup full rollback queue to COOLDOWN_QUEUE
+        // 3. Backup rollback list + remaining unprocessed BG_QUEUE + FAILED_QUEUE to COOLDOWN_QUEUE
+        const remainingQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+        const failedQueue = Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []);
         const fullRollbackList = [...Worker.sessionQueue, ...rollbackUsers];
-        Storage.setJSON(CONFIG.KEYS.COOLDOWN_QUEUE, fullRollbackList);
+        const fullCooldownQueue = [...new Set([...fullRollbackList, ...remainingQueue, ...failedQueue])];
+        Storage.setJSON(CONFIG.KEYS.COOLDOWN_QUEUE, fullCooldownQueue);
 
         // 4. Set cooldown timestamp (12 hours)
         const cooldownUntil = Date.now() + (12 * 60 * 60 * 1000);
         Storage.set(CONFIG.KEYS.COOLDOWN, cooldownUntil.toString());
 
-        // 5. Clear operational queues
+        // 5. Clear operational queues (all data now safely in COOLDOWN_QUEUE)
         Storage.setJSON(CONFIG.KEYS.BG_QUEUE, []);
         Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, []);
         Worker.clearStats();
