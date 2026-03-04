@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         留友封 (Threads 封鎖工具)
 // @namespace    http://tampermonkey.net/
-// @version      2.2.0
+// @version      2.2.1-beta1
 // @description  Modular Refactor Build
 // @author       海哥
 // @match        https://www.threads.net/*
@@ -14,10 +14,10 @@
 
 (function() {
     'use strict';
-    console.log('[HegeBlock] Content Script Injected, Version: 2.2.0');
+    console.log('[HegeBlock] Content Script Injected, Version: 2.2.1-beta1');
 // --- config.js ---
 const CONFIG = {
-    VERSION: '2.2.0', // Bug Report System & Stability
+    VERSION: '2.2.1-beta1', // Bug Report System & Stability
     DEBUG_MODE: true,
     DB_KEY: 'hege_block_db_v1',
     KEYS: {
@@ -1998,18 +1998,28 @@ const Worker = {
             await Utils.sleep(2500);
 
             // 1. Wait for "More" button (Polling up to 12s)
+            //    IMPORTANT: Filter out SVGs inside div[role="navigation"] to avoid
+            //    clicking the sidebar "More" menu instead of the profile "More" button.
             let profileBtn = null;
 
             for (let i = 0; i < 25; i++) {
                 const moreSvgs = document.querySelectorAll('svg[aria-label="更多"], svg[aria-label="More"]');
-                for (let svg of moreSvgs) {
+                const candidateSvgs = Array.from(moreSvgs).filter(svg => !svg.closest('div[role="navigation"]'));
+
+                // Strict match: circle + paths >= 3
+                for (let svg of candidateSvgs) {
                     if (svg.querySelector('circle') && svg.querySelectorAll('path').length >= 3) {
                         profileBtn = svg.closest('div[role="button"]');
                         if (profileBtn) break;
                     }
                 }
 
-                // Fallback
+                // Fallback: first candidate outside navigation
+                if (!profileBtn && candidateSvgs.length > 0) {
+                    profileBtn = candidateSvgs[0].closest('div[role="button"]');
+                }
+
+                // Last resort: any SVG (including nav) — better than nothing
                 if (!profileBtn && moreSvgs.length > 0) {
                     profileBtn = moreSvgs[0].closest('div[role="button"]');
                 }
