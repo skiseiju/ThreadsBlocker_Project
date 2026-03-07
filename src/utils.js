@@ -14,14 +14,26 @@ export const Utils = {
                 if (a.textContent.trim() === '' || a.querySelector('svg')) {
                     const href = a.getAttribute('href');
                     if (href) {
-                        const u = href.split('/@')[1].split('/')[0];
-                        if (u) {
-                            Utils._myUsername = u;
-                            return u;
-                        }
+                        try {
+                            const u = href.split('/@')[1].split('/')[0];
+                            if (u) {
+                                Utils._myUsername = u;
+                                return u;
+                            }
+                        } catch (e) { }
                     }
                 }
             }
+        }
+        return null;
+    },
+
+    getPostOwner: () => {
+        const path = window.location.pathname;
+        // Format: /@username/post/postId
+        if (path.includes('/post/')) {
+            const match = path.match(/^\/@([^/]+)\/post\//);
+            if (match && match[1]) return match[1];
         }
         return null;
     },

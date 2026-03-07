@@ -50,14 +50,26 @@ const Utils = {
                 if (a.textContent.trim() === '' || a.querySelector('svg')) {
                     const href = a.getAttribute('href');
                     if (href) {
-                        const u = href.split('/@')[1].split('/')[0];
-                        if (u) {
-                            Utils._myUsername = u;
-                            return u;
-                        }
+                        try {
+                            const u = href.split('/@')[1].split('/')[0];
+                            if (u) {
+                                Utils._myUsername = u;
+                                return u;
+                            }
+                        } catch (e) { }
                     }
                 }
             }
+        }
+        return null;
+    },
+
+    getPostOwner: () => {
+        const path = window.location.pathname;
+        // Format: /@username/post/postId
+        if (path.includes('/post/')) {
+            const match = path.match(/^\/@([^/]+)\/post\//);
+            if (match && match[1]) return match[1];
         }
         return null;
     },
@@ -752,7 +764,21 @@ const Core = {
                 return href.split('/@')[1].split('/')[0];
             });
 
-            rawUsers = [...new Set(rawUsers)];
+            const myUser = Utils.getMyUsername();
+            const postOwner = Utils.getPostOwner();
+            const skipUsers = new Set();
+            if (myUser) skipUsers.add(myUser);
+            if (postOwner) skipUsers.add(postOwner);
+
+            // Beta 55: Scan for "Replying to @username" (正在回覆 @username)
+            // This is crucial for comment activity views.
+            const allText = ctx.innerText || ctx.textContent || "";
+            const replyMatch = allText.match(/(?:正在回覆|Replying to)\s*@([a-zA-Z0-9._]+)/i);
+            if (replyMatch && replyMatch[1]) {
+                skipUsers.add(replyMatch[1]);
+            }
+
+            rawUsers = [...new Set(rawUsers)].filter(u => !skipUsers.has(u));
 
             const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
             const activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
