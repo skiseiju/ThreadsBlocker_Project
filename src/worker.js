@@ -3,7 +3,7 @@ import { Utils } from './utils.js';
 import { Storage } from './storage.js';
 
 export const Worker = {
-    stats: { success: 0, skipped: 0, failed: 0, startTime: 0 },
+    stats: { success: 0, skipped: 0, failed: 0, vanished: 0, startTime: 0 },
     initialTotal: 0,
     sessionQueue: [],          // 本次 session 完整名單快照
     verifyLevel: 0,            // 0=每5次, 1=每3次, 2=每次
@@ -32,7 +32,7 @@ export const Worker = {
             Worker.verifyCount = saved.verifyCount || 0;
             Worker.consecutiveFails = saved.consecutiveFails || 0;
         } else {
-            Worker.stats = { success: 0, skipped: 0, failed: 0, startTime: Date.now() };
+            Worker.stats = { success: 0, skipped: 0, failed: 0, vanished: 0, startTime: Date.now() };
             Worker.initialTotal = 0;
             Worker.sessionQueue = [];
             Worker.verifyLevel = 0;
@@ -45,56 +45,62 @@ export const Worker = {
         Storage.remove('hege_worker_stats');
     },
 
-    init: () => {
+    init: async () => {
         Worker.loadStats();
-        document.title = "🛡️ 留友封-背景執行中";
-        // Enforce maximum safe desktop window size if the browser opens it too large
+        // Pre-initialize UI to capture early logs
+        Worker.createStatusUI();
+
+        const queue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+        const first = queue[0] || '';
+        const isUnblock = first.startsWith(CONFIG.UNBLOCK_PREFIX);
+
+        document.title = `🛡️ 留友封-${isUnblock ? '解除封鎖' : '背景執行'}中`;
+
+        // Enforce maximum safe desktop window size
         try {
             if (window.outerWidth > 800 || window.outerHeight > 600) {
                 window.resizeTo(800, 600);
             }
         } catch (e) { }
 
-        const cover = document.createElement('div');
         const channel = new BroadcastChannel('hege_debug_channel');
         window.hegeLog = (msg) => {
             if (CONFIG.DEBUG_MODE) {
                 console.log(`[BG-LOG] ${msg}`);
                 channel.postMessage({ type: 'log', msg: `[BG] ${msg}` });
-
-                // Append to UI Log
-                const logEl = document.getElementById('hege-worker-log');
-                if (logEl) {
-                    const line = document.createElement('div');
-                    line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-                    line.style.borderBottom = '1px solid #333';
-                    logEl.prepend(line); // Newest on top
-                }
             }
-            // Persist to localStorage buffer (always, regardless of DEBUG_MODE)
+
+            // Always Append to UI Log in the worker window regardless of DEBUG_MODE
+            const logEl = document.getElementById('hege-worker-log');
+            if (logEl) {
+                const line = document.createElement('div');
+                line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+                line.style.borderBottom = '1px solid #333';
+                logEl.prepend(line); // Newest on top
+            }
+            // Persist to localStorage buffer
             try {
                 const logs = JSON.parse(localStorage.getItem(CONFIG.KEYS.DEBUG_LOG) || '[]');
                 logs.push(`[${new Date().toLocaleTimeString()}] ${msg}`);
-                // Keep last 100 entries
                 if (logs.length > 100) logs.splice(0, logs.length - 100);
                 localStorage.setItem(CONFIG.KEYS.DEBUG_LOG, JSON.stringify(logs));
             } catch (e) { }
         };
+
         window.hegeLog('[BG-INIT] Worker Started');
 
-        // Cooldown check: if rate-limited, show message and don't start
+        // Cooldown check
         const cooldownUntil = parseInt(Storage.get(CONFIG.KEYS.COOLDOWN) || '0');
         if (cooldownUntil > Date.now()) {
             const remainMs = cooldownUntil - Date.now();
             const remainHrs = Math.ceil(remainMs / (1000 * 60 * 60));
-            Worker.createStatusUI();
             Worker.updateStatus('error', `⛔ 封鎖功能被限制，約 ${remainHrs} 小時後自動恢復`);
             const stopBtn = document.getElementById('hege-worker-stop');
             if (stopBtn) stopBtn.style.display = 'none';
             return;
         }
 
-        // Cooldown expired + queue waiting: restore from backup
+        // Restore from cooldown queue if needed
         const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
         if (cooldownQueue.length > 0) {
             const currentQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
@@ -102,8 +108,8 @@ export const Worker = {
             Storage.setJSON(CONFIG.KEYS.BG_QUEUE, merged);
             Storage.remove(CONFIG.KEYS.COOLDOWN_QUEUE);
             Storage.remove(CONFIG.KEYS.COOLDOWN);
-            // Reset stats for fresh session
-            Worker.stats = { success: 0, skipped: 0, failed: 0, startTime: Date.now() };
+
+            Worker.stats = { success: 0, skipped: 0, failed: 0, vanished: 0, startTime: Date.now() };
             Worker.initialTotal = 0;
             Worker.sessionQueue = [];
             Worker.verifyLevel = 0;
@@ -113,17 +119,22 @@ export const Worker = {
             window.hegeLog(`[BG-INIT] Cooldown expired, restored ${cooldownQueue.length} users from backup`);
         }
 
-        Worker.createStatusUI();
         setTimeout(Worker.runStep, 1000);
     },
 
     createStatusUI: () => {
         const cover = document.createElement('div');
+        cover.id = 'hege-worker-cover';
         cover.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:linear-gradient(135deg,#0a0a0a 0%,#1a1a2e 100%);color:#e0e0e0;z-index:999999;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;font-family:system-ui,-apple-system,sans-serif;font-size:14px;padding:24px 20px;box-sizing:border-box;overflow:hidden;';
+
+        const queue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+        const first = queue[0] || '';
+        const isVerifying = !!Storage.get(CONFIG.KEYS.VERIFY_PENDING);
+        const isUnblock = first.startsWith(CONFIG.UNBLOCK_PREFIX) || (isVerifying && (Storage.get(CONFIG.KEYS.VERIFY_PENDING) || '').startsWith(CONFIG.UNBLOCK_PREFIX));
 
         Utils.setHTML(cover, `
             <div style="width:100%;max-width:420px;display:flex;flex-direction:column;align-items:center;flex:1;overflow:hidden;">
-                <div style="font-size:22px;font-weight:700;margin-bottom:4px;letter-spacing:0.5px;">🛡️ 封鎖進行中</div>
+                <div id="hege-worker-title" style="font-size:22px;font-weight:700;margin-bottom:4px;letter-spacing:0.5px;">🛡️ ${isUnblock ? '解除封鎖進行中' : '封鎖進行中'}</div>
                 <div style="font-size:12px;color:#666;margin-bottom:24px;">請勿離開此頁面，完成後會自動返回</div>
 
                 <!-- Progress Bar -->
@@ -148,6 +159,10 @@ export const Worker = {
                         <div id="hege-stat-failed" style="font-size:24px;font-weight:700;color:#ff453a;">0</div>
                         <div style="font-size:11px;color:#6a6a6a;margin-top:2px;">❌ 失敗</div>
                     </div>
+                    <div style="text-align:center;flex:1;background:#1a1a1a;border-radius:10px;padding:10px 0;">
+                        <div id="hege-stat-vanished" style="font-size:24px;font-weight:700;color:#888;">0</div>
+                        <div style="font-size:11px;color:#6a6a6a;margin-top:2px;">🫥 已消失</div>
+                    </div>
                 </div>
 
                 <!-- ETA -->
@@ -157,7 +172,7 @@ export const Worker = {
                 <div id="bg-status" style="font-size:15px;font-weight:600;color:#4cd964;margin-bottom:20px;">等待指令...</div>
 
                 <!-- Stop Button -->
-                <div id="hege-worker-stop" style="background:#ff453a;color:#fff;font-size:16px;font-weight:700;padding:14px 48px;border-radius:14px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;box-shadow:0 4px 12px rgba(255,69,58,0.3);transition:transform 0.15s,opacity 0.15s;margin-bottom:20px;">🛑 停止封鎖</div>
+                <div id="hege-worker-stop" style="background:#ff453a;color:#fff;font-size:16px;font-weight:700;padding:14px 48px;border-radius:14px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;box-shadow:0 4px 12px rgba(255,69,58,0.3);transition:transform 0.15s,opacity 0.15s;margin-bottom:20px;">🛑 停止${isUnblock ? '解除封鎖' : '封鎖'}</div>
 
                 <!-- Debug Log -->
                 <div id="hege-worker-log" style="width:100%;flex:1;overflow-y:auto;border:1px solid #222;border-radius:8px;padding:10px;text-align:left;font-family:monospace;font-size:11px;color:#555;background:#0a0a0a;"></div>
@@ -191,10 +206,10 @@ export const Worker = {
 
         // Status text
         const el = document.getElementById('bg-status');
-        if (el) el.textContent = state === 'running' ? `目前：@${current.replace(/^(前往|封鎖中|略過)[：:] ?/, '')}` : current;
+        if (el) el.textContent = state === 'running' ? `目前：@${current.replace(/^(前往|封鎖中|略過|解除封鎖中|解鎖前往)[：:] ?/, '')}` : current;
 
         // Title
-        const processed = Worker.stats.success + Worker.stats.skipped + Worker.stats.failed;
+        const processed = Worker.stats.success + Worker.stats.skipped + Worker.stats.failed + Worker.stats.vanished;
         const initTotal = Worker.initialTotal || total;
         document.title = state === 'running' ? `🛡️ ${processed}/${initTotal}` : '🛡️ 留友封';
 
@@ -203,17 +218,49 @@ export const Worker = {
         const bar = document.getElementById('hege-progress-bar');
         const pctEl = document.getElementById('hege-progress-pct');
         const progressText = document.getElementById('hege-progress-text');
-        if (bar) bar.style.width = `${pct}%`;
+        const workerTitle = document.getElementById('hege-worker-title');
+        const workerCover = document.getElementById('hege-worker-cover');
+
+        const isVerifying = !!Storage.get(CONFIG.KEYS.VERIFY_PENDING);
+
+        if (bar) {
+            bar.style.width = `${pct}%`;
+            bar.style.background = isVerifying
+                ? 'linear-gradient(90deg,#007aff,#5ac8fa)' // Blue for verify
+                : 'linear-gradient(90deg,#4cd964,#30d158)'; // Green for work
+        }
+
+        if (workerCover) {
+            workerCover.style.background = isVerifying
+                ? 'linear-gradient(135deg,#0a0a0a 0%,#1a2a4a 100%)' // Deep Blue for verify
+                : 'linear-gradient(135deg,#0a0a0a 0%,#1a1a2e 100%)'; // Regular Navy
+        }
+
+        if (workerTitle) {
+            const queue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+            const isUnblock = (queue[0] || '').startsWith(CONFIG.UNBLOCK_PREFIX) || (isVerifying && Storage.get(CONFIG.KEYS.VERIFY_PENDING).startsWith(CONFIG.UNBLOCK_PREFIX));
+
+            if (isVerifying) {
+                workerTitle.textContent = '🔍 驗證正在進行中...';
+                workerTitle.style.color = '#5ac8fa';
+            } else {
+                workerTitle.textContent = `🛡️ ${isUnblock ? '解除封鎖進行中' : '封鎖進行中'}`;
+                workerTitle.style.color = '#fff';
+            }
+        }
+
         if (pctEl) pctEl.textContent = `${pct}%`;
-        if (progressText) progressText.textContent = `${processed} / ${initTotal} 已處理`;
+        if (progressText) progressText.textContent = isVerifying ? `正在確認結果... (@${current})` : `${processed} / ${initTotal} 已處理`;
 
         // Stats counters
         const sEl = document.getElementById('hege-stat-success');
         const skEl = document.getElementById('hege-stat-skipped');
         const fEl = document.getElementById('hege-stat-failed');
+        const vEl = document.getElementById('hege-stat-vanished');
         if (sEl) sEl.textContent = Worker.stats.success;
         if (skEl) skEl.textContent = Worker.stats.skipped;
         if (fEl) fEl.textContent = Worker.stats.failed;
+        if (vEl) vEl.textContent = Worker.stats.vanished;
 
         // ETA calculation
         const etaEl = document.getElementById('hege-eta');
@@ -263,16 +310,22 @@ export const Worker = {
         // Handle pending verification (after page reload)
         const verifyPending = Storage.get(CONFIG.KEYS.VERIFY_PENDING);
         if (verifyPending) {
+            const isUnblockVerify = verifyPending.startsWith(CONFIG.UNBLOCK_PREFIX);
+            const targetUser = isUnblockVerify ? verifyPending.replace(CONFIG.UNBLOCK_PREFIX, '') : verifyPending;
+
+            // Trigger UI update to Verification Mode
+            Worker.updateStatus('running', targetUser);
+
             Storage.remove(CONFIG.KEYS.VERIFY_PENDING);
-            const onVerifyPage = location.pathname.includes(`/@${verifyPending}`);
+            const onVerifyPage = location.pathname.includes(`/@${targetUser}`);
             if (onVerifyPage) {
-                window.hegeLog(`[驗證] 頁面已刷新，驗證 @${verifyPending}`);
-                const verified = await Worker.verifyBlock(verifyPending);
+                window.hegeLog(`[驗證] 頁面已刷新，驗證 @${targetUser}`);
+                const verified = await Worker.verifyBlock(targetUser, isUnblockVerify);
                 let queue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
                 const currentTotal = queue.length;
 
                 if (!verified) {
-                    window.hegeLog(`[驗證] @${verifyPending} 驗證失敗 (靜默失敗)`);
+                    window.hegeLog(`[驗證] @${targetUser} 驗證失敗 (靜默失敗)`);
                     if (Worker.verifyLevel < 2) {
                         Worker.verifyLevel++;
                         Worker.consecutiveFails = 0;
@@ -292,9 +345,9 @@ export const Worker = {
                         Storage.setJSON(CONFIG.KEYS.BG_QUEUE, queue);
                     }
                     let fq = new Set(Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []));
-                    fq.add(verifyPending);
+                    fq.add(targetUser);
                     Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, [...fq]);
-                    Worker.updateStatus('running', verifyPending, 0, currentTotal);
+                    Worker.updateStatus('running', targetUser, 0, currentTotal);
                     Worker.runStep();
                     return;
                 }
@@ -307,18 +360,26 @@ export const Worker = {
                     queue.shift();
                     Storage.setJSON(CONFIG.KEYS.BG_QUEUE, queue);
                 }
+
                 let db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
-                db.add(verifyPending);
-                Storage.setJSON(CONFIG.KEYS.DB_KEY, [...db]);
                 let ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
-                ts[verifyPending] = Date.now();
+
+                if (isUnblockVerify) {
+                    db.delete(targetUser);
+                    delete ts[targetUser];
+                } else {
+                    db.add(targetUser);
+                    ts[targetUser] = Date.now();
+                }
+
+                Storage.setJSON(CONFIG.KEYS.DB_KEY, [...db]);
                 Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, ts);
-                Worker.updateStatus('running', verifyPending, 0, currentTotal);
+                Worker.updateStatus('running', targetUser, 0, currentTotal);
                 Worker.runStep();
                 return;
             } else {
                 // Not on the right page, skip verification and treat as success
-                window.hegeLog(`[驗證] 頁面不符，跳過驗證 @${verifyPending}`);
+                window.hegeLog(`[驗證] 頁面不符，跳過驗證 @${targetUser}`);
                 let queue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
                 Worker.stats.success++;
                 Worker.saveStats();
@@ -327,10 +388,17 @@ export const Worker = {
                     Storage.setJSON(CONFIG.KEYS.BG_QUEUE, queue);
                 }
                 let db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
-                db.add(verifyPending);
-                Storage.setJSON(CONFIG.KEYS.DB_KEY, [...db]);
                 let ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
-                ts[verifyPending] = Date.now();
+
+                if (isUnblockVerify) {
+                    db.delete(targetUser);
+                    delete ts[targetUser];
+                } else {
+                    db.add(targetUser);
+                    ts[targetUser] = Date.now();
+                }
+
+                Storage.setJSON(CONFIG.KEYS.DB_KEY, [...db]);
                 Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, ts);
             }
         }
@@ -364,11 +432,13 @@ export const Worker = {
             }
         }
 
-        const targetUser = queue[0];
+        const rawTarget = queue[0];
+        const isUnblock = rawTarget.startsWith(CONFIG.UNBLOCK_PREFIX);
+        const targetUser = isUnblock ? rawTarget.replace(CONFIG.UNBLOCK_PREFIX, '') : rawTarget;
         const currentTotal = queue.length;
 
         let db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
-        if (db.has(targetUser)) {
+        if (!isUnblock && db.has(targetUser)) {
             Worker.stats.skipped++;
             Worker.saveStats();
             Worker.updateStatus('running', `略過: ${targetUser}`, 0, currentTotal);
@@ -380,48 +450,51 @@ export const Worker = {
 
         const onTargetPage = location.pathname.includes(`/@${targetUser}`);
         if (!onTargetPage) {
-            Worker.updateStatus('running', `前往: ${targetUser}`, 0, currentTotal);
+            Worker.updateStatus('running', `${isUnblock ? '解鎖前往' : '前往'}: ${targetUser}`, 0, currentTotal);
             await Utils.sleep(500 + Math.random() * 500);
-            // POST_FALLBACK 開 → 直接到 /replies（同頁有 Profile More + 貼文 More）
-            // POST_FALLBACK 關 → 到原本 /@user（僅 Profile More）
             const useReplies = Storage.get(CONFIG.KEYS.POST_FALLBACK) !== 'false';
             const navPath = useReplies ? `/@${targetUser}/replies` : `/@${targetUser}`;
             history.replaceState(null, '', `${navPath}?hege_bg=true`);
             location.reload();
         } else {
-            Worker.updateStatus('running', `封鎖中: ${targetUser}`, 0, currentTotal);
-            const result = await Worker.autoBlock(targetUser);
+            Worker.updateStatus('running', `${isUnblock ? '解除封鎖中' : '封鎖中'}: ${targetUser}`, 0, currentTotal);
+            const result = await Worker.autoBlock(targetUser, isUnblock);
 
-            if (result === 'success' || result === 'already_blocked') {
-                // Post-block verification via adaptive sampling
+            if (result === 'success' || result === 'already_blocked' || result === 'already_unblocked') {
+                // Post-block/unblock verification via adaptive sampling
                 Worker.verifyCount++;
                 if (result === 'success' && Worker.shouldVerify()) {
-                    // Save pending verification and reload page for fresh React state
+                    // Save pending verification and reload page
                     window.hegeLog(`[驗證] Level ${Worker.verifyLevel} 排定驗證 @${targetUser}，重新載入頁面...`);
-                    Storage.set(CONFIG.KEYS.VERIFY_PENDING, targetUser);
+                    Storage.set(CONFIG.KEYS.VERIFY_PENDING, rawTarget);
                     Worker.saveStats();
                     await Utils.sleep(1000);
                     location.reload();
                     return;
                 }
 
-                // No verification needed — count as success directly
+                // No verification needed
                 Worker.stats.success++;
-                Worker.consecutiveRateLimits = 0; // Reset rate-limit counter on success
+                Worker.consecutiveRateLimits = 0;
                 Worker.saveStats();
                 let q = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
-                if (q.length > 0 && q[0] === targetUser) {
+                if (q.length > 0 && q[0] === rawTarget) {
                     q.shift();
                     Storage.setJSON(CONFIG.KEYS.BG_QUEUE, q);
                 }
 
                 db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
-                db.add(targetUser);
-                Storage.setJSON(CONFIG.KEYS.DB_KEY, [...db]); // Fix Sync
-
-                // Record timestamp for rollback support
                 let ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
-                ts[targetUser] = Date.now();
+
+                if (isUnblock) {
+                    db.delete(targetUser);
+                    delete ts[targetUser];
+                } else {
+                    db.add(targetUser);
+                    ts[targetUser] = Date.now();
+                }
+
+                Storage.setJSON(CONFIG.KEYS.DB_KEY, [...db]);
                 Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, ts);
 
                 Worker.updateStatus('running', targetUser, 0, currentTotal);
@@ -431,7 +504,7 @@ export const Worker = {
                 Worker.saveStats();
                 // Remove from active queue
                 let q = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
-                if (q.length > 0 && q[0] === targetUser) {
+                if (q.length > 0 && q[0] === rawTarget) {
                     q.shift();
                     Storage.setJSON(CONFIG.KEYS.BG_QUEUE, q);
                 }
@@ -440,6 +513,29 @@ export const Worker = {
                 let fq = new Set(Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []));
                 fq.add(targetUser);
                 Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, [...fq]);
+
+                Worker.updateStatus('running', targetUser, 0, currentTotal);
+                Worker.runStep();
+            } else if (result === 'vanished') {
+                Worker.stats.vanished++;
+                Worker.saveStats();
+                // Remove from active queue
+                let q = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+                if (q.length > 0 && q[0] === rawTarget) {
+                    q.shift();
+                    Storage.setJSON(CONFIG.KEYS.BG_QUEUE, q);
+                }
+
+                // Remove from database since user is gone
+                let db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+                let ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
+                if (db.has(targetUser)) {
+                    db.delete(targetUser);
+                    delete ts[targetUser];
+                    Storage.setJSON(CONFIG.KEYS.DB_KEY, [...db]);
+                    Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, ts);
+                    window.hegeLog(`[清理] @${targetUser} 已從資料庫移除 (404/失效)`);
+                }
 
                 Worker.updateStatus('running', targetUser, 0, currentTotal);
                 Worker.runStep();
@@ -459,7 +555,7 @@ export const Worker = {
                     Worker.saveStats();
 
                     let q = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
-                    if (q.length > 0 && q[0] === targetUser) {
+                    if (q.length > 0 && q[0] === rawTarget) {
                         q.shift();
                         Storage.setJSON(CONFIG.KEYS.BG_QUEUE, q);
                     }
@@ -486,7 +582,7 @@ export const Worker = {
         return true; // Level 2: always verify
     },
 
-    verifyBlock: async (user) => {
+    verifyBlock: async (user, isUnblockTask = false) => {
         // Page has been reloaded — check if "Unblock" appears in menu (= block succeeded)
         try {
             // Wait for page to fully render after reload
@@ -600,11 +696,14 @@ export const Worker = {
                 }
             }
 
-            if (blockStatus === 'blocked') {
-                window.hegeLog(`[驗證] @${user} 確認已封鎖 ✅`);
+            // Determine expected status
+            const expected = isUnblockTask ? 'unblocked' : 'blocked';
+
+            if (blockStatus === expected) {
+                window.hegeLog(`[驗證] @${user} 確認已${isUnblockTask ? '解除' : ''}封鎖 ✅`);
                 return true;
-            } else if (blockStatus === 'unblocked') {
-                window.hegeLog(`[驗證] @${user} 未封鎖（靜默失敗）❌`);
+            } else if (blockStatus && blockStatus !== expected) {
+                window.hegeLog(`[驗證] @${user} 狀態與預期不符 (${blockStatus}) ❌`);
                 return false;
             }
 
@@ -614,7 +713,7 @@ export const Worker = {
         } catch (e) {
             console.error('[驗證] Error:', e);
             window.hegeLog('[驗證] 發生錯誤，視為失敗 ❌');
-            return false; // Error during verify, treat as failure
+            return false;
         }
     },
 
@@ -676,7 +775,7 @@ export const Worker = {
         Worker.navigateBack();
     },
 
-    autoBlock: async (user) => {
+    autoBlock: async (user, isUnblock = false) => {
         // Updated with Robust Polling and STRICT SVG Check
         function setStep(msg) {
             const s = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
@@ -700,9 +799,23 @@ export const Worker = {
             return false;
         }
 
+        function checkFor404() {
+            // Use stricter phrases to avoid false positives on private/restricted but existing accounts
+            const invalidPhrases = ['連結失效', '頁面不存在', 'Page not found', 'Broken link', 'Sorry, this page', '找不到頁面'];
+            const bodyText = document.body.innerText || '';
+            const isInvalid = invalidPhrases.some(p => bodyText.includes(p));
+            if (isInvalid && window.hegeLog) window.hegeLog(`[DIAG] @${user} 偵測到無效頁面 (404/失效)`);
+            return isInvalid;
+        }
+
         try {
             setStep('載入中...');
             await Utils.sleep(2500);
+
+            if (checkFor404()) {
+                setStep('跳過: 連結失效 (404)');
+                return 'vanished';
+            }
 
             let blockBtn = null;
             let skipToConfirm = false;
@@ -791,14 +904,24 @@ export const Worker = {
                         const t = item.innerText || item.textContent;
                         if (!t) continue;
 
-                        if (t.includes('解除封鎖') || t.includes('Unblock')) {
-                            setStep('已封鎖 (略過)');
-                            return 'already_blocked';
-                        }
-
-                        if ((t.includes('封鎖') && !t.includes('解除')) || (t.includes('Block') && !t.includes('Un'))) {
-                            blockBtn = item;
-                            break;
+                        if (isUnblock) {
+                            if (t.includes('封鎖') && !t.includes('解除')) {
+                                setStep('已解鎖 (略過)');
+                                return 'already_unblocked';
+                            }
+                            if (t.includes('解除封鎖') || t.includes('Unblock')) {
+                                blockBtn = item;
+                                break;
+                            }
+                        } else {
+                            if (t.includes('解除封鎖') || t.includes('Unblock')) {
+                                setStep('已封鎖 (略過)');
+                                return 'already_blocked';
+                            }
+                            if ((t.includes('封鎖') && !t.includes('解除')) || (t.includes('Block') && !t.includes('Un'))) {
+                                blockBtn = item;
+                                break;
+                            }
                         }
                     }
                     if (blockBtn) break;
@@ -809,8 +932,13 @@ export const Worker = {
                     for (let item of menuItems) {
                         const t = item.innerText || item.textContent;
                         if (t && (t.includes('解除封鎖') || t.includes('Unblock'))) {
-                            setStep('已封鎖 (略過)');
-                            return 'already_blocked';
+                            if (isUnblock) {
+                                blockBtn = item;
+                                break;
+                            } else {
+                                setStep('已封鎖 (略過)');
+                                return 'already_blocked';
+                            }
                         }
                     }
 
@@ -859,8 +987,13 @@ export const Worker = {
                                     const t = item.innerText || item.textContent;
                                     if (!t) continue;
                                     if (t.includes('解除封鎖') || t.includes('Unblock')) {
-                                        setStep('已封鎖 (略過)');
-                                        return 'already_blocked';
+                                        if (isUnblock) {
+                                            blockBtn = item;
+                                            break;
+                                        } else {
+                                            setStep('已封鎖 (略過)');
+                                            return 'already_blocked';
+                                        }
                                     }
                                     if ((t.includes('封鎖') && !t.includes('解除')) || (t.includes('Block') && !t.includes('Un'))) {
                                         blockBtn = item;
@@ -901,7 +1034,7 @@ export const Worker = {
                 }
             } // end if (!skipToConfirm)
 
-            setStep('點擊封鎖...');
+            setStep(isUnblock ? '點擊解除封鎖...' : '點擊封鎖...');
             await Utils.sleep(800);
             Utils.simClick(blockBtn);
 
@@ -916,11 +1049,17 @@ export const Worker = {
                         const t = btn.innerText || btn.textContent;
                         if (!t) continue;
 
-                        if (t.includes('封鎖') && !t.includes('解除') && !t.includes('取消')) {
-                            confirmBtn = btn;
-                        }
-                        if (t.includes('Block') && !t.includes('Un') && !t.includes('Cancel')) {
-                            confirmBtn = btn;
+                        if (isUnblock) {
+                            if (t === '解除封鎖' || t === 'Unblock' || (t.includes('解除封鎖') && !t.includes('取消'))) {
+                                confirmBtn = btn;
+                            }
+                        } else {
+                            if (t.includes('封鎖') && !t.includes('解除') && !t.includes('取消')) {
+                                confirmBtn = btn;
+                            }
+                            if (t.includes('Block') && !t.includes('Un') && !t.includes('Cancel')) {
+                                confirmBtn = btn;
+                            }
                         }
                     }
                 }
@@ -956,7 +1095,7 @@ export const Worker = {
                 return 'failed';
             }
 
-            setStep('確認封鎖...');
+            setStep(isUnblock ? '確認解除封鎖...' : '確認封鎖...');
             await Utils.sleep(300);
             Utils.simClick(confirmBtn);
 
@@ -965,7 +1104,7 @@ export const Worker = {
                 await Utils.sleep(500);
                 const dialogs = document.querySelectorAll('div[role="dialog"]');
                 if (dialogs.length === 0) {
-                    setStep('✅ 已封鎖');
+                    setStep(isUnblock ? '✅ 已解除封鎖' : '✅ 已封鎖');
                     return 'success';
                 }
                 if (checkForError()) {
@@ -984,7 +1123,7 @@ export const Worker = {
                 }
             }
 
-            setStep('✅ 已封鎖 (超時)');
+            setStep(isUnblock ? '✅ 已解除封鎖 (超時)' : '✅ 已封鎖 (超時)');
             return 'success';
         } catch (e) {
             console.error('autoBlock error:', e);

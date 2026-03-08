@@ -95,7 +95,8 @@ import { Worker } from './worker.js';
                     }
                 }
 
-                if (pending.size === 0) { UI.showToast('請先勾選用戶！'); return; }
+                const queue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+                if (pending.size === 0 && queue.length === 0) { UI.showToast('請先勾選用戶！'); return; }
 
                 if (Utils.isMobile()) {
                     Core.runSameTabWorker();
@@ -138,6 +139,7 @@ import { Worker } from './worker.js';
                 },
                 onClearDB: () => { if (confirm('清空歷史?')) { Storage.setJSON(CONFIG.KEYS.DB_KEY, []); Core.updateControllerUI(); } },
                 onImport: () => Core.importList(),
+                onManage: () => Core.openBlockManager(),
                 onExport: () => Core.exportHistory(),
                 onRetryFailed: () => Core.retryFailedQueue(),
                 onReport: () => Core.showReportDialog(),
@@ -160,6 +162,7 @@ import { Worker } from './worker.js';
                 Storage.invalidate(CONFIG.KEYS.COOLDOWN);
                 Storage.invalidate(CONFIG.KEYS.COOLDOWN_QUEUE);
                 Storage.invalidate(CONFIG.KEYS.FAILED_QUEUE);
+                Storage.invalidate(CONFIG.KEYS.DB_TIMESTAMPS);
                 Core.updateControllerUI();
             }, 2000); // Polling backup
 

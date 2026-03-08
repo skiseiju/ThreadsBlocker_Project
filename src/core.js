@@ -24,6 +24,23 @@ export const Core = {
         } else {
             Core.startScanner();
         }
+
+        // Cross-tab synchronization: Listen for storage changes from other tabs
+        window.addEventListener('storage', (e) => {
+            if (e.key && Object.values(CONFIG.KEYS).includes(e.key)) {
+                Core.updateControllerUI();
+            }
+        });
+    },
+
+    getBgMode: () => {
+        const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
+        const isRunning = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
+        if (!isRunning) return 'IDLE';
+        const queue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+        const first = queue[0] || '';
+        const isUnblock = first.startsWith(CONFIG.UNBLOCK_PREFIX);
+        return isUnblock ? 'UNBLOCKING' : 'BLOCKING';
     },
 
     observer: null,
@@ -56,6 +73,7 @@ export const Core = {
             Core.scanAndInject();
             Core.injectDialogBlockAll();
             Core.injectDialogCheckboxes();
+            Core.updateControllerUI();
         }, 500);
 
         Core.scanAndInject();
@@ -136,6 +154,13 @@ export const Core = {
         if (!db.has(username)) {
             db.add(username);
             Storage.setJSON(CONFIG.KEYS.DB_KEY, [...db]);
+
+            // Also ensure timestamp is recorded
+            let ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
+            if (!ts[username]) {
+                ts[username] = Date.now();
+                Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, ts);
+            }
         }
     },
 
@@ -180,7 +205,19 @@ export const Core = {
             <span>同列全封</span>
         `;
 
+        const bgMode = Core.getBgMode();
+        if (bgMode === 'UNBLOCKING') {
+            blockAllBtn.style.opacity = '0.5';
+            blockAllBtn.style.filter = 'grayscale(1)';
+            blockAllBtn.style.cursor = 'not-allowed';
+            blockAllBtn.title = '正在解除封鎖，暫時無法封鎖';
+        }
+
         const handleBlockAll = (e) => {
+            if (Core.getBgMode() === 'UNBLOCKING') {
+                UI.showToast('目前正在「解除封鎖」，請先暫停任務再執行封鎖');
+                return;
+            }
             e.stopPropagation();
             e.preventDefault();
 
@@ -444,6 +481,14 @@ export const Core = {
             container.style.borderRadius = '4px';
             container.style.padding = '2px';
 
+            const bgMode = Core.getBgMode();
+            if (bgMode === 'UNBLOCKING') {
+                container.style.opacity = '0.4';
+                container.style.filter = 'grayscale(1)';
+                container.style.cursor = 'not-allowed';
+                container.title = '正在解除封鎖';
+            }
+
             const svgIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
             svgIcon.setAttribute("viewBox", "0 0 24 24");
             svgIcon.classList.add("hege-svg-icon");
@@ -627,6 +672,12 @@ export const Core = {
     },
 
     handleGlobalClick: (e) => {
+        if (Core.getBgMode() === 'UNBLOCKING') {
+            UI.showToast('目前正在「解除封鎖」，無法手動選取封鎖帳號');
+            e.stopPropagation();
+            e.preventDefault();
+            return;
+        }
         const container = e.target.closest('.hege-checkbox-container');
         if (!container) return;
 
@@ -726,6 +777,38 @@ export const Core = {
         Core.updateControllerUI();
     },
 
+    openBlockManager: () => {
+        const db = Storage.getJSON(CONFIG.KEYS.DB_KEY, []);
+        const ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
+        UI.showBlockManager(db, ts, (toUnblock) => {
+            Core.startUnblock(toUnblock);
+        });
+    },
+
+    startUnblock: (usernames) => {
+        if (!usernames || usernames.length === 0) return;
+
+        const q = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+        // Add prefix to signal unblock task to worker
+        const tasks = usernames.map(u => `${CONFIG.UNBLOCK_PREFIX}${u}`);
+        const newQ = [...new Set([...q, ...tasks])];
+
+        Storage.setJSON(CONFIG.KEYS.BG_QUEUE, newQ);
+        UI.showToast(`已將 ${usernames.length} 筆解鎖任務加入背景佇列`);
+
+        // Check if worker needs to be opened
+        const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
+        const running = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
+        if (!running) {
+            Storage.remove(CONFIG.KEYS.BG_CMD);
+            if (Utils.isMobile()) {
+                Core.runSameTabWorker();
+            } else {
+                window.open('https://www.threads.net/?hege_bg=true', 'HegeBlockWorker', 'width=800,height=600');
+            }
+        }
+    },
+
     updateControllerUI: () => {
         // Throttled UI update logic (proper deferral to prevent missed updates)
         if (Core._uiUpdatePending) return;
@@ -744,6 +827,7 @@ export const Core = {
         Core._lastUIUpdate = now;
         Core._uiUpdatePending = null;
 
+        const bgMode = Core.getBgMode();
         const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY));
         const cdq = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
         const bgq = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
@@ -784,6 +868,9 @@ export const Core = {
         const selCount = document.getElementById('hege-sel-count');
         if (selCount) selCount.textContent = `${Core.pendingUsers.size} 選取`;
 
+        const historyCount = document.getElementById('hege-history-count');
+        if (historyCount) historyCount.textContent = `${db.size}`;
+
         const panel = document.getElementById('hege-panel');
         if (!panel) return;
 
@@ -809,6 +896,10 @@ export const Core = {
         let mainText = '開始封鎖';
         let headerColor = 'transparent'; // Use transparent or theme color
 
+        const bgqArr = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+        const firstTask = bgqArr[0] || '';
+        const isUnblockTask = firstTask.startsWith(CONFIG.UNBLOCK_PREFIX);
+
         const cooldownUntil = parseInt(Storage.get(CONFIG.KEYS.COOLDOWN) || '0');
         if (cooldownUntil > Date.now()) {
             const remainHrs = Math.ceil((cooldownUntil - Date.now()) / (1000 * 60 * 60));
@@ -820,12 +911,12 @@ export const Core = {
             const bgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
             if (bgStatus.state === 'running' && (Date.now() - (bgStatus.lastUpdate || 0) < 10000)) {
                 shouldShowStop = true;
-                mainText = `背景執行中 剩餘 ${bgStatus.total}`;
+                mainText = `${isUnblockTask ? '解除封鎖' : '背景執行'}中 剩餘 ${bgStatus.total}`;
                 headerColor = '#4cd964';
                 badgeText = `(${bgStatus.total}剩餘)`; // Show progress in header badge explicitly
             } else if (bgq.size > 0) {
                 // Worker stopped/idle but queue has remaining items from a previous run
-                mainText = `繼續封鎖 (${bgq.size} 筆待處理)`;
+                mainText = `${isUnblockTask ? '繼續解除' : '繼續封鎖'} (${bgq.size} 筆待處理)`;
                 headerColor = '#ff9500';
                 badgeText = `(${bgq.size}待處理)`;
             }
@@ -838,6 +929,36 @@ export const Core = {
         const mainItem = document.getElementById('hege-main-btn-item');
         if (mainItem) { mainItem.querySelector('span').textContent = mainText; mainItem.style.color = shouldShowStop ? headerColor : '#f5f5f5'; }
         const header = document.getElementById('hege-header'); if (header) header.style.borderColor = headerColor;
+
+        // Mutex: Dynamic state for all checkboxes and buttons on the page
+        const isUnblocking = bgMode === 'UNBLOCKING';
+        document.querySelectorAll('.hege-checkbox-container').forEach(box => {
+            box.style.opacity = isUnblocking ? '0.4' : '1';
+            box.style.filter = isUnblocking ? 'grayscale(1)' : 'none';
+            box.style.cursor = isUnblocking ? 'not-allowed' : 'pointer';
+            box.title = isUnblocking ? '正在解除封鎖' : '';
+        });
+
+        document.querySelectorAll('.hege-block-all-btn').forEach(btn => {
+            btn.style.opacity = isUnblocking ? '0.5' : '1';
+            btn.style.filter = isUnblocking ? 'grayscale(1)' : 'none';
+            btn.style.cursor = isUnblocking ? 'not-allowed' : 'pointer';
+            btn.title = isUnblocking ? '正在解除封鎖，暫時無法封鎖' : '';
+        });
+
+        // Mutex: Gray out Unblock Start if Blocking
+        const unblockConfirm = document.getElementById('hege-unblock-confirm');
+        if (unblockConfirm) {
+            const isBlocking = bgMode === 'BLOCKING';
+            unblockConfirm.style.opacity = isBlocking ? '0.5' : '1';
+            unblockConfirm.style.pointerEvents = isBlocking ? 'none' : 'auto';
+            unblockConfirm.title = isBlocking ? '後台正在進行封鎖任務，請先暫停' : '';
+            if (isBlocking) {
+                unblockConfirm.textContent = '🔒 背景排隊中...';
+            } else {
+                unblockConfirm.textContent = '確定解除封鎖';
+            }
+        }
     },
 
     runSameTabWorker: () => {

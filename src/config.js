@@ -1,5 +1,7 @@
 export const CONFIG = {
-    VERSION: '2.2.2', // Fix: Restricted Block-All scope and visibility check
+    VERSION: '2.3.1-beta1', // Feature: Selective Unblock
+    UNBLOCK_PREFIX: 'UNBLOCK:',
+
     DEBUG_MODE: false,
     DB_KEY: 'hege_block_db_v1',
     KEYS: {
