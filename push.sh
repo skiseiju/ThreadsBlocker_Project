@@ -103,7 +103,9 @@ if len(blocks) > 1:
     print(body[:1000])  # CWS 限制 1000 字
 ")
             CWS_BOUNDARY="CWS_PUSH_BOUNDARY"
-            # 組合 multipart body（metadata + zip），帶入 description + changelog
+            # 組合 multipart body（metadata + zip）
+            # 注意：CWS API 不支援透過 API 更新 description/shortDescription
+            # 這兩個欄位需在 Developer Dashboard 手動設定，這裡只帶 changeDescription
             python3 - << PYEOF
 import json, re
 
@@ -112,27 +114,10 @@ with open("CHANGELOG.md", encoding="utf-8") as f:
 blocks = re.split(r"^## ", content, flags=re.MULTILINE)
 changelog_body = "\n".join(blocks[1].strip().split("\n")[1:]).strip()[:1000] if len(blocks) > 1 else ""
 
-description = """留友封讓你在 Threads 上快速清理不友善帳號。
-
-主要功能：
-• 勾選框注入：在貼文動態、讚、引用列表中直接勾選帳號
-• 批量封鎖：一次封鎖數十到數百人，背景執行不影響瀏覽
-• 速度模式：智慧 / 穩定 / 標準 / 加速，依網路狀況自選
-• 封鎖記錄：本地保存所有歷史，可匯出 / 匯入名單
-• 批量解封：支援從管理介面選取已封鎖帳號批次解除
-• 失敗重試：自動偵測限流並排入冷卻佇列
-
-適合用於清理貼文下的大量惡意留言帳號、防範網軍騷擾。
-所有操作完全在本機執行，不上傳任何資料。"""
-
-short_description = "在 Threads 貼文動態中一鍵勾選、批量封鎖惡意帳號。支援背景執行、智慧速度模式，保護你的社群環境。"
-
 metadata = json.dumps({
     "kind": "chromewebstore#item",
     "id": "$CWS_EXT_ID",
     "localeName": "zh-TW",
-    "description": description,
-    "shortDescription": short_description,
     "changeDescription": changelog_body
 }, ensure_ascii=False)
 
