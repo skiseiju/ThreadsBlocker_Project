@@ -103,15 +103,39 @@ if len(blocks) > 1:
     print(body[:1000])  # CWS 限制 1000 字
 ")
             CWS_BOUNDARY="CWS_PUSH_BOUNDARY"
-            # 組合 multipart body（metadata + zip），帶入 changelog
+            # 組合 multipart body（metadata + zip），帶入 description + changelog
             python3 - << PYEOF
-import json, os
+import json, re
+
+with open("CHANGELOG.md", encoding="utf-8") as f:
+    content = f.read()
+blocks = re.split(r"^## ", content, flags=re.MULTILINE)
+changelog_body = "\n".join(blocks[1].strip().split("\n")[1:]).strip()[:1000] if len(blocks) > 1 else ""
+
+description = """留友封讓你在 Threads 上快速清理不友善帳號。
+
+主要功能：
+• 勾選框注入：在貼文動態、讚、引用列表中直接勾選帳號
+• 批量封鎖：一次封鎖數十到數百人，背景執行不影響瀏覽
+• 速度模式：智慧 / 穩定 / 標準 / 加速，依網路狀況自選
+• 封鎖記錄：本地保存所有歷史，可匯出 / 匯入名單
+• 批量解封：支援從管理介面選取已封鎖帳號批次解除
+• 失敗重試：自動偵測限流並排入冷卻佇列
+
+適合用於清理貼文下的大量惡意留言帳號、防範網軍騷擾。
+所有操作完全在本機執行，不上傳任何資料。"""
+
+short_description = "在 Threads 貼文動態中一鍵勾選、批量封鎖惡意帳號。支援背景執行、智慧速度模式，保護你的社群環境。"
+
 metadata = json.dumps({
     "kind": "chromewebstore#item",
     "id": "$CWS_EXT_ID",
     "localeName": "zh-TW",
-    "changeDescription": """$CHANGELOG_TEXT"""
+    "description": description,
+    "shortDescription": short_description,
+    "changeDescription": changelog_body
 }, ensure_ascii=False)
+
 boundary = "$CWS_BOUNDARY"
 with open("$ZIP_FILE", "rb") as zf:
     zip_data = zf.read()
@@ -121,6 +145,7 @@ body = (
 ).encode("utf-8") + zip_data + f"\r\n--{boundary}--\r\n".encode("utf-8")
 with open("/tmp/cws_push.bin", "wb") as f:
     f.write(body)
+print(f"metadata ready: changelog={len(changelog_body)}chars")
 PYEOF
 
             echo "📤 上傳 ZIP + changelog 至 Chrome Web Store..."
