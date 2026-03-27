@@ -1,21 +1,34 @@
 (function() {
     'use strict';
-    console.log('[HegeBlock] Content Script Injected, Version: 2.3.1-beta1');
+    console.log('[HegeBlock] Content Script Injected, Version: 2.4.1-beta1');
 // --- config.js ---
 const CONFIG = {
-    VERSION: '2.3.1-beta1', // Feature: Selective Unblock
+    VERSION: '2.4.1-beta1', // Release: Speed Mode + Smart Polling + Checkbox Fix + Firefox Support
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
+    BUG_REPORT_URL: 'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec',
+    BUG_REPORT_SALT: 'PGO_BETA_2026_SALT',
+
     DEBUG_MODE: false,
-    DB_KEY: 'hege_block_db_v1',
+
+    // 速度模式：'smart' | 'stable' | 'standard' | 'turbo'
+    SPEED_PROFILES: {
+        smart:    { label: '🧠 智慧模式', multiplier: 1.0, usePolling: true,  warnOnSelect: false },
+        stable:   { label: '🛡️ 穩定模式', multiplier: 1.5, usePolling: false, warnOnSelect: false },
+        standard: { label: '⚡ 標準模式', multiplier: 1.0, usePolling: false, warnOnSelect: false },
+        turbo:    { label: '🚀 加速模式', multiplier: 0.4, usePolling: true,  warnOnSelect: true, forceVerify: true },
+    },
+
     KEYS: {
+        DB_KEY: 'hege_block_db_v1',
         PENDING: 'hege_pending_users',
         BG_STATUS: 'hege_bg_status',
         BG_QUEUE: 'hege_active_queue',
         BG_CMD: 'hege_bg_command',
-        IOS_MODE: 'hege_ios_active',
-        MAC_MODE: 'hege_mac_mode',
         COOLDOWN: 'hege_rate_limit_until',
+        POST_FALLBACK: 'hege_post_fallback',
+        WORKER_STATS: 'hege_worker_stats',
+        CONSOLE_LOGS: 'hege_web_console_logs',
         VERSION_CHECK: 'hege_version_check',
         POS: 'hege_panel_pos',
         STATE: 'hege_panel_state',
@@ -24,10 +37,18 @@ const CONFIG = {
         COOLDOWN_QUEUE: 'hege_cooldown_queue',
         DB_TIMESTAMPS: 'hege_block_timestamps',
         VERIFY_PENDING: 'hege_verify_pending',
-        DEBUG_LOG: 'hege_debug_log'
+        DEBUG_LOG: 'hege_debug_log',
+        SPEED_MODE: 'hege_speed_mode',
+        DIAG_LOG: 'hege_diag_log',
+        TURBO_WARNED: 'hege_turbo_warned',
+        BATCH_VERIFY: 'hege_batch_verify'
     },
+    // 多語系封鎖/解除封鎖文字偵測（含：中/英/西/法/德/義/日/韓/印尼/俄/波蘭/土耳其）
+    BLOCK_TEXTS: ['封鎖', 'Block', 'Bloquear', 'Bloquer', 'Blockieren', 'Blocca', 'ブロック', '차단', 'Blokir', 'Заблокировать', 'Zablokuj', 'Engelle'],
+    UNBLOCK_TEXTS: ['解除封鎖', 'Unblock', 'Desbloquear', 'Débloquer', 'Blockierung aufheben', 'Sblocca', 'ブロックを解除', '차단 해제', 'Buka blokir', 'Разблокировать', 'Odblokuj', 'Engeli kaldır'],
+
     SELECTORS: {
-        MORE_SVG: 'svg[aria-label="更多"], svg[aria-label="More"]',
+        MORE_SVG: 'svg[aria-label="更多"], svg[aria-label="More"], svg[aria-label="もっと見る"], svg[aria-label="더 보기"], svg[aria-label="Más"], svg[aria-label="Plus"], svg[aria-label="Mehr"], svg[aria-label="Altro"], svg[aria-label="Lainnya"], svg[aria-label="Ещё"]',
         MENU_ITEM: 'div[role="menuitem"], div[role="button"]',
         DIALOG: 'div[role="dialog"]',
         DIALOG_HEADER: 'div[role="dialog"] h1',
@@ -38,7 +59,13 @@ const CONFIG = {
 // --- utils.js ---
 
 
+
 const Utils = {
+    escapeHTML: (str) => {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    },
     _myUsername: null,
     getMyUsername: () => {
         if (Utils._myUsername) return Utils._myUsername;
@@ -77,9 +104,170 @@ const Utils = {
     },
     sleep: (ms) => new Promise(r => setTimeout(r, ms)),
 
+    // 取得當前速度設定
+    getSpeedProfile: () => {
+        const mode = Storage.get(CONFIG.KEYS.SPEED_MODE) || 'smart';
+        return CONFIG.SPEED_PROFILES[mode] || CONFIG.SPEED_PROFILES.smart;
+    },
+
+    getSpeedMode: () => {
+        // 總是從 localStorage 直接讀取，避免跨 tab cache 不同步
+        Storage.invalidate(CONFIG.KEYS.SPEED_MODE);
+        return Storage.get(CONFIG.KEYS.SPEED_MODE) || 'smart';
+    },
+
+    // 依速度模式調整的 sleep（智慧/加速模式用 polling 時會被 pollUntil 取代）
+    speedSleep: (ms) => {
+        const profile = Utils.getSpeedProfile();
+        const adjusted = Math.max(50, Math.round(ms * profile.multiplier));
+        return new Promise(r => setTimeout(r, adjusted));
+    },
+
+    // Safety-critical sleep — 不受速度模式影響，用於頁面載入 fallback、rate limit breather 等
+    safeSleep: (ms) => new Promise(r => setTimeout(r, ms)),
+
+    // 智慧等待：持續偵測條件，條件成立就立刻回傳，超時才 fallback
+    // conditionFn: () => truthy value or null/false
+    // maxMs: 最長等待毫秒
+    // intervalMs: 偵測間隔（預設 100ms）
+    pollUntil: async (conditionFn, maxMs = 5000, intervalMs = 100) => {
+        const profile = Utils.getSpeedProfile();
+        // timeout 下限 2 秒，避免 turbo 模式在慢網路下誤判
+        const adjustedMax = Math.max(2000, Math.round(maxMs * profile.multiplier));
+        const start = Date.now();
+        while (Date.now() - start < adjustedMax) {
+            const result = conditionFn();
+            if (result) return result;
+            await new Promise(r => setTimeout(r, intervalMs));
+        }
+        return conditionFn(); // 最後一次嘗試
+    },
+
     log: (msg) => {
         if (!CONFIG.DEBUG_MODE) return;
         console.log(`[RightBlock] ${msg}`);
+    },
+
+    _logBuffer: null,
+    initConsoleInterceptor: () => {
+        if (Utils._consoleIntercepted) return;
+        Utils._consoleIntercepted = true;
+        
+        try {
+            Utils._logBuffer = JSON.parse(localStorage.getItem(CONFIG.KEYS.CONSOLE_LOGS) || '[]');
+        } catch(e) {
+            Utils._logBuffer = [];
+        }
+        
+        const _log = console.log;
+        const _warn = console.warn;
+        const _error = console.error;
+        
+        const pushLog = (level, args) => {
+            try {
+                const msg = Array.from(args).map(a => {
+                    if (a === null) return 'null';
+                    if (a === undefined) return 'undefined';
+                    if (a instanceof Error) return a.stack || a.message;
+                    try { return typeof a === 'object' ? JSON.stringify(a) : String(a); }
+                    catch(e) { return '[Circular/DOM Object]'; }
+                }).join(' ');
+                const timeStr = new Date().toLocaleTimeString();
+                Utils._logBuffer.push(`[${timeStr}] [${level}] ${msg}`);
+                if (Utils._logBuffer.length > 50) Utils._logBuffer.shift(); // Keep last 50
+                
+                // Persist to survive page reloads
+                localStorage.setItem(CONFIG.KEYS.CONSOLE_LOGS, JSON.stringify(Utils._logBuffer));
+            } catch(e) {}
+        };
+
+        console.log = function() { pushLog('INFO', arguments); _log.apply(console, arguments); };
+        console.warn = function() { pushLog('WARN', arguments); _warn.apply(console, arguments); };
+        console.error = function() { pushLog('ERROR', arguments); _error.apply(console, arguments); };
+        
+        // Inject page-level interceptor to catch React crashes
+        if (typeof window !== 'undefined' && document.documentElement) {
+            window.addEventListener('message', (event) => {
+                if (event.source === window && event.data && event.data.type === 'HEGE_PAGE_LOG') {
+                    pushLog(event.data.level, event.data.args);
+                }
+            });
+
+            const scriptStr = `
+                (function() {
+                    if (window.__hege_intercepted) return;
+                    window.__hege_intercepted = true;
+                    var _l = console.log, _w = console.warn, _e = console.error;
+                    var send = function(level, args) {
+                        try {
+                            var safeArgs = Array.from(args).map(function(a) {
+                                if (a === null) return 'null';
+                                if (a === undefined) return 'undefined';
+                                if (a instanceof Error) return a.message + (a.stack ? "\\n" + a.stack : "");
+                                try { return typeof a === 'object' ? JSON.stringify(a) : String(a); } catch(e) { return '[Object]'; }
+                            });
+                            window.postMessage({ type: 'HEGE_PAGE_LOG', level: level, args: safeArgs }, '*');
+                        } catch(e) {}
+                    };
+                    console.log = function() { send('PAGE_INFO', arguments); _l.apply(console, arguments); };
+                    console.warn = function() { send('PAGE_WARN', arguments); _w.apply(console, arguments); };
+                    console.error = function() { send('PAGE_ERROR', arguments); _e.apply(console, arguments); };
+                })();
+            `;
+            try {
+                const s = document.createElement('script');
+                if (window.trustedTypes && window.trustedTypes.createPolicy) {
+                    const policy = Utils.getPolicy();
+                    s.text = policy.createScript(scriptStr);
+                } else {
+                    s.appendChild(document.createTextNode(scriptStr));
+                }
+                (document.head || document.documentElement).appendChild(s);
+                s.remove();
+            } catch(e) {}
+        }
+    },
+    
+    getRecentLogs: () => {
+        return Utils._logBuffer || [];
+    },
+
+    // Checkbox 注入診斷記錄
+    _diagBuffer: [],
+    diagLog: (msg) => {
+        const timeStr = new Date().toLocaleTimeString();
+        Utils._diagBuffer.push(`[${timeStr}] ${msg}`);
+        if (Utils._diagBuffer.length > 30) Utils._diagBuffer.shift();
+        try {
+            localStorage.setItem(CONFIG.KEYS.DIAG_LOG, JSON.stringify(Utils._diagBuffer));
+        } catch(e) {}
+    },
+    getDiagLogs: () => {
+        if (Utils._diagBuffer.length > 0) return Utils._diagBuffer;
+        try {
+            return JSON.parse(localStorage.getItem(CONFIG.KEYS.DIAG_LOG) || '[]');
+        } catch(e) { return []; }
+    },
+
+    isBlockText: (text) => {
+        if (!text) return false;
+        const t = text.trim();
+        // 必須是封鎖但不是解除封鎖
+        return CONFIG.BLOCK_TEXTS.some(b => t.includes(b)) &&
+               !CONFIG.UNBLOCK_TEXTS.some(u => t.includes(u));
+    },
+
+    isUnblockText: (text) => {
+        if (!text) return false;
+        return CONFIG.UNBLOCK_TEXTS.some(u => text.trim().includes(u));
+    },
+
+    openWorkerWindow: () => {
+        const w = window.open('https://www.threads.net/?hege_bg=true', 'HegeBlockWorker', 'width=800,height=600');
+        if (!w || w.closed) {
+            alert('瀏覽器阻擋了彈出視窗。\n請允許 threads.net 的彈出視窗權限，或手動開啟新分頁前往：\nhttps://www.threads.net/?hege_bg=true');
+        }
+        return w;
     },
 
     simClick: (element) => {
@@ -98,7 +286,8 @@ const Utils = {
     },
 
     isMobile: () => {
-        const isIPad = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+        const platform = navigator.userAgentData?.platform || navigator.platform || '';
+        const isIPad = (platform === 'macOS' || platform === 'MacIntel') && navigator.maxTouchPoints > 1;
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || isIPad;
         return isIOS || /Android|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     },
@@ -110,16 +299,16 @@ const Utils = {
         if (window.trustedTypes && window.trustedTypes.createPolicy) {
             try {
                 Utils.htmlPolicy = window.trustedTypes.createPolicy('hege_policy', {
-                    createHTML: (string) => string
+                    createHTML: (string) => string,
+                    createScript: (string) => string
                 });
             } catch (e) {
                 console.warn('[RightBlock] Policy creation failed', e);
                 // Fallback: simple object to pass-through if policy exists but creation failed (e.g. duplicate name)
-                // Try to find existing? Hard. Just return mock if fail.
-                Utils.htmlPolicy = { createHTML: s => s };
+                Utils.htmlPolicy = { createHTML: s => s, createScript: s => s };
             }
         } else {
-            Utils.htmlPolicy = { createHTML: s => s };
+            Utils.htmlPolicy = { createHTML: s => s, createScript: s => s };
         }
         return Utils.htmlPolicy;
     },
@@ -221,6 +410,99 @@ const Storage = {
     }
 };
 
+// --- reporter.js ---
+
+
+
+const Reporter = {
+    sourceApp: 'ThreadsBlocker',
+
+    getHardwareId: () => {
+        let hwid = Storage.get('hege_hwid');
+        if (!hwid) {
+            hwid = typeof crypto !== 'undefined' && crypto.randomUUID 
+                ? crypto.randomUUID() 
+                : 'id-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+            Storage.set('hege_hwid', hwid);
+        }
+        return hwid;
+    },
+
+    sha256: async (message) => {
+        const msgBuffer = new TextEncoder().encode(message);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        return hashHex;
+    },
+
+    submitReport: async (level, message, errorCode = "", metadata = null) => {
+        if (!CONFIG.BUG_REPORT_URL || !CONFIG.BUG_REPORT_SALT) {
+            return { code: 500, message: 'Bug Reporter is not properly configured.' };
+        }
+
+        const hwid = Reporter.getHardwareId();
+        const timestamp = Math.floor(Date.now() / 1000).toString();
+        
+        const rawStr = `${timestamp}${hwid}${CONFIG.BUG_REPORT_SALT}`;
+        const signature = await Reporter.sha256(rawStr);
+        
+        const payload = {
+            source_app: Reporter.sourceApp,
+            version: CONFIG.VERSION,
+            hwid: hwid,
+            timestamp: timestamp,
+            level: level,
+            message: message,
+            error_code: errorCode,
+            metadata: metadata ? JSON.stringify(metadata) : "",
+            signature: signature
+        };
+        
+        return new Promise((resolve, reject) => {
+            if (typeof GM_xmlhttpRequest !== 'undefined') {
+                GM_xmlhttpRequest({
+                    method: 'POST',
+                    url: CONFIG.BUG_REPORT_URL,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    data: JSON.stringify(payload),
+                    onload: (response) => {
+                        try {
+                            const resJson = JSON.parse(response.responseText);
+                            resolve(resJson);
+                        } catch (e) {
+                            resolve({code: response.status, message: response.responseText});
+                        }
+                    },
+                    onerror: (err) => {
+                        reject({code: 500, message: 'Network error or CORS issue.'});
+                    }
+                });
+            } else {
+                fetch(CONFIG.BUG_REPORT_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload),
+                    redirect: 'follow'
+                }).then(async res => {
+                    const text = await res.text();
+                    try {
+                        resolve(JSON.parse(text));
+                    } catch(e) {
+                        resolve({code: res.status, message: text});
+                    }
+                }).catch(err => {
+                    reject({code: 500, message: err.toString()});
+                });
+            }
+        });
+    }
+};
+
 // --- ui.js ---
 
 
@@ -231,23 +513,24 @@ const UI = {
         const style = document.createElement('style');
         style.textContent = `
             .hege-checkbox-container {
-                position: absolute; right: -8px; top: 50%; transform: translateY(-50%);
-                width: 36px; height: 36px; z-index: 1000;
+                width: 36px; height: 36px; min-width: 36px;
+                z-index: 1000;
                 display: flex; align-items: center; justify-content: center;
                 border-radius: 50%; cursor: pointer; transition: background-color 0.2s;
+                box-sizing: border-box;
             }
             .hege-checkbox-container:hover { background-color: rgba(255, 255, 255, 0.1); }
             .hege-svg-icon { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; color: rgb(119, 119, 119); transition: all 0.2s; }
             @media (prefers-color-scheme: dark) { .hege-svg-icon { color: rgb(119, 119, 119); } }
             @media (prefers-color-scheme: light) { .hege-svg-icon { color: rgb(153, 153, 153); } .hege-checkbox-container:hover { background-color: rgba(0, 0, 0, 0.05); } }
-            
-            .hege-checkbox-container.checked .hege-svg-icon { color: #ff3b30; fill: #ff3b30; stroke: none; transform: scale(1.1); }
+
+            .hege-checkbox-container.checked .hege-svg-icon { color: #ff3b30; fill: #ff3b30; stroke: none; }
             .hege-checkmark { display: none; stroke: white; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
             .hege-checkbox-container.checked .hege-checkmark { display: block; }
 
             .hege-checkbox-container.finished { opacity: 0.6; }
             .hege-checkbox-container.finished .hege-svg-icon { color: #555; }
-            .hege-checkbox-container:active { transform: translateY(-50%) scale(0.9); }
+            .hege-checkbox-container:active { transform: scale(0.85); }
             
             .hege-block-all-btn {
                 display: flex; align-items: center; justify-content: center;
@@ -426,38 +709,31 @@ const UI = {
                 <div class="hege-menu-item" id="hege-clear-sel-item">
                     <span>清除選取</span>
                 </div>
-                
-                <div class="hege-menu-item" id="hege-import-item">
-                    <span>匯入名單</span>
+
+                <div class="hege-menu-item" id="hege-speed-item">
+                    <span>速度模式</span>
+                    <span class="status" id="hege-speed-status">🧠 智慧</span>
                 </div>
 
-                <div class="hege-menu-item" id="hege-manage-item">
-                    <span>管理已封鎖</span>
-                    <span class="status" id="hege-history-count">0</span>
-                </div>
-                
-                <div class="hege-menu-item" id="hege-export-item">
-                    <span>匯出紀錄</span>
-                </div>
-                
-                <div class="hege-menu-item" id="hege-post-fallback-item">
-                    <span>進階封鎖</span>
-                    <span class="status" id="hege-post-fallback-status">開</span>
-                </div>
-                
                 <div class="hege-menu-item danger" id="hege-retry-failed-item" style="display:none;">
                     <span>重試失敗清單</span>
                     <span class="status" id="hege-failed-count">0</span>
                 </div>
-                
-                <div class="hege-menu-item" id="hege-report-item" style="display:none;">
-                    <span>🐛 回報問題</span>
+
+                <div class="hege-menu-item" id="hege-settings-item">
+                    <span style="display:flex; align-items:center; gap:6px;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                        設定
+                    </span>
                 </div>
 
-                <div class="hege-menu-item danger" id="hege-clear-db-item">
-                    <span>清除所有歷史</span>
+                <div class="hege-menu-item" id="hege-report-item">
+                    <span style="display:flex; align-items:center; gap:6px;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"></path></svg>
+                        回報問題
+                    </span>
                 </div>
-                
+
                 <div class="hege-menu-item danger" id="hege-stop-btn-item" style="border-top:1px solid #333; display:none;">
                     <span>停止執行</span>
                 </div>
@@ -485,22 +761,42 @@ const UI = {
 
         bindClick('hege-main-btn-item', callbacks.onMainClick);
         bindClick('hege-clear-sel-item', callbacks.onClearSel);
-        bindClick('hege-clear-db-item', callbacks.onClearDB);
-        bindClick('hege-import-item', callbacks.onImport);
-        bindClick('hege-manage-item', callbacks.onManage);
-        bindClick('hege-export-item', callbacks.onExport);
         bindClick('hege-retry-failed-item', callbacks.onRetryFailed);
         bindClick('hege-report-item', callbacks.onReport);
         bindClick('hege-stop-btn-item', callbacks.onStop);
+        bindClick('hege-settings-item', () => UI.showSettingsModal(callbacks));
 
-        // Post Fallback toggle
-        const pfStatus = document.getElementById('hege-post-fallback-status');
-        if (pfStatus) pfStatus.textContent = Storage.get(CONFIG.KEYS.POST_FALLBACK) === 'false' ? '關' : '開';
-        bindClick('hege-post-fallback-item', () => {
-            const current = Storage.get(CONFIG.KEYS.POST_FALLBACK) !== 'false';
-            Storage.set(CONFIG.KEYS.POST_FALLBACK, (!current).toString());
-            const el = document.getElementById('hege-post-fallback-status');
-            if (el) el.textContent = !current ? '開' : '關';
+        // Speed mode toggle (in main panel)
+        const speedModes = ['smart', 'stable', 'standard', 'turbo'];
+        const speedLabels = { smart: '🧠 智慧', stable: '🛡️ 穩定', standard: '⚡ 標準', turbo: '🚀 加速' };
+        const currentSpeed = Storage.get(CONFIG.KEYS.SPEED_MODE) || 'smart';
+        const speedStatus = document.getElementById('hege-speed-status');
+        if (speedStatus) speedStatus.textContent = speedLabels[currentSpeed] || speedLabels.smart;
+
+        bindClick('hege-speed-item', () => {
+            const cur = Storage.get(CONFIG.KEYS.SPEED_MODE) || 'smart';
+            const idx = speedModes.indexOf(cur);
+            const next = speedModes[(idx + 1) % speedModes.length];
+            const profile = CONFIG.SPEED_PROFILES[next];
+
+            const applySpeed = () => {
+                Storage.set(CONFIG.KEYS.SPEED_MODE, next);
+                const el = document.getElementById('hege-speed-status');
+                if (el) el.textContent = speedLabels[next];
+                UI.showToast(`速度模式：${profile.label}`);
+            };
+
+            if (profile.warnOnSelect && !Storage.get(CONFIG.KEYS.TURBO_WARNED)) {
+                UI.showConfirm(
+                    '⚠️ 加速模式會大幅縮短操作間隔\n\n可能導致 Meta 暫時限制您的帳號操作。\n建議僅在少量封鎖時使用。\n\n確定要切換嗎？',
+                    () => {
+                        Storage.set(CONFIG.KEYS.TURBO_WARNED, 'true');
+                        applySpeed();
+                    }
+                );
+            } else {
+                applySpeed();
+            }
         });
 
 
@@ -621,6 +917,41 @@ const UI = {
         }
     },
 
+    showConfirm: (message, onConfirm, onCancel) => {
+        const existing = document.getElementById('hege-confirm-overlay');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'hege-confirm-overlay';
+        overlay.className = 'hege-manager-overlay';
+
+        const safeMsg = message.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+        overlay.innerHTML = `
+            <div class="hege-manager-box" style="max-width:420px;">
+                <div class="hege-manager-header">
+                    <span class="hege-manager-title">⚠️ 確認</span>
+                </div>
+                <div style="padding:20px;font-size:14px;line-height:1.7;color:#ccc;">${safeMsg}</div>
+                <div class="hege-manager-footer">
+                    <div style="display:flex;gap:12px;width:100%;justify-content:flex-end;">
+                        <button class="hege-manager-btn secondary" id="hege-confirm-cancel">取消</button>
+                        <button class="hege-manager-btn primary" id="hege-confirm-ok">確認繼續</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        overlay.querySelector('#hege-confirm-cancel').onclick = () => {
+            overlay.remove();
+            if (onCancel) onCancel();
+        };
+        overlay.querySelector('#hege-confirm-ok').onclick = () => {
+            overlay.remove();
+            if (onConfirm) onConfirm();
+        };
+    },
+
     showDisclaimer: (onConfirm) => {
         if (document.getElementById('hege-disclaimer-overlay')) return;
 
@@ -641,6 +972,146 @@ const UI = {
             overlay.remove();
             if (onConfirm) onConfirm();
         };
+    },
+
+    showBugReportModal: (onSubmit) => {
+        if (document.getElementById('hege-report-overlay')) return;
+
+        const overlay = document.createElement('div');
+        overlay.id = 'hege-report-overlay';
+        overlay.className = 'hege-manager-overlay';
+
+        overlay.innerHTML = `
+            <div class="hege-manager-box">
+                <div class="hege-manager-header">
+                    <span class="hege-manager-title" style="display:flex; align-items:center; gap:6px;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"></path></svg>
+                        回報問題
+                    </span>
+                    <span class="hege-manager-close">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+                    </span>
+                </div>
+                <div style="padding: 20px;">
+                    <p style="margin-bottom: 12px; color: #666; font-size: 12px;">版本 ${CONFIG.VERSION}</p>
+                    <p style="margin-bottom: 8px; color: #ccc;">問題描述：</p>
+                    <textarea id="hege-report-msg" rows="4" style="width: 100%; box-sizing: border-box; background: #222; border: 1px solid #444; color: #fff; padding: 10px; border-radius: 8px; font-family: inherit; resize: vertical;" placeholder="請描述您遇到的問題..."></textarea>
+                    
+                    <p style="margin-top: 16px; margin-bottom: 8px; color: #ccc;">問題類型：</p>
+                    <select id="hege-report-level" style="width: 100%; background: #222; border: 1px solid #444; color: #fff; padding: 10px; border-radius: 8px; outline: none;">
+                        <option value="PRAISE">🎉 我覺得很棒</option>
+                        <option value="INFO">💡 功能建議</option>
+                        <option value="WARNING">⚠️ 有點怪怪的</option>
+                        <option value="ERROR" selected>❌ 功能壞了</option>
+                        <option value="CRITICAL">💀 完全無法使用</option>
+                    </select>
+                </div>
+                <div class="hege-manager-footer">
+                    <span id="hege-report-status" style="font-size: 13px; color: #888;"></span>
+                    <div style="display: flex; gap: 12px;">
+                        <button class="hege-manager-btn secondary" id="hege-report-cancel">取消</button>
+                        <button class="hege-manager-btn primary" id="hege-report-submit">送出回報</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const closeBtn = overlay.querySelector('.hege-manager-close');
+        const cancelBtn = overlay.querySelector('#hege-report-cancel');
+        const submitBtn = overlay.querySelector('#hege-report-submit');
+        const msgInput = overlay.querySelector('#hege-report-msg');
+        const levelSelect = overlay.querySelector('#hege-report-level');
+        const statusSpan = overlay.querySelector('#hege-report-status');
+
+        const close = () => overlay.remove();
+        closeBtn.onclick = close;
+        cancelBtn.onclick = close;
+
+        submitBtn.onclick = async () => {
+            const msg = msgInput.value.trim();
+            if (!msg) {
+                statusSpan.textContent = '請輸入問題描述！';
+                statusSpan.style.color = '#ff3b30';
+                return;
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = '傳送中...';
+            statusSpan.textContent = '';
+            
+            try {
+                const result = await onSubmit(levelSelect.value, msg);
+                if (result && result.code === 200) {
+                    UI.showToast('感謝您的回報！已成功送出。');
+                    close();
+                } else {
+                    statusSpan.textContent = `傳送失敗：${result.message || '未知錯誤'}`;
+                    statusSpan.style.color = '#ff3b30';
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '重新傳送';
+                }
+            } catch (err) {
+                statusSpan.textContent = `發生例外錯誤：${err.message || err.toString()}`;
+                statusSpan.style.color = '#ff3b30';
+                submitBtn.disabled = false;
+                submitBtn.textContent = '重新傳送';
+            }
+        };
+    },
+
+    showSettingsModal: (callbacks) => {
+        if (document.getElementById('hege-settings-overlay')) return;
+
+        const db = Storage.getJSON(CONFIG.KEYS.DB_KEY, []);
+
+        const overlay = document.createElement('div');
+        overlay.id = 'hege-settings-overlay';
+        overlay.className = 'hege-manager-overlay';
+
+        overlay.innerHTML = `
+            <div class="hege-manager-box" style="max-width: 360px;">
+                <div class="hege-manager-header">
+                    <span class="hege-manager-title" style="display:flex; align-items:center; gap:6px;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                        設定
+                    </span>
+                    <span class="hege-manager-close">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+                    </span>
+                </div>
+                <div style="padding: 16px; display: flex; flex-direction: column; gap: 8px;">
+                    <div class="hege-menu-item" id="hege-s-manage">
+                        <span>管理已封鎖</span>
+                        <span class="status">${db.length}</span>
+                    </div>
+                    <div class="hege-menu-item" id="hege-s-import">
+                        <span>匯入名單</span>
+                    </div>
+                    <div class="hege-menu-item" id="hege-s-export">
+                        <span>匯出紀錄</span>
+                    </div>
+                    <div class="hege-menu-item danger" id="hege-s-clear-db">
+                        <span>清除所有歷史</span>
+                    </div>
+
+                    <p style="margin-top: 8px; color: #555; font-size: 11px; text-align: center;">版本 ${CONFIG.VERSION}</p>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const close = () => overlay.remove();
+        overlay.querySelector('.hege-manager-close').onclick = close;
+
+        const bind = (id, fn) => {
+            const el = document.getElementById(id);
+            if (el && fn) el.addEventListener('click', () => { close(); fn(); });
+        };
+        bind('hege-s-manage', callbacks.onManage);
+        bind('hege-s-import', callbacks.onImport);
+        bind('hege-s-export', callbacks.onExport);
+        bind('hege-s-clear-db', callbacks.onClearDB);
     },
 
     showBlockManager: (blockedList, timestamps, onUnblock) => {
@@ -680,10 +1151,11 @@ const UI = {
             }
 
             listEl.innerHTML = filtered.map(u => {
+                const safeU = Utils.escapeHTML(u);
                 const time = timestamps[u] ? new Date(timestamps[u]).toLocaleString() : '無記錄時間';
                 const isSelected = selected.has(u);
                 return `
-                    <div class="hege-manager-item" data-username="${u}">
+                    <div class="hege-manager-item" data-username="${safeU}">
                         <div style="margin-right: 16px;">
                             <div class="hege-checkbox-container ${isSelected ? 'checked' : ''}" style="position:static; transform:none; width:24px; height:24px;">
                                 <svg viewBox="0 0 24 24" class="hege-svg-icon" style="width:18px; height:18px;">
@@ -693,7 +1165,7 @@ const UI = {
                             </div>
                         </div>
                         <div class="user-info">
-                            <span class="username">@${u}</span>
+                            <span class="username">@${safeU}</span>
                             <span class="time">${time}</span>
                         </div>
                     </div>
@@ -791,15 +1263,19 @@ const UI = {
 
         overlay.querySelector('#hege-unblock-confirm').onclick = () => {
             const toUnblock = Array.from(selected);
-            if (confirm(`確定要對這 ${toUnblock.length} 位使用者解除封鎖嗎？\n\n這將會開啟背景視窗模擬點擊解除封鎖。`)) {
-                overlay.remove();
-                onUnblock(toUnblock);
-            }
+            UI.showConfirm(
+                `確定要對這 ${toUnblock.length} 位使用者解除封鎖嗎？\n\n這將會開啟背景視窗模擬點擊解除封鎖。`,
+                () => {
+                    overlay.remove();
+                    onUnblock(toUnblock);
+                }
+            );
         };
     }
 };
 
 // --- core.js ---
+
 
 
 
@@ -827,12 +1303,6 @@ const Core = {
             Core.startScanner();
         }
 
-        // Cross-tab synchronization: Listen for storage changes from other tabs
-        window.addEventListener('storage', (e) => {
-            if (e.key && Object.values(CONFIG.KEYS).includes(e.key)) {
-                Core.updateControllerUI();
-            }
-        });
     },
 
     getBgMode: () => {
@@ -846,6 +1316,7 @@ const Core = {
     },
 
     observer: null,
+    _scrollDebounce: null,
     startScanner: () => {
         // Optimization: Use MutationObserver instead of fixed interval for most cases
         if (Core.observer) Core.observer.disconnect();
@@ -868,6 +1339,12 @@ const Core = {
         });
 
         Core.observer.observe(document.body, { childList: true, subtree: true });
+
+        // Scroll listener: catch virtual-scroll items entering DOM during fast scrolling in dialogs
+        document.addEventListener('scroll', () => {
+            clearTimeout(Core._scrollDebounce);
+            Core._scrollDebounce = setTimeout(() => Core.injectDialogCheckboxes(), 80);
+        }, true); // capture phase to catch scroll on any element
 
         // Backup interval in case mutation observer misses React's synthetic updates
         // Increased frequency from 1500 to 500ms to catch post-Loading states faster
@@ -978,6 +1455,10 @@ const Core = {
             const tempText = (h.innerText || h.textContent || '');
             const text = tempText.trim();
             if (text && text !== 'Threads') {
+                // 排除回覆/回文 dialog — 會回文代表不想封鎖
+                const isReplyCtx = ['回覆', '回文', 'Reply', 'Replies', '回應'].some(t => text.includes(t));
+                if (isReplyCtx) continue;
+
                 if (isDialog || ['貼文動態', '讚', 'Likes', '引用', '轉發', '活動'].some(t => text.includes(t))) {
                     header = h;
                     titleText = text;
@@ -1170,14 +1651,10 @@ const Core = {
         }
         if (!header) return;
 
-        const containerRect = ctx.getBoundingClientRect();
         const links = Array.from(ctx.querySelectorAll('a[href^="/@"]')).filter(a => {
+            // Only filter truly invisible elements (display:none, zero-size); allow off-screen items
             const rect = a.getBoundingClientRect();
-            // Ensure the link is actually visible and within the dialog view
-            const isVisible = rect.height > 5 && rect.width > 5;
-            const isInBounds = rect.top >= (containerRect.top - 10) &&
-                rect.bottom <= (containerRect.bottom + 10);
-            return isVisible && isInBounds;
+            return rect.height > 0 || a.offsetParent !== null;
         });
 
         const dbRef = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
@@ -1233,9 +1710,9 @@ const Core = {
             if (!flexRow) {
                 flexRow = a.closest('div[role="listitem"]') ||
                     a.closest('div[data-pressable-container="true"]') ||
-                    a.closest('.x1n2onr6.x1f9n5g') || // Common reply row class
-                    followBtn.parentElement.closest('.x78zum5.xdt5ytf') ||
-                    followBtn.parentElement;
+                    a.closest('.x1n2onr6.x1f9n5g') ||
+                    (followBtn && followBtn.parentElement ? followBtn.parentElement.closest('.x78zum5.xdt5ytf') : null) ||
+                    (followBtn ? followBtn.parentElement : null);
             }
 
             if (!flexRow) return;
@@ -1258,30 +1735,12 @@ const Core = {
                 return;
             }
 
-            // Beta 40/42/54: Spacing adjustment on the Follow button side
-            if (followBtnContainer) {
-                followBtnContainer.style.setProperty("margin-right", "24px", "important");
-            }
-
-            // Ensure our chosen flexRow is the relative origin
-            if (flexRow.style.position === "" || window.getComputedStyle(flexRow).position === "static") {
-                flexRow.style.position = "relative";
-            }
-            flexRow.style.setProperty("overflow", "visible", "important");
-
             const container = document.createElement("div");
             container.className = "hege-checkbox-container";
-            container.dataset.username = username; // Ensure we identify who this box belongs to
-            container.style.position = "absolute";
-            // Coordinate for flexRow anchor
-            container.style.right = "-15px";
-            container.style.top = "50%";
-            container.style.transform = "translateY(-50%)";
+            container.dataset.username = username;
             container.style.cursor = 'pointer';
             container.style.zIndex = '100';
-            container.style.backgroundColor = 'var(--bg-color, rgba(255,255,255,0.1))';
-            container.style.borderRadius = '4px';
-            container.style.padding = '2px';
+            container.style.flexShrink = '0';
 
             const bgMode = Core.getBgMode();
             if (bgMode === 'UNBLOCKING') {
@@ -1330,7 +1789,12 @@ const Core = {
             }
             container.addEventListener('click', Core.handleGlobalClick, true);
 
-            flexRow.appendChild(container); // Just append, 'order: 999' will put it on the right
+            // 插在追蹤按鈕前面，避免重疊
+            if (followBtnContainer && followBtnContainer.parentElement === flexRow) {
+                flexRow.insertBefore(container, followBtnContainer);
+            } else {
+                flexRow.appendChild(container);
+            }
         });
     },
 
@@ -1348,6 +1812,9 @@ const Core = {
             const btn = svg.closest('div[role="button"]');
             if (!btn || !btn.parentElement) return;
 
+            // Dialog 內的 checkbox 由 injectDialogCheckboxes 處理，避免重複注入
+            if (btn.closest('div[role="dialog"]')) return;
+
             // Check if already processed
             if (btn.getAttribute('data-hege-checked') === 'true') return;
             if (btn.parentElement.querySelector('.hege-checkbox-container')) {
@@ -1356,11 +1823,17 @@ const Core = {
             }
 
             // SVG filtering
-            if (!svg.querySelector('circle') && !svg.querySelector('path')) return;
+            if (!svg.querySelector('circle') && !svg.querySelector('path')) {
+                Utils.diagLog(`[SKIP] SVG 無 circle/path, viewBox=${svg.getAttribute('viewBox')}`);
+                return;
+            }
             const viewBox = svg.getAttribute('viewBox');
             if (viewBox === '0 0 12 12' || viewBox === '0 0 13 12') return;
             const width = svg.style.width ? parseInt(svg.style.width) : 24;
-            if (width < 16 && svg.clientWidth < 16) return;
+            if (width < 16 && svg.clientWidth < 16) {
+                Utils.diagLog(`[SKIP] SVG 太小 w=${width}, clientW=${svg.clientWidth}`);
+                return;
+            }
 
             let username = null;
             try {
@@ -1376,6 +1849,10 @@ const Core = {
                 }
             } catch (e) { }
 
+            if (!username) {
+                Utils.diagLog(`[SKIP] 找不到 username, btn.parentClasses=${btn.parentElement?.className?.substring(0, 50)}`);
+            }
+
             if (username && username === Utils.getMyUsername()) {
                 // Checkbox should not appear for the user's own account
                 btn.setAttribute('data-hege-checked', 'true');
@@ -1383,8 +1860,6 @@ const Core = {
             }
 
             btn.setAttribute('data-hege-checked', 'true');
-            btn.style.transition = 'transform 0.2s';
-            btn.style.transform = 'translateX(-45px)';
 
             const container = document.createElement('div');
             container.className = 'hege-checkbox-container';
@@ -1466,9 +1941,19 @@ const Core = {
             container.addEventListener('click', Core.handleGlobalClick, true);
 
             try {
-                const ps = window.getComputedStyle(btn.parentElement).position;
-                if (ps === 'static') btn.parentElement.style.position = 'relative';
-                btn.parentElement.insertBefore(container, btn);
+                const parent = btn.parentElement;
+                if (parent) {
+                    const ps = window.getComputedStyle(parent).position;
+                    if (ps === 'static') parent.style.position = 'relative';
+                    parent.style.setProperty('overflow', 'visible', 'important');
+                    // checkbox 用 absolute 定位在 button 左側
+                    container.style.position = 'absolute';
+                    container.style.right = '100%';
+                    container.style.top = '50%';
+                    container.style.transform = 'translateY(-50%)';
+                    container.style.marginRight = '2px';
+                    parent.appendChild(container);
+                }
             } catch (e) { }
         });
     },
@@ -1579,6 +2064,7 @@ const Core = {
         Core.updateControllerUI();
     },
 
+
     openBlockManager: () => {
         const db = Storage.getJSON(CONFIG.KEYS.DB_KEY, []);
         const ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
@@ -1606,7 +2092,7 @@ const Core = {
             if (Utils.isMobile()) {
                 Core.runSameTabWorker();
             } else {
-                window.open('https://www.threads.net/?hege_bg=true', 'HegeBlockWorker', 'width=800,height=600');
+                Utils.openWorkerWindow();
             }
         }
     },
@@ -1687,9 +2173,6 @@ const Core = {
             } else {
                 retryItem.style.display = 'none';
             }
-        }
-        if (reportItem) {
-            reportItem.style.display = failedQueue.length > 0 ? 'flex' : 'none';
         }
 
         let badgeText = Core.pendingUsers.size > 0 ? `(${Core.pendingUsers.size})` : '';
@@ -1812,7 +2295,7 @@ const Core = {
             return;
         }
 
-        if (confirm(`發現 ${failedUsers.length} 筆過去封鎖失敗或找不到人的帳號。\n確定要重新將他們加入排隊列重試嗎？`)) {
+        UI.showConfirm(`發現 ${failedUsers.length} 筆過去封鎖失敗或找不到人的帳號。\n確定要重新將他們加入排隊列重試嗎？`, () => {
             let activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
             const combinedQueue = [...new Set([...activeQueue, ...failedUsers])];
             Storage.setJSON(CONFIG.KEYS.BG_QUEUE, combinedQueue);
@@ -1827,10 +2310,10 @@ const Core = {
                 if (Utils.isMobile()) {
                     Core.runSameTabWorker();
                 } else {
-                    window.open('https://www.threads.net/?hege_bg=true', 'HegeBlockWorker', 'width=800,height=600');
+                    Utils.openWorkerWindow();
                 }
             }
-        }
+        });
     },
 
     importList: () => {
@@ -1862,19 +2345,22 @@ const Core = {
         const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
         const isRunning = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
 
-        if (!isRunning && confirm(`已匯入 ${newUsers.length} 筆名單。\n是否立即開始背景執行？`)) {
-            if (Utils.isMobile()) {
-                Core.runSameTabWorker();
-            } else {
-                window.open('https://www.threads.net/?hege_bg=true', 'HegeBlockWorker', 'width=800,height=600');
-            }
+        if (!isRunning) {
+            UI.showConfirm(`已匯入 ${newUsers.length} 筆名單。\n是否立即開始背景執行？`, () => {
+                if (Utils.isMobile()) {
+                    Core.runSameTabWorker();
+                } else {
+                    Utils.openWorkerWindow();
+                }
+            });
         } else if (isRunning) {
             UI.showToast('已合併至正在運行的背景任務');
         }
     },
 
     collectDiagnostics: () => {
-        const isIPad = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+        const _platform = navigator.userAgentData?.platform || navigator.platform || '';
+        const isIPad = (_platform === 'macOS' || _platform === 'MacIntel') && navigator.maxTouchPoints > 1;
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || isIPad;
         const platform = isIOS ? 'iOS/iPad' : 'Desktop';
 
@@ -1929,7 +2415,8 @@ const Core = {
         let injectionMethod = 'unknown';
         if (typeof GM_info !== 'undefined') injectionMethod = 'Tampermonkey/Userscripts';
         else if (document.querySelector('script[src*="content.js"]')) injectionMethod = 'Chrome Extension';
-        else if (chrome && chrome.runtime) injectionMethod = 'Chrome Extension';
+        else if (typeof browser !== 'undefined' && browser.runtime) injectionMethod = 'Firefox Extension';
+        else if (typeof chrome !== 'undefined' && chrome.runtime) injectionMethod = 'Chrome Extension';
 
         // Build report
         const lines = [
@@ -1962,63 +2449,25 @@ const Core = {
             failedQueue.length > 0 ? failedQueue.join(', ') : '(空)',
             ``,
             `── 執行紀錄 (最近${debugLogs.length}筆) ──`,
-            ...debugLogs
+            ...debugLogs,
+            ``,
+            `── Web Console 追蹤 (最近50筆) ──`,
+            ...Utils.getRecentLogs()
         ];
 
         return lines.join('\n');
     },
 
     showReportDialog: () => {
-        // Remove existing dialog if any
-        const existing = document.getElementById('hege-report-dialog');
-        if (existing) existing.remove();
+        const reportData = Core.collectDiagnostics();
 
-        const overlay = document.createElement('div');
-        overlay.id = 'hege-report-dialog';
-        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:999999;display:flex;align-items:center;justify-content:center;font-family:system-ui,-apple-system,sans-serif;';
-
-        const dialog = document.createElement('div');
-        dialog.style.cssText = 'background:#1a1a2e;color:#e0e0e0;border-radius:16px;padding:28px 24px;max-width:400px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.5);text-align:center;';
-
-        Utils.setHTML(dialog, `
-            <div style="font-size:20px;font-weight:700;margin-bottom:16px;">🐛 回報問題</div>
-            <div style="font-size:14px;line-height:1.6;color:#aaa;margin-bottom:20px;text-align:left;">
-                如果你有大量的失敗，並確認不是被 Meta 限制了，按下「複製 Debug 訊息」回報給開發者，協助我把這個程式修正的更好！感謝 🙏
-            </div>
-            <div id="hege-report-copy-btn" style="background:linear-gradient(135deg,#4cd964,#30d158);color:#fff;font-size:16px;font-weight:700;padding:14px;border-radius:12px;cursor:pointer;user-select:none;margin-bottom:12px;transition:transform 0.15s;">
-                📋 複製 Debug 訊息
-            </div>
-            <div id="hege-report-copy-status" style="font-size:13px;color:#4cd964;margin-bottom:16px;display:none;">✅ 已複製到剪貼簿！請貼給開發者</div>
-            <a href="https://www.threads.net/@skiseiju" target="_blank" style="display:inline-block;background:#333;color:#fff;font-size:14px;padding:10px 20px;border-radius:10px;text-decoration:none;margin-bottom:8px;transition:background 0.2s;">
-                💬 前往開發者 Threads (@skiseiju)
-            </a>
-            <div id="hege-report-close" style="font-size:13px;color:#666;cursor:pointer;margin-top:12px;padding:8px;">關閉</div>
-        `);
-
-        overlay.appendChild(dialog);
-        document.body.appendChild(overlay);
-
-        // Copy button handler
-        const copyBtn = document.getElementById('hege-report-copy-btn');
-        const copyStatus = document.getElementById('hege-report-copy-status');
-        if (copyBtn) {
-            copyBtn.addEventListener('click', () => {
-                const report = Core.collectDiagnostics();
-                navigator.clipboard.writeText(report).then(() => {
-                    if (copyStatus) copyStatus.style.display = 'block';
-                    copyBtn.textContent = '✅ 已複製！';
-                    copyBtn.style.background = '#333';
-                }).catch(() => {
-                    // Fallback: prompt
-                    prompt('請手動複製以下訊息：', report);
-                });
+        UI.showBugReportModal(async (level, message) => {
+            return await Reporter.submitReport(level, message, "UI_REPORT", {
+                diagnostics: reportData,
+                speedMode: Utils.getSpeedMode(),
+                checkboxDiag: Utils.getDiagLogs()
             });
-        }
-
-        // Close handlers
-        const closeBtn = document.getElementById('hege-report-close');
-        if (closeBtn) closeBtn.addEventListener('click', () => overlay.remove());
-        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        });
     }
 };
 
@@ -2037,18 +2486,19 @@ const Worker = {
     consecutiveFails: 0,       // Level 2 連續失敗計數
 
     saveStats: () => {
-        Storage.setJSON('hege_worker_stats', {
+        Storage.setJSON(CONFIG.KEYS.WORKER_STATS, {
             stats: Worker.stats,
             initialTotal: Worker.initialTotal,
             sessionQueue: Worker.sessionQueue,
             verifyLevel: Worker.verifyLevel,
             verifyCount: Worker.verifyCount,
-            consecutiveFails: Worker.consecutiveFails
+            consecutiveFails: Worker.consecutiveFails,
+            consecutiveRateLimits: Worker.consecutiveRateLimits
         });
     },
 
     loadStats: () => {
-        const saved = Storage.getJSON('hege_worker_stats', null);
+        const saved = Storage.getJSON(CONFIG.KEYS.WORKER_STATS, null);
         if (saved && saved.stats) {
             Worker.stats = saved.stats;
             Worker.initialTotal = saved.initialTotal || 0;
@@ -2056,6 +2506,7 @@ const Worker = {
             Worker.verifyLevel = saved.verifyLevel || 0;
             Worker.verifyCount = saved.verifyCount || 0;
             Worker.consecutiveFails = saved.consecutiveFails || 0;
+            Worker.consecutiveRateLimits = saved.consecutiveRateLimits || 0;
         } else {
             Worker.stats = { success: 0, skipped: 0, failed: 0, vanished: 0, startTime: Date.now() };
             Worker.initialTotal = 0;
@@ -2063,11 +2514,12 @@ const Worker = {
             Worker.verifyLevel = 0;
             Worker.verifyCount = 0;
             Worker.consecutiveFails = 0;
+            Worker.consecutiveRateLimits = 0;
         }
     },
 
     clearStats: () => {
-        Storage.remove('hege_worker_stats');
+        Storage.remove(CONFIG.KEYS.WORKER_STATS);
     },
 
     init: async () => {
@@ -2112,6 +2564,19 @@ const Worker = {
             } catch (e) { }
         };
 
+        // Worker 視窗關閉時清理狀態
+        window.addEventListener('beforeunload', () => {
+            Storage.remove(CONFIG.KEYS.VERIFY_PENDING);
+            // 批次驗證進度不清除 — 重新開啟 Worker 時可繼續
+            const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
+            if (status.state === 'running') {
+                status.state = 'paused';
+                status.lastUpdate = Date.now();
+                Storage.setJSON(CONFIG.KEYS.BG_STATUS, status);
+            }
+            Worker.saveStats();
+        });
+
         window.hegeLog('[BG-INIT] Worker Started');
 
         // Cooldown check
@@ -2129,7 +2594,13 @@ const Worker = {
         const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
         if (cooldownQueue.length > 0) {
             const currentQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
-            const merged = [...new Set([...currentQueue, ...cooldownQueue])];
+            // 以 username 為 key 去重，cooldownQueue 的操作優先（較新）
+            const extractUser = (entry) => entry.startsWith(CONFIG.UNBLOCK_PREFIX) ? entry.replace(CONFIG.UNBLOCK_PREFIX, '') : entry;
+            const seen = new Map(); // username → raw entry
+            [...currentQueue, ...cooldownQueue].forEach(entry => {
+                seen.set(extractUser(entry), entry);
+            });
+            const merged = [...seen.values()];
             Storage.setJSON(CONFIG.KEYS.BG_QUEUE, merged);
             Storage.remove(CONFIG.KEYS.COOLDOWN_QUEUE);
             Storage.remove(CONFIG.KEYS.COOLDOWN);
@@ -2306,6 +2777,80 @@ const Worker = {
         }
     },
 
+    // 批次驗證：reload 後繼續的入口
+    resumeBatchVerify: async () => {
+        const idxStr = Storage.get('hege_batch_verify_idx');
+        if (idxStr === null) return false;
+
+        const batchQueue = Storage.getJSON(CONFIG.KEYS.BATCH_VERIFY, []);
+        const idx = parseInt(idxStr);
+        if (idx >= batchQueue.length) {
+            // 全部完成
+            Storage.setJSON(CONFIG.KEYS.BATCH_VERIFY, []);
+            Storage.remove('hege_batch_verify_idx');
+            return false;
+        }
+
+        const rawTarget = batchQueue[idx];
+        const isUnblock = rawTarget.startsWith(CONFIG.UNBLOCK_PREFIX);
+        const user = isUnblock ? rawTarget.replace(CONFIG.UNBLOCK_PREFIX, '') : rawTarget;
+        const total = batchQueue.length;
+
+        Worker.updateStatus('running', `驗證中: @${user} (${idx + 1}/${total})`, 0, total - idx);
+        if (window.hegeLog) window.hegeLog(`[批次驗證] @${user} (${idx + 1}/${total})`);
+
+        // 確認是否在正確頁面
+        const onPage = location.pathname.includes(`/@${user}`);
+        if (onPage) {
+            const result = await Worker.verifyBlock(user, isUnblock);
+            if (result) {
+                if (window.hegeLog) window.hegeLog(`[批次驗證] @${user} ✅ 確認成功`);
+            } else {
+                if (window.hegeLog) window.hegeLog(`[批次驗證] @${user} ❌ 驗證失敗`);
+                // 從 DB 移除未確認的封鎖
+                let db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+                let ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
+                if (!isUnblock && db.has(user)) {
+                    db.delete(user);
+                    delete ts[user];
+                    Storage.setJSON(CONFIG.KEYS.DB_KEY, [...db]);
+                    Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, ts);
+                    // 加入失敗佇列
+                    let fq = new Set(Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []));
+                    fq.add(user);
+                    Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, [...fq]);
+                    if (window.hegeLog) window.hegeLog(`[批次驗證] @${user} 已從 DB 移除，加入失敗佇列`);
+                }
+            }
+        } else {
+            if (window.hegeLog) window.hegeLog(`[批次驗證] @${user} 頁面不符，跳過`);
+        }
+
+        // 下一筆
+        const nextIdx = idx + 1;
+        if (nextIdx >= batchQueue.length) {
+            // 全部完成
+            if (window.hegeLog) window.hegeLog(`[批次驗證] 全部完成`);
+            Storage.setJSON(CONFIG.KEYS.BATCH_VERIFY, []);
+            Storage.remove('hege_batch_verify_idx');
+            Worker.updateStatus('idle', '✅ 全部完成（含驗證）！', 0, 0);
+            Worker.clearStats();
+            const stopBtn = document.getElementById('hege-worker-stop');
+            if (stopBtn) stopBtn.style.display = 'none';
+            Worker.navigateBack();
+            return true;
+        }
+
+        // 導航到下一筆
+        Storage.set('hege_batch_verify_idx', nextIdx.toString());
+        const nextRaw = batchQueue[nextIdx];
+        const nextUser = nextRaw.startsWith(CONFIG.UNBLOCK_PREFIX) ? nextRaw.replace(CONFIG.UNBLOCK_PREFIX, '') : nextRaw;
+        const nextPath = `/@${nextUser}/replies`;
+        history.replaceState(null, '', `${nextPath}?hege_bg=true`);
+        location.reload();
+        return true; // 告訴呼叫者已接管流程
+    },
+
     navigateBack: () => {
         setTimeout(() => {
             const returnUrl = Storage.get('hege_return_url');
@@ -2326,11 +2871,17 @@ const Worker = {
         if (Storage.get(CONFIG.KEYS.BG_CMD) === 'stop') {
             Storage.remove(CONFIG.KEYS.BG_CMD);
             Storage.remove(CONFIG.KEYS.VERIFY_PENDING);
+            Storage.remove('hege_batch_verify_idx');
+            Storage.setJSON(CONFIG.KEYS.BATCH_VERIFY, []);
             Worker.updateStatus('stopped', '已停止');
             Worker.clearStats();
             Worker.navigateBack();
             return;
         }
+
+        // 批次驗證 resume（turbo 模式，reload 後繼續）
+        const batchResumed = await Worker.resumeBatchVerify();
+        if (batchResumed) return;
 
         // Handle pending verification (after page reload)
         const verifyPending = Storage.get(CONFIG.KEYS.VERIFY_PENDING);
@@ -2342,7 +2893,7 @@ const Worker = {
             Worker.updateStatus('running', targetUser);
 
             Storage.remove(CONFIG.KEYS.VERIFY_PENDING);
-            const onVerifyPage = location.pathname.includes(`/@${targetUser}`);
+            const onVerifyPage = new RegExp(`^/@${targetUser.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\/|$)`).test(location.pathname);
             if (onVerifyPage) {
                 window.hegeLog(`[驗證] 頁面已刷新，驗證 @${targetUser}`);
                 const verified = await Worker.verifyBlock(targetUser, isUnblockVerify);
@@ -2373,7 +2924,7 @@ const Worker = {
                     fq.add(targetUser);
                     Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, [...fq]);
                     Worker.updateStatus('running', targetUser, 0, currentTotal);
-                    Worker.runStep();
+                    setTimeout(Worker.runStep, 100);
                     return;
                 }
 
@@ -2400,39 +2951,34 @@ const Worker = {
                 Storage.setJSON(CONFIG.KEYS.DB_KEY, [...db]);
                 Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, ts);
                 Worker.updateStatus('running', targetUser, 0, currentTotal);
-                Worker.runStep();
+                setTimeout(Worker.runStep, 100);
                 return;
             } else {
-                // Not on the right page, skip verification and treat as success
-                window.hegeLog(`[驗證] 頁面不符，跳過驗證 @${targetUser}`);
-                let queue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
-                Worker.stats.success++;
-                Worker.saveStats();
-                if (queue.length > 0 && queue[0] === verifyPending) {
-                    queue.shift();
-                    Storage.setJSON(CONFIG.KEYS.BG_QUEUE, queue);
-                }
-                let db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
-                let ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
-
-                if (isUnblockVerify) {
-                    db.delete(targetUser);
-                    delete ts[targetUser];
-                } else {
-                    db.add(targetUser);
-                    ts[targetUser] = Date.now();
-                }
-
-                Storage.setJSON(CONFIG.KEYS.DB_KEY, [...db]);
-                Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, ts);
+                // 頁面不符 — 不更新 DB，清除 VERIFY_PENDING 讓下一步正常處理
+                window.hegeLog(`[驗證] 頁面不符，跳過驗證 @${targetUser}，不更新 DB`);
+                // 不 shift 佇列，讓 runStep 重新導航到正確頁面
             }
         }
 
+        // 每步開始前 invalidate cache，確保讀到最新佇列（避免與 Controller 競態）
+        Storage.invalidate(CONFIG.KEYS.BG_QUEUE);
         let queue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
         if (queue.length === 0) {
+            // 檢查是否有批次驗證待執行（turbo 模式）
+            const batchQueue = Storage.getJSON(CONFIG.KEYS.BATCH_VERIFY, []);
+            if (batchQueue.length > 0) {
+                if (window.hegeLog) window.hegeLog(`[批次驗證] 封鎖完成，開始驗證 ${batchQueue.length} 筆`);
+                Storage.set('hege_batch_verify_idx', '0');
+                // 導航到第一筆
+                const firstRaw = batchQueue[0];
+                const firstUser = firstRaw.startsWith(CONFIG.UNBLOCK_PREFIX) ? firstRaw.replace(CONFIG.UNBLOCK_PREFIX, '') : firstRaw;
+                history.replaceState(null, '', `/@${firstUser}/replies?hege_bg=true`);
+                location.reload();
+                return;
+            }
+
             Worker.updateStatus('idle', '✅ 全部完成！', 0, 0);
             Worker.clearStats();
-            // Hide stop button on completion
             const stopBtn = document.getElementById('hege-worker-stop');
             if (stopBtn) stopBtn.style.display = 'none';
             Worker.navigateBack();
@@ -2446,7 +2992,7 @@ const Worker = {
             Worker.saveStats();
         } else {
             // 動態同步：若佇列在執行期間被外部追加，更新 total + sessionQueue
-            const processed = Worker.stats.success + Worker.stats.skipped + Worker.stats.failed;
+            const processed = Worker.stats.success + Worker.stats.skipped + Worker.stats.failed + Worker.stats.vanished;
             const currentTotal = processed + queue.length;
             if (currentTotal > Worker.initialTotal) {
                 // Append new users to sessionQueue
@@ -2473,10 +3019,10 @@ const Worker = {
             return;
         }
 
-        const onTargetPage = location.pathname.includes(`/@${targetUser}`);
+        const onTargetPage = new RegExp(`^/@${targetUser.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\/|$)`).test(location.pathname);
         if (!onTargetPage) {
             Worker.updateStatus('running', `${isUnblock ? '解鎖前往' : '前往'}: ${targetUser}`, 0, currentTotal);
-            await Utils.sleep(500 + Math.random() * 500);
+            await Utils.speedSleep(500 + Math.random() * 300);
             const useReplies = Storage.get(CONFIG.KEYS.POST_FALLBACK) !== 'false';
             const navPath = useReplies ? `/@${targetUser}/replies` : `/@${targetUser}`;
             history.replaceState(null, '', `${navPath}?hege_bg=true`);
@@ -2493,12 +3039,13 @@ const Worker = {
                     window.hegeLog(`[驗證] Level ${Worker.verifyLevel} 排定驗證 @${targetUser}，重新載入頁面...`);
                     Storage.set(CONFIG.KEYS.VERIFY_PENDING, rawTarget);
                     Worker.saveStats();
-                    await Utils.sleep(1000);
+                    await Utils.speedSleep(800);
                     location.reload();
                     return;
                 }
 
-                // No verification needed
+                // No inline verification — turbo 模式記錄到批次驗證佇列
+                Worker.addToBatchVerify(rawTarget);
                 Worker.stats.success++;
                 Worker.consecutiveRateLimits = 0;
                 Worker.saveStats();
@@ -2523,7 +3070,7 @@ const Worker = {
                 Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, ts);
 
                 Worker.updateStatus('running', targetUser, 0, currentTotal);
-                Worker.runStep();
+                setTimeout(Worker.runStep, 100);
             } else if (result === 'failed') {
                 Worker.stats.failed++;
                 Worker.saveStats();
@@ -2540,7 +3087,7 @@ const Worker = {
                 Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, [...fq]);
 
                 Worker.updateStatus('running', targetUser, 0, currentTotal);
-                Worker.runStep();
+                setTimeout(Worker.runStep, 100);
             } else if (result === 'vanished') {
                 Worker.stats.vanished++;
                 Worker.saveStats();
@@ -2563,7 +3110,7 @@ const Worker = {
                 }
 
                 Worker.updateStatus('running', targetUser, 0, currentTotal);
-                Worker.runStep();
+                setTimeout(Worker.runStep, 100);
             } else if (result === 'rate_limited') {
                 Worker.consecutiveRateLimits++;
                 Worker.saveStats();
@@ -2589,8 +3136,8 @@ const Worker = {
                     Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, [...fq]);
 
                     Worker.updateStatus('running', targetUser, 0, currentTotal);
-                    await Utils.sleep(3000); // extra breather
-                    Worker.runStep();
+                    await Utils.safeSleep(3000); // extra breather — 不受速度模式影響
+                    setTimeout(Worker.runStep, 100);
                 }
                 return;
             } else if (result === 'cooldown') {
@@ -2602,65 +3149,81 @@ const Worker = {
     },
 
     shouldVerify: () => {
+        // Turbo 模式跳過 inline verify，改為事後批次驗證
+        const profile = Utils.getSpeedProfile();
+        if (profile.forceVerify) return false;
+
         if (Worker.verifyLevel === 0) return Worker.verifyCount % 5 === 0;
         if (Worker.verifyLevel === 1) return Worker.verifyCount % 3 === 0;
         return true; // Level 2: always verify
     },
 
+    // Turbo 模式：將成功封鎖的帳號加入批次驗證佇列（20% 抽樣，每 5 筆取 1）
+    addToBatchVerify: (rawTarget) => {
+        const profile = Utils.getSpeedProfile();
+        if (!profile.forceVerify) return;
+        // 20% sampling: only add every 5th successfully blocked user (same rate as smart mode Level 0)
+        if (Worker.stats.success % 5 !== 0) return;
+        const bv = Storage.getJSON(CONFIG.KEYS.BATCH_VERIFY, []);
+        if (!bv.includes(rawTarget)) {
+            bv.push(rawTarget);
+            Storage.setJSON(CONFIG.KEYS.BATCH_VERIFY, bv);
+        }
+    },
+
     verifyBlock: async (user, isUnblockTask = false) => {
         // Page has been reloaded — check if "Unblock" appears in menu (= block succeeded)
         try {
-            // Wait for page to fully render after reload
-            await Utils.sleep(2500);
+            // 智慧等待頁面載入
+            const verifyPageLoaded = await Utils.pollUntil(() => {
+                return document.querySelector('svg[aria-label="更多"], svg[aria-label="More"]');
+            }, 2500);
+            if (!verifyPageLoaded) await Utils.safeSleep(1000);
 
-            // Find "More" button again
-            let profileBtn = null;
-            for (let i = 0; i < 10; i++) {
+            // Find "More" button again (智慧等待)
+            let profileBtn = await Utils.pollUntil(() => {
                 const moreSvgs = document.querySelectorAll('svg[aria-label="更多"], svg[aria-label="More"]');
                 for (let svg of moreSvgs) {
                     if (svg.querySelector('circle') && svg.querySelectorAll('path').length >= 3) {
-                        profileBtn = svg.closest('div[role="button"]');
-                        if (profileBtn) break;
+                        const btn = svg.closest('div[role="button"]');
+                        if (btn) return btn;
                     }
                 }
-                if (!profileBtn && moreSvgs.length > 0) {
-                    profileBtn = moreSvgs[0].closest('div[role="button"]');
-                }
-                if (profileBtn) break;
-                await Utils.sleep(500);
-            }
+                if (moreSvgs.length > 0) return moreSvgs[0].closest('div[role="button"]');
+                return null;
+            }, 5000, 200);
 
             let blockStatus = null; // 'unblocked', 'blocked', or null
 
             if (profileBtn) {
-                await Utils.sleep(500);
+                await Utils.speedSleep(300);
                 Utils.simClick(profileBtn);
 
-                // Wait for menu to appear
-                for (let i = 0; i < 10; i++) {
-                    await Utils.sleep(500);
+                // Wait for menu to appear (智慧等待)
+                await Utils.pollUntil(() => {
                     const menuItems = document.querySelectorAll('div[role="menuitem"], div[role="button"]');
                     for (let item of menuItems) {
                         const t = item.innerText || item.textContent;
                         if (!t) continue;
-                        if (t.includes('解除封鎖') || t.includes('Unblock')) {
+                        if (Utils.isUnblockText(t)) {
                             blockStatus = 'blocked';
-                            break;
+                            return true;
                         }
-                        if ((t.includes('封鎖') && !t.includes('解除')) || (t.includes('Block') && !t.includes('Un'))) {
+                        if (Utils.isBlockText(t)) {
                             blockStatus = 'unblocked';
+                            return true;
                         }
                     }
-                    if (blockStatus) break;
-                }
+                    return null;
+                }, 5000, 150);
 
                 // Close the menu by pressing ESC
                 try {
                     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-                    await Utils.sleep(300);
+                    await Utils.speedSleep(200);
                     const backdrop = document.querySelector('div[data-overlay-container="true"]');
                     if (backdrop) Utils.simClick(backdrop);
-                    await Utils.sleep(500);
+                    await Utils.speedSleep(300);
                 } catch (e) { }
             }
 
@@ -2669,7 +3232,7 @@ const Worker = {
                 const onRepliesPage = window.location.pathname.includes('/replies');
                 if (onRepliesPage) {
                     window.hegeLog('[驗證] Profile 選單無效，嘗試從貼文驗證...');
-                    const postLinks = document.querySelectorAll(`a[href*="/@${user}/post/"]`);
+                    const postLinks = document.querySelectorAll(`a[href*="/@${CSS.escape(user)}/post/"]`);
                     for (const link of postLinks) {
                         let container = link;
                         let postMoreBtn = null;
@@ -2687,33 +3250,33 @@ const Worker = {
                         if (!postMoreBtn) continue;
 
                         postMoreBtn.scrollIntoView({ block: 'center' });
-                        await Utils.sleep(500);
+                        await Utils.speedSleep(300);
                         Utils.simClick(postMoreBtn);
 
-                        for (let i = 0; i < 10; i++) {
-                            await Utils.sleep(500);
+                        await Utils.pollUntil(() => {
                             const menuItems = document.querySelectorAll('div[role="menuitem"], div[role="button"]');
                             for (let item of menuItems) {
                                 const t = item.innerText || item.textContent;
                                 if (!t) continue;
-                                if (t.includes('解除封鎖') || t.includes('Unblock')) {
+                                if (Utils.isUnblockText(t)) {
                                     blockStatus = 'blocked';
-                                    break;
+                                    return true;
                                 }
-                                if ((t.includes('封鎖') && !t.includes('解除')) || (t.includes('Block') && !t.includes('Un'))) {
+                                if (Utils.isBlockText(t)) {
                                     blockStatus = 'unblocked';
+                                    return true;
                                 }
                             }
-                            if (blockStatus) break;
-                        }
+                            return null;
+                        }, 5000, 150);
 
                         // Close the menu by pressing ESC
                         try {
                             document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-                            await Utils.sleep(300);
+                            await Utils.speedSleep(200);
                             const backdrop = document.querySelector('div[data-overlay-container="true"]');
                             if (backdrop) Utils.simClick(backdrop);
-                            await Utils.sleep(500);
+                            await Utils.speedSleep(300);
                         } catch (e) { }
 
                         if (blockStatus) break;
@@ -2835,7 +3398,12 @@ const Worker = {
 
         try {
             setStep('載入中...');
-            await Utils.sleep(2500);
+            // 智慧等待頁面載入，偵測到主要內容就繼續
+            const pageLoaded = await Utils.pollUntil(() => {
+                return document.querySelector('svg[aria-label="更多"], svg[aria-label="More"]') ||
+                       document.querySelector('div[role="button"]');
+            }, 2500);
+            if (!pageLoaded) await Utils.safeSleep(1500);
 
             if (checkFor404()) {
                 setStep('跳過: 連結失效 (404)');
@@ -2843,29 +3411,22 @@ const Worker = {
             }
 
             let blockBtn = null;
-            let skipToConfirm = false;
-
-            if (!skipToConfirm) {
-                // 1. Wait for "More" button (Polling up to 12s)
-                let profileBtn = null;
-
-                for (let i = 0; i < 25; i++) {
+            {
+                // 1. Wait for "More" button (智慧等待)
+                let profileBtn = await Utils.pollUntil(() => {
                     const moreSvgs = document.querySelectorAll('svg[aria-label="更多"], svg[aria-label="More"]');
                     for (let svg of moreSvgs) {
                         if (svg.querySelector('circle') && svg.querySelectorAll('path').length >= 3) {
-                            profileBtn = svg.closest('div[role="button"]');
-                            if (profileBtn) break;
+                            const btn = svg.closest('div[role="button"]');
+                            if (btn) return btn;
                         }
                     }
-
                     // Fallback
-                    if (!profileBtn && moreSvgs.length > 0) {
-                        profileBtn = moreSvgs[0].closest('div[role="button"]');
+                    if (moreSvgs.length > 0) {
+                        return moreSvgs[0].closest('div[role="button"]');
                     }
-
-                    if (profileBtn) break;
-                    await Utils.sleep(500);
-                }
+                    return null;
+                }, 12000, 200);
 
                 if (!profileBtn) {
                     // Diagnostic dump: collect all SVG info on page
@@ -2902,25 +3463,23 @@ const Worker = {
                     } catch (e) { }
                     window.hegeLog(`[DIAG] 準備點擊按鈕 x=${Math.round(rect.x)}, y=${Math.round(rect.y)}, 父層文案=${parentText}`);
                 }
-                await Utils.sleep(500);
+                await Utils.speedSleep(300);
                 profileBtn.scrollIntoView({ block: 'center', inline: 'center' });
-                await Utils.sleep(500);
+                await Utils.safeSleep(200); // scroll animation settle — not speed-adjusted
                 Utils.simClick(profileBtn);
 
-
-                // 2. Wait for Menu (Polling up to 8s, retry click if menu doesn't open)
+                // 2. Wait for Menu (智慧等待 + retry click)
                 let clickRetried = false;
-                for (let i = 0; i < 16; i++) {
-                    await Utils.sleep(500);
+                const menuStartTime = Date.now();
 
-                    // After 3s (6 iterations) with no menuitem, retry the click
-                    if (i === 6 && !clickRetried) {
+                const menuResult = await Utils.pollUntil(() => {
+                    // After 3s with no menuitem, retry the click once
+                    if (!clickRetried && Date.now() - menuStartTime > 3000) {
                         const testMenu = document.querySelectorAll('div[role="menuitem"]');
                         if (testMenu.length === 0) {
                             clickRetried = true;
                             if (window.hegeLog) window.hegeLog(`[DIAG] 選單未開啟，重試 simClick...`);
                             Utils.simClick(profileBtn);
-                            await Utils.sleep(500);
                         }
                     }
 
@@ -2930,33 +3489,35 @@ const Worker = {
                         if (!t) continue;
 
                         if (isUnblock) {
-                            if (t.includes('封鎖') && !t.includes('解除')) {
-                                setStep('已解鎖 (略過)');
-                                return 'already_unblocked';
+                            if (Utils.isBlockText(t)) {
+                                return { action: 'already_unblocked' };
                             }
-                            if (t.includes('解除封鎖') || t.includes('Unblock')) {
-                                blockBtn = item;
-                                break;
+                            if (Utils.isUnblockText(t)) {
+                                return { action: 'found', btn: item };
                             }
                         } else {
-                            if (t.includes('解除封鎖') || t.includes('Unblock')) {
-                                setStep('已封鎖 (略過)');
-                                return 'already_blocked';
+                            if (Utils.isUnblockText(t)) {
+                                return { action: 'already_blocked' };
                             }
-                            if ((t.includes('封鎖') && !t.includes('解除')) || (t.includes('Block') && !t.includes('Un'))) {
-                                blockBtn = item;
-                                break;
+                            if (Utils.isBlockText(t)) {
+                                return { action: 'found', btn: item };
                             }
                         }
                     }
-                    if (blockBtn) break;
+                    return null;
+                }, 8000, 150);
+
+                if (menuResult) {
+                    if (menuResult.action === 'already_unblocked') { setStep('已解鎖 (略過)'); return 'already_unblocked'; }
+                    if (menuResult.action === 'already_blocked') { setStep('已封鎖 (略過)'); return 'already_blocked'; }
+                    if (menuResult.action === 'found') blockBtn = menuResult.btn;
                 }
 
                 if (!blockBtn) {
                     const menuItems = document.querySelectorAll('div[role="menuitem"], div[role="button"]');
                     for (let item of menuItems) {
                         const t = item.innerText || item.textContent;
-                        if (t && (t.includes('解除封鎖') || t.includes('Unblock'))) {
+                        if (t && (Utils.isUnblockText(t))) {
                             if (isUnblock) {
                                 blockBtn = item;
                                 break;
@@ -2975,9 +3536,9 @@ const Worker = {
 
                         // 關閉 Profile 選單
                         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-                        await Utils.sleep(500);
+                        await Utils.speedSleep(300);
 
-                        const postLinks = document.querySelectorAll(`a[href*="/@${user}/post/"]`);
+                        const postLinks = document.querySelectorAll(`a[href*="/@${CSS.escape(user)}/post/"]`);
                         if (window.hegeLog) window.hegeLog(`[DIAG] 在 replies 頁找到 ${postLinks.length} 篇貼文連結`);
 
                         for (const link of postLinks) {
@@ -3001,31 +3562,28 @@ const Worker = {
 
                             // 點擊 Post 層的三個點
                             postMoreBtn.scrollIntoView({ block: 'center' });
-                            await Utils.sleep(500);
+                            await Utils.safeSleep(200); // scroll settle
                             Utils.simClick(postMoreBtn);
 
-                            // 等選單 + 尋找封鎖按鈕 (polling up to 6s)
-                            for (let pi = 0; pi < 12; pi++) {
-                                await Utils.sleep(500);
+                            // 等選單 + 尋找封鎖按鈕 (智慧等待)
+                            const postMenuResult = await Utils.pollUntil(() => {
                                 const pMenuItems = document.querySelectorAll('div[role="menuitem"], div[role="button"]');
                                 for (let item of pMenuItems) {
                                     const t = item.innerText || item.textContent;
                                     if (!t) continue;
-                                    if (t.includes('解除封鎖') || t.includes('Unblock')) {
-                                        if (isUnblock) {
-                                            blockBtn = item;
-                                            break;
-                                        } else {
-                                            setStep('已封鎖 (略過)');
-                                            return 'already_blocked';
-                                        }
+                                    if (Utils.isUnblockText(t)) {
+                                        return isUnblock ? { action: 'found', btn: item } : { action: 'already_blocked' };
                                     }
-                                    if ((t.includes('封鎖') && !t.includes('解除')) || (t.includes('Block') && !t.includes('Un'))) {
-                                        blockBtn = item;
-                                        break;
+                                    if (Utils.isBlockText(t)) {
+                                        return { action: 'found', btn: item };
                                     }
                                 }
-                                if (blockBtn) break;
+                                return null;
+                            }, 6000, 150);
+
+                            if (postMenuResult) {
+                                if (postMenuResult.action === 'already_blocked') { setStep('已封鎖 (略過)'); return 'already_blocked'; }
+                                if (postMenuResult.action === 'found') { blockBtn = postMenuResult.btn; }
                             }
 
                             if (blockBtn) {
@@ -3036,7 +3594,7 @@ const Worker = {
                             // 這篇失敗，關閉選單繼續下一篇
                             if (window.hegeLog) window.hegeLog(`[DIAG] 貼文備案此篇無效，嘗試下一篇...`);
                             document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-                            await Utils.sleep(500);
+                            await Utils.speedSleep(300);
                         }
                     }
 
@@ -3057,16 +3615,14 @@ const Worker = {
                         return 'rate_limited';
                     }
                 }
-            } // end if (!skipToConfirm)
+            }
 
             setStep(isUnblock ? '點擊解除封鎖...' : '點擊封鎖...');
-            await Utils.sleep(800);
+            await Utils.speedSleep(500);
             Utils.simClick(blockBtn);
 
-            // 3. Wait for Confirmation Dialog (Polling up to 5s)
-            let confirmBtn = null;
-            for (let i = 0; i < 10; i++) {
-                await Utils.sleep(500);
+            // 3. Wait for Confirmation Dialog (智慧等待)
+            let confirmBtn = await Utils.pollUntil(() => {
                 const dialogs = document.querySelectorAll('div[role="dialog"]');
                 for (let dialog of dialogs) {
                     const btns = dialog.querySelectorAll('div[role="button"], button');
@@ -3074,46 +3630,43 @@ const Worker = {
                         const t = btn.innerText || btn.textContent;
                         if (!t) continue;
 
+                        // 排除取消/Cancel 按鈕
+                        const isCancelBtn = t.includes('取消') || t.includes('Cancel');
+                        if (isCancelBtn) continue;
+
                         if (isUnblock) {
-                            if (t === '解除封鎖' || t === 'Unblock' || (t.includes('解除封鎖') && !t.includes('取消'))) {
-                                confirmBtn = btn;
-                            }
+                            if (Utils.isUnblockText(t)) return btn;
                         } else {
-                            if (t.includes('封鎖') && !t.includes('解除') && !t.includes('取消')) {
-                                confirmBtn = btn;
-                            }
-                            if (t.includes('Block') && !t.includes('Un') && !t.includes('Cancel')) {
-                                confirmBtn = btn;
-                            }
+                            if (Utils.isBlockText(t)) return btn;
                         }
                     }
                 }
-                if (confirmBtn) break;
-            }
+                return null;
+            }, 5000, 150);
 
             if (!confirmBtn) {
-                // Diagnostic dump: what's in the dialogs (or lack thereof)
+                // 可能是直接封鎖無確認 dialog — 檢查頁面是否已出現「解除封鎖」
+                const pageText = document.body.innerText || '';
+                const directBlocked = isUnblock
+                    ? Utils.isBlockText(pageText) // 解鎖後應看到「封鎖」
+                    : Utils.isUnblockText(pageText); // 封鎖後應看到「解除封鎖」
+
+                if (directBlocked) {
+                    if (window.hegeLog) window.hegeLog(`[DIAG] @${user} 無確認 dialog 但偵測到已${isUnblock ? '解鎖' : '封鎖'}，視為成功`);
+                    setStep(isUnblock ? '✅ 已解除封鎖 (直接)' : '✅ 已封鎖 (直接)');
+                    return 'success';
+                }
+
+                // 真的失敗 — 診斷 dump
                 const dialogs = document.querySelectorAll('div[role="dialog"]');
                 if (window.hegeLog) {
                     window.hegeLog(`[DIAG] @${user} 找不到確認對話框`);
-                    window.hegeLog(`[DIAG] Dialogs 數量: ${dialogs.length}`);
+                    window.hegeLog(`[DIAG] Dialogs: ${dialogs.length}`);
                     for (let i = 0; i < dialogs.length; i++) {
                         const d = dialogs[i];
                         const btns = d.querySelectorAll('div[role="button"], button');
                         const btnTexts = Array.from(btns).map(b => (b.innerText || b.textContent || '').trim().substring(0, 40)).filter(t => t.length > 0);
-                        const dialogText = (d.innerText || '').trim().substring(0, 150);
-                        window.hegeLog(`[DIAG] Dialog[${i}] 按鈕(${btnTexts.length}): ${JSON.stringify(btnTexts)}`);
-                        window.hegeLog(`[DIAG] Dialog[${i}] 內容: ${dialogText}`);
-                    }
-                    if (dialogs.length === 0) {
-                        // Check if maybe the block succeeded without confirmation
-                        const menuItems = document.querySelectorAll('div[role="menuitem"]');
-                        const menuTexts = Array.from(menuItems).map(el => (el.innerText || '').trim().substring(0, 30));
-                        window.hegeLog(`[DIAG] 無 dialog，可能已直接封鎖？ menuitem: ${JSON.stringify(menuTexts)}`);
-                        // Check page for any "Unblock" indication
-                        const pageText = document.body.innerText || '';
-                        const hasUnblock = pageText.includes('解除封鎖') || pageText.includes('Unblock');
-                        window.hegeLog(`[DIAG] 頁面含「解除封鎖」: ${hasUnblock}`);
+                        window.hegeLog(`[DIAG] Dialog[${i}] 按鈕: ${JSON.stringify(btnTexts)}`);
                     }
                 }
                 setStep('找不到確認');
@@ -3121,35 +3674,48 @@ const Worker = {
             }
 
             setStep(isUnblock ? '確認解除封鎖...' : '確認封鎖...');
-            await Utils.sleep(300);
+            await Utils.safeSleep(200); // confirm button React handler settle — not speed-adjusted
             Utils.simClick(confirmBtn);
 
-            // 4. Wait for confirmation dialog to close
-            for (let i = 0; i < 10; i++) {
-                await Utils.sleep(500);
+            // 4. Wait for confirmation dialog to close (智慧等待)
+            const closeResult = await Utils.pollUntil(() => {
                 const dialogs = document.querySelectorAll('div[role="dialog"]');
-                if (dialogs.length === 0) {
-                    setStep(isUnblock ? '✅ 已解除封鎖' : '✅ 已封鎖');
-                    return 'success';
-                }
-                if (checkForError()) {
-                    return 'cooldown';
-                }
+                if (dialogs.length === 0) return 'success';
+                if (checkForError()) return 'cooldown';
+                return null;
+            }, 5000, 150);
+
+            if (closeResult === 'success') {
+                setStep(isUnblock ? '✅ 已解除封鎖' : '✅ 已封鎖');
+                return 'success';
+            }
+            if (closeResult === 'cooldown') {
+                return 'cooldown';
             }
 
-            // Diagnostic dump: dialog didn't close
+            // Dialog 超時未關閉 — 再次檢查是否為限流
+            if (checkForError()) {
+                if (window.hegeLog) window.hegeLog(`[DIAG] @${user} dialog 超時且偵測到限流`);
+                return 'cooldown';
+            }
+
+            // 檢查頁面是否顯示已封鎖（可能 dialog 只是動畫慢）
+            const pageText = document.body.innerText || '';
+            const likelyBlocked = isUnblock ? Utils.isBlockText(pageText) : Utils.isUnblockText(pageText);
+
             if (window.hegeLog) {
                 const dialogs = document.querySelectorAll('div[role="dialog"]');
-                window.hegeLog(`[DIAG] @${user} 確認後 dialog 未關閉`);
-                window.hegeLog(`[DIAG] 殘留 Dialogs: ${dialogs.length}`);
-                for (let i = 0; i < dialogs.length; i++) {
-                    const text = (dialogs[i].innerText || '').trim().substring(0, 200);
-                    window.hegeLog(`[DIAG] Dialog[${i}]: ${text}`);
-                }
+                window.hegeLog(`[DIAG] @${user} 確認後 dialog 未關閉，殘留 ${dialogs.length} 個`);
+                window.hegeLog(`[DIAG] 頁面偵測已${isUnblock ? '解鎖' : '封鎖'}: ${likelyBlocked}`);
             }
 
-            setStep(isUnblock ? '✅ 已解除封鎖 (超時)' : '✅ 已封鎖 (超時)');
-            return 'success';
+            if (likelyBlocked) {
+                setStep(isUnblock ? '✅ 已解除封鎖 (超時)' : '✅ 已封鎖 (超時)');
+                return 'success';
+            }
+
+            setStep('超時未確認');
+            return 'failed';
         } catch (e) {
             console.error('autoBlock error:', e);
             return 'failed';
@@ -3167,29 +3733,32 @@ const Worker = {
 
 (function () {
     'use strict';
+    Utils.initConsoleInterceptor();
     console.log('[留友封] Extension Script Initializing...');
 
     if (Storage.get(CONFIG.KEYS.VERSION_CHECK) !== CONFIG.VERSION) {
-        // Cleanup old keys if needed
-        Storage.remove(CONFIG.KEYS.IOS_MODE);
+        // DB_KEY 遷移：舊版本使用 "undefined" 作為 key（CONFIG.KEYS.DB_KEY 未定義的 bug）
+        const legacyDB = localStorage.getItem('undefined');
+        if (legacyDB && !localStorage.getItem(CONFIG.KEYS.DB_KEY)) {
+            localStorage.setItem(CONFIG.KEYS.DB_KEY, legacyDB);
+            localStorage.removeItem('undefined');
+            console.log('[留友封] DB migrated from legacy "undefined" key');
+        }
 
-        // Aggressively clear all temporary selection and operational queues to prevent ghost data
+        // 清除暫存佇列
         Storage.setSessionJSON(CONFIG.KEYS.PENDING, []);
         Storage.setJSON(CONFIG.KEYS.BG_QUEUE, []);
         Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, []);
         Storage.setJSON(CONFIG.KEYS.BG_STATUS, {});
 
-        // Beta 10/16 Cleanup: Remove all potententially stale verification or cooldown data
-        // Explicitly use localStorage.removeItem to ensure iOS UIWebViews don't ignore it
-        localStorage.removeItem('hege_cooldown_queue');
-        localStorage.removeItem('hege_rate_limit_until');
-        localStorage.removeItem('hege_block_timestamps');
-        localStorage.removeItem('hege_worker_stats');
-
         Storage.remove(CONFIG.KEYS.COOLDOWN_QUEUE);
         Storage.remove(CONFIG.KEYS.COOLDOWN);
-        Storage.remove('hege_worker_stats');
+        Storage.remove(CONFIG.KEYS.WORKER_STATS);
         Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
+
+        // 清除歷史遺留 key
+        localStorage.removeItem('hege_ios_active');
+        localStorage.removeItem('hege_mac_mode');
 
         Storage.set(CONFIG.KEYS.VERSION_CHECK, CONFIG.VERSION);
         console.log(`[留友封] Updated to v${CONFIG.VERSION}. Cleared all temporary queues.`);
@@ -3222,37 +3791,39 @@ const Worker = {
                 const cooldownUntil = parseInt(Storage.get(CONFIG.KEYS.COOLDOWN) || '0');
                 if (cooldownUntil > Date.now()) {
                     const remainHrs = Math.ceil((cooldownUntil - Date.now()) / (1000 * 60 * 60));
-                    if (confirm(`⚠️ 目前處於冷卻保護中（約 ${remainHrs} 小時後自動解除）\n\n強制取消冷卻並繼續封鎖？\n\n若您確認今日封鎖未超過 100 位，這可能是系統誤判，可放心繼續執行。\n\n若已大量封鎖，後續操作可能失敗，Meta 也可能對您的帳號施加額外限制。`)) {
-                        // Force cancel cooldown and resume
-                        const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
-                        const currentQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
-                        const pendingArr = Array.from(pending);
-                        const merged = [...new Set([...currentQueue, ...cooldownQueue, ...pendingArr])];
-                        Storage.setJSON(CONFIG.KEYS.BG_QUEUE, merged);
-                        Storage.remove(CONFIG.KEYS.COOLDOWN_QUEUE);
-                        Storage.remove(CONFIG.KEYS.COOLDOWN);
-                        Storage.invalidate(CONFIG.KEYS.COOLDOWN);
-                        Storage.invalidate(CONFIG.KEYS.COOLDOWN_QUEUE);
+                    UI.showConfirm(
+                        `⚠️ 目前處於冷卻保護中（約 ${remainHrs} 小時後自動解除）\n\n強制取消冷卻並繼續封鎖？\n\n若您確認今日封鎖未超過 100 位，這可能是系統誤判，可放心繼續執行。\n\n若已大量封鎖，後續操作可能失敗，Meta 也可能對您的帳號施加額外限制。`,
+                        () => {
+                            // Force cancel cooldown and resume
+                            const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
+                            const currentQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+                            const pendingArr = Array.from(pending);
+                            const merged = [...new Set([...currentQueue, ...cooldownQueue, ...pendingArr])];
+                            Storage.setJSON(CONFIG.KEYS.BG_QUEUE, merged);
+                            Storage.remove(CONFIG.KEYS.COOLDOWN_QUEUE);
+                            Storage.remove(CONFIG.KEYS.COOLDOWN);
+                            Storage.invalidate(CONFIG.KEYS.COOLDOWN);
+                            Storage.invalidate(CONFIG.KEYS.COOLDOWN_QUEUE);
 
-                        if (pendingArr.length > 0) {
-                            Core.pendingUsers.clear();
-                            Storage.setSessionJSON(CONFIG.KEYS.PENDING, []);
+                            if (pendingArr.length > 0) {
+                                Core.pendingUsers.clear();
+                                Storage.setSessionJSON(CONFIG.KEYS.PENDING, []);
+                            }
+
+                            Core.updateControllerUI();
+                            UI.showToast(`已恢復佇列，共 ${merged.length} 筆，開始執行`);
+
+                            // Directly start worker with restored queue
+                            Storage.remove(CONFIG.KEYS.BG_CMD);
+                            if (Utils.isMobile()) {
+                                Core.runSameTabWorker();
+                            } else {
+                                // window.open must be called directly in the click handler to preserve user gesture
+                                Utils.openWorkerWindow();
+                            }
                         }
-
-                        Core.updateControllerUI();
-                        UI.showToast(`已恢復佇列，共 ${merged.length} 筆，開始執行`);
-
-                        // Directly start worker with restored queue
-                        Storage.remove(CONFIG.KEYS.BG_CMD);
-                        if (Utils.isMobile()) {
-                            Core.runSameTabWorker();
-                        } else {
-                            window.open('https://www.threads.net/?hege_bg=true', 'HegeBlockWorker', 'width=800,height=600');
-                        }
-                        return;
-                    } else {
-                        return;
-                    }
+                    );
+                    return;
                 }
 
                 const queue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
@@ -3261,7 +3832,8 @@ const Worker = {
                 if (Utils.isMobile()) {
                     Core.runSameTabWorker();
                 } else {
-                    // Add to queue
+                    // Add to queue（invalidate 避免與 Worker 競態）
+                    Storage.invalidate(CONFIG.KEYS.BG_QUEUE);
                     const q = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
                     const toAdd = Array.from(pending);
                     const newQ = [...new Set([...q, ...toAdd])];
@@ -3273,7 +3845,7 @@ const Worker = {
                     const running = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
                     if (!running) {
                         Storage.remove(CONFIG.KEYS.BG_CMD);
-                        window.open('https://www.threads.net/?hege_bg=true', 'HegeBlockWorker', 'width=800,height=600');
+                        Utils.openWorkerWindow();
                     }
                 }
             };
@@ -3281,29 +3853,28 @@ const Worker = {
             const callbacks = {
                 onMainClick: handleMainButton,
                 onClearSel: () => {
-                    if (confirm('確定要清除目前的「選取清單」與所有「背景排隊」的帳號嗎？\n(這不會影響已完成的封鎖歷史紀錄)')) {
+                    UI.showConfirm('確定要清除目前的「選取清單」與所有「背景排隊」的帳號嗎？\n(這不會影響已完成的封鎖歷史紀錄)', () => {
                         Core.pendingUsers.clear();
                         Storage.setSessionJSON(CONFIG.KEYS.PENDING, []);
                         Storage.setJSON(CONFIG.KEYS.BG_QUEUE, []);
                         Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, []);
                         Storage.setJSON(CONFIG.KEYS.BG_STATUS, {});
                         Core.blockQueue.forEach(b => {
-                            b.style.transform = 'none';
                             const cb = b.parentElement.querySelector('.hege-checkbox-container');
                             if (cb) cb.classList.remove('checked');
                         });
                         Core.blockQueue.clear();
                         Core.updateControllerUI();
                         UI.showToast('待封鎖清單與背景佇列已全數清除');
-                    }
+                    });
                 },
-                onClearDB: () => { if (confirm('清空歷史?')) { Storage.setJSON(CONFIG.KEYS.DB_KEY, []); Core.updateControllerUI(); } },
+                onClearDB: () => { UI.showConfirm('清空歷史？', () => { Storage.setJSON(CONFIG.KEYS.DB_KEY, []); Core.updateControllerUI(); }); },
                 onImport: () => Core.importList(),
                 onManage: () => Core.openBlockManager(),
                 onExport: () => Core.exportHistory(),
                 onRetryFailed: () => Core.retryFailedQueue(),
                 onReport: () => Core.showReportDialog(),
-                onStop: () => { if (confirm('停止?')) Storage.set(CONFIG.KEYS.BG_CMD, 'stop'); }
+                onStop: () => { UI.showConfirm('確定要停止背景執行？', () => Storage.set(CONFIG.KEYS.BG_CMD, 'stop')); }
             };
 
             const panel = UI.createPanel(callbacks);
@@ -3327,9 +3898,10 @@ const Worker = {
             }, 2000); // Polling backup
 
             // Env Log
-            const isIPad = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+            const _envPlatform = navigator.userAgentData?.platform || navigator.platform || '';
+            const isIPad = (_envPlatform === 'macOS' || _envPlatform === 'MacIntel') && navigator.maxTouchPoints > 1;
             const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || isIPad;
-            Utils.log(`Env: ${navigator.platform}, TP:${navigator.maxTouchPoints}\nDevice: ${isIOS ? 'iOS/iPad' : 'Desktop'}\nUA: ${navigator.userAgent.substring(0, 50)}...`);
+            Utils.log(`Env: ${_envPlatform}, TP:${navigator.maxTouchPoints}\nDevice: ${isIOS ? 'iOS/iPad' : 'Desktop'}\nUA: ${navigator.userAgent.substring(0, 50)}...`);
 
             // Anchor Loop
             UI.anchorPanel();

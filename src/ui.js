@@ -7,23 +7,24 @@ export const UI = {
         const style = document.createElement('style');
         style.textContent = `
             .hege-checkbox-container {
-                position: absolute; right: -8px; top: 50%; transform: translateY(-50%);
-                width: 36px; height: 36px; z-index: 1000;
+                width: 36px; height: 36px; min-width: 36px;
+                z-index: 1000;
                 display: flex; align-items: center; justify-content: center;
                 border-radius: 50%; cursor: pointer; transition: background-color 0.2s;
+                box-sizing: border-box;
             }
             .hege-checkbox-container:hover { background-color: rgba(255, 255, 255, 0.1); }
             .hege-svg-icon { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; color: rgb(119, 119, 119); transition: all 0.2s; }
             @media (prefers-color-scheme: dark) { .hege-svg-icon { color: rgb(119, 119, 119); } }
             @media (prefers-color-scheme: light) { .hege-svg-icon { color: rgb(153, 153, 153); } .hege-checkbox-container:hover { background-color: rgba(0, 0, 0, 0.05); } }
-            
-            .hege-checkbox-container.checked .hege-svg-icon { color: #ff3b30; fill: #ff3b30; stroke: none; transform: scale(1.1); }
+
+            .hege-checkbox-container.checked .hege-svg-icon { color: #ff3b30; fill: #ff3b30; stroke: none; }
             .hege-checkmark { display: none; stroke: white; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
             .hege-checkbox-container.checked .hege-checkmark { display: block; }
 
             .hege-checkbox-container.finished { opacity: 0.6; }
             .hege-checkbox-container.finished .hege-svg-icon { color: #555; }
-            .hege-checkbox-container:active { transform: translateY(-50%) scale(0.9); }
+            .hege-checkbox-container:active { transform: scale(0.85); }
             
             .hege-block-all-btn {
                 display: flex; align-items: center; justify-content: center;
@@ -202,38 +203,31 @@ export const UI = {
                 <div class="hege-menu-item" id="hege-clear-sel-item">
                     <span>清除選取</span>
                 </div>
-                
-                <div class="hege-menu-item" id="hege-import-item">
-                    <span>匯入名單</span>
+
+                <div class="hege-menu-item" id="hege-speed-item">
+                    <span>速度模式</span>
+                    <span class="status" id="hege-speed-status">🧠 智慧</span>
                 </div>
 
-                <div class="hege-menu-item" id="hege-manage-item">
-                    <span>管理已封鎖</span>
-                    <span class="status" id="hege-history-count">0</span>
-                </div>
-                
-                <div class="hege-menu-item" id="hege-export-item">
-                    <span>匯出紀錄</span>
-                </div>
-                
-                <div class="hege-menu-item" id="hege-post-fallback-item">
-                    <span>進階封鎖</span>
-                    <span class="status" id="hege-post-fallback-status">開</span>
-                </div>
-                
                 <div class="hege-menu-item danger" id="hege-retry-failed-item" style="display:none;">
                     <span>重試失敗清單</span>
                     <span class="status" id="hege-failed-count">0</span>
                 </div>
-                
-                <div class="hege-menu-item" id="hege-report-item" style="display:none;">
-                    <span>🐛 回報問題</span>
+
+                <div class="hege-menu-item" id="hege-settings-item">
+                    <span style="display:flex; align-items:center; gap:6px;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                        設定
+                    </span>
                 </div>
 
-                <div class="hege-menu-item danger" id="hege-clear-db-item">
-                    <span>清除所有歷史</span>
+                <div class="hege-menu-item" id="hege-report-item">
+                    <span style="display:flex; align-items:center; gap:6px;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"></path></svg>
+                        回報問題
+                    </span>
                 </div>
-                
+
                 <div class="hege-menu-item danger" id="hege-stop-btn-item" style="border-top:1px solid #333; display:none;">
                     <span>停止執行</span>
                 </div>
@@ -261,22 +255,42 @@ export const UI = {
 
         bindClick('hege-main-btn-item', callbacks.onMainClick);
         bindClick('hege-clear-sel-item', callbacks.onClearSel);
-        bindClick('hege-clear-db-item', callbacks.onClearDB);
-        bindClick('hege-import-item', callbacks.onImport);
-        bindClick('hege-manage-item', callbacks.onManage);
-        bindClick('hege-export-item', callbacks.onExport);
         bindClick('hege-retry-failed-item', callbacks.onRetryFailed);
         bindClick('hege-report-item', callbacks.onReport);
         bindClick('hege-stop-btn-item', callbacks.onStop);
+        bindClick('hege-settings-item', () => UI.showSettingsModal(callbacks));
 
-        // Post Fallback toggle
-        const pfStatus = document.getElementById('hege-post-fallback-status');
-        if (pfStatus) pfStatus.textContent = Storage.get(CONFIG.KEYS.POST_FALLBACK) === 'false' ? '關' : '開';
-        bindClick('hege-post-fallback-item', () => {
-            const current = Storage.get(CONFIG.KEYS.POST_FALLBACK) !== 'false';
-            Storage.set(CONFIG.KEYS.POST_FALLBACK, (!current).toString());
-            const el = document.getElementById('hege-post-fallback-status');
-            if (el) el.textContent = !current ? '開' : '關';
+        // Speed mode toggle (in main panel)
+        const speedModes = ['smart', 'stable', 'standard', 'turbo'];
+        const speedLabels = { smart: '🧠 智慧', stable: '🛡️ 穩定', standard: '⚡ 標準', turbo: '🚀 加速' };
+        const currentSpeed = Storage.get(CONFIG.KEYS.SPEED_MODE) || 'smart';
+        const speedStatus = document.getElementById('hege-speed-status');
+        if (speedStatus) speedStatus.textContent = speedLabels[currentSpeed] || speedLabels.smart;
+
+        bindClick('hege-speed-item', () => {
+            const cur = Storage.get(CONFIG.KEYS.SPEED_MODE) || 'smart';
+            const idx = speedModes.indexOf(cur);
+            const next = speedModes[(idx + 1) % speedModes.length];
+            const profile = CONFIG.SPEED_PROFILES[next];
+
+            const applySpeed = () => {
+                Storage.set(CONFIG.KEYS.SPEED_MODE, next);
+                const el = document.getElementById('hege-speed-status');
+                if (el) el.textContent = speedLabels[next];
+                UI.showToast(`速度模式：${profile.label}`);
+            };
+
+            if (profile.warnOnSelect && !Storage.get(CONFIG.KEYS.TURBO_WARNED)) {
+                UI.showConfirm(
+                    '⚠️ 加速模式會大幅縮短操作間隔\n\n可能導致 Meta 暫時限制您的帳號操作。\n建議僅在少量封鎖時使用。\n\n確定要切換嗎？',
+                    () => {
+                        Storage.set(CONFIG.KEYS.TURBO_WARNED, 'true');
+                        applySpeed();
+                    }
+                );
+            } else {
+                applySpeed();
+            }
         });
 
 
@@ -397,6 +411,41 @@ export const UI = {
         }
     },
 
+    showConfirm: (message, onConfirm, onCancel) => {
+        const existing = document.getElementById('hege-confirm-overlay');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'hege-confirm-overlay';
+        overlay.className = 'hege-manager-overlay';
+
+        const safeMsg = message.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+        overlay.innerHTML = `
+            <div class="hege-manager-box" style="max-width:420px;">
+                <div class="hege-manager-header">
+                    <span class="hege-manager-title">⚠️ 確認</span>
+                </div>
+                <div style="padding:20px;font-size:14px;line-height:1.7;color:#ccc;">${safeMsg}</div>
+                <div class="hege-manager-footer">
+                    <div style="display:flex;gap:12px;width:100%;justify-content:flex-end;">
+                        <button class="hege-manager-btn secondary" id="hege-confirm-cancel">取消</button>
+                        <button class="hege-manager-btn primary" id="hege-confirm-ok">確認繼續</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        overlay.querySelector('#hege-confirm-cancel').onclick = () => {
+            overlay.remove();
+            if (onCancel) onCancel();
+        };
+        overlay.querySelector('#hege-confirm-ok').onclick = () => {
+            overlay.remove();
+            if (onConfirm) onConfirm();
+        };
+    },
+
     showDisclaimer: (onConfirm) => {
         if (document.getElementById('hege-disclaimer-overlay')) return;
 
@@ -417,6 +466,146 @@ export const UI = {
             overlay.remove();
             if (onConfirm) onConfirm();
         };
+    },
+
+    showBugReportModal: (onSubmit) => {
+        if (document.getElementById('hege-report-overlay')) return;
+
+        const overlay = document.createElement('div');
+        overlay.id = 'hege-report-overlay';
+        overlay.className = 'hege-manager-overlay';
+
+        overlay.innerHTML = `
+            <div class="hege-manager-box">
+                <div class="hege-manager-header">
+                    <span class="hege-manager-title" style="display:flex; align-items:center; gap:6px;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"></path></svg>
+                        回報問題
+                    </span>
+                    <span class="hege-manager-close">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+                    </span>
+                </div>
+                <div style="padding: 20px;">
+                    <p style="margin-bottom: 12px; color: #666; font-size: 12px;">版本 ${CONFIG.VERSION}</p>
+                    <p style="margin-bottom: 8px; color: #ccc;">問題描述：</p>
+                    <textarea id="hege-report-msg" rows="4" style="width: 100%; box-sizing: border-box; background: #222; border: 1px solid #444; color: #fff; padding: 10px; border-radius: 8px; font-family: inherit; resize: vertical;" placeholder="請描述您遇到的問題..."></textarea>
+                    
+                    <p style="margin-top: 16px; margin-bottom: 8px; color: #ccc;">問題類型：</p>
+                    <select id="hege-report-level" style="width: 100%; background: #222; border: 1px solid #444; color: #fff; padding: 10px; border-radius: 8px; outline: none;">
+                        <option value="PRAISE">🎉 我覺得很棒</option>
+                        <option value="INFO">💡 功能建議</option>
+                        <option value="WARNING">⚠️ 有點怪怪的</option>
+                        <option value="ERROR" selected>❌ 功能壞了</option>
+                        <option value="CRITICAL">💀 完全無法使用</option>
+                    </select>
+                </div>
+                <div class="hege-manager-footer">
+                    <span id="hege-report-status" style="font-size: 13px; color: #888;"></span>
+                    <div style="display: flex; gap: 12px;">
+                        <button class="hege-manager-btn secondary" id="hege-report-cancel">取消</button>
+                        <button class="hege-manager-btn primary" id="hege-report-submit">送出回報</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const closeBtn = overlay.querySelector('.hege-manager-close');
+        const cancelBtn = overlay.querySelector('#hege-report-cancel');
+        const submitBtn = overlay.querySelector('#hege-report-submit');
+        const msgInput = overlay.querySelector('#hege-report-msg');
+        const levelSelect = overlay.querySelector('#hege-report-level');
+        const statusSpan = overlay.querySelector('#hege-report-status');
+
+        const close = () => overlay.remove();
+        closeBtn.onclick = close;
+        cancelBtn.onclick = close;
+
+        submitBtn.onclick = async () => {
+            const msg = msgInput.value.trim();
+            if (!msg) {
+                statusSpan.textContent = '請輸入問題描述！';
+                statusSpan.style.color = '#ff3b30';
+                return;
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = '傳送中...';
+            statusSpan.textContent = '';
+            
+            try {
+                const result = await onSubmit(levelSelect.value, msg);
+                if (result && result.code === 200) {
+                    UI.showToast('感謝您的回報！已成功送出。');
+                    close();
+                } else {
+                    statusSpan.textContent = `傳送失敗：${result.message || '未知錯誤'}`;
+                    statusSpan.style.color = '#ff3b30';
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '重新傳送';
+                }
+            } catch (err) {
+                statusSpan.textContent = `發生例外錯誤：${err.message || err.toString()}`;
+                statusSpan.style.color = '#ff3b30';
+                submitBtn.disabled = false;
+                submitBtn.textContent = '重新傳送';
+            }
+        };
+    },
+
+    showSettingsModal: (callbacks) => {
+        if (document.getElementById('hege-settings-overlay')) return;
+
+        const db = Storage.getJSON(CONFIG.KEYS.DB_KEY, []);
+
+        const overlay = document.createElement('div');
+        overlay.id = 'hege-settings-overlay';
+        overlay.className = 'hege-manager-overlay';
+
+        overlay.innerHTML = `
+            <div class="hege-manager-box" style="max-width: 360px;">
+                <div class="hege-manager-header">
+                    <span class="hege-manager-title" style="display:flex; align-items:center; gap:6px;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                        設定
+                    </span>
+                    <span class="hege-manager-close">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+                    </span>
+                </div>
+                <div style="padding: 16px; display: flex; flex-direction: column; gap: 8px;">
+                    <div class="hege-menu-item" id="hege-s-manage">
+                        <span>管理已封鎖</span>
+                        <span class="status">${db.length}</span>
+                    </div>
+                    <div class="hege-menu-item" id="hege-s-import">
+                        <span>匯入名單</span>
+                    </div>
+                    <div class="hege-menu-item" id="hege-s-export">
+                        <span>匯出紀錄</span>
+                    </div>
+                    <div class="hege-menu-item danger" id="hege-s-clear-db">
+                        <span>清除所有歷史</span>
+                    </div>
+
+                    <p style="margin-top: 8px; color: #555; font-size: 11px; text-align: center;">版本 ${CONFIG.VERSION}</p>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const close = () => overlay.remove();
+        overlay.querySelector('.hege-manager-close').onclick = close;
+
+        const bind = (id, fn) => {
+            const el = document.getElementById(id);
+            if (el && fn) el.addEventListener('click', () => { close(); fn(); });
+        };
+        bind('hege-s-manage', callbacks.onManage);
+        bind('hege-s-import', callbacks.onImport);
+        bind('hege-s-export', callbacks.onExport);
+        bind('hege-s-clear-db', callbacks.onClearDB);
     },
 
     showBlockManager: (blockedList, timestamps, onUnblock) => {
@@ -456,10 +645,11 @@ export const UI = {
             }
 
             listEl.innerHTML = filtered.map(u => {
+                const safeU = Utils.escapeHTML(u);
                 const time = timestamps[u] ? new Date(timestamps[u]).toLocaleString() : '無記錄時間';
                 const isSelected = selected.has(u);
                 return `
-                    <div class="hege-manager-item" data-username="${u}">
+                    <div class="hege-manager-item" data-username="${safeU}">
                         <div style="margin-right: 16px;">
                             <div class="hege-checkbox-container ${isSelected ? 'checked' : ''}" style="position:static; transform:none; width:24px; height:24px;">
                                 <svg viewBox="0 0 24 24" class="hege-svg-icon" style="width:18px; height:18px;">
@@ -469,7 +659,7 @@ export const UI = {
                             </div>
                         </div>
                         <div class="user-info">
-                            <span class="username">@${u}</span>
+                            <span class="username">@${safeU}</span>
                             <span class="time">${time}</span>
                         </div>
                     </div>
@@ -567,10 +757,13 @@ export const UI = {
 
         overlay.querySelector('#hege-unblock-confirm').onclick = () => {
             const toUnblock = Array.from(selected);
-            if (confirm(`確定要對這 ${toUnblock.length} 位使用者解除封鎖嗎？\n\n這將會開啟背景視窗模擬點擊解除封鎖。`)) {
-                overlay.remove();
-                onUnblock(toUnblock);
-            }
+            UI.showConfirm(
+                `確定要對這 ${toUnblock.length} 位使用者解除封鎖嗎？\n\n這將會開啟背景視窗模擬點擊解除封鎖。`,
+                () => {
+                    overlay.remove();
+                    onUnblock(toUnblock);
+                }
+            );
         };
     }
 };

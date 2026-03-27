@@ -54,6 +54,7 @@ FILES=(
     "config.js"
     "utils.js"
     "storage.js"
+    "reporter.js"
     "ui.js"
     "core.js"
     "worker.js"
@@ -92,7 +93,9 @@ cat <<EOF > "$OUT_FILE"
 // @include      *://threads.net/*
 // @include      *://threads.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=threads.net
-// @grant        none
+// @grant        GM_xmlhttpRequest
+// @connect      script.google.com
+// @connect      script.googleusercontent.com
 // ==/UserScript==
 
 EOF
@@ -101,35 +104,59 @@ cat "$TEMP_BUNDLE" >> "$OUT_FILE"
 echo "UserScript Build complete: $OUT_FILE"
 
 
-# 2. Chrome Extension Build
+# 2. Chrome Extension Build (MV3)
 EXT_DIR="$DIST_DIR/extension"
 mkdir -p "$EXT_DIR"
 
-# Copy Logic (as content.js)
 cp "$TEMP_BUNDLE" "$EXT_DIR/content.js"
 
-# Copy Manifest
 if [ -f "$SRC_DIR/manifest.json" ]; then
     cp "$SRC_DIR/manifest.json" "$EXT_DIR/manifest.json"
     sed -i '' -E "s/\"version\": \"[^\"]+\"/\"version\": \"$APP_VERSION\"/" "$EXT_DIR/manifest.json"
-else
-    echo "Warning: src/manifest.json not found."
 fi
 
-# Copy Icon
+# Copy Icon for Chrome
 if [ -f "$SRC_DIR/icon.png" ]; then
     cp "$SRC_DIR/icon.png" "$EXT_DIR/icon.png"
 elif [ -f "$SCRIPT_DIR/icon.png" ]; then
     cp "$SCRIPT_DIR/icon.png" "$EXT_DIR/icon.png"
-else 
-    # Fallback dummy
+else
     touch "$EXT_DIR/icon.png"
 fi
 
+echo "Chrome Extension Build complete: $EXT_DIR"
+
+
+# 3. Firefox Extension Build (MV2)
+FF_DIR="$DIST_DIR/firefox"
+mkdir -p "$FF_DIR"
+
+cp "$TEMP_BUNDLE" "$FF_DIR/content.js"
+
+if [ -f "$SRC_DIR/manifest.firefox.json" ]; then
+    cp "$SRC_DIR/manifest.firefox.json" "$FF_DIR/manifest.json"
+    # Firefox version 不能有 -beta，轉換為 .NNN 格式
+    FF_VERSION=$(echo "$APP_VERSION" | sed -E 's/-beta/./g')
+    sed -i '' -E "s/\"version\": \"[^\"]+\"/\"version\": \"$FF_VERSION\"/" "$FF_DIR/manifest.json"
+fi
+
+# Copy Icon for Firefox
+if [ -f "$SRC_DIR/icon.png" ]; then
+    cp "$SRC_DIR/icon.png" "$FF_DIR/icon.png"
+elif [ -f "$SCRIPT_DIR/icon.png" ]; then
+    cp "$SCRIPT_DIR/icon.png" "$FF_DIR/icon.png"
+else
+    touch "$FF_DIR/icon.png"
+fi
+
+# Package Firefox .xpi (zip)
+(cd "$FF_DIR" && zip -qr "$DIST_DIR/threads_blocker_firefox.xpi" .)
+echo "Firefox Extension Build complete: $FF_DIR"
+echo "Firefox XPI: $DIST_DIR/threads_blocker_firefox.xpi"
+
+
 # Cleanup
 rm "$TEMP_BUNDLE"
-
-echo "Extension Build complete: $EXT_DIR"
 
 # 3. Safari UserScript Deployment
 SAFARI_PATH="/Users/skiseiju/Library/Mobile Documents/com~apple~CloudDocs/userscripts/threads-block.js"

@@ -1,9 +1,15 @@
 {
-  "manifest_version": 3,
+  "manifest_version": 2,
   "name": "留友封 (Threads Block Tool)",
-  "version": "2.4.1-beta1",
-  "description": "Threads 批量封鎖工具 (Chrome Extension Build)",
-  "host_permissions": [
+  "version": "2.2.2",
+  "description": "Threads 批量封鎖工具 (Firefox Extension Build)",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "threads-blocker@hege",
+      "strict_min_version": "109.0"
+    }
+  },
+  "permissions": [
     "*://*.threads.net/*",
     "*://threads.net/*",
     "*://*.threads.com/*",

@@ -1,0 +1,14 @@
+# Node.js
+node_modules/
+npm-debug.log*
+
+# Build output
+dist/
+*.min.js
+
+# IDE
+.vscode/
+.idea/
+
+# macOS
+.DS_Store

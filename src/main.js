@@ -7,29 +7,32 @@ import { Worker } from './worker.js';
 
 (function () {
     'use strict';
+    Utils.initConsoleInterceptor();
     console.log('[留友封] Extension Script Initializing...');
 
     if (Storage.get(CONFIG.KEYS.VERSION_CHECK) !== CONFIG.VERSION) {
-        // Cleanup old keys if needed
-        Storage.remove(CONFIG.KEYS.IOS_MODE);
+        // DB_KEY 遷移：舊版本使用 "undefined" 作為 key（CONFIG.KEYS.DB_KEY 未定義的 bug）
+        const legacyDB = localStorage.getItem('undefined');
+        if (legacyDB && !localStorage.getItem(CONFIG.KEYS.DB_KEY)) {
+            localStorage.setItem(CONFIG.KEYS.DB_KEY, legacyDB);
+            localStorage.removeItem('undefined');
+            console.log('[留友封] DB migrated from legacy "undefined" key');
+        }
 
-        // Aggressively clear all temporary selection and operational queues to prevent ghost data
+        // 清除暫存佇列
         Storage.setSessionJSON(CONFIG.KEYS.PENDING, []);
         Storage.setJSON(CONFIG.KEYS.BG_QUEUE, []);
         Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, []);
         Storage.setJSON(CONFIG.KEYS.BG_STATUS, {});
 
-        // Beta 10/16 Cleanup: Remove all potententially stale verification or cooldown data
-        // Explicitly use localStorage.removeItem to ensure iOS UIWebViews don't ignore it
-        localStorage.removeItem('hege_cooldown_queue');
-        localStorage.removeItem('hege_rate_limit_until');
-        localStorage.removeItem('hege_block_timestamps');
-        localStorage.removeItem('hege_worker_stats');
-
         Storage.remove(CONFIG.KEYS.COOLDOWN_QUEUE);
         Storage.remove(CONFIG.KEYS.COOLDOWN);
-        Storage.remove('hege_worker_stats');
+        Storage.remove(CONFIG.KEYS.WORKER_STATS);
         Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
+
+        // 清除歷史遺留 key
+        localStorage.removeItem('hege_ios_active');
+        localStorage.removeItem('hege_mac_mode');
 
         Storage.set(CONFIG.KEYS.VERSION_CHECK, CONFIG.VERSION);
         console.log(`[留友封] Updated to v${CONFIG.VERSION}. Cleared all temporary queues.`);
@@ -62,37 +65,39 @@ import { Worker } from './worker.js';
                 const cooldownUntil = parseInt(Storage.get(CONFIG.KEYS.COOLDOWN) || '0');
                 if (cooldownUntil > Date.now()) {
                     const remainHrs = Math.ceil((cooldownUntil - Date.now()) / (1000 * 60 * 60));
-                    if (confirm(`⚠️ 目前處於冷卻保護中（約 ${remainHrs} 小時後自動解除）\n\n強制取消冷卻並繼續封鎖？\n\n若您確認今日封鎖未超過 100 位，這可能是系統誤判，可放心繼續執行。\n\n若已大量封鎖，後續操作可能失敗，Meta 也可能對您的帳號施加額外限制。`)) {
-                        // Force cancel cooldown and resume
-                        const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
-                        const currentQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
-                        const pendingArr = Array.from(pending);
-                        const merged = [...new Set([...currentQueue, ...cooldownQueue, ...pendingArr])];
-                        Storage.setJSON(CONFIG.KEYS.BG_QUEUE, merged);
-                        Storage.remove(CONFIG.KEYS.COOLDOWN_QUEUE);
-                        Storage.remove(CONFIG.KEYS.COOLDOWN);
-                        Storage.invalidate(CONFIG.KEYS.COOLDOWN);
-                        Storage.invalidate(CONFIG.KEYS.COOLDOWN_QUEUE);
+                    UI.showConfirm(
+                        `⚠️ 目前處於冷卻保護中（約 ${remainHrs} 小時後自動解除）\n\n強制取消冷卻並繼續封鎖？\n\n若您確認今日封鎖未超過 100 位，這可能是系統誤判，可放心繼續執行。\n\n若已大量封鎖，後續操作可能失敗，Meta 也可能對您的帳號施加額外限制。`,
+                        () => {
+                            // Force cancel cooldown and resume
+                            const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
+                            const currentQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+                            const pendingArr = Array.from(pending);
+                            const merged = [...new Set([...currentQueue, ...cooldownQueue, ...pendingArr])];
+                            Storage.setJSON(CONFIG.KEYS.BG_QUEUE, merged);
+                            Storage.remove(CONFIG.KEYS.COOLDOWN_QUEUE);
+                            Storage.remove(CONFIG.KEYS.COOLDOWN);
+                            Storage.invalidate(CONFIG.KEYS.COOLDOWN);
+                            Storage.invalidate(CONFIG.KEYS.COOLDOWN_QUEUE);
 
-                        if (pendingArr.length > 0) {
-                            Core.pendingUsers.clear();
-                            Storage.setSessionJSON(CONFIG.KEYS.PENDING, []);
+                            if (pendingArr.length > 0) {
+                                Core.pendingUsers.clear();
+                                Storage.setSessionJSON(CONFIG.KEYS.PENDING, []);
+                            }
+
+                            Core.updateControllerUI();
+                            UI.showToast(`已恢復佇列，共 ${merged.length} 筆，開始執行`);
+
+                            // Directly start worker with restored queue
+                            Storage.remove(CONFIG.KEYS.BG_CMD);
+                            if (Utils.isMobile()) {
+                                Core.runSameTabWorker();
+                            } else {
+                                // window.open must be called directly in the click handler to preserve user gesture
+                                Utils.openWorkerWindow();
+                            }
                         }
-
-                        Core.updateControllerUI();
-                        UI.showToast(`已恢復佇列，共 ${merged.length} 筆，開始執行`);
-
-                        // Directly start worker with restored queue
-                        Storage.remove(CONFIG.KEYS.BG_CMD);
-                        if (Utils.isMobile()) {
-                            Core.runSameTabWorker();
-                        } else {
-                            window.open('https://www.threads.net/?hege_bg=true', 'HegeBlockWorker', 'width=800,height=600');
-                        }
-                        return;
-                    } else {
-                        return;
-                    }
+                    );
+                    return;
                 }
 
                 const queue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
@@ -101,7 +106,8 @@ import { Worker } from './worker.js';
                 if (Utils.isMobile()) {
                     Core.runSameTabWorker();
                 } else {
-                    // Add to queue
+                    // Add to queue（invalidate 避免與 Worker 競態）
+                    Storage.invalidate(CONFIG.KEYS.BG_QUEUE);
                     const q = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
                     const toAdd = Array.from(pending);
                     const newQ = [...new Set([...q, ...toAdd])];
@@ -113,7 +119,7 @@ import { Worker } from './worker.js';
                     const running = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
                     if (!running) {
                         Storage.remove(CONFIG.KEYS.BG_CMD);
-                        window.open('https://www.threads.net/?hege_bg=true', 'HegeBlockWorker', 'width=800,height=600');
+                        Utils.openWorkerWindow();
                     }
                 }
             };
@@ -121,29 +127,28 @@ import { Worker } from './worker.js';
             const callbacks = {
                 onMainClick: handleMainButton,
                 onClearSel: () => {
-                    if (confirm('確定要清除目前的「選取清單」與所有「背景排隊」的帳號嗎？\n(這不會影響已完成的封鎖歷史紀錄)')) {
+                    UI.showConfirm('確定要清除目前的「選取清單」與所有「背景排隊」的帳號嗎？\n(這不會影響已完成的封鎖歷史紀錄)', () => {
                         Core.pendingUsers.clear();
                         Storage.setSessionJSON(CONFIG.KEYS.PENDING, []);
                         Storage.setJSON(CONFIG.KEYS.BG_QUEUE, []);
                         Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, []);
                         Storage.setJSON(CONFIG.KEYS.BG_STATUS, {});
                         Core.blockQueue.forEach(b => {
-                            b.style.transform = 'none';
                             const cb = b.parentElement.querySelector('.hege-checkbox-container');
                             if (cb) cb.classList.remove('checked');
                         });
                         Core.blockQueue.clear();
                         Core.updateControllerUI();
                         UI.showToast('待封鎖清單與背景佇列已全數清除');
-                    }
+                    });
                 },
-                onClearDB: () => { if (confirm('清空歷史?')) { Storage.setJSON(CONFIG.KEYS.DB_KEY, []); Core.updateControllerUI(); } },
+                onClearDB: () => { UI.showConfirm('清空歷史？', () => { Storage.setJSON(CONFIG.KEYS.DB_KEY, []); Core.updateControllerUI(); }); },
                 onImport: () => Core.importList(),
                 onManage: () => Core.openBlockManager(),
                 onExport: () => Core.exportHistory(),
                 onRetryFailed: () => Core.retryFailedQueue(),
                 onReport: () => Core.showReportDialog(),
-                onStop: () => { if (confirm('停止?')) Storage.set(CONFIG.KEYS.BG_CMD, 'stop'); }
+                onStop: () => { UI.showConfirm('確定要停止背景執行？', () => Storage.set(CONFIG.KEYS.BG_CMD, 'stop')); }
             };
 
             const panel = UI.createPanel(callbacks);
@@ -167,9 +172,10 @@ import { Worker } from './worker.js';
             }, 2000); // Polling backup
 
             // Env Log
-            const isIPad = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+            const _envPlatform = navigator.userAgentData?.platform || navigator.platform || '';
+            const isIPad = (_envPlatform === 'macOS' || _envPlatform === 'MacIntel') && navigator.maxTouchPoints > 1;
             const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || isIPad;
-            Utils.log(`Env: ${navigator.platform}, TP:${navigator.maxTouchPoints}\nDevice: ${isIOS ? 'iOS/iPad' : 'Desktop'}\nUA: ${navigator.userAgent.substring(0, 50)}...`);
+            Utils.log(`Env: ${_envPlatform}, TP:${navigator.maxTouchPoints}\nDevice: ${isIOS ? 'iOS/iPad' : 'Desktop'}\nUA: ${navigator.userAgent.substring(0, 50)}...`);
 
             // Anchor Loop
             UI.anchorPanel();

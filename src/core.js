@@ -2,6 +2,7 @@ import { CONFIG } from './config.js';
 import { Utils } from './utils.js';
 import { Storage } from './storage.js';
 import { UI } from './ui.js';
+import { Reporter } from './reporter.js';
 
 export const Core = {
     blockQueue: new Set(),
@@ -25,12 +26,6 @@ export const Core = {
             Core.startScanner();
         }
 
-        // Cross-tab synchronization: Listen for storage changes from other tabs
-        window.addEventListener('storage', (e) => {
-            if (e.key && Object.values(CONFIG.KEYS).includes(e.key)) {
-                Core.updateControllerUI();
-            }
-        });
     },
 
     getBgMode: () => {
@@ -44,6 +39,7 @@ export const Core = {
     },
 
     observer: null,
+    _scrollDebounce: null,
     startScanner: () => {
         // Optimization: Use MutationObserver instead of fixed interval for most cases
         if (Core.observer) Core.observer.disconnect();
@@ -66,6 +62,12 @@ export const Core = {
         });
 
         Core.observer.observe(document.body, { childList: true, subtree: true });
+
+        // Scroll listener: catch virtual-scroll items entering DOM during fast scrolling in dialogs
+        document.addEventListener('scroll', () => {
+            clearTimeout(Core._scrollDebounce);
+            Core._scrollDebounce = setTimeout(() => Core.injectDialogCheckboxes(), 80);
+        }, true); // capture phase to catch scroll on any element
 
         // Backup interval in case mutation observer misses React's synthetic updates
         // Increased frequency from 1500 to 500ms to catch post-Loading states faster
@@ -176,6 +178,10 @@ export const Core = {
             const tempText = (h.innerText || h.textContent || '');
             const text = tempText.trim();
             if (text && text !== 'Threads') {
+                // 排除回覆/回文 dialog — 會回文代表不想封鎖
+                const isReplyCtx = ['回覆', '回文', 'Reply', 'Replies', '回應'].some(t => text.includes(t));
+                if (isReplyCtx) continue;
+
                 if (isDialog || ['貼文動態', '讚', 'Likes', '引用', '轉發', '活動'].some(t => text.includes(t))) {
                     header = h;
                     titleText = text;
@@ -368,14 +374,10 @@ export const Core = {
         }
         if (!header) return;
 
-        const containerRect = ctx.getBoundingClientRect();
         const links = Array.from(ctx.querySelectorAll('a[href^="/@"]')).filter(a => {
+            // Only filter truly invisible elements (display:none, zero-size); allow off-screen items
             const rect = a.getBoundingClientRect();
-            // Ensure the link is actually visible and within the dialog view
-            const isVisible = rect.height > 5 && rect.width > 5;
-            const isInBounds = rect.top >= (containerRect.top - 10) &&
-                rect.bottom <= (containerRect.bottom + 10);
-            return isVisible && isInBounds;
+            return rect.height > 0 || a.offsetParent !== null;
         });
 
         const dbRef = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
@@ -431,9 +433,9 @@ export const Core = {
             if (!flexRow) {
                 flexRow = a.closest('div[role="listitem"]') ||
                     a.closest('div[data-pressable-container="true"]') ||
-                    a.closest('.x1n2onr6.x1f9n5g') || // Common reply row class
-                    followBtn.parentElement.closest('.x78zum5.xdt5ytf') ||
-                    followBtn.parentElement;
+                    a.closest('.x1n2onr6.x1f9n5g') ||
+                    (followBtn && followBtn.parentElement ? followBtn.parentElement.closest('.x78zum5.xdt5ytf') : null) ||
+                    (followBtn ? followBtn.parentElement : null);
             }
 
             if (!flexRow) return;
@@ -456,30 +458,12 @@ export const Core = {
                 return;
             }
 
-            // Beta 40/42/54: Spacing adjustment on the Follow button side
-            if (followBtnContainer) {
-                followBtnContainer.style.setProperty("margin-right", "24px", "important");
-            }
-
-            // Ensure our chosen flexRow is the relative origin
-            if (flexRow.style.position === "" || window.getComputedStyle(flexRow).position === "static") {
-                flexRow.style.position = "relative";
-            }
-            flexRow.style.setProperty("overflow", "visible", "important");
-
             const container = document.createElement("div");
             container.className = "hege-checkbox-container";
-            container.dataset.username = username; // Ensure we identify who this box belongs to
-            container.style.position = "absolute";
-            // Coordinate for flexRow anchor
-            container.style.right = "-15px";
-            container.style.top = "50%";
-            container.style.transform = "translateY(-50%)";
+            container.dataset.username = username;
             container.style.cursor = 'pointer';
             container.style.zIndex = '100';
-            container.style.backgroundColor = 'var(--bg-color, rgba(255,255,255,0.1))';
-            container.style.borderRadius = '4px';
-            container.style.padding = '2px';
+            container.style.flexShrink = '0';
 
             const bgMode = Core.getBgMode();
             if (bgMode === 'UNBLOCKING') {
@@ -528,7 +512,12 @@ export const Core = {
             }
             container.addEventListener('click', Core.handleGlobalClick, true);
 
-            flexRow.appendChild(container); // Just append, 'order: 999' will put it on the right
+            // 插在追蹤按鈕前面，避免重疊
+            if (followBtnContainer && followBtnContainer.parentElement === flexRow) {
+                flexRow.insertBefore(container, followBtnContainer);
+            } else {
+                flexRow.appendChild(container);
+            }
         });
     },
 
@@ -546,6 +535,9 @@ export const Core = {
             const btn = svg.closest('div[role="button"]');
             if (!btn || !btn.parentElement) return;
 
+            // Dialog 內的 checkbox 由 injectDialogCheckboxes 處理，避免重複注入
+            if (btn.closest('div[role="dialog"]')) return;
+
             // Check if already processed
             if (btn.getAttribute('data-hege-checked') === 'true') return;
             if (btn.parentElement.querySelector('.hege-checkbox-container')) {
@@ -554,11 +546,17 @@ export const Core = {
             }
 
             // SVG filtering
-            if (!svg.querySelector('circle') && !svg.querySelector('path')) return;
+            if (!svg.querySelector('circle') && !svg.querySelector('path')) {
+                Utils.diagLog(`[SKIP] SVG 無 circle/path, viewBox=${svg.getAttribute('viewBox')}`);
+                return;
+            }
             const viewBox = svg.getAttribute('viewBox');
             if (viewBox === '0 0 12 12' || viewBox === '0 0 13 12') return;
             const width = svg.style.width ? parseInt(svg.style.width) : 24;
-            if (width < 16 && svg.clientWidth < 16) return;
+            if (width < 16 && svg.clientWidth < 16) {
+                Utils.diagLog(`[SKIP] SVG 太小 w=${width}, clientW=${svg.clientWidth}`);
+                return;
+            }
 
             let username = null;
             try {
@@ -574,6 +572,10 @@ export const Core = {
                 }
             } catch (e) { }
 
+            if (!username) {
+                Utils.diagLog(`[SKIP] 找不到 username, btn.parentClasses=${btn.parentElement?.className?.substring(0, 50)}`);
+            }
+
             if (username && username === Utils.getMyUsername()) {
                 // Checkbox should not appear for the user's own account
                 btn.setAttribute('data-hege-checked', 'true');
@@ -581,8 +583,6 @@ export const Core = {
             }
 
             btn.setAttribute('data-hege-checked', 'true');
-            btn.style.transition = 'transform 0.2s';
-            btn.style.transform = 'translateX(-45px)';
 
             const container = document.createElement('div');
             container.className = 'hege-checkbox-container';
@@ -664,9 +664,19 @@ export const Core = {
             container.addEventListener('click', Core.handleGlobalClick, true);
 
             try {
-                const ps = window.getComputedStyle(btn.parentElement).position;
-                if (ps === 'static') btn.parentElement.style.position = 'relative';
-                btn.parentElement.insertBefore(container, btn);
+                const parent = btn.parentElement;
+                if (parent) {
+                    const ps = window.getComputedStyle(parent).position;
+                    if (ps === 'static') parent.style.position = 'relative';
+                    parent.style.setProperty('overflow', 'visible', 'important');
+                    // checkbox 用 absolute 定位在 button 左側
+                    container.style.position = 'absolute';
+                    container.style.right = '100%';
+                    container.style.top = '50%';
+                    container.style.transform = 'translateY(-50%)';
+                    container.style.marginRight = '2px';
+                    parent.appendChild(container);
+                }
             } catch (e) { }
         });
     },
@@ -777,6 +787,7 @@ export const Core = {
         Core.updateControllerUI();
     },
 
+
     openBlockManager: () => {
         const db = Storage.getJSON(CONFIG.KEYS.DB_KEY, []);
         const ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
@@ -804,7 +815,7 @@ export const Core = {
             if (Utils.isMobile()) {
                 Core.runSameTabWorker();
             } else {
-                window.open('https://www.threads.net/?hege_bg=true', 'HegeBlockWorker', 'width=800,height=600');
+                Utils.openWorkerWindow();
             }
         }
     },
@@ -885,9 +896,6 @@ export const Core = {
             } else {
                 retryItem.style.display = 'none';
             }
-        }
-        if (reportItem) {
-            reportItem.style.display = failedQueue.length > 0 ? 'flex' : 'none';
         }
 
         let badgeText = Core.pendingUsers.size > 0 ? `(${Core.pendingUsers.size})` : '';
@@ -1010,7 +1018,7 @@ export const Core = {
             return;
         }
 
-        if (confirm(`發現 ${failedUsers.length} 筆過去封鎖失敗或找不到人的帳號。\n確定要重新將他們加入排隊列重試嗎？`)) {
+        UI.showConfirm(`發現 ${failedUsers.length} 筆過去封鎖失敗或找不到人的帳號。\n確定要重新將他們加入排隊列重試嗎？`, () => {
             let activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
             const combinedQueue = [...new Set([...activeQueue, ...failedUsers])];
             Storage.setJSON(CONFIG.KEYS.BG_QUEUE, combinedQueue);
@@ -1025,10 +1033,10 @@ export const Core = {
                 if (Utils.isMobile()) {
                     Core.runSameTabWorker();
                 } else {
-                    window.open('https://www.threads.net/?hege_bg=true', 'HegeBlockWorker', 'width=800,height=600');
+                    Utils.openWorkerWindow();
                 }
             }
-        }
+        });
     },
 
     importList: () => {
@@ -1060,19 +1068,22 @@ export const Core = {
         const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
         const isRunning = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
 
-        if (!isRunning && confirm(`已匯入 ${newUsers.length} 筆名單。\n是否立即開始背景執行？`)) {
-            if (Utils.isMobile()) {
-                Core.runSameTabWorker();
-            } else {
-                window.open('https://www.threads.net/?hege_bg=true', 'HegeBlockWorker', 'width=800,height=600');
-            }
+        if (!isRunning) {
+            UI.showConfirm(`已匯入 ${newUsers.length} 筆名單。\n是否立即開始背景執行？`, () => {
+                if (Utils.isMobile()) {
+                    Core.runSameTabWorker();
+                } else {
+                    Utils.openWorkerWindow();
+                }
+            });
         } else if (isRunning) {
             UI.showToast('已合併至正在運行的背景任務');
         }
     },
 
     collectDiagnostics: () => {
-        const isIPad = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+        const _platform = navigator.userAgentData?.platform || navigator.platform || '';
+        const isIPad = (_platform === 'macOS' || _platform === 'MacIntel') && navigator.maxTouchPoints > 1;
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || isIPad;
         const platform = isIOS ? 'iOS/iPad' : 'Desktop';
 
@@ -1127,7 +1138,8 @@ export const Core = {
         let injectionMethod = 'unknown';
         if (typeof GM_info !== 'undefined') injectionMethod = 'Tampermonkey/Userscripts';
         else if (document.querySelector('script[src*="content.js"]')) injectionMethod = 'Chrome Extension';
-        else if (chrome && chrome.runtime) injectionMethod = 'Chrome Extension';
+        else if (typeof browser !== 'undefined' && browser.runtime) injectionMethod = 'Firefox Extension';
+        else if (typeof chrome !== 'undefined' && chrome.runtime) injectionMethod = 'Chrome Extension';
 
         // Build report
         const lines = [
@@ -1160,62 +1172,24 @@ export const Core = {
             failedQueue.length > 0 ? failedQueue.join(', ') : '(空)',
             ``,
             `── 執行紀錄 (最近${debugLogs.length}筆) ──`,
-            ...debugLogs
+            ...debugLogs,
+            ``,
+            `── Web Console 追蹤 (最近50筆) ──`,
+            ...Utils.getRecentLogs()
         ];
 
         return lines.join('\n');
     },
 
     showReportDialog: () => {
-        // Remove existing dialog if any
-        const existing = document.getElementById('hege-report-dialog');
-        if (existing) existing.remove();
+        const reportData = Core.collectDiagnostics();
 
-        const overlay = document.createElement('div');
-        overlay.id = 'hege-report-dialog';
-        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:999999;display:flex;align-items:center;justify-content:center;font-family:system-ui,-apple-system,sans-serif;';
-
-        const dialog = document.createElement('div');
-        dialog.style.cssText = 'background:#1a1a2e;color:#e0e0e0;border-radius:16px;padding:28px 24px;max-width:400px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.5);text-align:center;';
-
-        Utils.setHTML(dialog, `
-            <div style="font-size:20px;font-weight:700;margin-bottom:16px;">🐛 回報問題</div>
-            <div style="font-size:14px;line-height:1.6;color:#aaa;margin-bottom:20px;text-align:left;">
-                如果你有大量的失敗，並確認不是被 Meta 限制了，按下「複製 Debug 訊息」回報給開發者，協助我把這個程式修正的更好！感謝 🙏
-            </div>
-            <div id="hege-report-copy-btn" style="background:linear-gradient(135deg,#4cd964,#30d158);color:#fff;font-size:16px;font-weight:700;padding:14px;border-radius:12px;cursor:pointer;user-select:none;margin-bottom:12px;transition:transform 0.15s;">
-                📋 複製 Debug 訊息
-            </div>
-            <div id="hege-report-copy-status" style="font-size:13px;color:#4cd964;margin-bottom:16px;display:none;">✅ 已複製到剪貼簿！請貼給開發者</div>
-            <a href="https://www.threads.net/@skiseiju" target="_blank" style="display:inline-block;background:#333;color:#fff;font-size:14px;padding:10px 20px;border-radius:10px;text-decoration:none;margin-bottom:8px;transition:background 0.2s;">
-                💬 前往開發者 Threads (@skiseiju)
-            </a>
-            <div id="hege-report-close" style="font-size:13px;color:#666;cursor:pointer;margin-top:12px;padding:8px;">關閉</div>
-        `);
-
-        overlay.appendChild(dialog);
-        document.body.appendChild(overlay);
-
-        // Copy button handler
-        const copyBtn = document.getElementById('hege-report-copy-btn');
-        const copyStatus = document.getElementById('hege-report-copy-status');
-        if (copyBtn) {
-            copyBtn.addEventListener('click', () => {
-                const report = Core.collectDiagnostics();
-                navigator.clipboard.writeText(report).then(() => {
-                    if (copyStatus) copyStatus.style.display = 'block';
-                    copyBtn.textContent = '✅ 已複製！';
-                    copyBtn.style.background = '#333';
-                }).catch(() => {
-                    // Fallback: prompt
-                    prompt('請手動複製以下訊息：', report);
-                });
+        UI.showBugReportModal(async (level, message) => {
+            return await Reporter.submitReport(level, message, "UI_REPORT", {
+                diagnostics: reportData,
+                speedMode: Utils.getSpeedMode(),
+                checkboxDiag: Utils.getDiagLogs()
             });
-        }
-
-        // Close handlers
-        const closeBtn = document.getElementById('hege-report-close');
-        if (closeBtn) closeBtn.addEventListener('click', () => overlay.remove());
-        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        });
     }
 };
