@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "agend": {
+      "command": "node",
+      "args": [
+        "/opt/homebrew/lib/node_modules/@suzuke/agend/dist/channel/mcp-server.js"
+      ],
+      "env": {
+        "AGEND_SOCKET_PATH": "/Users/skiseiju/.agend/instances/threads/channel.sock"
+      }
+    }
+  }
+}

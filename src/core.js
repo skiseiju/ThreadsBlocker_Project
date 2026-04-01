@@ -21,11 +21,225 @@ export const Core = {
             UI.showDisclaimer(() => {
                 Storage.set(CONFIG.KEYS.DISCLAIMER_AGREED, 'true');
                 Core.startScanner();
+                Core.checkPostQueueWakeup();
             });
         } else {
             Core.startScanner();
+            Core.checkPostQueueWakeup();
+        }
+        
+        // 處理深層收割自動觸發
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('hege_post_sweep') === 'true') {
+            setTimeout(() => {
+                Core.executePostSweep();
+            }, 3000); // 確保核心載入完畢
+        }
+    },
+
+
+    executePostSweep: async () => {
+        UI.showToast('🚀 正在準備執行貼文深層收割...', 5000);
+        await Utils.safeSleep(1000);
+        
+        let likesLink = null;
+        for (let i = 0; i < 15; i++) {
+            const allLinks = document.querySelectorAll('a[role="link"], span[role="link"]');
+            for (const link of allLinks) {
+                const text = (link.innerText || link.textContent || '').trim().toLowerCase();
+                if (/\d+.*?(讚|like)/i.test(text) && !link.closest('[role="dialog"]')) {
+                    likesLink = link;
+                    break;
+                }
+            }
+            if (!likesLink) {
+                const likedByLinks = document.querySelectorAll('a[href*="liked_by"]');
+                if (likedByLinks.length > 0) likesLink = likedByLinks[0];
+            }
+            if (likesLink) break;
+            await Utils.safeSleep(400);
+        }
+        
+        if (!likesLink) {
+            UI.showToast('⚠️ 未找到按讚名單，可能為無人按讚之貼文。完成查核，將從定時排程移除。', 5000);
+            Core.removeCurrentPostFromQueue();
+            return;
+        }
+        
+        Utils.simClick(likesLink);
+        
+        // 等待對話框開啟
+        await Utils.safeSleep(2000);
+        
+        const dialogs = document.querySelectorAll('[role="dialog"]');
+        if (dialogs.length === 0) {
+            UI.showToast('⚠️ 對話框開啟失敗，終止本次收割。', 3000);
+            return;
+        }
+        
+        const activeCtx = dialogs[dialogs.length - 1];
+        
+        // 收割 N 人 (BATCH_SIZE)
+        const batchSize = CONFIG.POST_SWEEP_BATCH_SIZE || 30;
+        let collectedLinks = new Set();
+        let scrollBox = activeCtx;
+        
+        if (activeCtx.scrollHeight === activeCtx.clientHeight) {
+            const innerBoxes = activeCtx.querySelectorAll('div');
+            for (let b of innerBoxes) {
+                if (b.scrollHeight > b.clientHeight && window.getComputedStyle(b).overflowY !== 'hidden') {
+                    scrollBox = b;
+                    break;
+                }
+            }
+        }
+        
+        // 取得已處理過的 usernames 防止無限輪迴
+        const processedSetKey = 'hege_post_sweep_processed_' + window.location.pathname;
+        const processedList = Storage.getJSON(processedSetKey, []);
+        const processedSet = new Set(processedList);
+        
+        for (let i = 0; i < 50; i++) {
+            const links = activeCtx.querySelectorAll('a[href^="/@"]');
+            Array.from(links).forEach(a => {
+                const isHeaderLink = a.closest('h1, h2, [role="heading"]');
+                if (!isHeaderLink) {
+                    const href = a.getAttribute('href');
+                    const u = href.split('/@')[1].split('/')[0];
+                    collectedLinks.add(u);
+                }
+            });
+            
+            if (collectedLinks.size >= batchSize) break;
+            
+            if (i > 0) scrollBox.scrollBy({ top: 300, behavior: 'smooth' });
+            await Utils.safeSleep(600);
+        }
+        
+        const myUser = Utils.getMyUsername() || "";
+        const postOwner = Utils.getPostOwner() || "";
+        const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+        
+        const rawUsers = Array.from(collectedLinks)
+            .filter(u => u !== myUser && u !== postOwner && !db.has(u));
+            
+        // 檢查無限輪迴重疊率
+        const allProcessed = rawUsers.every(u => processedSet.has(u));
+        if (rawUsers.length > 0 && allProcessed) {
+            UI.showToast('🚨 偵測到無限遞補迴圈 (畫面上全部都是曾經收割過的帳號)，強制終止。', 6000);
+            Core.removeCurrentPostFromQueue();
+            return;
+        }
+        
+        const newUsers = rawUsers.filter(u => !processedSet.has(u));
+        
+        if (newUsers.length === 0) {
+            UI.showToast('✅ 查核完畢：畫面上已無新帳號。將此貼文從水庫排程移除。', 5000);
+            Core.removeCurrentPostFromQueue();
+            return;
+        }
+        
+        Storage.setJSON(processedSetKey, [...new Set([...processedList, ...newUsers])]);
+        
+        const targetUsers = newUsers.slice(0, batchSize);
+        
+        // Task 3: 遞補失敗防呆機制 (比較本次新名單與上一批次 30 人)
+        const lastBatchKey = 'hege_last_sweep_batch_' + window.location.pathname;
+        const lastBatchStr = sessionStorage.getItem(lastBatchKey);
+        if (lastBatchStr) {
+            try {
+                const lastBatch = JSON.parse(lastBatchStr);
+                const intersection = targetUsers.filter(u => lastBatch.includes(u));
+                const overlapRate = intersection.length / targetUsers.length;
+                UI.showToast(`[驗證] 上批與這批重複率: ${(overlapRate * 100).toFixed(0)}%`, 5000);
+                
+                // 若重複率過高，代表封鎖失效或 Threads API 尚未遞補
+                if (overlapRate > 0.8) {
+                    UI.showToast('🚨 [FATAL] 偵測到遞補卡死 (上批名單未消失)，防呆機制啟動，強制進入 8 小時冷卻。', 10000);
+                    console.error('[FATAL] Sweep stuck in infinite loop breaker. Aborting.', { lastBatch, targetUsers });
+                    
+                    // 強制解除 Post Queue 的 lock 狀態，設定時間戳為現在，啟動 8hr 冷卻
+                    let postQueue = Storage.getJSON(CONFIG.KEYS.POST_QUEUE, []);
+                    let qIndex = postQueue.findIndex(q => q.url.split('?')[0] === window.location.href.replace(/([&?])hege_post_sweep=true/, '').split('?')[0]);
+                    if (qIndex > -1) {
+                        postQueue[qIndex].status = 'pending';
+                        postQueue[qIndex].lastSweptAt = Date.now();
+                        Storage.setJSON(CONFIG.KEYS.POST_QUEUE, postQueue);
+                    }
+                    sessionStorage.removeItem(lastBatchKey);
+                    sessionStorage.removeItem('hege_post_sweep_lock'); // 解鎖
+                    return;
+                }
+            } catch(e) {}
         }
 
+        // 更新最後一批名單
+        sessionStorage.setItem(lastBatchKey, JSON.stringify(targetUsers));
+        
+        // Task 2: 全自動加入水庫並執行封鎖
+        let activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+        const activeSet = new Set(activeQueue);
+        const toAdd = targetUsers.filter(u => !activeSet.has(u));
+
+        if (toAdd.length > 0) {
+            const combinedQueue = [...activeQueue, ...toAdd];
+            Storage.setJSON(CONFIG.KEYS.BG_QUEUE, [...new Set(combinedQueue)]);
+            UI.showToast(`✅ [深層清理] 成功圈選 ${toAdd.length} 人，已全自動送入背景水庫執行！`);
+            Core.updateControllerUI();
+
+            // 若目前 Worker 沒有在跑，強制啟動它
+            const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
+            const isRunning = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
+            if (!isRunning) {
+                if (Utils.isMobile()) {
+                    Core.runSameTabWorker();
+                } else {
+                    Utils.openWorkerWindow();
+                }
+            }
+
+            // Task 3: 監聽水庫清空，觸發 Reload 進入下一圈
+            const checkEmptyInterval = setInterval(() => {
+                const currentQ = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+                if (currentQ.length === 0) {
+                    clearInterval(checkEmptyInterval);
+                    UI.showToast('🔄 [深層迴圈] 單批水庫全數清空，準備 Reload 頁面汲取下一批新名單...', 5000);
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 3000);
+                }
+            }, 5000);
+
+        } else {
+            UI.showToast('⚠️ 名單皆已排入佇列，繼續等待。');
+        }
+    },
+    
+    removeCurrentPostFromQueue: () => {
+        const queue = Storage.getJSON(CONFIG.KEYS.POST_QUEUE, []);
+        const cleanUrl = window.location.href.split('?')[0];
+        const originalLength = queue.length;
+        const newQueue = queue.filter(q => q.url.split('?')[0] !== cleanUrl);
+        
+        if (newQueue.length < originalLength) {
+            Storage.setJSON(CONFIG.KEYS.POST_QUEUE, newQueue);
+            console.log(`[DeepSweep-Q] 任務清空或異常終止，已將貼文從水庫永久解編: ${cleanUrl}`);
+        }
+        
+        const processedSetKey = 'hege_post_sweep_processed_' + window.location.pathname;
+        Storage.remove(processedSetKey); // 清理暫存
+        
+        UI.showToast('🎉 [深層清理] 此貼文已全數清空！任務圓滿達成，準備關閉任務...', 5000);
+        
+        setTimeout(() => {
+            if (window.name === 'HegeSweepWorker') {
+                window.close();
+            } else {
+                let pureUrl = window.location.href.replace(/([&?])hege_post_sweep=true/, '');
+                if (pureUrl.endsWith('?') || pureUrl.endsWith('&')) pureUrl = pureUrl.substring(0, pureUrl.length - 1);
+                window.location.replace(pureUrl);
+            }
+        }, 3000);
     },
 
     getBgMode: () => {
@@ -166,6 +380,182 @@ export const Core = {
         }
     },
 
+    advancedBlockAll: async (ctx) => {
+        const bgMode = Core.getBgMode();
+        if (bgMode === 'UNBLOCKING') return;
+
+        let scrollBox = ctx;
+        if (ctx.scrollHeight === ctx.clientHeight) {
+            const innerBoxes = ctx.querySelectorAll('div');
+            for (let b of innerBoxes) {
+                if (b.scrollHeight > b.clientHeight && window.getComputedStyle(b).overflowY !== 'hidden') {
+                    scrollBox = b;
+                    break;
+                }
+            }
+        }
+
+        const maxLimit = window.__DEBUG_HEGE_LIKES_LIMIT || 1000;
+        let isAborted = false;
+
+        // --- Create Progress UI ---
+        const progressId = 'hege-advanced-progress-' + Date.now();
+        const progressUI = document.createElement('div');
+        progressUI.id = progressId;
+        progressUI.style.cssText = 'position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); color: #fff; padding: 10px 20px; border-radius: 20px; z-index: 99999; display: flex; align-items: center; gap: 15px; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);';
+        
+        const countSpan = document.createElement('span');
+        countSpan.textContent = '🚀 掃描中... 已捕獲: 0 人';
+        
+        const stopBtn = document.createElement('button');
+        stopBtn.textContent = '⏹️ 停止並結算';
+        stopBtn.style.cssText = 'background: #ff3b30; color: white; border: none; border-radius: 6px; padding: 5px 12px; font-size: 13px; cursor: pointer; font-weight: bold;';
+        stopBtn.onclick = () => { isAborted = true; };
+        
+        progressUI.appendChild(countSpan);
+        progressUI.appendChild(stopBtn);
+        
+        const currentPos = window.getComputedStyle(scrollBox).position;
+        if (currentPos === 'static') scrollBox.style.position = 'relative';
+        scrollBox.appendChild(progressUI);
+
+        // Listen for ESC key to abort
+        const escListener = (e) => { if (e.key === 'Escape') isAborted = true; };
+        document.addEventListener('keydown', escListener);
+
+        let collectedLinks = new Set();
+        let unchangedCount = 0;
+        let lastCollectedSize = 0;
+        const maxScrolls = 800;
+        let scrollCount = 0;
+
+        const collectVisible = () => {
+            const links = ctx.querySelectorAll('a[href^="/@"]');
+            let lastLink = null;
+            Array.from(links).forEach(a => {
+                const isHeaderLink = a.closest('h1, h2, [role="heading"]');
+                if (!isHeaderLink) {
+                    const href = a.getAttribute('href');
+                    const u = href.split('/@')[1].split('/')[0];
+                    collectedLinks.add(u);
+                    lastLink = a;
+                }
+            });
+            return lastLink; // Return the very last node for scrolling
+        };
+
+        while (scrollCount < maxScrolls && !isAborted) {
+            const lastNode = collectVisible();
+            countSpan.textContent = `🚀 掃描中... 已捕獲: ${collectedLinks.size} 人`;
+
+            if (collectedLinks.size >= maxLimit) {
+                UI.showToast(`已達最大安全上限 (${maxLimit}人)，自動安全結算。`, 3000);
+                break;
+            }
+
+            // 策略改變：強制把畫面拉到最後一個看得到的帳號上，保證超過 IntersectionObserver 邊界
+            if (lastNode && unchangedCount === 0) {
+                lastNode.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else {
+                // 如果抓不到元素或卡住，再退回傳統滾底
+                scrollBox.scrollTo(0, scrollBox.scrollHeight + 100);
+            }
+            
+            await Utils.safeSleep(600); // 讓 Intersection Observer 觸發並重繪
+            
+            if (collectedLinks.size === lastCollectedSize) {
+                // 人數沒增加，代表到底了或是 loader 被卡住
+                unchangedCount++;
+                if (unchangedCount >= 6) {
+                    break; // 卡住約 6 秒 (6 * 600+400)，真的沒人了
+                }
+                
+                // 碰到卡住狀態，多刺激一下底部的 spinner，或再往下捲
+                scrollBox.scrollBy({ top: 800, behavior: 'smooth' });
+                await Utils.safeSleep(500); 
+            } else {
+                unchangedCount = 0;
+                lastCollectedSize = collectedLinks.size;
+            }
+            
+            scrollCount++;
+        }
+
+        collectVisible(); // Final deep collect
+        
+        // Cleanup UI and listeners
+        document.removeEventListener('keydown', escListener);
+        if (progressUI.parentNode) progressUI.parentNode.removeChild(progressUI);
+
+        const myUser = Utils.getMyUsername();
+        const postOwner = Utils.getPostOwner();
+        const skipUsers = new Set();
+        if (myUser) skipUsers.add(myUser);
+        if (postOwner) skipUsers.add(postOwner);
+
+        const allText = ctx.innerText || ctx.textContent || "";
+        const replyMatch = allText.match(/(?:正在回覆|Replying to)\s*@([a-zA-Z0-9._]+)/i);
+        if (replyMatch && replyMatch[1]) skipUsers.add(replyMatch[1]);
+
+        let rawUsers = Array.from(collectedLinks).filter(u => !skipUsers.has(u));
+
+        const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+        const activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+        const activeSet = new Set(activeQueue);
+
+        const newUsers = rawUsers.filter(u => !db.has(u) && !activeSet.has(u) && !Core.pendingUsers.has(u));
+
+        if (newUsers.length === 0) {
+            UI.showToast('沒有新帳號可加入');
+            return;
+        }
+
+        newUsers.forEach(u => Core.pendingUsers.add(u));
+        Storage.setSessionJSON(CONFIG.KEYS.PENDING, [...Core.pendingUsers]);
+
+        const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
+        const isRunning = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
+
+        if (isRunning) {
+            const combinedQueue = [...activeQueue, ...Core.pendingUsers];
+            Storage.setJSON(CONFIG.KEYS.BG_QUEUE, [...new Set(combinedQueue)]);
+            UI.showToast(`✅ 進階收集完成：已將 ${newUsers.length} 筆加入背景排隊`);
+        } else {
+            UI.showToast(`✅ 進階收集完成：已標記 ${Core.pendingUsers.size} 人，可關閉視窗至控制台「開始封鎖」`);
+        }
+
+        if (newUsers.length >= 30) {
+            Core.checkCockroachRadar(null, newUsers.length);
+        }
+
+        scrollBox.scrollTo(0, 0);
+        Core.updateControllerUI();
+
+        setTimeout(() => {
+            document.querySelectorAll('.hege-checkbox-container').forEach(box => {
+                if (box.dataset.username && Core.pendingUsers.has(box.dataset.username)) {
+                    box.classList.add('checked');
+                }
+            });
+        }, 500);
+    },
+
+    addPostTask: (url) => {
+        let postQueue = Storage.getJSON(CONFIG.KEYS.POST_QUEUE, []);
+        let cleanUrl = url.split('?')[0];
+        if (!postQueue.some(p => p.url.split('?')[0] === cleanUrl)) {
+            postQueue.push({
+                url: cleanUrl,
+                last_executed_at: 0, 
+                added_at: Date.now()
+            });
+            Storage.setJSON(CONFIG.KEYS.POST_QUEUE, postQueue);
+            UI.showToast(`✅ 已將貼文加入深層清理排程（每 8 小時回訪）`);
+        } else {
+            UI.showToast(`此貼文已在排程中`);
+        }
+    },
+
     injectDialogBlockAll: () => {
         const ctx = Core.getTopContext();
         const isDialog = ctx !== document.body;
@@ -178,9 +568,9 @@ export const Core = {
             const tempText = (h.innerText || h.textContent || '');
             const text = tempText.trim();
             if (text && text !== 'Threads') {
-                // 排除回覆/回文 dialog — 會回文代表不想封鎖
-                const isReplyCtx = ['回覆', '回文', 'Reply', 'Replies', '回應'].some(t => text.includes(t));
-                if (isReplyCtx) continue;
+                // 排除回覆/回文/發文 dialog — 會回文/發文代表不想或不能封鎖
+                const isExcludeCtx = ['回覆', '回文', 'Reply', 'Replies', '回應', '新串文', 'New thread', '發佈串文', 'Post', '編輯', 'Edit'].some(t => text.includes(t));
+                if (isExcludeCtx) continue;
 
                 if (isDialog || ['貼文動態', '讚', 'Likes', '引用', '轉發', '活動'].some(t => text.includes(t))) {
                     header = h;
@@ -208,7 +598,7 @@ export const Core = {
         blockAllBtn.className = 'hege-block-all-btn';
         blockAllBtn.innerHTML = `
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
-            <span>同列全封</span>
+            <span>殺螂囉~</span>
         `;
 
         const bgMode = Core.getBgMode();
@@ -229,6 +619,13 @@ export const Core = {
 
             // Beta 56: Re-calculate context and bounds at click-time for maximum precision
             const activeCtx = Core.getTopContext();
+            
+            // Task 3: 進階同列全封 (自動捲動收集未顯示名單)
+            if (Storage.get(CONFIG.KEYS.ADVANCED_SCROLL_ENABLED) === 'true') {
+                Core.advancedBlockAll(activeCtx);
+                return;
+            }
+
             const containerRect = activeCtx.getBoundingClientRect();
 
             // Narrow search scope to prevent "bleeding" into background layers if the list is short
@@ -291,6 +688,11 @@ export const Core = {
             } else {
                 UI.showToast(`已加入「${Core.pendingUsers.size} 選取」，請至清單「開始封鎖」`);
             }
+            
+            // Task 2: Cockroach Radar
+            if (newUsers.length >= 30) {
+                Core.checkCockroachRadar(null, newUsers.length);
+            }
 
             document.querySelectorAll('.hege-checkbox-container').forEach(box => {
                 if (box.dataset.username && Core.pendingUsers.has(box.dataset.username)) {
@@ -299,6 +701,35 @@ export const Core = {
             });
 
             Core.updateControllerUI();
+        };
+
+        // Add sweep button UI
+        const sweepQueueBtn = document.createElement('div');
+        sweepQueueBtn.className = 'hege-block-all-btn';
+        sweepQueueBtn.style.cssText = 'background-color: #5c3b99; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 6px 14px; border-radius: 9px; color: white; font-weight: bold; font-size: 14px; border: 1px solid rgba(255,255,255,0.2);';
+        sweepQueueBtn.innerHTML = `
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+            <span style="display:none;" class="hege-desktop-text">標記大蟑螂窩</span>
+        `;
+        sweepQueueBtn.title = "將此大蟑螂窩排入水庫，每 8 小時自動回訪收割直至清空";
+        
+        // Show text on desktop
+        if (!Utils.isMobile() && window.innerWidth > 600) {
+            const spanTextNode = sweepQueueBtn.querySelector('.hege-desktop-text');
+            if (spanTextNode) spanTextNode.style.display = 'inline';
+        }
+
+        const handleSweepClick = (e) => {
+            e.stopPropagation(); e.preventDefault();
+            // Confirm we are on a post
+            const match = window.location.pathname.match(/\/post\/([a-zA-Z0-9_-]+)/);
+            if (!match) {
+                UI.showToast('⚠️ 深層清理必須在「單一貼文」頁面執行，請點擊貼文時間進入內頁再試');
+                return;
+            }
+            UI.showConfirm('確定要將此貼文排入【深層清理水庫】嗎？\n\n系統將在 8 小時為間隔被動喚醒，自動點開名單掃蕩，直至按讚空無一人為止。', () => {
+                Core.addPostTask(window.location.href);
+            });
         };
 
         const allSpans = localCtx.querySelectorAll('span[dir="auto"]');
@@ -311,49 +742,45 @@ export const Core = {
             }
         }
 
+        const attachEvents = (btn, handler) => {
+            if (!btn.dataset.hegeEventBound) {
+                if (Utils.isMobile()) {
+                    btn.addEventListener('touchend', handler, { passive: false, capture: true });
+                } else {
+                    btn.addEventListener('click', handler, true);
+                }
+                btn.dataset.hegeEventBound = 'true';
+            }
+        };
+
+        attachEvents(blockAllBtn, handleBlockAll);
+        attachEvents(sweepQueueBtn, handleSweepClick);
+
         if (sortSpan && sortSpan.closest('[role="button"]')) {
             const sortBtn = sortSpan.closest('[role="button"]');
             blockAllBtn.style.marginRight = '8px';
-
-            if (!blockAllBtn.dataset.hegeEventBound) {
-                if (Utils.isMobile()) {
-                    blockAllBtn.addEventListener('touchend', (e) => {
-                        e.stopPropagation(); e.preventDefault();
-                        handleBlockAll(e);
-                    }, { passive: false, capture: true });
-                } else {
-                    blockAllBtn.addEventListener('click', handleBlockAll, true);
-                }
-                blockAllBtn.dataset.hegeEventBound = 'true';
-            }
+            sweepQueueBtn.style.marginRight = '8px';
 
             try {
                 sortBtn.parentElement.style.display = 'flex';
                 sortBtn.parentElement.style.alignItems = 'center';
-                sortBtn.parentElement.insertBefore(blockAllBtn, sortBtn);
+                sortBtn.parentElement.insertBefore(sweepQueueBtn, sortBtn);
+                sortBtn.parentElement.insertBefore(blockAllBtn, sweepQueueBtn);
             } catch (e) {
                 headerContainer.appendChild(blockAllBtn);
+                headerContainer.appendChild(sweepQueueBtn);
             }
         } else {
-            if (!blockAllBtn.dataset.hegeEventBound) {
-                if (Utils.isMobile()) {
-                    blockAllBtn.addEventListener('touchend', (e) => {
-                        e.stopPropagation(); e.preventDefault();
-                        handleBlockAll(e);
-                    }, { passive: false, capture: true });
-                } else {
-                    blockAllBtn.addEventListener('click', handleBlockAll, true);
-                }
-                blockAllBtn.dataset.hegeEventBound = 'true';
-            }
-
             blockAllBtn.style.marginLeft = 'auto';
             blockAllBtn.style.marginRight = '8px';
+            sweepQueueBtn.style.marginRight = '8px';
 
             if (header.nextSibling) {
                 headerContainer.insertBefore(blockAllBtn, header.nextSibling);
+                headerContainer.insertBefore(sweepQueueBtn, header.nextSibling);
             } else {
                 headerContainer.appendChild(blockAllBtn);
+                headerContainer.appendChild(sweepQueueBtn);
             }
         }
     },
@@ -760,6 +1187,8 @@ export const Core = {
                     if (bg.includes(u)) Storage.setJSON(CONFIG.KEYS.BG_QUEUE, bg.filter(x => x !== u));
                     let cdq = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
                     if (cdq.includes(u)) Storage.setJSON(CONFIG.KEYS.COOLDOWN_QUEUE, cdq.filter(x => x !== u));
+                    let dq = Storage.getJSON(CONFIG.KEYS.DELAYED_QUEUE, []);
+                    if (dq.includes(u)) Storage.setJSON(CONFIG.KEYS.DELAYED_QUEUE, dq.filter(x => x !== u));
                 }
             } else if (targetAction === 'check' && !box.classList.contains('checked') && !box.classList.contains('finished')) {
                 box.classList.add('checked');
@@ -775,6 +1204,11 @@ export const Core = {
         }
 
         Storage.setSessionJSON(CONFIG.KEYS.PENDING, [...Core.pendingUsers]);
+        
+        // Task 2: Cockroach Radar (Shift-Click selection block)
+        if (targetAction === 'check' && targetBoxes.length >= 30) {
+            Core.checkCockroachRadar(null, targetBoxes.length);
+        }
 
         Core.lastClickedBtn = container;
         Core.lastClickedUsername = container.dataset.username;
@@ -787,6 +1221,60 @@ export const Core = {
         Core.updateControllerUI();
     },
 
+
+
+    checkCockroachRadar: (rawUsers, countOverride) => {
+        const count = countOverride || (rawUsers ? rawUsers.length : 0);
+        if (count < 30) return;
+
+        const postOwner = Utils.getPostOwner();
+        if (!postOwner) return;
+
+        const dbRaw = Storage.getJSON(CONFIG.KEYS.COCKROACH_DB, []);
+        const cockroachSet = new Set(dbRaw.map(x => x.username || x));
+        if (cockroachSet.has(postOwner)) return;
+
+        UI.showConfirm(
+            `【大蟑螂雷達】偵測到您單次圈選了 ${count} 人。\n\n是否將該發文者 ( @${postOwner} ) 列為「大蟑螂」？\n我們將自動跳過封鎖他，並在每 10 天提醒您回頭檢查蟑螂窩。`,
+            () => {
+                const timeNow = Date.now();
+                const db = Storage.getJSON(CONFIG.KEYS.COCKROACH_DB, []);
+                db.push({ username: postOwner, timestamp: timeNow });
+                Storage.setJSON(CONFIG.KEYS.COCKROACH_DB, db);
+
+                // 解除封鎖排隊並取消畫面勾選
+                Core.pendingUsers.delete(postOwner);
+                Storage.setSessionJSON(CONFIG.KEYS.PENDING, [...Core.pendingUsers]);
+                
+                let bgq = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+                if (bgq.includes(postOwner)) Storage.setJSON(CONFIG.KEYS.BG_QUEUE, bgq.filter(u => u !== postOwner));
+                
+                let dq = Storage.getJSON(CONFIG.KEYS.DELAYED_QUEUE, []);
+                if (dq.includes(postOwner)) Storage.setJSON(CONFIG.KEYS.DELAYED_QUEUE, dq.filter(u => u !== postOwner));
+
+                Core.updateControllerUI();
+                UI.showToast(`已標記 @${postOwner} 為大蟑螂，並解除其封鎖排隊！`);
+            }
+        );
+    },
+
+    openCockroachManager: (onBack = null) => {
+        try {
+            const db = Storage.getJSON(CONFIG.KEYS.COCKROACH_DB, []);
+            UI.showCockroachManager(db, (usersToRemove) => {
+                const currentDb = Storage.getJSON(CONFIG.KEYS.COCKROACH_DB, []);
+                const newDb = currentDb.filter(c => {
+                    const uname = (typeof c === 'string') ? c : (c.username || '');
+                    return !usersToRemove.includes(uname);
+                });
+                Storage.setJSON(CONFIG.KEYS.COCKROACH_DB, newDb);
+                UI.showToast(`已從大蟑螂資料庫中移除 ${usersToRemove.length} 名使用者`);
+                Core.openCockroachManager(onBack);
+            }, onBack);
+        } catch (e) {
+            alert('Core Error: ' + e.message + '\n' + e.stack);
+        }
+    },
 
     openBlockManager: () => {
         const db = Storage.getJSON(CONFIG.KEYS.DB_KEY, []);
@@ -842,11 +1330,12 @@ export const Core = {
         const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY));
         const cdq = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
         const bgq = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
+        const dq = new Set(Storage.getJSON(CONFIG.KEYS.DELAYED_QUEUE, []));
 
         // Global cleanup
         let pendingChanged = false;
         for (const u of Core.pendingUsers) {
-            if (db.has(u) || cdq.has(u) || bgq.has(u)) {
+            if (db.has(u) || cdq.has(u) || bgq.has(u) || dq.has(u)) {
                 Core.pendingUsers.delete(u);
                 pendingChanged = true;
             }
@@ -863,7 +1352,7 @@ export const Core = {
                     el.classList.add('finished');
                     el.classList.remove('checked');
                 }
-            } else if (Core.pendingUsers.has(u) || cdq.has(u) || bgq.has(u)) {
+            } else if (Core.pendingUsers.has(u) || cdq.has(u) || bgq.has(u) || dq.has(u)) {
                 if (!el.classList.contains('checked') && !el.classList.contains('finished')) {
                     el.classList.add('checked');
                 } else if (el.classList.contains('finished')) {
@@ -916,6 +1405,13 @@ export const Core = {
             headerColor = '#ff453a';
             badgeText = `(${cdQueueSize}冷卻中)`;
         } else {
+            const delayEnabled = Storage.get(CONFIG.KEYS.DELAYED_BLOCK_ENABLED) === 'true';
+            const delayedQueue = Storage.getJSON(CONFIG.KEYS.DELAYED_QUEUE, []);
+            const lastTime = parseInt(Storage.get(CONFIG.KEYS.LAST_BATCH_TIME) || '0');
+            const now = Date.now();
+            const delayMs = CONFIG.DELAY_HOURS * 60 * 60 * 1000;
+            const isDelayReady = delayEnabled && delayedQueue.length > 0 && (lastTime === 0 || (now - lastTime) >= delayMs);
+
             const bgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
             if (bgStatus.state === 'running' && (Date.now() - (bgStatus.lastUpdate || 0) < 10000)) {
                 shouldShowStop = true;
@@ -927,6 +1423,18 @@ export const Core = {
                 mainText = `${isUnblockTask ? '繼續解除' : '繼續封鎖'} (${bgq.size} 筆待處理)`;
                 headerColor = '#ff9500';
                 badgeText = `(${bgq.size}待處理)`;
+            } else if (isDelayReady) {
+                // 延時水庫準備發放提示
+                mainText = `💧 點擊釋放下一批 100 人`;
+                headerColor = '#0a84ff';
+                badgeText = `(${delayedQueue.length}人排隊中)`;
+            } else if (delayEnabled && delayedQueue.length > 0) {
+                // 水庫冷卻中狀態展示（但不要擋住一般勾選後的 "開始封鎖"）
+                if (Core.pendingUsers.size === 0) {
+                    const remainHrs = Math.ceil((delayMs - (now - lastTime)) / (1000 * 60 * 60));
+                    mainText = `📥 排隊中 (${remainHrs}小時候發放)`;
+                    badgeText = `(${delayedQueue.length}水庫)`;
+                }
             }
         }
 
@@ -969,8 +1477,8 @@ export const Core = {
         }
     },
 
-    runSameTabWorker: () => {
-        const toAdd = Array.from(Core.pendingUsers);
+    runSameTabWorker: (explicitToAdd) => {
+        const toAdd = explicitToAdd || Array.from(Core.pendingUsers);
 
         const q = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
         const newQ = [...new Set([...q, ...toAdd])];
@@ -984,7 +1492,7 @@ export const Core = {
         Storage.remove(CONFIG.KEYS.BG_CMD);
         Storage.remove('hege_worker_stats'); // Fresh stats for new session
 
-        if (toAdd.length > 0) {
+        if (toAdd.length > 0 && !explicitToAdd) {
             Core.pendingUsers.clear();
             Storage.setSessionJSON(CONFIG.KEYS.PENDING, []);
         }
@@ -1191,5 +1699,83 @@ export const Core = {
                 checkboxDiag: Utils.getDiagLogs()
             });
         });
+    },
+
+    // ============================================================================
+    // Task 1: 貼文深層清理 - 機制容器與排程器管理 (Deep Post Sweeper)
+    // ============================================================================
+    addPostTask: (url) => {
+        let queue = Storage.getJSON(CONFIG.KEYS.POST_QUEUE, []);
+        const cleanUrl = url.split('?')[0];
+        
+        // 移除重複
+        queue = queue.filter(q => q.url.split('?')[0] !== cleanUrl);
+        queue.push({
+            url: cleanUrl,
+            addedAt: Date.now(),
+            lastSweptAt: 0, // 初始化為 0 以觸發立即喚醒
+            sweepCount: 0,
+            status: 'pending' // pending (冷卻中), active (執行中), error (異常中斷)
+        });
+        
+        Storage.setJSON(CONFIG.KEYS.POST_QUEUE, queue);
+        UI.showToast('✅ 此貼文已排入深層清理水庫，系統將定時自動跳轉掃蕩。');
+        console.log(`[DeepSweep-Q] 貼文已加入排程: ${cleanUrl}`);
+        
+        // 若此時剛加入，可直接觸發看看
+        setTimeout(() => Core.checkPostQueueWakeup(), 3000);
+    },
+
+
+    checkPostQueueWakeup: () => {
+        // 防爆走保險：如果當前分頁已經在幾分鐘內跳轉過，暫不再次強制跳轉
+        const lastLock = parseInt(sessionStorage.getItem('hege_post_sweep_lock') || '0');
+        if (Date.now() - lastLock < 5 * 60 * 1000) {
+            return; // 5 分鐘內跳過，避免死迴圈
+        }
+
+        let queue = Storage.getJSON(CONFIG.KEYS.POST_QUEUE, []);
+        if (queue.length === 0) return;
+
+        const now = Date.now();
+        const COOLDOWN_MS = CONFIG.POST_SWEEP_COOLDOWN_HOURS * 60 * 60 * 1000;
+
+        let targetPost = null;
+        for (let post of queue) {
+            // 找出超過 8 小時未清理的 pending 貼文
+            if (post.status !== 'error' && (now - post.lastSweptAt > COOLDOWN_MS)) {
+                targetPost = post;
+                break; // 取第一篇最老的
+            }
+        }
+
+        if (targetPost) {
+            console.log(`[DeepSweep-Q] ⏰ 偵測到排程貼文冷卻時間已滿，即將啟動被動喚醒跳轉...`, targetPost.url);
+            
+            // 寫入 Session Lock
+            sessionStorage.setItem('hege_post_sweep_lock', Date.now().toString());
+
+            // 將狀態先轉為活躍，避免其他分頁重複搶佔此任務
+            targetPost.lastSweptAt = Date.now();
+            targetPost.status = 'active';
+            Storage.setJSON(CONFIG.KEYS.POST_QUEUE, queue);
+
+            UI.showToast('⚠️ [深層清理] 檢測到水庫貼文時間已到，3 秒後將全自動進入清理模式...', 5000);
+            setTimeout(() => {
+                const sep = targetPost.url.includes('?') ? '&' : '?';
+                const targetUrl = targetPost.url + sep + 'hege_post_sweep=true';
+                
+                if (Utils.isMobile()) {
+                    // Mobile (iOS) fallback to current window navigation due to popup blockers
+                    const targetPath = new URL(targetUrl).pathname + new URL(targetUrl).search;
+                    history.replaceState(null, '', targetPath);
+                    location.reload();
+                } else {
+                    // Desktop: Open in a dedicated worker window to avoid disturbing the user
+                    window.open(targetUrl, 'HegeSweepWorker', 'width=800,height=600,left=100,top=100');
+                    UI.showToast('ℹ️ 已在獨立視窗啟動清理任務，請勿關閉該小視窗', 5000);
+                }
+            }, 3000);
+        }
     }
 };

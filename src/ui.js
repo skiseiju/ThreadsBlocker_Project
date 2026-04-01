@@ -258,7 +258,7 @@ export const UI = {
         bindClick('hege-retry-failed-item', callbacks.onRetryFailed);
         bindClick('hege-report-item', callbacks.onReport);
         bindClick('hege-stop-btn-item', callbacks.onStop);
-        bindClick('hege-settings-item', () => UI.showSettingsModal(callbacks));
+        bindClick('hege-settings-item', callbacks.onSettings);
 
         // Speed mode toggle (in main panel)
         const speedModes = ['smart', 'stable', 'standard', 'turbo'];
@@ -579,17 +579,40 @@ export const UI = {
                         <span>管理已封鎖</span>
                         <span class="status">${db.length}</span>
                     </div>
+                    <div class="hege-menu-item" id="hege-s-cockroach">
+                        <span>大蟑螂資料庫</span>
+                        <span class="status">${(Array.isArray(Storage.getJSON(CONFIG.KEYS.COCKROACH_DB, [])) ? Storage.getJSON(CONFIG.KEYS.COCKROACH_DB, []) : []).length}</span>
+                    </div>
                     <div class="hege-menu-item" id="hege-s-import">
                         <span>匯入名單</span>
                     </div>
                     <div class="hege-menu-item" id="hege-s-export">
                         <span>匯出紀錄</span>
                     </div>
-                    <div class="hege-menu-item danger" id="hege-s-clear-db">
+                    <div class="hege-menu-item danger" id="hege-s-clear-db" style="border-bottom: none;">
                         <span>清除所有歷史</span>
                     </div>
 
-                    <p style="margin-top: 8px; color: #555; font-size: 11px; text-align: center;">版本 ${CONFIG.VERSION}</p>
+                    <div style="height: 1px; background: #333; margin: 4px 0;"></div>
+
+                    <div class="hege-menu-item" style="cursor:default; flex-direction: column; align-items: flex-start; gap: 8px; border-bottom: none;">
+                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; width:100%;">
+                            <input type="checkbox" id="hege-s-delay-toggle" style="width:16px; height:16px;">
+                            <span style="font-weight:600;">啟用延時封鎖 (100人/8小時)</span>
+                        </label>
+                        <span style="font-size: 11px; color: #888; line-height: 1.4;">為避免觸發 Meta 次數上限，將圈選名單存入水庫，自動分批排放執行。</span>
+                        <button class="hege-manager-btn secondary" id="hege-s-clear-delay" style="font-size: 12px; padding: 6px 12px; margin-top: 4px; width: 100%;">清空延時水庫 (0 人)</button>
+                    </div>
+
+                    <div class="hege-menu-item" style="cursor:default; flex-direction: column; align-items: flex-start; gap: 8px; border-bottom: none;">
+                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; width:100%;">
+                            <input type="checkbox" id="hege-s-advance-scroll-toggle" style="width:16px; height:16px;">
+                            <span style="font-weight:600;">啟用進階同列全封</span>
+                        </label>
+                        <span style="font-size: 11px; color: #888; line-height: 1.4;">按下同列全封時，機器人會自動向下捲動網頁，強制抓取未顯示的名單。</span>
+                    </div>
+
+                    <p style="margin-top: 8px; color: #555; font-size: 11px; text-align: center;">版本 ${CONFIG.VERSION} · <a href="https://skiseiju.com" target="_blank" style="color: #888; text-decoration: none;">海哥 skiseiju.com</a></p>
                 </div>
             </div>
         `;
@@ -600,13 +623,191 @@ export const UI = {
 
         const bind = (id, fn) => {
             const el = document.getElementById(id);
-            if (el && fn) el.addEventListener('click', () => { close(); fn(); });
+            if (el && fn) {
+                el.onclick = () => {
+                    close();
+                    try { fn(); } catch(e) { alert('bind error [' + id + ']: ' + e.message + '\n' + e.stack); }
+                };
+            }
         };
         bind('hege-s-manage', callbacks.onManage);
+        bind('hege-s-cockroach', callbacks.onCockroach);
         bind('hege-s-import', callbacks.onImport);
         bind('hege-s-export', callbacks.onExport);
         bind('hege-s-clear-db', callbacks.onClearDB);
+
+        // Task 1: 延時封鎖 UI 事件
+        const delayToggle = overlay.querySelector('#hege-s-delay-toggle');
+        const clearDelayBtn = overlay.querySelector('#hege-s-clear-delay');
+        delayToggle.checked = Storage.get(CONFIG.KEYS.DELAYED_BLOCK_ENABLED) === 'true';
+        delayToggle.onchange = (e) => Storage.set(CONFIG.KEYS.DELAYED_BLOCK_ENABLED, e.target.checked ? 'true' : 'false');
+        
+        const dq = Storage.getJSON(CONFIG.KEYS.DELAYED_QUEUE, []);
+        clearDelayBtn.textContent = `清空延時水庫 (${dq.length} 人)`;
+        if (dq.length === 0) clearDelayBtn.style.opacity = '0.5';
+        clearDelayBtn.onclick = () => {
+            if (dq.length === 0) return;
+            UI.showConfirm(`確定要清空水庫中排隊的 ${dq.length} 人嗎？\n這將會永遠放棄這些尚未封鎖的名單。`, () => {
+                Storage.setJSON(CONFIG.KEYS.DELAYED_QUEUE, []);
+                clearDelayBtn.textContent = '清空延時水庫 (0 人)';
+                clearDelayBtn.style.opacity = '0.5';
+                UI.showToast('延時水庫已清空');
+            });
+        };
+
+        // Task 3: 進階同列全封 UI 事件
+        const advanceToggle = overlay.querySelector('#hege-s-advance-scroll-toggle');
+        advanceToggle.checked = Storage.get(CONFIG.KEYS.ADVANCED_SCROLL_ENABLED) === 'true';
+        advanceToggle.onchange = (e) => Storage.set(CONFIG.KEYS.ADVANCED_SCROLL_ENABLED, e.target.checked ? 'true' : 'false');
     },
+
+    showCockroachManager: (cockroachDb, onRemove, onBack = null) => {
+        if (document.querySelector('.hege-manager-overlay')) {
+            document.querySelector('.hege-manager-overlay').remove();
+        }
+
+        const rawList = Array.isArray(cockroachDb) ? cockroachDb : [];
+        const getUname = (c) => typeof c === 'string' ? c : (c && c.username ? c.username : '');
+        const getTime  = (c) => (c && typeof c === 'object' && c.timestamp) ? c.timestamp : 0;
+
+        let users = rawList.slice().reverse(); // newest first by default
+        let selected = new Set();
+        let lastSelectedIndex = -1;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'hege-manager-overlay';
+
+        const renderList = (filter = '') => {
+            const filtered = users.filter(c => {
+                const u = getUname(c);
+                return u && u.toLowerCase().includes(filter.toLowerCase());
+            });
+            const listEl = overlay.querySelector('.hege-manager-list');
+            if (!listEl) return;
+
+            if (filtered.length === 0) {
+                listEl.innerHTML = `<div style="padding: 40px; text-align: center; color: #555;">${rawList.length === 0 ? '尚無蟑螂記錄' : '無符合結果'}</div>`;
+                return;
+            }
+
+            listEl.innerHTML = filtered.map(c => {
+                const uname = getUname(c);
+                const safeU = Utils.escapeHTML(uname);
+                const timeStr = getTime(c) ? new Date(getTime(c)).toLocaleString() : '無記錄時間';
+                const isSelected = selected.has(uname);
+                return `
+                    <div class="hege-manager-item" data-username="${safeU}">
+                        <div style="margin-right: 16px;">
+                            <div class="hege-checkbox-container ${isSelected ? 'checked' : ''}" style="position:static; transform:none; width:24px; height:24px;">
+                                <svg viewBox="0 0 24 24" class="hege-svg-icon" style="width:18px; height:18px;">
+                                    <rect x="2" y="2" width="20" height="20" rx="6" ry="6" stroke="currentColor" stroke-width="2.5" fill="none"></rect>
+                                    <path class="hege-checkmark" d="M6 12 l4 4 l8 -8" fill="none" style="display: ${isSelected ? 'block' : 'none'}"></path>
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="user-info">
+                            <a href="https://www.threads.net/@${safeU}" target="_blank" style="color: #4cd964; text-decoration: underline; font-weight: 600;" onclick="event.stopPropagation()">@${safeU}</a>
+                            <span class="time">${timeStr}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            const items = listEl.querySelectorAll('.hege-manager-item');
+            items.forEach((item, index) => {
+                item.onclick = (e) => {
+                    const u = item.dataset.username;
+                    if (e.shiftKey && lastSelectedIndex !== -1) {
+                        const start = Math.min(index, lastSelectedIndex);
+                        const end = Math.max(index, lastSelectedIndex);
+                        const shouldSelect = !selected.has(u);
+                        for (let i = start; i <= end; i++) {
+                            const targetU = items[i].dataset.username;
+                            if (shouldSelect) selected.add(targetU);
+                            else selected.delete(targetU);
+                        }
+                    } else {
+                        if (selected.has(u)) selected.delete(u);
+                        else selected.add(u);
+                    }
+                    lastSelectedIndex = index;
+                    items.forEach(el => {
+                        const username = el.dataset.username;
+                        const cb = el.querySelector('.hege-checkbox-container');
+                        const check = el.querySelector('.hege-checkmark');
+                        const isSel = selected.has(username);
+                        cb.classList.toggle('checked', isSel);
+                        check.style.display = isSel ? 'block' : 'none';
+                    });
+                    updateFooter();
+                };
+            });
+        };
+
+        const updateFooter = () => {
+            const btn = overlay.querySelector('#hege-cockroach-remove-confirm');
+            const count = overlay.querySelector('#hege-selected-count');
+            if (btn) btn.disabled = selected.size === 0;
+            if (count) count.textContent = `已選取 ${selected.size} 筆`;
+        };
+
+        const backArrow = onBack
+            ? `<span id="hege-cockroach-back" style="cursor:pointer; margin-right:8px; display:flex; align-items:center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"></path></svg></span>`
+            : '';
+
+        overlay.innerHTML = `
+            <div class="hege-manager-box">
+                <div class="hege-manager-header">
+                    <span class="hege-manager-title" style="display:flex; align-items:center;">
+                        ${backArrow}大蟑螂資料庫 (Cockroach DB)
+                    </span>
+                    <span class="hege-manager-close">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+                    </span>
+                </div>
+                <div class="hege-manager-search" style="display: flex; gap: 10px; align-items: center;">
+                    <input type="text" placeholder="搜尋使用者名稱..." id="hege-cockroach-search-input" style="flex: 1;">
+                </div>
+                <div class="hege-manager-list"></div>
+                <div class="hege-manager-footer">
+                    <span id="hege-selected-count" style="font-size: 13px; color: #888;">已選取 0 筆</span>
+                    <div style="display: flex; gap: 12px;">
+                        <button class="hege-manager-btn secondary" id="hege-cockroach-cancel">關閉</button>
+                        <button class="hege-manager-btn primary" id="hege-cockroach-remove-confirm" disabled style="background-color:#ff3b30; color:white; border-color:#ff3b30;">移除標記</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+        renderList();
+
+        const searchInput = overlay.querySelector('#hege-cockroach-search-input');
+        searchInput.oninput = (e) => renderList(e.target.value);
+
+        if (onBack) {
+            const backEl = overlay.querySelector('#hege-cockroach-back');
+            if (backEl) backEl.onclick = () => { overlay.remove(); onBack(); };
+        }
+
+        overlay.querySelector('.hege-manager-close').onclick = () => overlay.remove();
+        overlay.querySelector('#hege-cockroach-cancel').onclick = () => {
+            overlay.remove();
+            if (onBack) onBack();
+        };
+
+        overlay.querySelector('#hege-cockroach-remove-confirm').onclick = () => {
+            const toRemove = Array.from(selected);
+            UI.showConfirm(
+                `確定要從大蟑螂名單移除這 ${toRemove.length} 個帳號嗎？\n移除後他們就不再受重點標記與回望提醒。`,
+                () => {
+                    overlay.remove();
+                    onRemove(toRemove);
+                }
+            );
+        };
+    },
+
 
     showBlockManager: (blockedList, timestamps, onUnblock) => {
         if (document.querySelector('.hege-manager-overlay')) return;
