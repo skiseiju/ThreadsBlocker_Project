@@ -593,22 +593,37 @@ export const Core = {
             }
         }
 
-        const existingBtn = localCtx.querySelector('.hege-block-all-btn');
-        if (existingBtn && document.body.contains(existingBtn)) return;
+        const isLikesLayer = ['讚', 'Likes'].some(t => titleText.includes(t));
+        const existingBlockAll = localCtx.querySelector('.hege-block-all-btn');
+        const existingEndless = localCtx.querySelector('.hege-endless-sweep-btn');
 
-        const blockAllBtn = document.createElement('div');
-        blockAllBtn.className = 'hege-block-all-btn';
-        blockAllBtn.innerHTML = `
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
-            <span>殺螂囉~</span>
-        `;
+        if (!isLikesLayer && existingEndless) {
+            existingEndless.remove();
+        }
 
-        const bgMode = Core.getBgMode();
-        if (bgMode === 'UNBLOCKING') {
-            blockAllBtn.style.opacity = '0.5';
-            blockAllBtn.style.filter = 'grayscale(1)';
-            blockAllBtn.style.cursor = 'not-allowed';
-            blockAllBtn.title = '正在解除封鎖，暫時無法封鎖';
+        let blockAllBtn = existingBlockAll;
+        let endlessSweepBtn = existingEndless;
+        
+        let shouldAddBlockAll = !existingBlockAll || !document.body.contains(existingBlockAll);
+        let shouldAddEndless = isLikesLayer && (!existingEndless || !document.body.contains(existingEndless));
+
+        if (!shouldAddBlockAll && !shouldAddEndless) return;
+
+        if (shouldAddBlockAll) {
+            blockAllBtn = document.createElement('div');
+            blockAllBtn.className = 'hege-block-all-btn';
+            blockAllBtn.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+                <span>殺螂囉~</span>
+            `;
+
+            const bgMode = Core.getBgMode();
+            if (bgMode === 'UNBLOCKING') {
+                blockAllBtn.style.opacity = '0.5';
+                blockAllBtn.style.filter = 'grayscale(1)';
+                blockAllBtn.style.cursor = 'not-allowed';
+                blockAllBtn.title = '正在解除封鎖，暫時無法封鎖';
+            }
         }
 
         const handleBlockAll = (e) => {
@@ -706,20 +721,22 @@ export const Core = {
         };
 
         // Add endless sweep button UI
-        const endlessSweepBtn = document.createElement('div');
-        endlessSweepBtn.className = 'hege-block-all-btn';
-        endlessSweepBtn.style.cssText = 'background-color: #ff3b30; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 6px 14px; border-radius: 9px; color: white; font-weight: bold; font-size: 14px; border: 1px solid rgba(255,255,255,0.2);';
-        endlessSweepBtn.innerHTML = `
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M2.5 2v6h6M21.5 22v-6h-6M22 11.5A10 10 0 0 0 3.2 7.2L2.5 8M2 12.5a10 10 0 0 0 18.8 4.2l.7-.8"></path></svg>
-            <span style="display:none;" class="hege-desktop-text">定點絕</span>
-        `;
-        endlessSweepBtn.title = "定點絕：圈選畫面上即將顯示的全數帳號，並在封鎖完畢後自動換頁繼續圈選";
-        endlessSweepBtn.dataset.hegeRole = 'endless-sweep'; // 穩定識別用，不依賴 title（title 會被 updateControllerUI 清空）
-        
-        // Show text on desktop
-        if (!Utils.isMobile() && window.innerWidth > 600) {
-            const spanTextNode = endlessSweepBtn.querySelector('.hege-desktop-text');
-            if (spanTextNode) spanTextNode.style.display = 'inline';
+        if (shouldAddEndless) {
+            endlessSweepBtn = document.createElement('div');
+            endlessSweepBtn.className = 'hege-endless-sweep-btn';
+            endlessSweepBtn.style.cssText = 'background-color: #ff3b30; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 6px 14px; border-radius: 9px; color: white; font-weight: bold; font-size: 14px; border: 1px solid rgba(255,255,255,0.2); position: absolute; left: 56px; z-index: 10;';
+            endlessSweepBtn.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M2.5 2v6h6M21.5 22v-6h-6M22 11.5A10 10 0 0 0 3.2 7.2L2.5 8M2 12.5a10 10 0 0 0 18.8 4.2l.7-.8"></path></svg>
+                <span style="display:none;" class="hege-desktop-text">定點絕</span>
+            `;
+            endlessSweepBtn.title = "定點絕：圈選畫面上即將顯示的全數帳號，並在封鎖完畢後自動換頁繼續圈選";
+            endlessSweepBtn.dataset.hegeRole = 'endless-sweep'; // 穩定識別用，不依賴 title（title 會被 updateControllerUI 清空）
+            
+            // Show text on desktop
+            if (!Utils.isMobile() && window.innerWidth > 600) {
+                const spanTextNode = endlessSweepBtn.querySelector('.hege-desktop-text');
+                if (spanTextNode) spanTextNode.style.display = 'inline';
+            }
         }
 
         const handleEndlessSweep = (e) => {
@@ -841,7 +858,7 @@ export const Core = {
         }
 
         const attachEvents = (btn, handler) => {
-            if (!btn.dataset.hegeEventBound) {
+            if (btn && !btn.dataset.hegeEventBound) {
                 if (Utils.isMobile()) {
                     btn.addEventListener('touchend', handler, { passive: false, capture: true });
                 } else {
@@ -851,35 +868,39 @@ export const Core = {
             }
         };
 
-        attachEvents(blockAllBtn, handleBlockAll);
-        attachEvents(endlessSweepBtn, handleEndlessSweep);
+        if (shouldAddBlockAll) attachEvents(blockAllBtn, handleBlockAll);
+        if (shouldAddEndless) attachEvents(endlessSweepBtn, handleEndlessSweep);
 
         if (sortSpan && sortSpan.closest('[role="button"]')) {
             const sortBtn = sortSpan.closest('[role="button"]');
-            blockAllBtn.style.marginRight = '8px';
-            endlessSweepBtn.style.marginRight = '8px';
-
-            try {
-                sortBtn.parentElement.style.display = 'flex';
-                sortBtn.parentElement.style.alignItems = 'center';
-                sortBtn.parentElement.insertBefore(endlessSweepBtn, sortBtn);
-                sortBtn.parentElement.insertBefore(blockAllBtn, endlessSweepBtn);
-            } catch (e) {
-                headerContainer.appendChild(blockAllBtn);
-                headerContainer.appendChild(endlessSweepBtn);
+            
+            if (shouldAddBlockAll) {
+                blockAllBtn.style.marginRight = '8px';
+                try {
+                    sortBtn.parentElement.style.display = 'flex';
+                    sortBtn.parentElement.style.alignItems = 'center';
+                    sortBtn.parentElement.insertBefore(blockAllBtn, sortBtn);
+                } catch (e) {
+                    headerContainer.appendChild(blockAllBtn);
+                }
             }
         } else {
-            blockAllBtn.style.marginLeft = 'auto';
-            blockAllBtn.style.marginRight = '8px';
-            endlessSweepBtn.style.marginRight = '8px';
-
-            if (header.nextSibling) {
-                headerContainer.insertBefore(blockAllBtn, header.nextSibling);
-                headerContainer.insertBefore(endlessSweepBtn, header.nextSibling);
-            } else {
-                headerContainer.appendChild(blockAllBtn);
-                headerContainer.appendChild(endlessSweepBtn);
+            if (shouldAddBlockAll) {
+                blockAllBtn.style.marginLeft = 'auto';
+                blockAllBtn.style.marginRight = '8px';
+                if (header.nextSibling) {
+                    headerContainer.insertBefore(blockAllBtn, header.nextSibling);
+                } else {
+                    headerContainer.appendChild(blockAllBtn);
+                }
             }
+        }
+
+        if (shouldAddEndless) {
+            if (window.getComputedStyle(headerContainer).position === 'static') {
+                headerContainer.style.position = 'relative';
+            }
+            headerContainer.appendChild(endlessSweepBtn);
         }
     },
 
@@ -1375,20 +1396,42 @@ export const Core = {
     },
 
     startEndlessMonitor: () => {
-        if (Core.endlessMonitorTimer) clearInterval(Core.endlessMonitorTimer);
-        Core.endlessMonitorTimer = setInterval(() => {
+        const cleanup = () => {
+            if (Core.endlessMonitorTimer) {
+                clearInterval(Core.endlessMonitorTimer);
+                Core.endlessMonitorTimer = null;
+            }
+            if (Core.endlessWorkerTimer) {
+                Core.endlessWorkerTimer.terminate();
+                Core.endlessWorkerTimer = null;
+            }
+            if (Core.endlessStorageHandler) {
+                window.removeEventListener('storage', Core.endlessStorageHandler);
+                Core.endlessStorageHandler = null;
+            }
+            if (Core.endlessVisHandler) {
+                document.removeEventListener('visibilitychange', Core.endlessVisHandler);
+                Core.endlessVisHandler = null;
+            }
+            if (Core.endlessMessageHandler) {
+                window.removeEventListener('message', Core.endlessMessageHandler);
+                Core.endlessMessageHandler = null;
+            }
+        };
+
+        cleanup(); // Cleanup any existing hooks
+
+        const checkEndlessQueue = () => {
             const state = sessionStorage.getItem('hege_endless_state');
             if (state !== 'WAIT_FOR_BG') {
-                clearInterval(Core.endlessMonitorTimer);
+                cleanup();
                 return;
             }
-            
-            const bgq = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
             
             // 如果這時標記已被使用者在 Worker 那端拔掉，就中止
             if (Storage.get('hege_endless_worker_standby') !== 'true') {
                 console.log('[Task 3] Endless Worker Standby flag removed. Aborting endless loop.');
-                clearInterval(Core.endlessMonitorTimer);
+                cleanup();
                 sessionStorage.removeItem('hege_endless_state');
                 sessionStorage.removeItem('hege_endless_target');
                 sessionStorage.removeItem('hege_endless_last_first_user');
@@ -1397,17 +1440,66 @@ export const Core = {
                 return;
             }
 
+            const bgq = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
             if (bgq.length === 0) {
                 console.log('[Task 3] BG Queue empty. Reloading for next batch.');
-                clearInterval(Core.endlessMonitorTimer);
+                cleanup();
                 sessionStorage.setItem('hege_endless_state', 'RELOADING');
-                sessionStorage.removeItem('hege_auto_triggered_once'); // 清除旗標，讓下一輪 reload 可以無死迴圈比對地接軌
+                sessionStorage.removeItem('hege_auto_triggered_once'); // 清除旗標，讓下一輪 reload 可以接軌
                 UI.showToast('[定點絕] 第一批次清理完畢，準備重新整理載入下一批名單...');
                 setTimeout(() => location.reload(), 1500);
             } else {
                 if (CONFIG.DEBUG_MODE) console.log(`[Task 3] BG Queue count: ${bgq.length}. Waiting...`);
             }
-        }, 3000);
+        };
+
+        // 1. Storage Event Listener (Instant Wakeup from Worker cross-origin)
+        Core.endlessStorageHandler = (e) => {
+            if (e.key === CONFIG.KEYS.BG_QUEUE || e.key === 'hege_endless_worker_standby') {
+                checkEndlessQueue();
+            }
+        };
+        window.addEventListener('storage', Core.endlessStorageHandler);
+
+        // 2. Visibility Change (Catch-up when user returns to tab)
+        Core.endlessVisHandler = () => {
+            if (document.visibilityState === 'visible') {
+                checkEndlessQueue();
+            }
+        };
+        document.addEventListener('visibilitychange', Core.endlessVisHandler);
+
+        // 2.5 Message Event Listener (Fallback from Worker postMessage)
+        Core.endlessMessageHandler = (e) => {
+            if (e.data === 'HEGE_WAKEUP_RELOAD') {
+                checkEndlessQueue();
+            }
+        };
+        window.addEventListener('message', Core.endlessMessageHandler);
+
+        // 3. Web Worker Blob Timer (Bypass Safari Background Throttling)
+        try {
+            const blobCode = `
+                let timer = null;
+                self.onmessage = function(e) {
+                    if (e.data === 'start') {
+                        timer = setInterval(() => self.postMessage('tick'), 3000);
+                    } else if (e.data === 'stop') {
+                        clearInterval(timer);
+                    }
+                };
+            `;
+            const blob = new Blob([blobCode], { type: 'application/javascript' });
+            const workerUrl = URL.createObjectURL(blob);
+            Core.endlessWorkerTimer = new Worker(workerUrl);
+            Core.endlessWorkerTimer.onmessage = () => {
+                checkEndlessQueue();
+            };
+            Core.endlessWorkerTimer.postMessage('start');
+        } catch (e) {
+            console.warn('[Task 3] Failed to start Blob Worker (CSP?), falling back to setInterval', e);
+            Core.endlessMonitorTimer = setInterval(checkEndlessQueue, 3000);
+        }
     },
 
     resumeEndlessSweep: () => {

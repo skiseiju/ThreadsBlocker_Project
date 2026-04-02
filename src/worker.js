@@ -496,6 +496,27 @@ export const Worker = {
             if (Storage.get('hege_endless_worker_standby') === 'true') {
                 Worker.updateStatus('idle', '⌛ 等待定點絕餵食...', 0, 0);
                 if (window.hegeLog) window.hegeLog('[BG] 佇列空，但定點絕待命中...');
+                
+                // Safari Background Tab 最終防線：由 Active Worker 強制重載 Opener
+                try {
+                    if (window.opener && !window.opener.closed) {
+                        const openerState = window.opener.sessionStorage.getItem('hege_endless_state');
+                        if (openerState === 'WAIT_FOR_BG') {
+                            window.opener.sessionStorage.setItem('hege_endless_state', 'RELOADING');
+                            window.opener.sessionStorage.removeItem('hege_auto_triggered_once');
+                            if (window.hegeLog) window.hegeLog('[BG] 主視窗休眠中，由 Worker 強行代為 Reload 跨視窗喚醒...');
+                            window.opener.location.reload();
+                        }
+                    }
+                } catch (e) {
+                    if (window.hegeLog) window.hegeLog('[BG] 跨域防護阻止直接 Reload: ' + e.message);
+                    try {
+                        if (window.opener && !window.opener.closed) {
+                            window.opener.postMessage('HEGE_WAKEUP_RELOAD', '*');
+                        }
+                    } catch(err) {}
+                }
+
                 setTimeout(Worker.runStep, 1000);
                 return;
             }
