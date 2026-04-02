@@ -594,6 +594,12 @@ export const UI = {
                     </div>
 
                     <div style="height: 1px; background: #333; margin: 4px 0;"></div>
+                    
+                    <div class="hege-menu-item" id="hege-s-sponsor" style="color: #ecc351; border-bottom: none;">
+                        <span>求贊助~ ☕️</span>
+                    </div>
+
+                    <div style="height: 1px; background: #333; margin: 4px 0;"></div>
 
                     <div class="hege-menu-item" style="cursor:default; flex-direction: column; align-items: flex-start; gap: 8px; border-bottom: none;">
                         <label style="display:flex; align-items:center; gap:8px; cursor:pointer; width:100%;">
@@ -635,6 +641,10 @@ export const UI = {
         bind('hege-s-import', callbacks.onImport);
         bind('hege-s-export', callbacks.onExport);
         bind('hege-s-clear-db', callbacks.onClearDB);
+        bind('hege-s-sponsor', () => {
+            alert('目前還不急著收贊助，但歡迎來看看我還可以幫你解決什麼 → skiseiju.com');
+            window.open('https://skiseiju.com?utm_source=extension&utm_medium=popup', '_blank');
+        });
 
         // Task 1: 延時封鎖 UI 事件
         const delayToggle = overlay.querySelector('#hege-s-delay-toggle');

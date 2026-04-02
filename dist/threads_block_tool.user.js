@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         留友封 (Threads 封鎖工具)
 // @namespace    http://tampermonkey.net/
-// @version      2.5.0-beta54
+// @version      2.5.0-beta71
 // @description  Modular Refactor Build
 // @author       海哥
 // @match        https://www.threads.net/*
@@ -26,10 +26,10 @@
 
 (function() {
     'use strict';
-    console.log('[HegeBlock] Content Script Injected, Version: 2.5.0-beta54');
+    console.log('[HegeBlock] Content Script Injected, Version: 2.5.0-beta71');
 // --- config.js ---
 const CONFIG = {
-    VERSION: '2.5.0-beta54', // Safari-compatible stable release
+    VERSION: '2.5.0-beta71', // Safari-compatible stable release
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec',
@@ -532,12 +532,15 @@ const Reporter = {
                     }
                 });
             } else {
+                const formBody = new URLSearchParams();
+                formBody.append('payload', JSON.stringify(payload));
+                
                 fetch(CONFIG.BUG_REPORT_URL, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/x-www-form-urlencoded'
                     },
-                    body: JSON.stringify(payload),
+                    body: formBody.toString(),
                     redirect: 'follow'
                 }).then(async res => {
                     const text = await res.text();
@@ -1151,6 +1154,12 @@ const UI = {
                     </div>
 
                     <div style="height: 1px; background: #333; margin: 4px 0;"></div>
+                    
+                    <div class="hege-menu-item" id="hege-s-sponsor" style="color: #ecc351; border-bottom: none;">
+                        <span>求贊助~ ☕️</span>
+                    </div>
+
+                    <div style="height: 1px; background: #333; margin: 4px 0;"></div>
 
                     <div class="hege-menu-item" style="cursor:default; flex-direction: column; align-items: flex-start; gap: 8px; border-bottom: none;">
                         <label style="display:flex; align-items:center; gap:8px; cursor:pointer; width:100%;">
@@ -1192,6 +1201,10 @@ const UI = {
         bind('hege-s-import', callbacks.onImport);
         bind('hege-s-export', callbacks.onExport);
         bind('hege-s-clear-db', callbacks.onClearDB);
+        bind('hege-s-sponsor', () => {
+            alert('目前還不急著收贊助，但歡迎來看看我還可以幫你解決什麼 → skiseiju.com');
+            window.open('https://skiseiju.com?utm_source=extension&utm_medium=popup', '_blank');
+        });
 
         // Task 1: 延時封鎖 UI 事件
         const delayToggle = overlay.querySelector('#hege-s-delay-toggle');
@@ -1723,7 +1736,9 @@ const Core = {
                 if (Utils.isMobile()) {
                     Core.runSameTabWorker();
                 } else {
-                    Utils.openWorkerWindow();
+                    UI.showConfirm('需要您的授權重啟背景視窗 ⚙️\n\n因為瀏覽器防護機制，我們無法自動為您彈出執行視窗。\n請在此點擊「確定」來授權開啟，接續未完成的深層清理任務！', () => {
+                        Utils.openWorkerWindow();
+                    });
                 }
             }
 
@@ -2238,9 +2253,10 @@ const Core = {
         endlessSweepBtn.style.cssText = 'background-color: #ff3b30; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 6px 14px; border-radius: 9px; color: white; font-weight: bold; font-size: 14px; border: 1px solid rgba(255,255,255,0.2);';
         endlessSweepBtn.innerHTML = `
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M2.5 2v6h6M21.5 22v-6h-6M22 11.5A10 10 0 0 0 3.2 7.2L2.5 8M2 12.5a10 10 0 0 0 18.8 4.2l.7-.8"></path></svg>
-            <span style="display:none;" class="hege-desktop-text">無盡收割</span>
+            <span style="display:none;" class="hege-desktop-text">定點絕</span>
         `;
-        endlessSweepBtn.title = "全自動：圈選畫面上即將顯示的全數帳號，並在封鎖完畢後自動換頁繼續收割";
+        endlessSweepBtn.title = "定點絕：圈選畫面上即將顯示的全數帳號，並在封鎖完畢後自動換頁繼續圈選";
+        endlessSweepBtn.dataset.hegeRole = 'endless-sweep'; // 穩定識別用，不依賴 title（title 會被 updateControllerUI 清空）
         
         // Show text on desktop
         if (!Utils.isMobile() && window.innerWidth > 600) {
@@ -2254,13 +2270,29 @@ const Core = {
             }
             console.log('[DEBUG] handleEndlessSweep 被觸發了！');
             
+            const isManualClick = !window.__hege_is_auto_click;
+            if (isManualClick) {
+                // 手動按鈕啟動，清洗掉上一輪可能殘留的死迴圈旗標以防誤觸
+                sessionStorage.removeItem('hege_endless_last_first_user');
+                sessionStorage.removeItem('hege_auto_triggered_once');
+            }
+            window.__hege_is_auto_click = false; // Reset for safety
+
             try {
-                const activeCtx = Core.getTopContext();
+                let activeCtx = null;
+                // 利用觸發事件的按鈕往上尋找，是最準確拿到該層 Dialog 的方式
+                if (e && e.target && e.target instanceof Element) {
+                    activeCtx = e.target.closest('div[role="dialog"]');
+                }
+                activeCtx = activeCtx || Core.getTopContext();
                 console.log('[DEBUG] activeCtx 取得:', activeCtx);
             
-            // Re-run precise grab logic for endless grab
+            // Re-run precise grab logic for endless grab, adding visibility check to ignore hidden DOM layers
             const links = activeCtx.querySelectorAll('a[href^="/@"]');
-            let endlessRawUsers = Array.from(links).map(a => {
+            let endlessRawUsers = Array.from(links).filter(a => {
+                const rect = a.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0 && rect.right > 0;
+            }).map(a => {
                 const href = a.getAttribute('href');
                 return href.split('/@')[1].split('/')[0];
             });
@@ -2274,50 +2306,65 @@ const Core = {
             const activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
             const activeSet = new Set(activeQueue);
 
-            const newEndlessUsers = endlessRawUsers.filter(u => !db.has(u) && !activeSet.has(u));
+            const newEndlessUsers = endlessRawUsers.filter(u => !db.has(u) && !activeSet.has(u)).slice(0, 10);
 
             if (newEndlessUsers.length === 0) {
-                UI.showToast('⚠️ 畫面上無可收割帳號');
+                UI.showToast('⚠️ 畫面上無可被定點絕的帳號');
                 return;
             }
 
             // Loop Protection Check
+            // isAutoResumed = true 代表這是 RELOADING 後的第一次自動觸發，應跳過誤判風險高的比對
+            const isAutoResumed = sessionStorage.getItem('hege_auto_triggered_once') !== 'true';
             const lastFirstUser = sessionStorage.getItem('hege_endless_last_first_user');
-            if (lastFirstUser === newEndlessUsers[0]) {
-                UI.showConfirm('⚠️ 偵測到死迴圈（API可能卡單），無盡收割自動中止。');
+            if (!isAutoResumed && lastFirstUser && lastFirstUser === newEndlessUsers[0]) {
+                console.log(`[Task 3] INFINITE LOOP DETECTED. Prev First User = ${lastFirstUser}, Current = ${newEndlessUsers[0]}. Aborting.`);
+                UI.showConfirm('⚠️ 偵測到死迴圈（API可能卡單），定點絕自動中止。');
                 sessionStorage.removeItem('hege_endless_state');
                 sessionStorage.removeItem('hege_endless_target');
                 sessionStorage.removeItem('hege_endless_last_first_user');
+                sessionStorage.removeItem('hege_auto_triggered_once');
+                Storage.remove('hege_endless_worker_standby');
                 return;
             }
 
             // Arm the endless harvester
             sessionStorage.setItem('hege_endless_last_first_user', newEndlessUsers[0]);
+            sessionStorage.setItem('hege_auto_triggered_once', 'true'); // 標記已觸發過一次，下次須進行死迴圈比對
             Storage.setJSON(CONFIG.KEYS.BG_QUEUE, [...new Set([...activeQueue, ...newEndlessUsers])]);
+            newEndlessUsers.forEach(u => Core.pendingUsers.add(u));
             sessionStorage.setItem('hege_endless_state', 'WAIT_FOR_BG');
+            Storage.set('hege_endless_worker_standby', 'true');
             sessionStorage.setItem('hege_endless_target', window.location.href);
+            Core.updateControllerUI();
 
             const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
-            const isWorkerRunning = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
+            const isWorkerRunning = (Date.now() - (status.lastUpdate || 0) < 10000 && (status.state === 'running' || status.state === 'idle'));
             if (!isWorkerRunning) {
-                console.log('[DEBUG] 偵測到 Worker 未執行，強制喚醒以消化無盡收割佇列...');
+                console.log('[DEBUG] 偵測到 Worker 未執行，強制喚醒以消化定點絕佇列...');
                 Storage.setJSON(CONFIG.KEYS.BG_STATUS, { state: 'running', lastUpdate: Date.now() });
                 Storage.remove(CONFIG.KEYS.BG_CMD);
                 if (Utils.isMobile()) {
                     Core.runSameTabWorker();
                 } else {
-                    Utils.openWorkerWindow();
+                    if (!isManualClick) {
+                        UI.showConfirm('需要您的授權重啟背景視窗 ⚙️\n\n因為瀏覽器防護機制，我們無法自動為您彈出執行視窗。\n請在此點擊「確定」來授權開啟，接續未完成的定點絕任務！', () => {
+                            Utils.openWorkerWindow();
+                        });
+                    } else {
+                        Utils.openWorkerWindow();
+                    }
                 }
             }
             
             console.log(`[Endless Harvester] Triggered. ${newEndlessUsers.length} users added. State: WAIT_FOR_BG.`);
-            UI.showToast(`[無盡收割啟動] 已抓取 ${newEndlessUsers.length} 人。等待背景執行中...`);
+            UI.showToast(`[定點絕啟動] 已抓取 ${newEndlessUsers.length} 人。等待背景執行中...`);
             
             Core.updateControllerUI();
             if (typeof Core.startEndlessMonitor === 'function') Core.startEndlessMonitor();
             } catch (err) {
                 console.error('[DEBUG] handleEndlessSweep 發生例外錯誤:', err);
-                alert('無盡收割發生錯誤:\n' + err.message);
+                alert('定點絕發生錯誤:\n' + err.message);
             }
         };
 
@@ -2549,7 +2596,7 @@ const Core = {
         if (moreSvgs.length === 0) return;
 
         // Optimization: Cache DB lookup
-        const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY));
+        const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
 
         moreSvgs.forEach(svg => {
             const btn = svg.closest('div[role="button"]');
@@ -2630,7 +2677,7 @@ const Core = {
                 btn.dataset.username = username;
                 container.dataset.username = username;
 
-                const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY));
+                const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
                 const cdq = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
                 const bgq = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
 
@@ -2753,7 +2800,7 @@ const Core = {
             targetAction = 'uncheck';
         }
 
-        const currentDB = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY));
+        const currentDB = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
 
         targetBoxes.forEach(box => {
             const u = box.dataset.username;
@@ -2879,11 +2926,25 @@ const Core = {
             }
             
             const bgq = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+            
+            // 如果這時標記已被使用者在 Worker 那端拔掉，就中止
+            if (Storage.get('hege_endless_worker_standby') !== 'true') {
+                console.log('[Task 3] Endless Worker Standby flag removed. Aborting endless loop.');
+                clearInterval(Core.endlessMonitorTimer);
+                sessionStorage.removeItem('hege_endless_state');
+                sessionStorage.removeItem('hege_endless_target');
+                sessionStorage.removeItem('hege_endless_last_first_user');
+                sessionStorage.removeItem('hege_auto_triggered_once');
+                UI.showToast('✅ 定點絕已被手動終止。');
+                return;
+            }
+
             if (bgq.length === 0) {
                 console.log('[Task 3] BG Queue empty. Reloading for next batch.');
                 clearInterval(Core.endlessMonitorTimer);
                 sessionStorage.setItem('hege_endless_state', 'RELOADING');
-                UI.showToast('[無盡收割] 第一批次清理完畢，準備重新整理載入下一批名單...');
+                sessionStorage.removeItem('hege_auto_triggered_once'); // 清除旗標，讓下一輪 reload 可以無死迴圈比對地接軌
+                UI.showToast('[定點絕] 第一批次清理完畢，準備重新整理載入下一批名單...');
                 setTimeout(() => location.reload(), 1500);
             } else {
                 if (CONFIG.DEBUG_MODE) console.log(`[Task 3] BG Queue count: ${bgq.length}. Waiting...`);
@@ -2893,7 +2954,7 @@ const Core = {
 
     resumeEndlessSweep: () => {
         console.log('[Task 2] Detected RELOADING state. Attempting to click Likes button...');
-        UI.showToast('無盡收割機：自動讀取下一批名單中...', 5000);
+        UI.showToast('定點絕：自動讀取下一批名單中...', 5000);
         
         let attempts = 0;
         const findLikesTimer = setInterval(() => {
@@ -2902,9 +2963,10 @@ const Core = {
                 clearInterval(findLikesTimer);
                 console.log('[Task 2] Timeout waiting for Likes/Activity button. Aborting.');
                 sessionStorage.removeItem('hege_endless_state');
+                Storage.remove('hege_endless_worker_standby');
                 sessionStorage.removeItem('hege_endless_target');
                 sessionStorage.removeItem('hege_endless_last_first_user');
-                UI.showToast('⚠️ 無法自動尋找按讚名單或查看動態，無盡收割已中止。');
+                UI.showToast('⚠️ 無法自動尋找按讚名單或查看動態，定點絕已中止。');
                 return;
             }
 
@@ -2944,7 +3006,8 @@ const Core = {
                         clearInterval(findAction2Timer);
                         console.log('[Task 2] Timeout waiting for Action 2 (按讚內容). Aborting.');
                         sessionStorage.removeItem('hege_endless_state');
-                        UI.showToast('⚠️ 無法自動尋找按讚內容，無盡收割連鎖已中止。');
+                        Storage.remove('hege_endless_worker_standby');
+                        UI.showToast('⚠️ 無法自動尋找按讚內容，定點絕連鎖已中止。');
                         return;
                     }
 
@@ -2972,20 +3035,34 @@ const Core = {
                             if (action3Attempts > 40) { // 20 seconds
                                 clearInterval(findAction3Timer);
                                 sessionStorage.removeItem('hege_endless_state');
-                                UI.showToast('⚠️ 名單載入過久，無法觸發無盡收割按鈕。');
+                                Storage.remove('hege_endless_worker_standby');
+                                UI.showToast('⚠️ 名單載入過久，無法觸發定點絕按鈕。');
                                 return;
                             }
 
-                            const finalCtx = document.querySelector('div[role="dialog"]') || document;
-                            // Simple small force scroll to trigger lazy loaded items if needed
-                            const scrollable = finalCtx.querySelector('div[style*="overflow-y: auto"], div[style*="overflow: hidden auto"]');
-                            if (scrollable) scrollable.scrollTop += 500;
+                            const endlessBtn = document.querySelector('[data-hege-role="endless-sweep"]');
+                            const finalCtx = endlessBtn ? (endlessBtn.closest('div[role="dialog"]') || Core.getTopContext()) : (Core.getTopContext() || document);
 
-                            const endlessBtn = document.querySelector('.hege-block-all-btn[title*="全自動"]');
                             if (endlessBtn) {
-                                clearInterval(findAction3Timer);
-                                console.log('[Task 2] Found Action 3: "無盡收割". Mission accomplished. Triggering sweep!');
-                                Utils.simClick(endlessBtn);
+                                // 雙重條件：按鈕存在 + 名單有足夠可封鎖帳號（防止 Dialog 剛出現就過早觸發）
+                                const links = finalCtx.querySelectorAll('a[href^="/@"]');
+                                const dbSet = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+                                const bgqSet = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
+                                const validCount = Array.from(links).filter(a => {
+                                    const rect = a.getBoundingClientRect();
+                                    return rect.width > 0 && rect.height > 0 && rect.right > 0;
+                                }).map(a => a.getAttribute('href').split('/@')[1].split('/')[0])
+                                  .filter(u => !dbSet.has(u) && !bgqSet.has(u)).length;
+
+                                if (validCount >= 3) {
+                                    clearInterval(findAction3Timer);
+                                    console.log(`[Task 2] Found Action 3 with ${validCount} valid users. Triggering sweep!`);
+                                    window.__hege_is_auto_click = true;
+                                    Utils.simClick(endlessBtn);
+                                } else {
+                                    // 名單還不夠，繼續等待渲染（不強制捲動避免干擾 Threads 虛擬列表）
+                                    console.log(`[Task 2] Button found but only ${validCount} valid users. Waiting for list to render...`);
+                                }
                             }
                         }, 500);
                     }
@@ -3045,7 +3122,7 @@ const Core = {
         Core._uiUpdatePending = null;
 
         const bgMode = Core.getBgMode();
-        const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY));
+        const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
         const cdq = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
         const bgq = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
         const dq = new Set(Storage.getJSON(CONFIG.KEYS.DELAYED_QUEUE, []));
@@ -3177,7 +3254,13 @@ const Core = {
             btn.style.opacity = isUnblocking ? '0.5' : '1';
             btn.style.filter = isUnblocking ? 'grayscale(1)' : 'none';
             btn.style.cursor = isUnblocking ? 'not-allowed' : 'pointer';
-            btn.title = isUnblocking ? '正在解除封鎖，暫時無法封鎖' : '';
+            // 無盡收割按鈕的 title 有語意用途，不覆寫為空字串（否則 resumeEndlessSweep 選取器會失效）
+            if (btn.dataset.hegeRole !== 'endless-sweep') {
+                btn.title = isUnblocking ? '正在解除封鎖，暫時無法封鎖' : '';
+            } else if (isUnblocking) {
+                btn.title = '正在解除封鎖，暫時無法封鎖';
+                // 解除封鎖結束後由 btn.dataset.hegeRole 恢復語意，不需額外寫回
+            }
         });
 
         // Mutex: Gray out Unblock Start if Blocking
@@ -3695,7 +3778,7 @@ const Worker = {
                 <div id="bg-status" style="font-size:15px;font-weight:600;color:#4cd964;margin-bottom:20px;">等待指令...</div>
 
                 <!-- Stop Button -->
-                <div id="hege-worker-stop" style="background:#ff453a;color:#fff;font-size:16px;font-weight:700;padding:14px 48px;border-radius:14px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;box-shadow:0 4px 12px rgba(255,69,58,0.3);transition:transform 0.15s,opacity 0.15s;margin-bottom:20px;">🛑 停止${isUnblock ? '解除封鎖' : '封鎖'}</div>
+                <div id="hege-worker-stop" style="background:#ff453a;color:#fff;font-size:16px;font-weight:700;padding:14px 48px;border-radius:14px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;box-shadow:0 4px 12px rgba(255,69,58,0.3);transition:transform 0.15s,opacity 0.15s;margin-bottom:20px;">🛑 停止${Storage.get('hege_endless_worker_standby') === 'true' ? '定點絕' : (isUnblock ? '解除封鎖' : '封鎖')}</div>
 
                 <!-- Debug Log -->
                 <div id="hege-worker-log" style="width:100%;flex:1;overflow-y:auto;border:1px solid #222;border-radius:8px;padding:10px;text-align:left;font-family:monospace;font-size:11px;color:#555;background:#0a0a0a;"></div>
@@ -3708,6 +3791,7 @@ const Worker = {
         if (stopBtn) {
             const handleStop = () => {
                 Storage.set(CONFIG.KEYS.BG_CMD, 'stop');
+                Storage.remove('hege_endless_worker_standby');
                 stopBtn.textContent = '⏳ 正在停止...';
                 stopBtn.style.background = '#666';
                 stopBtn.style.pointerEvents = 'none';
@@ -3898,6 +3982,7 @@ const Worker = {
         if (Storage.get(CONFIG.KEYS.BG_CMD) === 'stop') {
             Storage.remove(CONFIG.KEYS.BG_CMD);
             Storage.remove(CONFIG.KEYS.VERIFY_PENDING);
+            Storage.remove('hege_endless_worker_standby');
             Storage.remove('hege_batch_verify_idx');
             Storage.setJSON(CONFIG.KEYS.BATCH_VERIFY, []);
             Worker.updateStatus('stopped', '已停止');
@@ -3991,6 +4076,14 @@ const Worker = {
         Storage.invalidate(CONFIG.KEYS.BG_QUEUE);
         let queue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
         if (queue.length === 0) {
+            // 定點絕待命模式：即使佇列空了也保持開啟，等待主視窗塞入下一批
+            if (Storage.get('hege_endless_worker_standby') === 'true') {
+                Worker.updateStatus('idle', '⌛ 等待定點絕餵食...', 0, 0);
+                if (window.hegeLog) window.hegeLog('[BG] 佇列空，但定點絕待命中...');
+                setTimeout(Worker.runStep, 1000);
+                return;
+            }
+
             // 檢查是否有批次驗證待執行（turbo 模式）
             const batchQueue = Storage.getJSON(CONFIG.KEYS.BATCH_VERIFY, []);
             if (batchQueue.length > 0) {
@@ -5017,7 +5110,10 @@ const Worker = {
                 onExport: () => Core.exportHistory(),
                 onRetryFailed: () => Core.retryFailedQueue(),
                 onReport: () => Core.showReportDialog(),
-                onStop: () => { UI.showConfirm('確定要停止背景執行？', () => Storage.set(CONFIG.KEYS.BG_CMD, 'stop')); }
+                onStop: () => { UI.showConfirm('確定要停止背景執行？', () => {
+                    Storage.set(CONFIG.KEYS.BG_CMD, 'stop');
+                    Storage.remove('hege_endless_worker_standby');
+                }); }
             };
 
             const panel = UI.createPanel(callbacks);

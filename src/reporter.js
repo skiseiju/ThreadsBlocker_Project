@@ -68,12 +68,15 @@ export const Reporter = {
                     }
                 });
             } else {
+                const formBody = new URLSearchParams();
+                formBody.append('payload', JSON.stringify(payload));
+                
                 fetch(CONFIG.BUG_REPORT_URL, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/x-www-form-urlencoded'
                     },
-                    body: JSON.stringify(payload),
+                    body: formBody.toString(),
                     redirect: 'follow'
                 }).then(async res => {
                     const text = await res.text();

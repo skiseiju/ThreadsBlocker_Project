@@ -194,7 +194,7 @@ export const Worker = {
                 <div id="bg-status" style="font-size:15px;font-weight:600;color:#4cd964;margin-bottom:20px;">等待指令...</div>
 
                 <!-- Stop Button -->
-                <div id="hege-worker-stop" style="background:#ff453a;color:#fff;font-size:16px;font-weight:700;padding:14px 48px;border-radius:14px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;box-shadow:0 4px 12px rgba(255,69,58,0.3);transition:transform 0.15s,opacity 0.15s;margin-bottom:20px;">🛑 停止${isUnblock ? '解除封鎖' : '封鎖'}</div>
+                <div id="hege-worker-stop" style="background:#ff453a;color:#fff;font-size:16px;font-weight:700;padding:14px 48px;border-radius:14px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;box-shadow:0 4px 12px rgba(255,69,58,0.3);transition:transform 0.15s,opacity 0.15s;margin-bottom:20px;">🛑 停止${Storage.get('hege_endless_worker_standby') === 'true' ? '定點絕' : (isUnblock ? '解除封鎖' : '封鎖')}</div>
 
                 <!-- Debug Log -->
                 <div id="hege-worker-log" style="width:100%;flex:1;overflow-y:auto;border:1px solid #222;border-radius:8px;padding:10px;text-align:left;font-family:monospace;font-size:11px;color:#555;background:#0a0a0a;"></div>
@@ -207,6 +207,7 @@ export const Worker = {
         if (stopBtn) {
             const handleStop = () => {
                 Storage.set(CONFIG.KEYS.BG_CMD, 'stop');
+                Storage.remove('hege_endless_worker_standby');
                 stopBtn.textContent = '⏳ 正在停止...';
                 stopBtn.style.background = '#666';
                 stopBtn.style.pointerEvents = 'none';
@@ -397,6 +398,7 @@ export const Worker = {
         if (Storage.get(CONFIG.KEYS.BG_CMD) === 'stop') {
             Storage.remove(CONFIG.KEYS.BG_CMD);
             Storage.remove(CONFIG.KEYS.VERIFY_PENDING);
+            Storage.remove('hege_endless_worker_standby');
             Storage.remove('hege_batch_verify_idx');
             Storage.setJSON(CONFIG.KEYS.BATCH_VERIFY, []);
             Worker.updateStatus('stopped', '已停止');
@@ -490,6 +492,14 @@ export const Worker = {
         Storage.invalidate(CONFIG.KEYS.BG_QUEUE);
         let queue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
         if (queue.length === 0) {
+            // 定點絕待命模式：即使佇列空了也保持開啟，等待主視窗塞入下一批
+            if (Storage.get('hege_endless_worker_standby') === 'true') {
+                Worker.updateStatus('idle', '⌛ 等待定點絕餵食...', 0, 0);
+                if (window.hegeLog) window.hegeLog('[BG] 佇列空，但定點絕待命中...');
+                setTimeout(Worker.runStep, 1000);
+                return;
+            }
+
             // 檢查是否有批次驗證待執行（turbo 模式）
             const batchQueue = Storage.getJSON(CONFIG.KEYS.BATCH_VERIFY, []);
             if (batchQueue.length > 0) {

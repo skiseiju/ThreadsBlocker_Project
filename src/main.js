@@ -264,7 +264,10 @@ import { Worker } from './worker.js';
                 onExport: () => Core.exportHistory(),
                 onRetryFailed: () => Core.retryFailedQueue(),
                 onReport: () => Core.showReportDialog(),
-                onStop: () => { UI.showConfirm('確定要停止背景執行？', () => Storage.set(CONFIG.KEYS.BG_CMD, 'stop')); }
+                onStop: () => { UI.showConfirm('確定要停止背景執行？', () => {
+                    Storage.set(CONFIG.KEYS.BG_CMD, 'stop');
+                    Storage.remove('hege_endless_worker_standby');
+                }); }
             };
 
             const panel = UI.createPanel(callbacks);
