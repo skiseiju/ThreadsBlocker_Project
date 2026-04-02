@@ -610,6 +610,18 @@ export const UI = {
                         <button class="hege-manager-btn secondary" id="hege-s-clear-delay" style="font-size: 12px; padding: 6px 12px; margin-top: 4px; width: 100%;">清空延時水庫 (0 人)</button>
                     </div>
 
+                    <div style="height: 1px; background: #333; margin: 4px 0;"></div>
+
+                    <div class="hege-menu-item" style="cursor:default; flex-direction: column; align-items: flex-start; gap: 8px; border-bottom: none;">
+                        <label style="display:flex; align-items:center; gap:8px; width:100%;">
+                            <span style="font-weight:600; color:#4cd964;">💡 定點絕 + 8小時巡邏說明</span>
+                        </label>
+                        <span style="font-size: 11px; color: #888; line-height: 1.4;">
+                            定點絕大掃除完畢後，系統會詢問是否將該篇加入「每 8 小時自動回鍋」。<br><br>
+                            ⚠️ <b>執行限制提示</b>：瀏覽器禁止背景無故強制彈出視窗。在 8 小時後，您必須<b>至少保持開啟著一個 Threads 分頁</b>，系統才有辦法在畫面右下角跳出【授權啟動對話框】，等您親自點擊同意後，才會接續全自動封鎖。
+                        </span>
+                    </div>
+
                     <div class="hege-menu-item" style="cursor:default; flex-direction: column; align-items: flex-start; gap: 8px; border-bottom: none;">
                         <label style="display:flex; align-items:center; gap:8px; cursor:pointer; width:100%;">
                             <input type="checkbox" id="hege-s-advance-scroll-toggle" style="width:16px; height:16px;">

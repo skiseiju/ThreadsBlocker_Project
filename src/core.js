@@ -784,7 +784,19 @@ export const Core = {
             const newEndlessUsers = endlessRawUsers.filter(u => !db.has(u) && !activeSet.has(u)).slice(0, 10);
 
             if (newEndlessUsers.length === 0) {
-                UI.showToast('⚠️ 畫面上無可被定點絕的帳號');
+                if (!isManualClick) {
+                    sessionStorage.removeItem('hege_endless_state');
+                    sessionStorage.removeItem('hege_endless_target');
+                    sessionStorage.removeItem('hege_endless_last_first_user');
+                    sessionStorage.removeItem('hege_auto_triggered_once');
+                    Storage.remove('hege_endless_worker_standby');
+                    UI.showConfirm('🎉 巡邏結束：畫面上無新帳號可封鎖！\n\n大清理完畢！是否自動將這篇熱門貼文加入【每 8 小時自動巡邏】清單？', () => {
+                        const targetUrl = window.location.href.split('?')[0];
+                        if (typeof Core.addPostTask === 'function') Core.addPostTask(targetUrl);
+                    });
+                } else {
+                    UI.showToast('⚠️ 畫面上無可被定點絕的新帳號');
+                }
                 return;
             }
 
@@ -794,12 +806,15 @@ export const Core = {
             const lastFirstUser = sessionStorage.getItem('hege_endless_last_first_user');
             if (!isAutoResumed && lastFirstUser && lastFirstUser === newEndlessUsers[0]) {
                 console.log(`[Task 3] INFINITE LOOP DETECTED. Prev First User = ${lastFirstUser}, Current = ${newEndlessUsers[0]}. Aborting.`);
-                UI.showConfirm('⚠️ 偵測到死迴圈（API可能卡單），定點絕自動中止。');
                 sessionStorage.removeItem('hege_endless_state');
                 sessionStorage.removeItem('hege_endless_target');
                 sessionStorage.removeItem('hege_endless_last_first_user');
                 sessionStorage.removeItem('hege_auto_triggered_once');
                 Storage.remove('hege_endless_worker_standby');
+                UI.showConfirm('⚠️ 偵測到名單重複迴圈，定點絕中止。\n\n這通常是因為本梯次已掃蕩完畢。是否自動將此貼文加入【每 8 小時自動巡邏】常駐清單交由背景處理？', () => {
+                    const targetUrl = window.location.href.split('?')[0];
+                    if (typeof Core.addPostTask === 'function') Core.addPostTask(targetUrl);
+                });
                 return;
             }
 
