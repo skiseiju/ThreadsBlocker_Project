@@ -781,7 +781,7 @@ export const Core = {
             const activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
             const activeSet = new Set(activeQueue);
 
-            const newEndlessUsers = endlessRawUsers.filter(u => !db.has(u) && !activeSet.has(u)).slice(0, 10);
+            const newEndlessUsers = endlessRawUsers.filter(u => !db.has(u) && !activeSet.has(u));
 
             if (newEndlessUsers.length === 0) {
                 if (!isManualClick) {
