@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         留友封 (Threads 封鎖工具)
 // @namespace    http://tampermonkey.net/
-// @version      2.5.0-beta51
+// @version      2.5.0-beta52
 // @description  Modular Refactor Build
 // @author       海哥
 // @match        https://www.threads.net/*
@@ -26,10 +26,10 @@
 
 (function() {
     'use strict';
-    console.log('[HegeBlock] Content Script Injected, Version: 2.5.0-beta51');
+    console.log('[HegeBlock] Content Script Injected, Version: 2.5.0-beta52');
 // --- config.js ---
 const CONFIG = {
-    VERSION: '2.5.0-beta51', // Safari-compatible stable release
+    VERSION: '2.5.0-beta52', // Safari-compatible stable release
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec',
@@ -2296,9 +2296,22 @@ const Core = {
             Storage.setJSON(CONFIG.KEYS.BG_QUEUE, [...new Set([...activeQueue, ...newEndlessUsers])]);
             sessionStorage.setItem('hege_endless_state', 'WAIT_FOR_BG');
             sessionStorage.setItem('hege_endless_target', window.location.href);
+
+            const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
+            const isWorkerRunning = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
+            if (!isWorkerRunning) {
+                console.log('[DEBUG] 偵測到 Worker 未執行，強制喚醒以消化無盡收割佇列...');
+                Storage.setJSON(CONFIG.KEYS.BG_STATUS, { state: 'running', lastUpdate: Date.now() });
+                Storage.remove(CONFIG.KEYS.BG_CMD);
+                if (Utils.isMobile()) {
+                    Core.runSameTabWorker();
+                } else {
+                    Utils.openWorkerWindow();
+                }
+            }
             
             console.log(`[Endless Harvester] Triggered. ${newEndlessUsers.length} users added. State: WAIT_FOR_BG.`);
-            UI.showToast(`[無盡收割啟動] 已抓取 ${newEndlessUsers.length} 人。請停留於此頁面，等待自動重載...`);
+            UI.showToast(`[無盡收割啟動] 已抓取 ${newEndlessUsers.length} 人。等待背景執行中...`);
             
             Core.updateControllerUI();
             if (typeof Core.startEndlessMonitor === 'function') Core.startEndlessMonitor();
