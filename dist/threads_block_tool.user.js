@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         留友封 (Threads 封鎖工具)
 // @namespace    http://tampermonkey.net/
-// @version      2.5.0-beta50
+// @version      2.5.0-beta51
 // @description  Modular Refactor Build
 // @author       海哥
 // @match        https://www.threads.net/*
@@ -26,10 +26,10 @@
 
 (function() {
     'use strict';
-    console.log('[HegeBlock] Content Script Injected, Version: 2.5.0-beta50');
+    console.log('[HegeBlock] Content Script Injected, Version: 2.5.0-beta51');
 // --- config.js ---
 const CONFIG = {
-    VERSION: '2.5.0-beta50', // Safari-compatible stable release
+    VERSION: '2.5.0-beta51', // Safari-compatible stable release
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec',
@@ -2885,13 +2885,13 @@ const Core = {
         let attempts = 0;
         const findLikesTimer = setInterval(() => {
             attempts++;
-            if (attempts > 30) { // 15 seconds timeout
+            if (attempts > 60) { // 30 seconds timeout to account for heavy SPA loading
                 clearInterval(findLikesTimer);
-                console.log('[Task 2] Timeout waiting for Likes button. Aborting.');
+                console.log('[Task 2] Timeout waiting for Likes/Activity button. Aborting.');
                 sessionStorage.removeItem('hege_endless_state');
                 sessionStorage.removeItem('hege_endless_target');
                 sessionStorage.removeItem('hege_endless_last_first_user');
-                UI.showToast('⚠️ 無法自動尋找按讚名單，無盡收割已中止。');
+                UI.showToast('⚠️ 無法自動尋找按讚名單或查看動態，無盡收割已中止。');
                 return;
             }
 
@@ -2921,12 +2921,21 @@ const Core = {
             if (targetLink) {
                 clearInterval(findLikesTimer);
                 Utils.simClick(targetLink);
+                console.log('[Task 2] Clicked Action 1: "查看動態". Polling for Action 2...');
                 
-                // Wait for the popup to appear
-                setTimeout(() => {
+                // Poll for Action 2 ("按讚內容")
+                let action2Attempts = 0;
+                const findAction2Timer = setInterval(() => {
+                    action2Attempts++;
+                    if (action2Attempts > 40) { // 20 seconds timeout
+                        clearInterval(findAction2Timer);
+                        console.log('[Task 2] Timeout waiting for Action 2 (按讚內容). Aborting.');
+                        sessionStorage.removeItem('hege_endless_state');
+                        UI.showToast('⚠️ 無法自動尋找按讚內容，無盡收割連鎖已中止。');
+                        return;
+                    }
+
                     const activeCtx = document.querySelector('div[role="dialog"]') || document;
-                    
-                    // Action 2: Check if there is a "按讚內容" (Likes) sub-tab or button
                     let likesTab = null;
                     const spans = activeCtx.querySelectorAll('span[dir="auto"]');
                     for (let span of spans) {
@@ -2939,37 +2948,35 @@ const Core = {
                     }
 
                     if (likesTab) {
-                        console.log('[Task 2] Found Action 2: "按讚內容". Clicking it...');
+                        clearInterval(findAction2Timer);
+                        console.log('[Task 2] Found Action 2: "按讚內容". Clicking it... Polling for Action 3...');
                         Utils.simClick(likesTab);
-                    }
 
-                    // Wait again for the list to populate
-                    setTimeout(() => {
-                        const finalCtx = document.querySelector('div[role="dialog"]') || document;
-                        
-                        // Simple small force scroll to trigger lazy loaded items if needed
-                        const scrollable = finalCtx.querySelector('div[style*="overflow-y: auto"], div[style*="overflow: hidden auto"]');
-                        if (scrollable) scrollable.scrollTop += 500;
+                        // Poll for Endless Harvester button (Action 3)
+                        let action3Attempts = 0;
+                        const findAction3Timer = setInterval(() => {
+                            action3Attempts++;
+                            if (action3Attempts > 40) { // 20 seconds
+                                clearInterval(findAction3Timer);
+                                sessionStorage.removeItem('hege_endless_state');
+                                UI.showToast('⚠️ 名單載入過久，無法觸發無盡收割按鈕。');
+                                return;
+                            }
 
-                        setTimeout(() => {
-                            // Locate the injected endless btn and execute it to chain next batch
+                            const finalCtx = document.querySelector('div[role="dialog"]') || document;
+                            // Simple small force scroll to trigger lazy loaded items if needed
+                            const scrollable = finalCtx.querySelector('div[style*="overflow-y: auto"], div[style*="overflow: hidden auto"]');
+                            if (scrollable) scrollable.scrollTop += 500;
+
                             const endlessBtn = document.querySelector('.hege-block-all-btn[title*="全自動"]');
                             if (endlessBtn) {
+                                clearInterval(findAction3Timer);
+                                console.log('[Task 2] Found Action 3: "無盡收割". Mission accomplished. Triggering sweep!');
                                 Utils.simClick(endlessBtn);
-                            } else {
-                                // Retry once if slow injection
-                                setTimeout(() => {
-                                    const endlessBtnRetry = document.querySelector('.hege-block-all-btn[title*="全自動"]');
-                                    if (endlessBtnRetry) Utils.simClick(endlessBtnRetry);
-                                    else {
-                                        sessionStorage.removeItem('hege_endless_state');
-                                        UI.showToast('⚠️ 無法自動觸發無盡收割按鈕。');
-                                    }
-                                }, 1000);
                             }
-                        }, 1000);
-                    }, 1500); // 1.5s after clicking '按讚內容'
-                }, 1500); // 1.5s after clicking '查看動態'
+                        }, 500);
+                    }
+                }, 500);
             }
         }, 500);
     },
