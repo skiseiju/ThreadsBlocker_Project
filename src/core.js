@@ -1393,32 +1393,54 @@ export const Core = {
                 clearInterval(findLikesTimer);
                 Utils.simClick(targetLink);
                 
-                // Wait for the popup and the list to appear
+                // Wait for the popup to appear
                 setTimeout(() => {
                     const activeCtx = document.querySelector('div[role="dialog"]') || document;
                     
-                    // Simple small force scroll to trigger lazy loaded items if needed
-                    const scrollable = activeCtx.querySelector('div[style*="overflow-y: auto"], div[style*="overflow: hidden auto"]');
-                    if (scrollable) scrollable.scrollTop += 500;
-
-                    setTimeout(() => {
-                        // Locate the injected endless btn and execute it to chain next batch
-                        const endlessBtn = document.querySelector('.hege-block-all-btn[title*="全自動"]');
-                        if (endlessBtn) {
-                            Utils.simClick(endlessBtn);
-                        } else {
-                            // Retry once if slow injection
-                            setTimeout(() => {
-                                const endlessBtnRetry = document.querySelector('.hege-block-all-btn[title*="全自動"]');
-                                if (endlessBtnRetry) Utils.simClick(endlessBtnRetry);
-                                else {
-                                    sessionStorage.removeItem('hege_endless_state');
-                                    UI.showToast('⚠️ 無法自動觸發無盡收割按鈕。');
-                                }
-                            }, 1000);
+                    // Action 2: Check if there is a "按讚內容" (Likes) sub-tab or button
+                    let likesTab = null;
+                    const spans = activeCtx.querySelectorAll('span[dir="auto"]');
+                    for (let span of spans) {
+                        const text = (span.innerText || span.textContent || '').trim();
+                        // 避免去點擊到數字，明確配對文字
+                        if (text === '按讚內容' || text === 'Likes' || text === '讚') {
+                            likesTab = span.closest('div[role="tab"], div[role="button"], div[class*="x6s0dn4"][class*="x1qv9dbp"]');
+                            if (likesTab) break;
                         }
-                    }, 1000);
-                }, 2000);
+                    }
+
+                    if (likesTab) {
+                        console.log('[Task 2] Found Action 2: "按讚內容". Clicking it...');
+                        Utils.simClick(likesTab);
+                    }
+
+                    // Wait again for the list to populate
+                    setTimeout(() => {
+                        const finalCtx = document.querySelector('div[role="dialog"]') || document;
+                        
+                        // Simple small force scroll to trigger lazy loaded items if needed
+                        const scrollable = finalCtx.querySelector('div[style*="overflow-y: auto"], div[style*="overflow: hidden auto"]');
+                        if (scrollable) scrollable.scrollTop += 500;
+
+                        setTimeout(() => {
+                            // Locate the injected endless btn and execute it to chain next batch
+                            const endlessBtn = document.querySelector('.hege-block-all-btn[title*="全自動"]');
+                            if (endlessBtn) {
+                                Utils.simClick(endlessBtn);
+                            } else {
+                                // Retry once if slow injection
+                                setTimeout(() => {
+                                    const endlessBtnRetry = document.querySelector('.hege-block-all-btn[title*="全自動"]');
+                                    if (endlessBtnRetry) Utils.simClick(endlessBtnRetry);
+                                    else {
+                                        sessionStorage.removeItem('hege_endless_state');
+                                        UI.showToast('⚠️ 無法自動觸發無盡收割按鈕。');
+                                    }
+                                }, 1000);
+                            }
+                        }, 1000);
+                    }, 1500); // 1.5s after clicking '按讚內容'
+                }, 1500); // 1.5s after clicking '查看動態'
             }
         }, 500);
     },
