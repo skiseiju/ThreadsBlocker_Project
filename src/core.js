@@ -722,6 +722,8 @@ export const Core = {
         const handleEndlessSweep = (e) => {
             e.stopPropagation(); e.preventDefault();
             
+            const activeCtx = Core.getTopContext();
+            
             // Re-run precise grab logic for endless grab
             const links = activeCtx.querySelectorAll('a[href^="/@"]');
             let endlessRawUsers = Array.from(links).map(a => {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         留友封 (Threads 封鎖工具)
 // @namespace    http://tampermonkey.net/
-// @version      2.5.0-beta46
+// @version      2.5.0-beta47
 // @description  Modular Refactor Build
 // @author       海哥
 // @match        https://www.threads.net/*
@@ -26,10 +26,10 @@
 
 (function() {
     'use strict';
-    console.log('[HegeBlock] Content Script Injected, Version: 2.5.0-beta46');
+    console.log('[HegeBlock] Content Script Injected, Version: 2.5.0-beta47');
 // --- config.js ---
 const CONFIG = {
-    VERSION: '2.5.0-beta46', // Safari-compatible stable release
+    VERSION: '2.5.0-beta47', // Safari-compatible stable release
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec',
@@ -2250,6 +2250,8 @@ const Core = {
 
         const handleEndlessSweep = (e) => {
             e.stopPropagation(); e.preventDefault();
+            
+            const activeCtx = Core.getTopContext();
             
             // Re-run precise grab logic for endless grab
             const links = activeCtx.querySelectorAll('a[href^="/@"]');
