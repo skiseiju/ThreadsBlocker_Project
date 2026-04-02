@@ -720,9 +720,14 @@ export const Core = {
         }
 
         const handleEndlessSweep = (e) => {
-            e.stopPropagation(); e.preventDefault();
+            if (e) {
+                e.stopPropagation(); e.preventDefault();
+            }
+            console.log('[DEBUG] handleEndlessSweep 被觸發了！');
             
-            const activeCtx = Core.getTopContext();
+            try {
+                const activeCtx = Core.getTopContext();
+                console.log('[DEBUG] activeCtx 取得:', activeCtx);
             
             // Re-run precise grab logic for endless grab
             const links = activeCtx.querySelectorAll('a[href^="/@"]');
@@ -768,7 +773,15 @@ export const Core = {
             
             Core.updateControllerUI();
             if (typeof Core.startEndlessMonitor === 'function') Core.startEndlessMonitor();
+            } catch (err) {
+                console.error('[DEBUG] handleEndlessSweep 發生例外錯誤:', err);
+                alert('無盡收割發生錯誤:\n' + err.message);
+            }
         };
+
+        // EXPORT FOR CONSOLE TESTING
+        window.__hegeTestEndless = handleEndlessSweep;
+        console.log('[DEBUG] 已注入 window.__hegeTestEndless() 供主控台測試');
 
         const allSpans = localCtx.querySelectorAll('span[dir="auto"]');
         let sortSpan = null;

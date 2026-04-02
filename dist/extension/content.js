@@ -1,9 +1,9 @@
 (function() {
     'use strict';
-    console.log('[HegeBlock] Content Script Injected, Version: 2.5.0-beta47');
+    console.log('[HegeBlock] Content Script Injected, Version: 2.5.0-beta48');
 // --- config.js ---
 const CONFIG = {
-    VERSION: '2.5.0-beta47', // Safari-compatible stable release
+    VERSION: '2.5.0-beta48', // Safari-compatible stable release
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec',
@@ -2223,9 +2223,14 @@ const Core = {
         }
 
         const handleEndlessSweep = (e) => {
-            e.stopPropagation(); e.preventDefault();
+            if (e) {
+                e.stopPropagation(); e.preventDefault();
+            }
+            console.log('[DEBUG] handleEndlessSweep 被觸發了！');
             
-            const activeCtx = Core.getTopContext();
+            try {
+                const activeCtx = Core.getTopContext();
+                console.log('[DEBUG] activeCtx 取得:', activeCtx);
             
             // Re-run precise grab logic for endless grab
             const links = activeCtx.querySelectorAll('a[href^="/@"]');
@@ -2271,7 +2276,15 @@ const Core = {
             
             Core.updateControllerUI();
             if (typeof Core.startEndlessMonitor === 'function') Core.startEndlessMonitor();
+            } catch (err) {
+                console.error('[DEBUG] handleEndlessSweep 發生例外錯誤:', err);
+                alert('無盡收割發生錯誤:\n' + err.message);
+            }
         };
+
+        // EXPORT FOR CONSOLE TESTING
+        window.__hegeTestEndless = handleEndlessSweep;
+        console.log('[DEBUG] 已注入 window.__hegeTestEndless() 供主控台測試');
 
         const allSpans = localCtx.querySelectorAll('span[dir="auto"]');
         let sortSpan = null;
