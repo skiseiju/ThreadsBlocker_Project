@@ -703,33 +703,69 @@ export const Core = {
             Core.updateControllerUI();
         };
 
-        // Add sweep button UI
-        const sweepQueueBtn = document.createElement('div');
-        sweepQueueBtn.className = 'hege-block-all-btn';
-        sweepQueueBtn.style.cssText = 'background-color: #5c3b99; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 6px 14px; border-radius: 9px; color: white; font-weight: bold; font-size: 14px; border: 1px solid rgba(255,255,255,0.2);';
-        sweepQueueBtn.innerHTML = `
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-            <span style="display:none;" class="hege-desktop-text">標記大蟑螂窩</span>
+        // Add endless sweep button UI
+        const endlessSweepBtn = document.createElement('div');
+        endlessSweepBtn.className = 'hege-block-all-btn';
+        endlessSweepBtn.style.cssText = 'background-color: #ff3b30; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 6px 14px; border-radius: 9px; color: white; font-weight: bold; font-size: 14px; border: 1px solid rgba(255,255,255,0.2);';
+        endlessSweepBtn.innerHTML = `
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M2.5 2v6h6M21.5 22v-6h-6M22 11.5A10 10 0 0 0 3.2 7.2L2.5 8M2 12.5a10 10 0 0 0 18.8 4.2l.7-.8"></path></svg>
+            <span style="display:none;" class="hege-desktop-text">無盡收割</span>
         `;
-        sweepQueueBtn.title = "將此大蟑螂窩排入水庫，每 8 小時自動回訪收割直至清空";
+        endlessSweepBtn.title = "全自動：圈選畫面上即將顯示的全數帳號，並在封鎖完畢後自動換頁繼續收割";
         
         // Show text on desktop
         if (!Utils.isMobile() && window.innerWidth > 600) {
-            const spanTextNode = sweepQueueBtn.querySelector('.hege-desktop-text');
+            const spanTextNode = endlessSweepBtn.querySelector('.hege-desktop-text');
             if (spanTextNode) spanTextNode.style.display = 'inline';
         }
 
-        const handleSweepClick = (e) => {
+        const handleEndlessSweep = (e) => {
             e.stopPropagation(); e.preventDefault();
-            // Confirm we are on a post
-            const match = window.location.pathname.match(/\/post\/([a-zA-Z0-9_-]+)/);
-            if (!match) {
-                UI.showToast('⚠️ 深層清理必須在「單一貼文」頁面執行，請點擊貼文時間進入內頁再試');
+            
+            // Re-run precise grab logic for endless grab
+            const links = activeCtx.querySelectorAll('a[href^="/@"]');
+            let endlessRawUsers = Array.from(links).map(a => {
+                const href = a.getAttribute('href');
+                return href.split('/@')[1].split('/')[0];
+            });
+
+            const skipUsers = new Set();
+            if (Utils.getMyUsername()) skipUsers.add(Utils.getMyUsername());
+            if (Utils.getPostOwner()) skipUsers.add(Utils.getPostOwner());
+
+            endlessRawUsers = [...new Set(endlessRawUsers)].filter(u => !skipUsers.has(u));
+            const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+            const activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+            const activeSet = new Set(activeQueue);
+
+            const newEndlessUsers = endlessRawUsers.filter(u => !db.has(u) && !activeSet.has(u));
+
+            if (newEndlessUsers.length === 0) {
+                UI.showToast('⚠️ 畫面上無可收割帳號');
                 return;
             }
-            UI.showConfirm('確定要將此貼文排入【深層清理水庫】嗎？\n\n系統將在 8 小時為間隔被動喚醒，自動點開名單掃蕩，直至按讚空無一人為止。', () => {
-                Core.addPostTask(window.location.href);
-            });
+
+            // Loop Protection Check
+            const lastFirstUser = sessionStorage.getItem('hege_endless_last_first_user');
+            if (lastFirstUser === newEndlessUsers[0]) {
+                UI.showConfirm('⚠️ 偵測到死迴圈（API可能卡單），無盡收割自動中止。');
+                sessionStorage.removeItem('hege_endless_state');
+                sessionStorage.removeItem('hege_endless_target');
+                sessionStorage.removeItem('hege_endless_last_first_user');
+                return;
+            }
+
+            // Arm the endless harvester
+            sessionStorage.setItem('hege_endless_last_first_user', newEndlessUsers[0]);
+            Storage.setJSON(CONFIG.KEYS.BG_QUEUE, [...new Set([...activeQueue, ...newEndlessUsers])]);
+            sessionStorage.setItem('hege_endless_state', 'WAIT_FOR_BG');
+            sessionStorage.setItem('hege_endless_target', window.location.href);
+            
+            console.log(`[Endless Harvester] Triggered. ${newEndlessUsers.length} users added. State: WAIT_FOR_BG.`);
+            UI.showToast(`[無盡收割啟動] 已抓取 ${newEndlessUsers.length} 人。請停留於此頁面，等待自動重載...`);
+            
+            Core.updateControllerUI();
+            if (typeof Core.startEndlessMonitor === 'function') Core.startEndlessMonitor();
         };
 
         const allSpans = localCtx.querySelectorAll('span[dir="auto"]');
@@ -754,33 +790,33 @@ export const Core = {
         };
 
         attachEvents(blockAllBtn, handleBlockAll);
-        attachEvents(sweepQueueBtn, handleSweepClick);
+        attachEvents(endlessSweepBtn, handleEndlessSweep);
 
         if (sortSpan && sortSpan.closest('[role="button"]')) {
             const sortBtn = sortSpan.closest('[role="button"]');
             blockAllBtn.style.marginRight = '8px';
-            sweepQueueBtn.style.marginRight = '8px';
+            endlessSweepBtn.style.marginRight = '8px';
 
             try {
                 sortBtn.parentElement.style.display = 'flex';
                 sortBtn.parentElement.style.alignItems = 'center';
-                sortBtn.parentElement.insertBefore(sweepQueueBtn, sortBtn);
-                sortBtn.parentElement.insertBefore(blockAllBtn, sweepQueueBtn);
+                sortBtn.parentElement.insertBefore(endlessSweepBtn, sortBtn);
+                sortBtn.parentElement.insertBefore(blockAllBtn, endlessSweepBtn);
             } catch (e) {
                 headerContainer.appendChild(blockAllBtn);
-                headerContainer.appendChild(sweepQueueBtn);
+                headerContainer.appendChild(endlessSweepBtn);
             }
         } else {
             blockAllBtn.style.marginLeft = 'auto';
             blockAllBtn.style.marginRight = '8px';
-            sweepQueueBtn.style.marginRight = '8px';
+            endlessSweepBtn.style.marginRight = '8px';
 
             if (header.nextSibling) {
                 headerContainer.insertBefore(blockAllBtn, header.nextSibling);
-                headerContainer.insertBefore(sweepQueueBtn, header.nextSibling);
+                headerContainer.insertBefore(endlessSweepBtn, header.nextSibling);
             } else {
                 headerContainer.appendChild(blockAllBtn);
-                headerContainer.appendChild(sweepQueueBtn);
+                headerContainer.appendChild(endlessSweepBtn);
             }
         }
     },
@@ -1274,6 +1310,90 @@ export const Core = {
         } catch (e) {
             alert('Core Error: ' + e.message + '\n' + e.stack);
         }
+    },
+
+    startEndlessMonitor: () => {
+        if (Core.endlessMonitorTimer) clearInterval(Core.endlessMonitorTimer);
+        Core.endlessMonitorTimer = setInterval(() => {
+            const state = sessionStorage.getItem('hege_endless_state');
+            if (state !== 'WAIT_FOR_BG') {
+                clearInterval(Core.endlessMonitorTimer);
+                return;
+            }
+            
+            const bgq = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+            if (bgq.length === 0) {
+                console.log('[Task 3] BG Queue empty. Reloading for next batch.');
+                clearInterval(Core.endlessMonitorTimer);
+                sessionStorage.setItem('hege_endless_state', 'RELOADING');
+                UI.showToast('[無盡收割] 第一批次清理完畢，準備重新整理載入下一批名單...');
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                if (CONFIG.DEBUG_MODE) console.log(`[Task 3] BG Queue count: ${bgq.length}. Waiting...`);
+            }
+        }, 3000);
+    },
+
+    resumeEndlessSweep: () => {
+        console.log('[Task 2] Detected RELOADING state. Attempting to click Likes button...');
+        UI.showToast('無盡收割機：自動讀取下一批名單中...', 5000);
+        
+        let attempts = 0;
+        const findLikesTimer = setInterval(() => {
+            attempts++;
+            if (attempts > 30) { // 15 seconds timeout
+                clearInterval(findLikesTimer);
+                console.log('[Task 2] Timeout waiting for Likes button. Aborting.');
+                sessionStorage.removeItem('hege_endless_state');
+                sessionStorage.removeItem('hege_endless_target');
+                sessionStorage.removeItem('hege_endless_last_first_user');
+                UI.showToast('⚠️ 無法自動尋找按讚名單，無盡收割已中止。');
+                return;
+            }
+
+            // Look for "N 讚" / "likes" link
+            const links = document.querySelectorAll('a[href*="/likes/"], a[href*="/quotes/"], a[href*="/reposts/"]');
+            let targetLink = null;
+            for (let a of links) {
+                const text = (a.innerText || a.textContent || '').toLowerCase();
+                if (text.includes('讚') || text.includes('likes') || text.match(/\d+/)) {
+                    targetLink = a;
+                    break;
+                }
+            }
+
+            if (targetLink) {
+                clearInterval(findLikesTimer);
+                Utils.simClick(targetLink);
+                
+                // Wait for the popup and the list to appear
+                setTimeout(() => {
+                    const activeCtx = document.querySelector('div[role="dialog"]') || document;
+                    
+                    // Simple small force scroll to trigger lazy loaded items if needed
+                    const scrollable = activeCtx.querySelector('div[style*="overflow-y: auto"], div[style*="overflow: hidden auto"]');
+                    if (scrollable) scrollable.scrollTop += 500;
+
+                    setTimeout(() => {
+                        // Locate the injected endless btn and execute it to chain next batch
+                        const endlessBtn = document.querySelector('.hege-block-all-btn[title*="全自動"]');
+                        if (endlessBtn) {
+                            Utils.simClick(endlessBtn);
+                        } else {
+                            // Retry once if slow injection
+                            setTimeout(() => {
+                                const endlessBtnRetry = document.querySelector('.hege-block-all-btn[title*="全自動"]');
+                                if (endlessBtnRetry) Utils.simClick(endlessBtnRetry);
+                                else {
+                                    sessionStorage.removeItem('hege_endless_state');
+                                    UI.showToast('⚠️ 無法自動觸發無盡收割按鈕。');
+                                }
+                            }, 1000);
+                        }
+                    }, 1000);
+                }, 2000);
+            }
+        }, 500);
     },
 
     openBlockManager: () => {

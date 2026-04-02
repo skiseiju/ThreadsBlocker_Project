@@ -62,6 +62,20 @@ import { Worker } from './worker.js';
 
             UI.injectStyles();
             
+            // Task 2: Check for Endless Sweep Resumption
+            const endlessState = sessionStorage.getItem('hege_endless_state');
+            const endlessTarget = sessionStorage.getItem('hege_endless_target');
+            if (endlessState === 'RELOADING' && endlessTarget === window.location.href) {
+                Core.resumeEndlessSweep();
+            } else if (endlessState) {
+                // If user navigated away, clear state
+                if (endlessTarget !== window.location.href) {
+                    sessionStorage.removeItem('hege_endless_state');
+                    sessionStorage.removeItem('hege_endless_target');
+                    sessionStorage.removeItem('hege_endless_last_first_user');
+                }
+            }
+
             // Task 2: Cockroach Reminder
             setTimeout(() => {
                 const cockroachDB = Storage.getJSON(CONFIG.KEYS.COCKROACH_DB, []);
