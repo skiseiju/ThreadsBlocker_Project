@@ -1,9 +1,9 @@
 (function() {
     'use strict';
-    console.log('[HegeBlock] Content Script Injected, Version: 2.5.0-beta53');
+    console.log('[HegeBlock] Content Script Injected, Version: 2.5.0-beta54');
 // --- config.js ---
 const CONFIG = {
-    VERSION: '2.5.0-beta53', // Safari-compatible stable release
+    VERSION: '2.5.0-beta54', // Safari-compatible stable release
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec',
@@ -2230,50 +2230,30 @@ const Core = {
             
             try {
                 const activeCtx = Core.getTopContext();
-                console.log('[DEBUG] activeCtx 偵測結果:', activeCtx.tagName, activeCtx.className);
-                
-                const containerRect = activeCtx.getBoundingClientRect();
+                console.log('[DEBUG] activeCtx 取得:', activeCtx);
+            
+            // Re-run precise grab logic for endless grab
+            const links = activeCtx.querySelectorAll('a[href^="/@"]');
+            let endlessRawUsers = Array.from(links).map(a => {
+                const href = a.getAttribute('href');
+                return href.split('/@')[1].split('/')[0];
+            });
 
-                // Use robust selector and filter
-                const links = activeCtx.querySelectorAll('a');
-                console.log(`[DEBUG] 畫面上共發現 ${links.length} 個連結`);
+            const skipUsers = new Set();
+            if (Utils.getMyUsername()) skipUsers.add(Utils.getMyUsername());
+            if (Utils.getPostOwner()) skipUsers.add(Utils.getPostOwner());
 
-                const rawUsers = Array.from(links).filter(a => {
-                    const href = a.getAttribute('href') || "";
-                    if (!href.startsWith('/@')) return false;
+            endlessRawUsers = [...new Set(endlessRawUsers)].filter(u => !skipUsers.has(u));
+            const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+            const activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+            const activeSet = new Set(activeQueue);
 
-                    const rect = a.getBoundingClientRect();
-                    const isVisible = rect.height > 2 && rect.width > 2;
-                    const isInBounds = rect.top >= (containerRect.top - 50) &&
-                                     rect.bottom <= (containerRect.bottom + 50);
-                    const isHeaderLink = a.closest('h1, h2, [role="heading"]');
+            const newEndlessUsers = endlessRawUsers.filter(u => !db.has(u) && !activeSet.has(u));
 
-                    return isVisible && isInBounds && !isHeaderLink;
-                }).map(a => {
-                    const href = a.getAttribute('href');
-                    return href.split('/@')[1].split('/')[0];
-                });
-
-                let endlessRawUsers = [...new Set(rawUsers)];
-                console.log('[DEBUG] 初步擷取到的不重複使用者:', endlessRawUsers);
-
-                const skipUsers = new Set();
-                if (Utils.getMyUsername()) skipUsers.add(Utils.getMyUsername());
-                if (Utils.getPostOwner()) skipUsers.add(Utils.getPostOwner());
-
-                endlessRawUsers = endlessRawUsers.filter(u => !skipUsers.has(u));
-                const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
-                const activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
-                const activeSet = new Set(activeQueue);
-
-                const newEndlessUsers = endlessRawUsers.filter(u => !db.has(u) && !activeSet.has(u));
-                console.log('[DEBUG] 過濾已封鎖/佇列中之後，剩餘可收割人數:', newEndlessUsers.length);
-
-                if (newEndlessUsers.length === 0) {
-                    UI.showToast('⚠️ 畫面上無新帳號可收割');
-                    console.log('[DEBUG] 終止收割：newEndlessUsers 為空');
-                    return;
-                }
+            if (newEndlessUsers.length === 0) {
+                UI.showToast('⚠️ 畫面上無可收割帳號');
+                return;
+            }
 
             // Loop Protection Check
             const lastFirstUser = sessionStorage.getItem('hege_endless_last_first_user');
