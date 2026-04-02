@@ -1,9 +1,9 @@
 (function() {
     'use strict';
-    console.log('[HegeBlock] Content Script Injected, Version: 2.5.0-beta48');
+    console.log('[HegeBlock] Content Script Injected, Version: 2.5.0-beta49');
 // --- config.js ---
 const CONFIG = {
-    VERSION: '2.5.0-beta48', // Safari-compatible stable release
+    VERSION: '2.5.0-beta49', // Safari-compatible stable release
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec',
@@ -2869,14 +2869,26 @@ const Core = {
                 return;
             }
 
-            // Look for "N 讚" / "likes" link
-            const links = document.querySelectorAll('a[href*="/likes/"], a[href*="/quotes/"], a[href*="/reposts/"]');
+            // Priority 1: Activity button (查看動態 / View activity)
+            const buttons = document.querySelectorAll('div[role="button"] span[dir="auto"]');
             let targetLink = null;
-            for (let a of links) {
-                const text = (a.innerText || a.textContent || '').toLowerCase();
-                if (text.includes('讚') || text.includes('likes') || text.match(/\d+/)) {
-                    targetLink = a;
+            for (let span of buttons) {
+                const text = (span.innerText || span.textContent || '').trim();
+                if (text.includes('查看動態') || text.includes('View activity') || text.includes('活動')) {
+                    targetLink = span.closest('div[role="button"]');
                     break;
+                }
+            }
+
+            // Priority 2: Traditional Likes link
+            if (!targetLink) {
+                const links = document.querySelectorAll('a[href*="/likes/"], a[href*="/quotes/"], a[href*="/reposts/"]');
+                for (let a of links) {
+                    const text = (a.innerText || a.textContent || '').toLowerCase();
+                    if (text.includes('讚') || text.includes('likes') || text.match(/\d+/)) {
+                        targetLink = a;
+                        break;
+                    }
                 }
             }
 
