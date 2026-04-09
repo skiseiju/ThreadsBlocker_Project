@@ -190,13 +190,7 @@ export const Core = {
             const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
             const isRunning = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
             if (!isRunning) {
-                if (Utils.isMobile()) {
-                    Core.runSameTabWorker();
-                } else {
-                    UI.showConfirm('需要您的授權重啟背景視窗 ⚙️\n\n因為瀏覽器防護機制，我們無法自動為您彈出執行視窗。\n請在此點擊「確定」來授權開啟，接續未完成的深層清理任務！', () => {
-                        Utils.openWorkerWindow();
-                    });
-                }
+                Core.runSameTabWorker();
             }
 
             // Task 3: 監聽水庫清空，觸發 Reload 進入下一圈
@@ -833,16 +827,10 @@ export const Core = {
                 console.log('[DEBUG] 偵測到 Worker 未執行，強制喚醒以消化定點絕佇列...');
                 Storage.setJSON(CONFIG.KEYS.BG_STATUS, { state: 'running', lastUpdate: Date.now() });
                 Storage.remove(CONFIG.KEYS.BG_CMD);
-                if (Utils.isMobile()) {
-                    Core.runSameTabWorker();
+                if (isManualClick) {
+                    Utils.openWorkerWindow();
                 } else {
-                    if (!isManualClick) {
-                        UI.showConfirm('需要您的授權重啟背景視窗 ⚙️\n\n因為瀏覽器防護機制，我們無法自動為您彈出執行視窗。\n請在此點擊「確定」來授權開啟，接續未完成的定點絕任務！', () => {
-                            Utils.openWorkerWindow();
-                        });
-                    } else {
-                        Utils.openWorkerWindow();
-                    }
+                    Core.runSameTabWorker();
                 }
             }
             
@@ -2130,16 +2118,9 @@ export const Core = {
                 const sep = targetPost.url.includes('?') ? '&' : '?';
                 const targetUrl = targetPost.url + sep + 'hege_post_sweep=true';
                 
-                if (Utils.isMobile()) {
-                    // Mobile (iOS) fallback to current window navigation due to popup blockers
-                    const targetPath = new URL(targetUrl).pathname + new URL(targetUrl).search;
-                    history.replaceState(null, '', targetPath);
-                    location.reload();
-                } else {
-                    // Desktop: Open in a dedicated worker window to avoid disturbing the user
-                    window.open(targetUrl, 'HegeSweepWorker', 'width=800,height=600,left=100,top=100');
-                    UI.showToast('ℹ️ 已在獨立視窗啟動清理任務，請勿關閉該小視窗', 5000);
-                }
+                const targetPath = new URL(targetUrl).pathname + new URL(targetUrl).search;
+                history.replaceState(null, '', targetPath);
+                location.reload();
             }, 3000);
         }
     }
