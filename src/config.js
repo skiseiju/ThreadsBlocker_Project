@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.5.0-beta', // Official Beta Release
+    VERSION: '2.5.0-beta1', // Official Beta Release
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec',
