@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.5.0-beta1', // Official Beta Release
+    VERSION: '2.5.0-beta2', // Official Beta Release
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec',
@@ -20,8 +20,8 @@ export const CONFIG = {
     MAX_BLOCKS_PER_BATCH: 100,
     
     // 深層貼文收割常數 (Task 4)
-    POST_SWEEP_BATCH_SIZE: 500, // 正式上限 500 人
-    POST_SWEEP_COOLDOWN_HOURS: 8,
+    POST_SWEEP_BATCH_SIZE: 5, // TEST: 5 人/批（正式版改回 500）
+    POST_SWEEP_COOLDOWN_HOURS: (1 / 60), // TEST: 1 分鐘冷卻（正式版改回 8）
 
     KEYS: {
         DB_KEY: 'hege_block_db_v1',

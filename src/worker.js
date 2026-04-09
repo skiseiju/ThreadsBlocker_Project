@@ -209,6 +209,10 @@ export const Worker = {
             const handleStop = () => {
                 Storage.set(CONFIG.KEYS.BG_CMD, 'stop');
                 Storage.remove('hege_endless_worker_standby');
+                sessionStorage.removeItem('hege_endless_state');
+                sessionStorage.removeItem('hege_endless_target');
+                sessionStorage.removeItem('hege_endless_last_first_user');
+                sessionStorage.removeItem('hege_auto_triggered_once');
                 stopBtn.textContent = '⏳ 正在停止...';
                 stopBtn.style.background = '#666';
                 stopBtn.style.pointerEvents = 'none';
@@ -405,6 +409,10 @@ export const Worker = {
             Storage.remove('hege_endless_worker_standby');
             Storage.remove('hege_batch_verify_idx');
             Storage.setJSON(CONFIG.KEYS.BATCH_VERIFY, []);
+            sessionStorage.removeItem('hege_endless_state');
+            sessionStorage.removeItem('hege_endless_target');
+            sessionStorage.removeItem('hege_endless_last_first_user');
+            sessionStorage.removeItem('hege_auto_triggered_once');
             Worker.updateStatus('stopped', '已停止');
             Worker.clearStats();
             Worker.navigateBack();
