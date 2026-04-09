@@ -419,7 +419,7 @@ export const UI = {
         overlay.id = 'hege-confirm-overlay';
         overlay.className = 'hege-manager-overlay';
 
-        const safeMsg = message.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+        const safeMsg = Utils.escapeHTML(message).replace(/\n/g, '<br>');
         overlay.innerHTML = `
             <div class="hege-manager-box" style="max-width:420px;">
                 <div class="hege-manager-header">

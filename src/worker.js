@@ -10,6 +10,7 @@ export const Worker = {
     verifyCount: 0,            // 自上次驗證以來的計數
     consecutiveRateLimits: 0,
     consecutiveFails: 0,       // Level 2 連續失敗計數
+    _stepRunning: false,       // mutex: prevent concurrent runStep chains
 
     saveStats: () => {
         Storage.setJSON(CONFIG.KEYS.WORKER_STATS, {
@@ -395,6 +396,9 @@ export const Worker = {
     },
 
     runStep: async () => {
+        if (Worker._stepRunning) return;
+        Worker._stepRunning = true;
+        try {
         if (Storage.get(CONFIG.KEYS.BG_CMD) === 'stop') {
             Storage.remove(CONFIG.KEYS.BG_CMD);
             Storage.remove(CONFIG.KEYS.VERIFY_PENDING);
@@ -702,6 +706,9 @@ export const Worker = {
                 const stopBtn = document.getElementById('hege-worker-stop');
                 if (stopBtn) stopBtn.style.display = 'none';
             }
+        }
+        } finally {
+            Worker._stepRunning = false;
         }
     },
 

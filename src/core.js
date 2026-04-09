@@ -31,9 +31,8 @@ export const Core = {
         // 處理深層收割自動觸發
         const params = new URLSearchParams(window.location.search);
         if (params.get('hege_post_sweep') === 'true') {
-            setTimeout(() => {
-                Core.executePostSweep();
-            }, 3000); // 確保核心載入完畢
+            Utils.pollUntil(() => document.querySelector('a[role="link"], span[role="link"]'), 10000)
+                .then(() => Core.executePostSweep());
         }
     },
 
@@ -938,7 +937,7 @@ export const Core = {
         const links = Array.from(ctx.querySelectorAll('a[href^="/@"]')).filter(a => {
             // Only filter truly invisible elements (display:none, zero-size); allow off-screen items
             const rect = a.getBoundingClientRect();
-            return rect.height > 0 || a.offsetParent !== null;
+            return rect.height > 0 && rect.width > 0;
         });
 
         const dbRef = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
@@ -1369,7 +1368,7 @@ export const Core = {
         if (cockroachSet.has(postOwner)) return;
 
         UI.showConfirm(
-            `【大蟑螂雷達】偵測到您單次圈選了 ${count} 人。\n\n是否將該發文者 ( @${postOwner} ) 列為「大蟑螂」？\n我們將自動跳過封鎖他，並在每 10 天提醒您回頭檢查蟑螂窩。`,
+            `【大蟑螂雷達】偵測到您單次圈選了 ${count} 人。\n\n是否將該發文者 ( @${Utils.escapeHTML(postOwner)} ) 列為「大蟑螂」？\n我們將自動跳過封鎖他，並在每 10 天提醒您回頭檢查蟑螂窩。`,
             () => {
                 const timeNow = Date.now();
                 const db = Storage.getJSON(CONFIG.KEYS.COCKROACH_DB, []);
