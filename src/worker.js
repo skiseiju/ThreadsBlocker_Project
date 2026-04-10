@@ -207,6 +207,7 @@ export const Worker = {
         const stopBtn = document.getElementById('hege-worker-stop');
         if (stopBtn) {
             const handleStop = () => {
+                Storage.set(CONFIG.KEYS.ENDLESS_STOPPED, 'true'); // 讓主頁面 monitor 立即中止，防止空 queue 被誤判為批次完成
                 Storage.set(CONFIG.KEYS.BG_CMD, 'stop');
                 Storage.remove('hege_endless_worker_standby');
                 sessionStorage.removeItem('hege_endless_state');
@@ -508,8 +509,15 @@ export const Worker = {
             if (Storage.get('hege_endless_worker_standby') === 'true') {
                 Worker.updateStatus('idle', '⌛ 等待定點絕餵食...', 0, 0);
                 if (window.hegeLog) window.hegeLog('[BG] 佇列空，但定點絕待命中...');
-                
-                // Safari Background Tab 最終防線：由 Active Worker 強制重載 Opener
+
+                // Same-tab 模式（無 opener）：直接返回主頁面，由主頁面的 startEndlessMonitor 接管倒數/下一批
+                if (!window.opener || window.opener.closed) {
+                    if (window.hegeLog) window.hegeLog('[BG] Same-tab 模式，返回主頁面讓 startEndlessMonitor 處理下一批...');
+                    Worker.navigateBack();
+                    return;
+                }
+
+                // Popup 模式（有 opener）：Safari Background Tab 最終防線，由 Active Worker 強制重載 Opener
                 try {
                     if (window.opener && !window.opener.closed) {
                         const openerState = window.opener.sessionStorage.getItem('hege_endless_state');

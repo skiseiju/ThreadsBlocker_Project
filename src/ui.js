@@ -87,7 +87,7 @@ export const UI = {
             .hege-menu-item.danger { color: #ff3b30; }
             .hege-menu-item .status { font-size: 12px; color: #888; }
             
-            #hege-bg-status { padding: 4px 16px; font-size: 11px; color: #4cd964; background: #1a1a1a; display: none; }
+            #hege-bg-status { padding: 4px 16px; font-size: 11px; color: #4cd964; background: #1a1a1a; display: block; }
             body.hege-ghost-mode div[role="menu"], body.hege-ghost-mode div[role="dialog"] { opacity: 0 !important; pointer-events: auto !important; }
             
             #hege-disclaimer-overlay {
@@ -204,27 +204,25 @@ export const UI = {
                     <span>清除選取</span>
                 </div>
 
-                <div class="hege-menu-item" id="hege-speed-item">
-                    <span>速度模式</span>
-                    <span class="status" id="hege-speed-status">🧠 智慧</span>
-                </div>
-
                 <div class="hege-menu-item danger" id="hege-retry-failed-item" style="display:none;">
                     <span>重試失敗清單</span>
                     <span class="status" id="hege-failed-count">0</span>
+                </div>
+
+                <div class="hege-menu-item" id="hege-endless-queue-item">
+                    <span>定點絕排程</span>
+                    <span class="status" id="hege-endless-queue-count">0 篇</span>
+                </div>
+
+                <div class="hege-menu-item" id="hege-start-endless-item" style="display:none; background:#ff3b30; color:#fff; font-weight:bold; border-radius:8px; margin:4px 8px;">
+                    <span>🚀 開始執行定點絕</span>
+                    <span class="status" id="hege-start-endless-count" style="background:rgba(0,0,0,0.2); color:#fff;"></span>
                 </div>
 
                 <div class="hege-menu-item" id="hege-settings-item">
                     <span style="display:flex; align-items:center; gap:6px;">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                         設定
-                    </span>
-                </div>
-
-                <div class="hege-menu-item" id="hege-report-item">
-                    <span style="display:flex; align-items:center; gap:6px;">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"></path></svg>
-                        回報問題
                     </span>
                 </div>
 
@@ -256,51 +254,21 @@ export const UI = {
         bindClick('hege-main-btn-item', callbacks.onMainClick);
         bindClick('hege-clear-sel-item', callbacks.onClearSel);
         bindClick('hege-retry-failed-item', callbacks.onRetryFailed);
-        bindClick('hege-report-item', callbacks.onReport);
+        bindClick('hege-endless-queue-item', callbacks.onEndlessQueue);
+        bindClick('hege-start-endless-item', callbacks.onStartEndless);
         bindClick('hege-stop-btn-item', callbacks.onStop);
         bindClick('hege-settings-item', callbacks.onSettings);
-
-        // Speed mode toggle (in main panel)
-        const speedModes = ['smart', 'stable', 'standard', 'turbo'];
-        const speedLabels = { smart: '🧠 智慧', stable: '🛡️ 穩定', standard: '⚡ 標準', turbo: '🚀 加速' };
-        const currentSpeed = Storage.get(CONFIG.KEYS.SPEED_MODE) || 'smart';
-        const speedStatus = document.getElementById('hege-speed-status');
-        if (speedStatus) speedStatus.textContent = speedLabels[currentSpeed] || speedLabels.smart;
-
-        bindClick('hege-speed-item', () => {
-            const cur = Storage.get(CONFIG.KEYS.SPEED_MODE) || 'smart';
-            const idx = speedModes.indexOf(cur);
-            const next = speedModes[(idx + 1) % speedModes.length];
-            const profile = CONFIG.SPEED_PROFILES[next];
-
-            const applySpeed = () => {
-                Storage.set(CONFIG.KEYS.SPEED_MODE, next);
-                const el = document.getElementById('hege-speed-status');
-                if (el) el.textContent = speedLabels[next];
-                UI.showToast(`速度模式：${profile.label}`);
-            };
-
-            if (profile.warnOnSelect && !Storage.get(CONFIG.KEYS.TURBO_WARNED)) {
-                UI.showConfirm(
-                    '⚠️ 加速模式會大幅縮短操作間隔\n\n可能導致 Meta 暫時限制您的帳號操作。\n建議僅在少量封鎖時使用。\n\n確定要切換嗎？',
-                    () => {
-                        Storage.set(CONFIG.KEYS.TURBO_WARNED, 'true');
-                        applySpeed();
-                    }
-                );
-            } else {
-                applySpeed();
-            }
-        });
-
 
         // Header click toggles too
         document.getElementById('hege-header').onclick = (e) => {
             if (e.target.id !== 'hege-toggle') document.getElementById('hege-toggle').click();
         };
 
-        // Auto-collapse on outside click
+        // Auto-collapse on outside click（定點絕執行中不折疊，避免 simClick 誤觸發）
         document.addEventListener('click', (e) => {
+            const isEndlessRunning = Storage.get('hege_endless_worker_standby') === 'true'
+                || ['WAIT_FOR_BG', 'RELOADING', 'COOLDOWN'].includes(sessionStorage.getItem('hege_endless_state'));
+            if (isEndlessRunning) return;
             const p = document.getElementById('hege-panel');
             if (p && !p.classList.contains('minimized') && !p.contains(e.target) && !e.target.closest('#hege-panel')) {
                 p.classList.add('minimized');
@@ -564,7 +532,7 @@ export const UI = {
         overlay.className = 'hege-manager-overlay';
 
         overlay.innerHTML = `
-            <div class="hege-manager-box" style="max-width: 360px;">
+            <div class="hege-manager-box" style="max-width: 660px; width: 90vw;">
                 <div class="hege-manager-header">
                     <span class="hege-manager-title" style="display:flex; align-items:center; gap:6px;">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -574,63 +542,70 @@ export const UI = {
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
                     </span>
                 </div>
-                <div style="padding: 16px; display: flex; flex-direction: column; gap: 8px;">
-                    <div class="hege-menu-item" id="hege-s-manage">
-                        <span>管理已封鎖</span>
-                        <span class="status">${db.length}</span>
-                    </div>
-                    <div class="hege-menu-item" id="hege-s-cockroach">
-                        <span>大蟑螂資料庫</span>
-                        <span class="status">${(Array.isArray(Storage.getJSON(CONFIG.KEYS.COCKROACH_DB, [])) ? Storage.getJSON(CONFIG.KEYS.COCKROACH_DB, []) : []).length}</span>
-                    </div>
-                    <div class="hege-menu-item" id="hege-s-import">
-                        <span>匯入名單</span>
-                    </div>
-                    <div class="hege-menu-item" id="hege-s-export">
-                        <span>匯出紀錄</span>
-                    </div>
-                    <div class="hege-menu-item danger" id="hege-s-clear-db" style="border-bottom: none;">
-                        <span>清除所有歷史</span>
+                <div style="padding: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start;">
+
+                    <!-- 左欄：動作按鈕 -->
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <div class="hege-menu-item" id="hege-s-manage">
+                            <span>管理已封鎖</span>
+                            <span class="status">${db.length}</span>
+                        </div>
+                        <div class="hege-menu-item" id="hege-s-cockroach">
+                            <span>大蟑螂資料庫</span>
+                            <span class="status">${(Array.isArray(Storage.getJSON(CONFIG.KEYS.COCKROACH_DB, [])) ? Storage.getJSON(CONFIG.KEYS.COCKROACH_DB, []) : []).length}</span>
+                        </div>
+                        <div class="hege-menu-item" id="hege-s-import">
+                            <span>匯入名單</span>
+                        </div>
+                        <div class="hege-menu-item" id="hege-s-export">
+                            <span>匯出紀錄</span>
+                        </div>
+                        <div class="hege-menu-item danger" id="hege-s-clear-db" style="border-bottom: none;">
+                            <span>清除所有歷史</span>
+                        </div>
+                        <div style="height: 1px; background: #333; margin: 2px 0;"></div>
+                        <div class="hege-menu-item" id="hege-s-speed">
+                            <span>速度模式</span>
+                            <span class="status" id="hege-s-speed-status">🧠 智慧</span>
+                        </div>
+                        <div class="hege-menu-item" id="hege-s-report" style="border-bottom: none;">
+                            <span style="display:flex; align-items:center; gap:6px;">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"></path></svg>
+                                回報問題
+                            </span>
+                        </div>
+                        <div style="height: 1px; background: #333; margin: 2px 0;"></div>
+                        <div class="hege-menu-item" id="hege-s-sponsor" style="color: #ecc351; border-bottom: none;">
+                            <span>求贊助~ ☕️</span>
+                        </div>
+                        <p style="margin-top: auto; padding-top: 8px; color: #555; font-size: 11px;">版本 ${CONFIG.VERSION}<br><a href="https://skiseiju.com" target="_blank" style="color: #888; text-decoration: none;">海哥 skiseiju.com</a></p>
                     </div>
 
-                    <div style="height: 1px; background: #333; margin: 4px 0;"></div>
-                    
-                    <div class="hege-menu-item" id="hege-s-sponsor" style="color: #ecc351; border-bottom: none;">
-                        <span>求贊助~ ☕️</span>
+                    <!-- 右欄：開關設定 -->
+                    <div style="display: flex; flex-direction: column; gap: 12px;">
+                        <div style="display: flex; flex-direction: column; gap: 6px; padding: 10px; background: #111; border-radius: 8px; border: 1px solid #2a2a2a;">
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                                <input type="checkbox" id="hege-s-delay-toggle" style="width:16px; height:16px;">
+                                <span style="font-weight:600; font-size:13px;">延時封鎖 (100人/8小時)</span>
+                            </label>
+                            <span style="font-size: 11px; color: #888; line-height: 1.4;">將圈選名單存入水庫，自動分批排放執行，避免觸發 Meta 次數上限。</span>
+                            <button class="hege-manager-btn secondary" id="hege-s-clear-delay" style="font-size: 12px; padding: 5px 10px; width: 100%;">清空延時水庫 (0 人)</button>
+                        </div>
+
+                        <div style="display: flex; flex-direction: column; gap: 6px; padding: 10px; background: #111; border-radius: 8px; border: 1px solid #2a2a2a;">
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                                <input type="checkbox" id="hege-s-advance-scroll-toggle" style="width:16px; height:16px;">
+                                <span style="font-weight:600; font-size:13px;">進階同列全封</span>
+                            </label>
+                            <span style="font-size: 11px; color: #888; line-height: 1.4;">按下同列全封時，自動向下捲動網頁強制抓取未顯示的名單。</span>
+                        </div>
+
+                        <div style="padding: 10px; background: #111; border-radius: 8px; border: 1px solid #2a2a2a;">
+                            <span style="font-weight:600; font-size:12px; color:#4cd964;">💡 定點絕 + 8小時巡邏</span>
+                            <p style="font-size: 11px; color: #888; line-height: 1.4; margin: 6px 0 0;">定點絕大掃除完畢後可加入「每 8 小時自動回鍋」。<br>⚠️ 需保持開著 Threads 分頁，系統才能跳出授權對話框。</p>
+                        </div>
                     </div>
 
-                    <div style="height: 1px; background: #333; margin: 4px 0;"></div>
-
-                    <div class="hege-menu-item" style="cursor:default; flex-direction: column; align-items: flex-start; gap: 8px; border-bottom: none;">
-                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; width:100%;">
-                            <input type="checkbox" id="hege-s-delay-toggle" style="width:16px; height:16px;">
-                            <span style="font-weight:600;">啟用延時封鎖 (100人/8小時)</span>
-                        </label>
-                        <span style="font-size: 11px; color: #888; line-height: 1.4;">為避免觸發 Meta 次數上限，將圈選名單存入水庫，自動分批排放執行。</span>
-                        <button class="hege-manager-btn secondary" id="hege-s-clear-delay" style="font-size: 12px; padding: 6px 12px; margin-top: 4px; width: 100%;">清空延時水庫 (0 人)</button>
-                    </div>
-
-                    <div style="height: 1px; background: #333; margin: 4px 0;"></div>
-
-                    <div class="hege-menu-item" style="cursor:default; flex-direction: column; align-items: flex-start; gap: 8px; border-bottom: none;">
-                        <label style="display:flex; align-items:center; gap:8px; width:100%;">
-                            <span style="font-weight:600; color:#4cd964;">💡 定點絕 + 8小時巡邏說明</span>
-                        </label>
-                        <span style="font-size: 11px; color: #888; line-height: 1.4;">
-                            定點絕大掃除完畢後，系統會詢問是否將該篇加入「每 8 小時自動回鍋」。<br><br>
-                            ⚠️ <b>執行限制提示</b>：瀏覽器禁止背景無故強制彈出視窗。在 8 小時後，您必須<b>至少保持開啟著一個 Threads 分頁</b>，系統才有辦法在畫面右下角跳出【授權啟動對話框】，等您親自點擊同意後，才會接續全自動封鎖。
-                        </span>
-                    </div>
-
-                    <div class="hege-menu-item" style="cursor:default; flex-direction: column; align-items: flex-start; gap: 8px; border-bottom: none;">
-                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; width:100%;">
-                            <input type="checkbox" id="hege-s-advance-scroll-toggle" style="width:16px; height:16px;">
-                            <span style="font-weight:600;">啟用進階同列全封</span>
-                        </label>
-                        <span style="font-size: 11px; color: #888; line-height: 1.4;">按下同列全封時，機器人會自動向下捲動網頁，強制抓取未顯示的名單。</span>
-                    </div>
-
-                    <p style="margin-top: 8px; color: #555; font-size: 11px; text-align: center;">版本 ${CONFIG.VERSION} · <a href="https://skiseiju.com" target="_blank" style="color: #888; text-decoration: none;">海哥 skiseiju.com</a></p>
                 </div>
             </div>
         `;
@@ -653,6 +628,35 @@ export const UI = {
         bind('hege-s-import', callbacks.onImport);
         bind('hege-s-export', callbacks.onExport);
         bind('hege-s-clear-db', callbacks.onClearDB);
+        bind('hege-s-report', callbacks.onReport);
+
+        // 速度模式切換（設定 modal 中）
+        const speedModes = ['smart', 'stable', 'standard', 'turbo'];
+        const speedLabels = { smart: '🧠 智慧', stable: '🛡️ 穩定', standard: '⚡ 標準', turbo: '🚀 加速' };
+        const speedStatusEl = overlay.querySelector('#hege-s-speed-status');
+        if (speedStatusEl) speedStatusEl.textContent = speedLabels[Storage.get(CONFIG.KEYS.SPEED_MODE) || 'smart'];
+        const speedItem = overlay.querySelector('#hege-s-speed');
+        if (speedItem) {
+            speedItem.onclick = (e) => {
+                e.stopPropagation();
+                const cur = Storage.get(CONFIG.KEYS.SPEED_MODE) || 'smart';
+                const idx = speedModes.indexOf(cur);
+                const next = speedModes[(idx + 1) % speedModes.length];
+                const profile = CONFIG.SPEED_PROFILES[next];
+                const applySpeed = () => {
+                    Storage.set(CONFIG.KEYS.SPEED_MODE, next);
+                    if (speedStatusEl) speedStatusEl.textContent = speedLabels[next];
+                    UI.showToast(`速度模式：${profile.label}`);
+                };
+                if (profile.warnOnSelect && !Storage.get(CONFIG.KEYS.TURBO_WARNED)) {
+                    UI.showConfirm(
+                        '⚠️ 加速模式會大幅縮短操作間隔\n\n可能導致 Meta 暫時限制您的帳號操作。\n建議僅在少量封鎖時使用。\n\n確定要切換嗎？',
+                        () => { Storage.set(CONFIG.KEYS.TURBO_WARNED, 'true'); applySpeed(); }
+                    );
+                } else { applySpeed(); }
+            };
+        }
+
         bind('hege-s-sponsor', () => {
             alert('目前還不急著收贊助，但歡迎來看看我還可以幫你解決什麼 → skiseiju.com');
             window.open('https://skiseiju.com?utm_source=extension&utm_medium=popup', '_blank');
@@ -681,6 +685,135 @@ export const UI = {
         const advanceToggle = overlay.querySelector('#hege-s-advance-scroll-toggle');
         advanceToggle.checked = Storage.get(CONFIG.KEYS.ADVANCED_SCROLL_ENABLED) === 'true';
         advanceToggle.onchange = (e) => Storage.set(CONFIG.KEYS.ADVANCED_SCROLL_ENABLED, e.target.checked ? 'true' : 'false');
+    },
+
+    showEndlessPostQueueManager: () => {
+        if (document.getElementById('hege-epq-overlay')) return;
+
+        const renderOverlay = () => {
+            const existing = document.getElementById('hege-epq-overlay');
+            if (existing) existing.remove();
+
+            const queue = Storage.getJSON(CONFIG.KEYS.ENDLESS_POST_QUEUE, []);
+            const history = Storage.getJSON(CONFIG.KEYS.ENDLESS_HISTORY, []);
+            const overlay = document.createElement('div');
+            overlay.id = 'hege-epq-overlay';
+            overlay.className = 'hege-manager-overlay';
+
+            const listLabels = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+            const rows = queue.length === 0
+                ? `<div style="padding:32px; text-align:center; color:#555;">尚無排程貼文</div>`
+                : queue.map((p, i) => {
+                    const label = p.label || p.url;
+                    const short = label.length > 40 ? label.slice(0, 40) + '…' : label;
+                    const listId = listLabels[i] || String(i + 1);
+                    const batchCount = p.batchCount || 0;
+                    let badge, batchInfo;
+                    if (p.done) {
+                        badge = `<span style="font-size:10px; color:#4cd964; background:#1e3a26; padding:2px 6px; border-radius:4px;">✅ 完成</span>`;
+                        batchInfo = `<span style="font-size:10px; color:#555;">共 ${batchCount} 批 / ${p.totalBlocked || 0} 人</span>`;
+                    } else if (i === queue.findIndex(x => !x.done)) {
+                        badge = `<span style="font-size:10px; color:#ff9500; background:#2d2200; padding:2px 6px; border-radius:4px;">▶ 清單${listId} 第${batchCount}批</span>`;
+                        batchInfo = `<span style="font-size:10px; color:#ff9500;">進行中</span>`;
+                    } else {
+                        badge = `<span style="font-size:10px; color:#888; background:#222; padding:2px 6px; border-radius:4px;">清單${listId} 待處理</span>`;
+                        batchInfo = '';
+                    }
+                    return `
+                    <div class="hege-menu-item" data-idx="${i}" style="flex-direction:column; align-items:flex-start; gap:4px; padding: 10px 14px;">
+                        <div style="display:flex; align-items:center; gap:6px; width:100%;">
+                            ${badge}
+                            <span style="font-size:12px; color:#f5f5f5; flex:1; word-break:break-all;">${short}</span>
+                            <span class="hege-epq-remove" data-idx="${i}" style="font-size:18px; color:#555; cursor:pointer; padding:0 4px; line-height:1;">×</span>
+                        </div>
+                        ${batchInfo ? `<div style="padding-left:2px;">${batchInfo}</div>` : ''}
+                    </div>`;
+                }).join('');
+
+            const histRows = history.length === 0 ? '' : history.slice().reverse().slice(0, 10).map(h => {
+                const label = h.label || h.url;
+                const short = label.length > 40 ? label.slice(0, 40) + '…' : label;
+                const date = new Date(h.completedAt).toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                return `<div style="padding:8px 14px; border-bottom:1px solid #1a1a1a; display:flex; flex-direction:column; gap:3px;">
+                    <span style="font-size:11px; color:#f5f5f5;">${short}</span>
+                    <span style="font-size:10px; color:#555;">${date} · ${h.totalBatches} 批 · ${h.totalBlocked} 人</span>
+                </div>`;
+            }).join('');
+
+            overlay.innerHTML = `
+                <div class="hege-manager-box" style="max-width:400px;">
+                    <div class="hege-manager-header">
+                        <span class="hege-manager-title">定點絕排程 (${queue.length} 篇)</span>
+                        <span class="hege-manager-close">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+                        </span>
+                    </div>
+                    <div style="padding:8px 0; max-height:260px; overflow-y:auto;">
+                        ${rows}
+                    </div>
+                    <div style="padding:12px 16px; border-top:1px solid #333; display:flex; flex-direction:column; gap:8px;">
+                        <div style="display:flex; gap:8px;">
+                            <input id="hege-epq-input" type="text" placeholder="貼入貼文網址 (/@.../post/...)" style="flex:1; background:#1a1a1a; border:1px solid #444; border-radius:6px; padding:8px 10px; color:#f5f5f5; font-size:12px; outline:none;">
+                            <button id="hege-epq-add" class="hege-manager-btn" style="padding:8px 14px; font-size:12px;">新增</button>
+                        </div>
+                        ${queue.length > 0 ? `<button id="hege-epq-clear-done" class="hege-manager-btn secondary" style="font-size:12px;">清除已完成</button>` : ''}
+                    </div>
+                    ${history.length > 0 ? `
+                    <div style="border-top:1px solid #333;">
+                        <div style="padding:8px 14px; font-size:11px; color:#555; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">已完成紀錄（近 10 筆）</div>
+                        ${histRows}
+                    </div>` : ''}
+                </div>
+            `;
+            document.body.appendChild(overlay);
+
+            overlay.querySelector('.hege-manager-close').onclick = () => overlay.remove();
+
+            // Remove single item
+            overlay.querySelectorAll('.hege-epq-remove').forEach(btn => {
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    const idx = parseInt(btn.dataset.idx);
+                    const updated = queue.filter((_, i) => i !== idx);
+                    Storage.setJSON(CONFIG.KEYS.ENDLESS_POST_QUEUE, updated);
+                    renderOverlay();
+                };
+            });
+
+            // Add new URL
+            const input = overlay.querySelector('#hege-epq-input');
+            const addBtn = overlay.querySelector('#hege-epq-add');
+            addBtn.onclick = () => {
+                const raw = (input.value || '').trim();
+                if (!raw || !raw.includes('/post/')) {
+                    input.style.borderColor = '#ff3b30';
+                    setTimeout(() => { input.style.borderColor = '#444'; }, 1500);
+                    return;
+                }
+                const url = raw.split('?')[0];
+                const current = Storage.getJSON(CONFIG.KEYS.ENDLESS_POST_QUEUE, []);
+                if (current.some(p => p.url === url)) {
+                    UI.showToast('此貼文已在排程中');
+                    return;
+                }
+                current.push({ url, label: url, addedAt: Date.now(), done: false });
+                Storage.setJSON(CONFIG.KEYS.ENDLESS_POST_QUEUE, current);
+                renderOverlay();
+            };
+            input.onkeydown = (e) => { if (e.key === 'Enter') addBtn.click(); };
+
+            // Clear done
+            const clearDoneBtn = overlay.querySelector('#hege-epq-clear-done');
+            if (clearDoneBtn) {
+                clearDoneBtn.onclick = () => {
+                    const updated = Storage.getJSON(CONFIG.KEYS.ENDLESS_POST_QUEUE, []).filter(p => !p.done);
+                    Storage.setJSON(CONFIG.KEYS.ENDLESS_POST_QUEUE, updated);
+                    renderOverlay();
+                };
+            }
+        };
+
+        renderOverlay();
     },
 
     showCockroachManager: (cockroachDb, onRemove, onBack = null) => {

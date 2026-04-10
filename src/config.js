@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.5.0-beta2', // Official Beta Release
+    VERSION: '2.5.0', // Official Beta Release
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec',
@@ -20,8 +20,12 @@ export const CONFIG = {
     MAX_BLOCKS_PER_BATCH: 100,
     
     // 深層貼文收割常數 (Task 4)
-    POST_SWEEP_BATCH_SIZE: 5, // TEST: 5 人/批（正式版改回 500）
-    POST_SWEEP_COOLDOWN_HOURS: (1 / 60), // TEST: 1 分鐘冷卻（正式版改回 8）
+    POST_SWEEP_BATCH_SIZE: 500,
+    POST_SWEEP_COOLDOWN_HOURS: 8,
+
+    // 定點絕批次設定 (Task 3)
+    ENDLESS_BATCH_SIZE: 100,
+    ENDLESS_COOLDOWN_SEC: 8 * 3600,
 
     KEYS: {
         DB_KEY: 'hege_block_db_v1',
@@ -62,7 +66,16 @@ export const CONFIG = {
         GRAPHQL_DOC_ID: 'hege_graphql_likers_doc_id',
 
         // 貼文深層收割
-        POST_QUEUE: 'hege_post_sweep_queue'
+        POST_QUEUE: 'hege_post_sweep_queue',
+
+        // Task 3: 定點絕停止旗標
+        ENDLESS_STOPPED: 'hege_endless_stopped',
+
+        // Task 3: 定點絕多貼文排程
+        ENDLESS_POST_QUEUE: 'hege_endless_post_queue',
+
+        // Task 3: 定點絕歷史紀錄
+        ENDLESS_HISTORY: 'hege_endless_history',
     },
     // 多語系封鎖/解除封鎖文字偵測（含：中/英/西/法/德/義/日/韓/印尼/俄/波蘭/土耳其）
     BLOCK_TEXTS: ['封鎖', 'Block', 'Bloquear', 'Bloquer', 'Blockieren', 'Blocca', 'ブロック', '차단', 'Blokir', 'Заблокировать', 'Zablokuj', 'Engelle'],

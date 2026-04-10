@@ -551,6 +551,45 @@ export const Core = {
         }
     },
 
+    // 定點絕多貼文排程：標記當前貼文完成，跳到下一篇
+    advanceToNextEndlessPost: () => {
+        const queue = Storage.getJSON(CONFIG.KEYS.ENDLESS_POST_QUEUE, []);
+        const currentUrl = window.location.href.split('?')[0];
+        // 標記當前貼文為已完成
+        const updated = queue.map(p =>
+            (p.url === currentUrl || p.url.split('?')[0] === currentUrl) ? { ...p, done: true } : p
+        );
+        const nextPost = updated.find(p => !p.done);
+        if (!nextPost) return false; // 沒有下一篇，回傳 false 讓呼叫方顯示原本對話框
+
+        // 存入 ENDLESS_HISTORY
+        const donePost = queue.find(p => p.url === currentUrl || p.url.split('?')[0] === currentUrl);
+        if (donePost) {
+            const hist = Storage.getJSON(CONFIG.KEYS.ENDLESS_HISTORY, []);
+            hist.push({
+                url: donePost.url,
+                label: donePost.label || donePost.url,
+                completedAt: Date.now(),
+                totalBatches: donePost.batchCount || 0,
+                totalBlocked: donePost.totalBlocked || 0,
+            });
+            Storage.setJSON(CONFIG.KEYS.ENDLESS_HISTORY, hist);
+        }
+
+        Storage.setJSON(CONFIG.KEYS.ENDLESS_POST_QUEUE, updated);
+        sessionStorage.setItem('hege_endless_state', 'RELOADING');
+        sessionStorage.setItem('hege_endless_target', nextPost.url);
+        sessionStorage.removeItem('hege_endless_last_first_user');
+        sessionStorage.removeItem('hege_auto_triggered_once');
+        Storage.set('hege_endless_worker_standby', 'true');
+        UI.showToast(`📋 自動切換到下一篇：${nextPost.label || nextPost.url}`);
+        setTimeout(() => {
+            history.replaceState(null, '', nextPost.url);
+            location.reload();
+        }, 1500);
+        return true;
+    },
+
     injectDialogBlockAll: () => {
         const ctx = Core.getTopContext();
         const isDialog = ctx !== document.body;
@@ -746,6 +785,22 @@ export const Core = {
             }
             window.__hege_is_auto_click = false; // Reset for safety
 
+            // 手動按鈕：一律加入排程，不立即啟動；按面板「開始執行定點絕」才跑
+            if (isManualClick) {
+                const currentUrl = window.location.href.split('?')[0];
+                const queue = Storage.getJSON(CONFIG.KEYS.ENDLESS_POST_QUEUE, []);
+                if (queue.some(p => p.url.split('?')[0] === currentUrl)) {
+                    UI.showToast('⚠️ 此貼文已在定點絕排程中');
+                    return;
+                }
+                const label = '/@' + (currentUrl.split('/@')[1] || currentUrl);
+                queue.push({ url: currentUrl, label, addedAt: Date.now(), done: false });
+                Storage.setJSON(CONFIG.KEYS.ENDLESS_POST_QUEUE, queue);
+                UI.showToast(`✅ 已加入定點絕排程（第 ${queue.length} 批）`);
+                Core.updateControllerUI();
+                return;
+            }
+
             try {
                 let activeCtx = null;
                 // 利用觸發事件的按鈕往上尋找，是最準確拿到該層 Dialog 的方式
@@ -783,6 +838,8 @@ export const Core = {
                     sessionStorage.removeItem('hege_endless_last_first_user');
                     sessionStorage.removeItem('hege_auto_triggered_once');
                     Storage.remove('hege_endless_worker_standby');
+                    // 先試試多貼文排程
+                    if (Core.advanceToNextEndlessPost()) return;
                     UI.showConfirm('🎉 巡邏結束：畫面上無新帳號可封鎖！\n\n大清理完畢！是否自動將這篇熱門貼文加入【每 8 小時自動巡邏】清單？', () => {
                         const targetUrl = window.location.href.split('?')[0];
                         if (typeof Core.addPostTask === 'function') Core.addPostTask(targetUrl);
@@ -804,6 +861,8 @@ export const Core = {
                 sessionStorage.removeItem('hege_endless_last_first_user');
                 sessionStorage.removeItem('hege_auto_triggered_once');
                 Storage.remove('hege_endless_worker_standby');
+                // 先試試多貼文排程
+                if (Core.advanceToNextEndlessPost()) return;
                 UI.showConfirm('⚠️ 偵測到名單重複迴圈，定點絕中止。\n\n這通常是因為本梯次已掃蕩完畢。是否自動將此貼文加入【每 8 小時自動巡邏】常駐清單交由背景處理？', () => {
                     const targetUrl = window.location.href.split('?')[0];
                     if (typeof Core.addPostTask === 'function') Core.addPostTask(targetUrl);
@@ -814,8 +873,21 @@ export const Core = {
             // Arm the endless harvester
             sessionStorage.setItem('hege_endless_last_first_user', newEndlessUsers[0]);
             sessionStorage.setItem('hege_auto_triggered_once', 'true'); // 標記已觸發過一次，下次須進行死迴圈比對
-            Storage.setJSON(CONFIG.KEYS.BG_QUEUE, [...new Set([...activeQueue, ...newEndlessUsers])]);
-            newEndlessUsers.forEach(u => Core.pendingUsers.add(u));
+            const batchSize = CONFIG.ENDLESS_BATCH_SIZE || newEndlessUsers.length;
+            const batchUsers = newEndlessUsers.slice(0, batchSize);
+            Storage.setJSON(CONFIG.KEYS.BG_QUEUE, [...new Set([...activeQueue, ...batchUsers])]);
+            batchUsers.forEach(u => Core.pendingUsers.add(u));
+
+            // 更新當前貼文的批次計數
+            const currentUrlClean = window.location.href.split('?')[0];
+            const epq = Storage.getJSON(CONFIG.KEYS.ENDLESS_POST_QUEUE, []);
+            const updatedEpq = epq.map(p =>
+                (p.url.split('?')[0] === currentUrlClean)
+                    ? { ...p, batchCount: (p.batchCount || 0) + 1, totalBlocked: (p.totalBlocked || 0) + batchUsers.length }
+                    : p
+            );
+            Storage.setJSON(CONFIG.KEYS.ENDLESS_POST_QUEUE, updatedEpq);
+
             sessionStorage.setItem('hege_endless_state', 'WAIT_FOR_BG');
             Storage.set('hege_endless_worker_standby', 'true');
             sessionStorage.setItem('hege_endless_target', window.location.href);
@@ -1424,12 +1496,29 @@ export const Core = {
         cleanup(); // Cleanup any existing hooks
 
         const checkEndlessQueue = () => {
+            const _state = sessionStorage.getItem('hege_endless_state');
+            const _standby = localStorage.getItem('hege_endless_worker_standby');
+            Storage.invalidate(CONFIG.KEYS.BG_QUEUE);
+            const _qLen = (Storage.getJSON(CONFIG.KEYS.BG_QUEUE, [])).length;
+            // 使用者按下「停止」→ 優先中止，防止空 queue 被誤判為批次完成而觸發下一批
+            if (Storage.get(CONFIG.KEYS.ENDLESS_STOPPED) === 'true') {
+                Storage.remove(CONFIG.KEYS.ENDLESS_STOPPED);
+                cleanup();
+                sessionStorage.removeItem('hege_endless_state');
+                sessionStorage.removeItem('hege_endless_target');
+                sessionStorage.removeItem('hege_endless_last_first_user');
+                sessionStorage.removeItem('hege_auto_triggered_once');
+                Storage.remove('hege_endless_worker_standby');
+                UI.showToast('✅ 定點絕已停止。');
+                return;
+            }
+
             const state = sessionStorage.getItem('hege_endless_state');
             if (state !== 'WAIT_FOR_BG') {
                 cleanup();
                 return;
             }
-            
+
             // 如果這時標記已被使用者在 Worker 那端拔掉，就中止
             if (Storage.get('hege_endless_worker_standby') !== 'true') {
                 console.log('[Task 3] Endless Worker Standby flag removed. Aborting endless loop.');
@@ -1444,12 +1533,18 @@ export const Core = {
 
             const bgq = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
             if (bgq.length === 0) {
-                console.log('[Task 3] BG Queue empty. Reloading for next batch.');
+                console.log('[Task 3] BG Queue empty. Batch done.');
                 cleanup();
-                sessionStorage.setItem('hege_endless_state', 'RELOADING');
-                sessionStorage.removeItem('hege_auto_triggered_once'); // 清除旗標，讓下一輪 reload 可以接軌
-                UI.showToast('[定點絕] 第一批次清理完畢，準備重新整理載入下一批名單...');
-                setTimeout(() => location.reload(), 1500);
+                sessionStorage.removeItem('hege_auto_triggered_once');
+                const cooldownSec = CONFIG.ENDLESS_COOLDOWN_SEC || 0;
+                if (cooldownSec > 0) {
+                    sessionStorage.setItem('hege_endless_state', 'COOLDOWN');
+                    Core.startEndlessCooldown(cooldownSec);
+                } else {
+                    sessionStorage.setItem('hege_endless_state', 'RELOADING');
+                    UI.showToast('[定點絕] 第一批次清理完畢，準備重新整理載入下一批名單...');
+                    setTimeout(() => location.reload(), 1500);
+                }
             } else {
                 if (CONFIG.DEBUG_MODE) console.log(`[Task 3] BG Queue count: ${bgq.length}. Waiting...`);
             }
@@ -1457,7 +1552,7 @@ export const Core = {
 
         // 1. Storage Event Listener (Instant Wakeup from Worker cross-origin)
         Core.endlessStorageHandler = (e) => {
-            if (e.key === CONFIG.KEYS.BG_QUEUE || e.key === 'hege_endless_worker_standby') {
+            if (e.key === CONFIG.KEYS.BG_QUEUE || e.key === 'hege_endless_worker_standby' || e.key === CONFIG.KEYS.ENDLESS_STOPPED) {
                 checkEndlessQueue();
             }
         };
@@ -1502,6 +1597,86 @@ export const Core = {
             console.warn('[Task 3] Failed to start Blob Worker (CSP?), falling back to setInterval', e);
             Core.endlessMonitorTimer = setInterval(checkEndlessQueue, 3000);
         }
+
+        // Immediate check: 如果 queue 在 monitor 啟動時已是空的（批次剛完成），500ms 後立即觸發倒數，不必等 3s blob timer
+        setTimeout(checkEndlessQueue, 500);
+    },
+
+    startEndlessCooldown: (totalSec) => {
+        // 進入冷卻時強制展開面板，讓倒數可見
+        const _panel = document.getElementById('hege-panel');
+        if (_panel && _panel.classList.contains('minimized')) {
+            _panel.classList.remove('minimized');
+            Storage.set(CONFIG.KEYS.STATE, 'false');
+            const _toggle = document.getElementById('hege-toggle');
+            if (_toggle) _toggle.textContent = '▲';
+        }
+        let remaining = totalSec;
+
+        const fmtTime = (s) => {
+            if (s >= 3600) {
+                const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+                return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+            }
+            const m = Math.floor(s / 60), sec = s % 60;
+            return m > 0 ? `${m}:${String(sec).padStart(2,'0')}` : `${sec} 秒`;
+        };
+
+        const updateDisplay = () => {
+            const statusEl = document.getElementById('hege-bg-status');
+            if (statusEl) statusEl.textContent = `⏳ 定點絕冷卻中，${fmtTime(remaining)} 後自動下一批`;
+        };
+        updateDisplay();
+
+        if (Core.endlessCountdownTimer) clearInterval(Core.endlessCountdownTimer);
+        Core.endlessCountdownTimer = setInterval(() => {
+            // 檢查使用者是否按下停止
+            if (Storage.get(CONFIG.KEYS.ENDLESS_STOPPED) === 'true') {
+                clearInterval(Core.endlessCountdownTimer);
+                Core.endlessCountdownTimer = null;
+                Storage.remove(CONFIG.KEYS.ENDLESS_STOPPED);
+                Storage.remove('hege_endless_worker_standby');
+                sessionStorage.removeItem('hege_endless_state');
+                sessionStorage.removeItem('hege_endless_target');
+                sessionStorage.removeItem('hege_endless_last_first_user');
+                sessionStorage.removeItem('hege_auto_triggered_once');
+                const statusEl = document.getElementById('hege-bg-status');
+                if (statusEl) statusEl.textContent = '執行狀態...';
+                UI.showToast('✅ 定點絕已停止。');
+                return;
+            }
+
+            remaining--;
+            if (remaining <= 0) {
+                clearInterval(Core.endlessCountdownTimer);
+                Core.endlessCountdownTimer = null;
+                sessionStorage.setItem('hege_endless_state', 'RELOADING');
+                UI.showToast('[定點絕] 冷卻完畢，準備載入下一批...');
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                updateDisplay();
+            }
+        }, 1000);
+    },
+
+    startEndlessQueue: () => {
+        const queue = Storage.getJSON(CONFIG.KEYS.ENDLESS_POST_QUEUE, []);
+        const firstPost = queue.find(p => !p.done);
+        if (!firstPost) {
+            UI.showToast('⚠️ 定點絕排程為空，請先在貼文按讚名單按定點絕加入');
+            return;
+        }
+        Storage.remove(CONFIG.KEYS.ENDLESS_STOPPED);
+        sessionStorage.setItem('hege_endless_state', 'RELOADING');
+        sessionStorage.setItem('hege_endless_target', firstPost.url);
+        sessionStorage.removeItem('hege_endless_last_first_user');
+        sessionStorage.removeItem('hege_auto_triggered_once');
+        Storage.set('hege_endless_worker_standby', 'true');
+        UI.showToast(`🚀 定點絕啟動，前往：${firstPost.label || firstPost.url}`, 3000);
+        setTimeout(() => {
+            history.replaceState(null, '', firstPost.url);
+            location.reload();
+        }, 1500);
     },
 
     resumeEndlessSweep: () => {
@@ -1513,12 +1688,14 @@ export const Core = {
             attempts++;
             if (attempts > 60) { // 30 seconds timeout to account for heavy SPA loading
                 clearInterval(findLikesTimer);
-                console.log('[Task 2] Timeout waiting for Likes/Activity button. Aborting.');
-                sessionStorage.removeItem('hege_endless_state');
-                Storage.remove('hege_endless_worker_standby');
+                console.log('[Task 2] Timeout waiting for Likes/Activity button. Trying next post.');
                 sessionStorage.removeItem('hege_endless_target');
                 sessionStorage.removeItem('hege_endless_last_first_user');
-                UI.showToast('⚠️ 無法自動尋找按讚名單或查看動態，定點絕已中止。');
+                if (Core.advanceToNextEndlessPost()) return;
+                // 已是最後一篇，無法繼續
+                sessionStorage.removeItem('hege_endless_state');
+                Storage.remove('hege_endless_worker_standby');
+                UI.showToast('✅ 定點絕：無法開啟名單，全部排程已完成或無法繼續。');
                 return;
             }
 
@@ -1556,10 +1733,11 @@ export const Core = {
                     action2Attempts++;
                     if (action2Attempts > 40) { // 20 seconds timeout
                         clearInterval(findAction2Timer);
-                        console.log('[Task 2] Timeout waiting for Action 2 (按讚內容). Aborting.');
+                        console.log('[Task 2] Timeout waiting for Action 2 (按讚內容). Trying next post.');
+                        if (Core.advanceToNextEndlessPost()) return;
                         sessionStorage.removeItem('hege_endless_state');
                         Storage.remove('hege_endless_worker_standby');
-                        UI.showToast('⚠️ 無法自動尋找按讚內容，定點絕連鎖已中止。');
+                        UI.showToast('✅ 定點絕：無法開啟按讚內容，全部排程已完成或無法繼續。');
                         return;
                     }
 
@@ -1582,39 +1760,64 @@ export const Core = {
 
                         // Poll for Endless Harvester button (Action 3)
                         let action3Attempts = 0;
+                        let lastValidCount = -1;
+                        let stableEmptyTicks = 0;
                         const findAction3Timer = setInterval(() => {
                             action3Attempts++;
-                            if (action3Attempts > 40) { // 20 seconds
-                                clearInterval(findAction3Timer);
-                                sessionStorage.removeItem('hege_endless_state');
-                                Storage.remove('hege_endless_worker_standby');
-                                UI.showToast('⚠️ 名單載入過久，無法觸發定點絕按鈕。');
-                                return;
-                            }
 
                             const endlessBtn = document.querySelector('[data-hege-role="endless-sweep"]');
                             const finalCtx = endlessBtn ? (endlessBtn.closest('div[role="dialog"]') || Core.getTopContext()) : (Core.getTopContext() || document);
 
-                            if (endlessBtn) {
-                                // 雙重條件：按鈕存在 + 名單有足夠可封鎖帳號（防止 Dialog 剛出現就過早觸發）
-                                const links = finalCtx.querySelectorAll('a[href^="/@"]');
-                                const dbSet = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
-                                const bgqSet = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
-                                const validCount = Array.from(links).filter(a => {
-                                    const rect = a.getBoundingClientRect();
-                                    return rect.width > 0 && rect.height > 0 && rect.right > 0;
-                                }).map(a => a.getAttribute('href').split('/@')[1].split('/')[0])
-                                  .filter(u => !dbSet.has(u) && !bgqSet.has(u)).length;
+                            // 計算當前畫面上有幾個尚未封鎖的帳號
+                            const links = finalCtx.querySelectorAll('a[href^="/@"]');
+                            const dbSet = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+                            const bgqSet = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
+                            const validCount = Array.from(links).filter(a => {
+                                const rect = a.getBoundingClientRect();
+                                return rect.width > 0 && rect.height > 0 && rect.right > 0;
+                            }).map(a => a.getAttribute('href').split('/@')[1].split('/')[0])
+                              .filter(u => !dbSet.has(u) && !bgqSet.has(u)).length;
 
-                                if (validCount >= 3) {
-                                    clearInterval(findAction3Timer);
-                                    console.log(`[Task 2] Found Action 3 with ${validCount} valid users. Triggering sweep!`);
+                            // 穩定空清單偵測：連續 6 次（3秒）validCount === 0 → 判定清單已空
+                            if (validCount === 0) {
+                                stableEmptyTicks++;
+                            } else {
+                                stableEmptyTicks = 0;
+                            }
+
+                            const listIsEmpty = stableEmptyTicks >= 6;
+
+                            if (action3Attempts > 40 || listIsEmpty) { // 20 秒逾時 or 清單確實已空
+                                clearInterval(findAction3Timer);
+                                if (listIsEmpty) {
+                                    console.log('[Task 2] 畫面已無新清單，判定本篇完成，自動前往下一篇。');
+                                    UI.showToast('✅ 本篇封鎖完畢，前往下一篇...');
+                                    if (Core.advanceToNextEndlessPost()) return;
+                                    sessionStorage.removeItem('hege_endless_state');
+                                    Storage.remove('hege_endless_worker_standby');
+                                    UI.showToast('✅ 定點絕全部排程已完成！');
+                                } else if (endlessBtn && validCount > 0) {
+                                    // 逾時但按鈕存在且名單有人 → 強制觸發，不放棄
+                                    console.log(`[Task 2] Timeout but ${validCount} valid users found. Force triggering sweep.`);
                                     window.__hege_is_auto_click = true;
                                     Utils.simClick(endlessBtn);
                                 } else {
-                                    // 名單還不夠，繼續等待渲染（不強制捲動避免干擾 Threads 虛擬列表）
-                                    console.log(`[Task 2] Button found but only ${validCount} valid users. Waiting for list to render...`);
+                                    console.log('[Task 2] Timeout waiting for Action 3. Aborting.');
+                                    sessionStorage.removeItem('hege_endless_state');
+                                    Storage.remove('hege_endless_worker_standby');
+                                    UI.showToast('⚠️ 名單載入過久，無法觸發定點絕按鈕。');
                                 }
+                                return;
+                            }
+
+                            if (endlessBtn && validCount >= 1) {
+                                clearInterval(findAction3Timer);
+                                console.log(`[Task 2] Found Action 3 with ${validCount} valid users. Triggering sweep!`);
+                                window.__hege_is_auto_click = true;
+                                Utils.simClick(endlessBtn);
+                            } else {
+                                // 名單還不夠，繼續等待渲染
+                                console.log(`[Task 2] Button${endlessBtn ? '' : ' not'} found, ${validCount} valid users. Waiting...`);
                             }
                         }, 500);
                     }
@@ -1731,6 +1934,39 @@ export const Core = {
                 if (countBadge) countBadge.textContent = `${failedQueue.length} 筆`;
             } else {
                 retryItem.style.display = 'none';
+            }
+        }
+
+        const endlessPostQueue = Storage.getJSON(CONFIG.KEYS.ENDLESS_POST_QUEUE, []);
+        const endlessQueueBadge = document.getElementById('hege-endless-queue-count');
+        if (endlessQueueBadge) endlessQueueBadge.textContent = `${endlessPostQueue.length} 篇`;
+
+        const pendingEndlessCount = endlessPostQueue.filter(p => !p.done).length;
+        const isEndlessRunning = Storage.get('hege_endless_worker_standby') === 'true'
+            || sessionStorage.getItem('hege_endless_state') === 'WAIT_FOR_BG';
+        const startEndlessItem = document.getElementById('hege-start-endless-item');
+        if (startEndlessItem) {
+            if (pendingEndlessCount > 0 && !isEndlessRunning) {
+                startEndlessItem.style.display = 'flex';
+                const countEl = document.getElementById('hege-start-endless-count');
+                if (countEl) countEl.textContent = `${pendingEndlessCount} 篇待處理`;
+            } else {
+                startEndlessItem.style.display = 'none';
+            }
+        }
+
+        // 定點絕執行中：顯示「清單X 第N批」
+        if (isEndlessRunning) {
+            const targetUrl = sessionStorage.getItem('hege_endless_target') || window.location.href.split('?')[0];
+            const activePostIdx = endlessPostQueue.findIndex(p => p.url.split('?')[0] === targetUrl.split('?')[0]);
+            if (activePostIdx >= 0) {
+                const activePost = endlessPostQueue[activePostIdx];
+                const listLabel = String.fromCharCode(65 + activePostIdx); // A, B, C...
+                const batchNum = activePost.batchCount || 0;
+                const statusEl = document.getElementById('hege-bg-status');
+                if (statusEl && !statusEl.textContent.includes('冷卻')) {
+                    statusEl.textContent = `🔄 清單${listLabel} 第${batchNum}批 定點絕執行中`;
+                }
             }
         }
 

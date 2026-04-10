@@ -67,6 +67,13 @@ import { Worker } from './worker.js';
             const endlessTarget = sessionStorage.getItem('hege_endless_target');
             if (endlessState === 'RELOADING' && endlessTarget === window.location.href) {
                 Core.resumeEndlessSweep();
+            } else if (endlessState === 'WAIT_FOR_BG' && endlessTarget === window.location.href) {
+                // Same-tab worker 完成後返回此頁，需重新啟動 monitor 來偵測空 queue 並觸發下一批倒數
+                console.log('[定點絕] main.js: WAIT_FOR_BG 偵測到，重啟 monitor');
+                if (typeof Core.startEndlessMonitor === 'function') Core.startEndlessMonitor();
+            } else if (endlessState === 'COOLDOWN' && endlessTarget === window.location.href) {
+                // 手動 reload 打斷倒數中，重新啟動剩餘冷卻（以完整時間重跑）
+                if (typeof Core.startEndlessCooldown === 'function') Core.startEndlessCooldown(CONFIG.ENDLESS_COOLDOWN_SEC || 60);
             } else if (endlessState) {
                 // If user navigated away, clear state
                 if (endlessTarget !== window.location.href) {
@@ -247,6 +254,8 @@ import { Worker } from './worker.js';
                     });
                 },
                 onCockroach: () => Core.openCockroachManager(),
+                onEndlessQueue: () => UI.showEndlessPostQueueManager(),
+                onStartEndless: () => Core.startEndlessQueue(),
                 onSettings: () => {
                     const openSettings = () => {
                         UI.showSettingsModal({
@@ -254,7 +263,8 @@ import { Worker } from './worker.js';
                             onImport: () => Core.importList(),
                             onExport: () => Core.exportHistory(),
                             onClearDB: () => { UI.showConfirm('確定清除所有歷史紀錄？', () => { Storage.setJSON(CONFIG.KEYS.DB_KEY, []); Core.updateControllerUI(); }); },
-                            onCockroach: () => Core.openCockroachManager(() => openSettings())
+                            onCockroach: () => Core.openCockroachManager(() => openSettings()),
+                            onReport: () => Core.showReportDialog(),
                         });
                     };
                     openSettings();
@@ -274,7 +284,7 @@ import { Worker } from './worker.js';
 
             // Sync Logic (Restored from beta46)
             window.addEventListener('storage', (e) => {
-                if (e.key === CONFIG.KEYS.BG_STATUS || e.key === CONFIG.KEYS.DB_KEY || e.key === CONFIG.KEYS.BG_QUEUE || e.key === CONFIG.KEYS.COOLDOWN || e.key === CONFIG.KEYS.COOLDOWN_QUEUE || e.key === CONFIG.KEYS.FAILED_QUEUE || e.key === CONFIG.KEYS.DELAYED_QUEUE || e.key === CONFIG.KEYS.POST_QUEUE) {
+                if (e.key === CONFIG.KEYS.BG_STATUS || e.key === CONFIG.KEYS.DB_KEY || e.key === CONFIG.KEYS.BG_QUEUE || e.key === CONFIG.KEYS.COOLDOWN || e.key === CONFIG.KEYS.COOLDOWN_QUEUE || e.key === CONFIG.KEYS.FAILED_QUEUE || e.key === CONFIG.KEYS.DELAYED_QUEUE || e.key === CONFIG.KEYS.POST_QUEUE || e.key === CONFIG.KEYS.ENDLESS_POST_QUEUE) {
                     Storage.invalidate(e.key); // Force cache clear so getJSON fetches fresh data
                     Core.updateControllerUI();
                 }
@@ -289,6 +299,7 @@ import { Worker } from './worker.js';
                 Storage.invalidate(CONFIG.KEYS.DB_TIMESTAMPS);
                 Storage.invalidate(CONFIG.KEYS.DELAYED_QUEUE);
                 Storage.invalidate(CONFIG.KEYS.POST_QUEUE);
+                Storage.invalidate(CONFIG.KEYS.ENDLESS_POST_QUEUE);
                 Core.updateControllerUI();
             }, 2000); // Polling backup
 
