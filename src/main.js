@@ -40,6 +40,12 @@ import { Worker } from './worker.js';
         console.log(`[留友封] Updated to v${CONFIG.VERSION}. Cleared all temporary queues.`);
     }
 
+    // Clear stale endless standby flag from previous session
+    if (!sessionStorage.getItem('hege_endless_state') && localStorage.getItem('hege_endless_worker_standby') === 'true') {
+        localStorage.removeItem('hege_endless_worker_standby');
+        console.log('[留友封] Cleared stale hege_endless_worker_standby flag');
+    }
+
     // Unconditional safety clear: if the user manually fired an event but they are stuck, force them away
     const forceClear = new URLSearchParams(window.location.search).get('hege_clear');
     if (forceClear === 'true') {
@@ -80,6 +86,7 @@ import { Worker } from './worker.js';
                     sessionStorage.removeItem('hege_endless_state');
                     sessionStorage.removeItem('hege_endless_target');
                     sessionStorage.removeItem('hege_endless_last_first_user');
+                    Storage.remove('hege_endless_worker_standby');
                 }
             }
 
