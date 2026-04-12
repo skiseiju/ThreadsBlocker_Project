@@ -272,6 +272,7 @@ import { Worker } from './worker.js';
                             onClearDB: () => { UI.showConfirm('確定清除所有歷史紀錄？', () => { Storage.setJSON(CONFIG.KEYS.DB_KEY, []); Core.updateControllerUI(); }); },
                             onCockroach: () => Core.openCockroachManager(() => openSettings()),
                             onReport: () => Core.showReportDialog(),
+                            onAnalytics: () => UI.showAnalyticsReport(),
                         });
                     };
                     openSettings();

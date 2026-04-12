@@ -544,8 +544,9 @@ export const UI = {
                 </div>
                 <div style="padding: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start;">
 
-                    <!-- 左欄：動作按鈕 -->
-                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <!-- 左欄 -->
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <div style="font-size:11px;color:#666;font-weight:600;padding:2px 8px;letter-spacing:1px;">📂 資料管理</div>
                         <div class="hege-menu-item" id="hege-s-manage">
                             <span>管理已封鎖</span>
                             <span class="status">${db.length}</span>
@@ -554,35 +555,33 @@ export const UI = {
                             <span>大蟑螂資料庫</span>
                             <span class="status">${(Array.isArray(Storage.getJSON(CONFIG.KEYS.COCKROACH_DB, [])) ? Storage.getJSON(CONFIG.KEYS.COCKROACH_DB, []) : []).length}</span>
                         </div>
+                        <div class="hege-menu-item" id="hege-s-analytics" style="color: #5ac8fa;">
+                            <span style="display:flex; align-items:center; gap:6px;">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="12" width="4" height="9"/><rect x="10" y="7" width="4" height="14"/><rect x="17" y="3" width="4" height="18"/></svg>
+                                封鎖分析
+                            </span>
+                        </div>
                         <div class="hege-menu-item" id="hege-s-import">
                             <span>匯入名單</span>
                         </div>
                         <div class="hege-menu-item" id="hege-s-export">
                             <span>匯出紀錄</span>
                         </div>
-                        <div class="hege-menu-item danger" id="hege-s-clear-db" style="border-bottom: none;">
-                            <span>清除所有歷史</span>
-                        </div>
-                        <div style="height: 1px; background: #333; margin: 2px 0;"></div>
+
+                        <div style="height:1px;background:#333;margin:6px 0 4px;"></div>
+                        <div style="font-size:11px;color:#666;font-weight:600;padding:2px 8px;letter-spacing:1px;">⚙️ 系統</div>
                         <div class="hege-menu-item" id="hege-s-speed">
                             <span>速度模式</span>
                             <span class="status" id="hege-s-speed-status">🧠 智慧</span>
                         </div>
-                        <div class="hege-menu-item" id="hege-s-report" style="border-bottom: none;">
-                            <span style="display:flex; align-items:center; gap:6px;">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"></path></svg>
-                                回報問題
-                            </span>
+                        <div class="hege-menu-item danger" id="hege-s-clear-db" style="border-bottom: none;">
+                            <span>清除所有歷史</span>
                         </div>
-                        <div style="height: 1px; background: #333; margin: 2px 0;"></div>
-                        <div class="hege-menu-item" id="hege-s-sponsor" style="color: #ecc351; border-bottom: none;">
-                            <span>求贊助~ ☕️</span>
-                        </div>
-                        <p style="margin-top: auto; padding-top: 8px; color: #555; font-size: 11px;">版本 ${CONFIG.VERSION}<br><a href="https://skiseiju.com" target="_blank" style="color: #888; text-decoration: none;">海哥 skiseiju.com</a></p>
                     </div>
 
-                    <!-- 右欄：開關設定 -->
-                    <div style="display: flex; flex-direction: column; gap: 12px;">
+                    <!-- 右欄 -->
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <div style="font-size:11px;color:#666;font-weight:600;padding:2px 0;letter-spacing:1px;">🎛️ 封鎖設定</div>
                         <div style="display: flex; flex-direction: column; gap: 6px; padding: 10px; background: #111; border-radius: 8px; border: 1px solid #2a2a2a;">
                             <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
                                 <input type="checkbox" id="hege-s-delay-toggle" style="width:16px; height:16px;">
@@ -605,6 +604,23 @@ export const UI = {
                             <p style="font-size: 11px; color: #888; line-height: 1.4; margin: 6px 0 0;">定點絕大掃除完畢後可加入「每 8 小時自動回鍋」。<br>⚠️ 需保持開著 Threads 分頁，系統才能跳出授權對話框。</p>
                             ${Utils.isMobile() ? '<p style="font-size: 11px; color: #ff9f0a; line-height: 1.4; margin: 6px 0 0;">⚠️ 行動裝置限制：定點絕功能在手機／平板上可能無法正常運作（背景分頁會暫停腳本執行）。建議使用桌面版瀏覽器。</p>' : ''}
                         </div>
+
+                        <div style="height:1px;background:#333;margin:2px 0;"></div>
+                        <div style="display:flex;gap:6px;">
+                            <div class="hege-menu-item" id="hege-s-report" style="flex:1;border-bottom:none;">
+                                <span style="display:flex;align-items:center;gap:4px;font-size:12px;">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"></path></svg>
+                                    回報問題
+                                </span>
+                            </div>
+                            <a href="https://threadsblocker.skiseiju.com" target="_blank" class="hege-menu-item" style="flex:1;border-bottom:none;text-decoration:none;color:#5ac8fa;">
+                                <span style="font-size:12px;">📋 說明</span>
+                            </a>
+                            <div class="hege-menu-item" id="hege-s-sponsor" style="flex:1;color:#ecc351;border-bottom:none;">
+                                <span style="font-size:12px;">☕️ 贊助</span>
+                            </div>
+                        </div>
+                        <p style="color:#555;font-size:11px;text-align:right;margin:0;">v${CONFIG.VERSION}</p>
                     </div>
 
                 </div>
@@ -630,6 +646,7 @@ export const UI = {
         bind('hege-s-export', callbacks.onExport);
         bind('hege-s-clear-db', callbacks.onClearDB);
         bind('hege-s-report', callbacks.onReport);
+        bind('hege-s-analytics', callbacks.onAnalytics);
 
         // 速度模式切換（設定 modal 中）
         const speedModes = ['smart', 'stable', 'standard', 'turbo'];
@@ -686,6 +703,193 @@ export const UI = {
         const advanceToggle = overlay.querySelector('#hege-s-advance-scroll-toggle');
         advanceToggle.checked = Storage.get(CONFIG.KEYS.ADVANCED_SCROLL_ENABLED) === 'true';
         advanceToggle.onchange = (e) => Storage.set(CONFIG.KEYS.ADVANCED_SCROLL_ENABLED, e.target.checked ? 'true' : 'false');
+    },
+
+    showAnalyticsReport: () => {
+        if (document.getElementById('hege-analytics-overlay')) return;
+
+        const db = Storage.getJSON(CONFIG.KEYS.DB_KEY, []);
+        const ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
+        const cockroachDB = Storage.getJSON(CONFIG.KEYS.COCKROACH_DB, []);
+        const endlessHistory = Storage.getJSON(CONFIG.KEYS.ENDLESS_HISTORY, []);
+        const endlessQueue = Storage.getJSON(CONFIG.KEYS.ENDLESS_POST_QUEUE, []);
+
+        // 向下相容 timestamp 取值
+        const getTs = (u) => { const e = ts[u]; return typeof e === 'object' && e !== null ? (e.t || 0) : (e || 0); };
+        const getEntry = (u) => { const e = ts[u]; return typeof e === 'object' && e !== null ? e : { t: e || 0 }; };
+
+        // === 統計計算 ===
+        const totalBlocked = db.length;
+        const cockroachCount = Array.isArray(cockroachDB) ? cockroachDB.length : 0;
+
+        // 封鎖原因分布
+        const reasonCounts = { likes: 0, quotes: 0, reposts: 0, manual: 0, unknown: 0 };
+        db.forEach(u => {
+            const entry = getEntry(u);
+            if (entry.reason) reasonCounts[entry.reason] = (reasonCounts[entry.reason] || 0) + 1;
+            else reasonCounts.unknown++;
+        });
+
+        // 時間範圍
+        const allTimes = db.map(u => getTs(u)).filter(t => t > 0).sort((a, b) => a - b);
+        const earliest = allTimes.length > 0 ? new Date(allTimes[0]).toLocaleDateString() : '-';
+        const latest = allTimes.length > 0 ? new Date(allTimes[allTimes.length - 1]).toLocaleDateString() : '-';
+
+        // 來源貼文排行（哪篇貼文封最多人）
+        const srcMap = {};
+        db.forEach(u => {
+            const entry = getEntry(u);
+            if (entry.src) {
+                if (!srcMap[entry.src]) srcMap[entry.src] = { count: 0, postText: entry.postText || '', postOwner: entry.postOwner || '' };
+                srcMap[entry.src].count++;
+            }
+        });
+        const topSources = Object.entries(srcMap).sort((a, b) => b[1].count - a[1].count).slice(0, 10);
+
+        // 每日封鎖量（最近 30 天，CSS 長條圖）
+        const now = Date.now();
+        const thirtyDaysAgo = now - 30 * 24 * 3600 * 1000;
+        const dailyCounts = {};
+        db.forEach(u => {
+            const t = getTs(u);
+            if (t >= thirtyDaysAgo) {
+                const day = new Date(t).toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' });
+                dailyCounts[day] = (dailyCounts[day] || 0) + 1;
+            }
+        });
+        const dailyEntries = Object.entries(dailyCounts).slice(-14); // 最近 14 天
+        const maxDaily = Math.max(...dailyEntries.map(d => d[1]), 1);
+
+        // 定點絕戰績
+        const totalSweepPosts = endlessHistory.length + endlessQueue.filter(p => p.done).length;
+        const totalSweepBlocked = endlessHistory.reduce((s, h) => s + (h.totalBlocked || 0), 0)
+            + endlessQueue.filter(p => p.done).reduce((s, p) => s + (p.totalBlocked || 0), 0);
+
+        // 最近封鎖（有 context 的前 20 筆）
+        const recentWithContext = db
+            .map(u => ({ username: u, ...getEntry(u) }))
+            .filter(e => e.t > 0)
+            .sort((a, b) => b.t - a.t)
+            .slice(0, 20);
+
+        // 原因 label
+        const reasonLabel = { likes: '👍 按讚名單', quotes: '💬 引用', reposts: '🔄 轉發', manual: '✋ 手動', unknown: '❓ 舊資料' };
+        const reasonBar = (key, count) => {
+            const pct = totalBlocked > 0 ? Math.round(count / totalBlocked * 100) : 0;
+            return `<div style="display:flex;align-items:center;gap:8px;margin:3px 0;">
+                <span style="min-width:90px;font-size:12px;color:#aaa;">${reasonLabel[key]}</span>
+                <div style="flex:1;height:14px;background:#1a1a1a;border-radius:4px;overflow:hidden;">
+                    <div style="height:100%;width:${pct}%;background:${key === 'likes' ? '#4cd964' : key === 'quotes' ? '#5ac8fa' : key === 'reposts' ? '#ff9f0a' : '#666'};border-radius:4px;"></div>
+                </div>
+                <span style="min-width:50px;text-align:right;font-size:12px;color:#888;">${count} (${pct}%)</span>
+            </div>`;
+        };
+
+        const overlay = document.createElement('div');
+        overlay.id = 'hege-analytics-overlay';
+        overlay.className = 'hege-manager-overlay';
+
+        const htmlContent = `
+            <div class="hege-manager-box" style="max-width: 580px; width: 90vw; max-height: 85vh;">
+                <div class="hege-manager-header">
+                    <span class="hege-manager-title" style="display:flex;align-items:center;gap:6px;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5ac8fa" stroke-width="2"><rect x="3" y="12" width="4" height="9"/><rect x="10" y="7" width="4" height="14"/><rect x="17" y="3" width="4" height="18"/></svg>
+                        封鎖分析報告
+                    </span>
+                    <span class="hege-manager-close">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+                    </span>
+                </div>
+                <div style="padding:16px;overflow-y:auto;max-height:calc(85vh - 60px);">
+
+                    <!-- 總覽卡片 -->
+                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px;">
+                        <div style="background:#111;border-radius:8px;padding:12px;text-align:center;border:1px solid #2a2a2a;">
+                            <div style="font-size:24px;font-weight:700;color:#ff453a;">${totalBlocked}</div>
+                            <div style="font-size:11px;color:#888;margin-top:2px;">總封鎖</div>
+                        </div>
+                        <div style="background:#111;border-radius:8px;padding:12px;text-align:center;border:1px solid #2a2a2a;">
+                            <div style="font-size:24px;font-weight:700;color:#ff9f0a;">${cockroachCount}</div>
+                            <div style="font-size:11px;color:#888;margin-top:2px;">大蟑螂</div>
+                        </div>
+                        <div style="background:#111;border-radius:8px;padding:12px;text-align:center;border:1px solid #2a2a2a;">
+                            <div style="font-size:24px;font-weight:700;color:#5ac8fa;">${totalSweepPosts}</div>
+                            <div style="font-size:11px;color:#888;margin-top:2px;">掃蕩貼文</div>
+                        </div>
+                        <div style="background:#111;border-radius:8px;padding:12px;text-align:center;border:1px solid #2a2a2a;">
+                            <div style="font-size:24px;font-weight:700;color:#4cd964;">${totalSweepBlocked}</div>
+                            <div style="font-size:11px;color:#888;margin-top:2px;">掃蕩封鎖</div>
+                        </div>
+                    </div>
+
+                    <!-- 封鎖原因分布 -->
+                    <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;margin-bottom:12px;">
+                        <div style="font-weight:600;font-size:13px;margin-bottom:8px;">封鎖原因分布</div>
+                        ${Object.entries(reasonCounts).filter(([,c]) => c > 0).map(([k,c]) => reasonBar(k, c)).join('')}
+                    </div>
+
+                    <!-- 每日封鎖量 -->
+                    ${dailyEntries.length > 0 ? `
+                    <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;margin-bottom:12px;">
+                        <div style="font-weight:600;font-size:13px;margin-bottom:8px;">近期封鎖量（${earliest} ~ ${latest}）</div>
+                        <div style="display:flex;align-items:flex-end;gap:3px;height:80px;">
+                            ${dailyEntries.map(([day, count]) => `
+                                <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;">
+                                    <span style="font-size:9px;color:#888;margin-bottom:2px;">${count}</span>
+                                    <div style="width:100%;background:#4cd964;border-radius:2px;min-height:2px;height:${Math.round(count/maxDaily*100)}%;" title="${day}: ${count} 人"></div>
+                                    <span style="font-size:9px;color:#555;margin-top:2px;writing-mode:vertical-lr;">${day}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>` : ''}
+
+                    <!-- 來源貼文排行 -->
+                    ${topSources.length > 0 ? `
+                    <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;margin-bottom:12px;">
+                        <div style="font-weight:600;font-size:13px;margin-bottom:8px;">來源貼文排行 TOP ${topSources.length}</div>
+                        <div style="display:flex;flex-direction:column;gap:6px;">
+                            ${topSources.map(([url, info], i) => `
+                                <div style="display:flex;align-items:flex-start;gap:8px;padding:6px;background:#1a1a1a;border-radius:6px;">
+                                    <span style="font-size:16px;font-weight:700;color:#555;min-width:20px;">${i+1}</span>
+                                    <div style="flex:1;min-width:0;">
+                                        <div style="font-size:12px;color:#ccc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                                            ${info.postText ? Utils.escapeHTML(info.postText) : (info.postOwner ? '@' + Utils.escapeHTML(info.postOwner) : '未知貼文')}
+                                        </div>
+                                        <a href="${Utils.escapeHTML(url)}" target="_blank" style="font-size:10px;color:#5ac8fa;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;">🔗 ${Utils.escapeHTML(url.replace('https://www.threads.net', ''))}</a>
+                                    </div>
+                                    <span style="font-size:14px;font-weight:700;color:#ff453a;min-width:40px;text-align:right;">${info.count} 人</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>` : ''}
+
+                    <!-- 最近封鎖紀錄 -->
+                    ${recentWithContext.length > 0 ? `
+                    <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;">
+                        <div style="font-weight:600;font-size:13px;margin-bottom:8px;">最近封鎖紀錄</div>
+                        <div style="display:flex;flex-direction:column;gap:4px;max-height:300px;overflow-y:auto;">
+                            ${recentWithContext.map(e => `
+                                <div style="display:flex;align-items:center;gap:8px;padding:4px 6px;background:#1a1a1a;border-radius:4px;font-size:12px;">
+                                    <a href="https://www.threads.net/@${Utils.escapeHTML(e.username)}" target="_blank" style="color:#5ac8fa;text-decoration:none;min-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">@${Utils.escapeHTML(e.username)}</a>
+                                    <span style="color:#555;min-width:50px;">${e.reason ? reasonLabel[e.reason] || e.reason : ''}</span>
+                                    <span style="color:#444;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;">${e.postText ? Utils.escapeHTML(e.postText.substring(0, 40)) : ''}</span>
+                                    <span style="color:#444;font-size:10px;min-width:70px;text-align:right;">${e.t ? new Date(e.t).toLocaleDateString() : ''}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>` : `
+                    <div style="background:#111;border-radius:8px;padding:20px;border:1px solid #2a2a2a;text-align:center;color:#555;">
+                        尚無結構化封鎖紀錄。新封鎖的帳號會自動記錄來源與原因。
+                    </div>`}
+
+                </div>
+            </div>
+        `;
+        Utils.setHTML(overlay, htmlContent);
+        document.body.appendChild(overlay);
+
+        overlay.querySelector('.hege-manager-close').onclick = () => overlay.remove();
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
     },
 
     showEndlessPostQueueManager: () => {
@@ -975,11 +1179,14 @@ export const UI = {
         let sortMode = 0;
         let users = [...blockedList];
 
+        // 向下相容：timestamp 可能是數字（舊格式）或物件（新格式 {t, src, reason, ...}）
+        const getTs = (u) => { const e = timestamps[u]; return typeof e === 'object' && e !== null ? (e.t || 0) : (e || 0); };
+
         const sortUsers = () => {
             if (sortMode === 0) { // Time Desc
-                users = [...blockedList].sort((a, b) => (timestamps[b] || 0) - (timestamps[a] || 0));
+                users = [...blockedList].sort((a, b) => getTs(b) - getTs(a));
             } else if (sortMode === 1) { // Time Asc
-                users = [...blockedList].sort((a, b) => (timestamps[a] || 0) - (timestamps[b] || 0));
+                users = [...blockedList].sort((a, b) => getTs(a) - getTs(b));
             } else if (sortMode === 2) { // Position Desc (Newest at end of array)
                 users = [...blockedList].reverse();
             } else if (sortMode === 3) { // Position Asc (Oldest at start of array)
@@ -1003,7 +1210,7 @@ export const UI = {
 
             listEl.innerHTML = filtered.map(u => {
                 const safeU = Utils.escapeHTML(u);
-                const time = timestamps[u] ? new Date(timestamps[u]).toLocaleString() : '無記錄時間';
+                const time = getTs(u) ? new Date(getTs(u)).toLocaleString() : '無記錄時間';
                 const isSelected = selected.has(u);
                 return `
                     <div class="hege-manager-item" data-username="${safeU}">

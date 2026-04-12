@@ -366,10 +366,17 @@ export const Core = {
             db.add(username);
             Storage.setJSON(CONFIG.KEYS.DB_KEY, [...db]);
 
-            // Also ensure timestamp is recorded
+            // 結構化 timestamp：記錄封鎖原因、來源貼文、文字摘要
             let ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
             if (!ts[username]) {
-                ts[username] = Date.now();
+                ts[username] = {
+                    t: Date.now(),
+                    src: window.location.href.split('?')[0],
+                    reason: 'manual',
+                    postText: '',
+                    postOwner: Utils.getPostOwner() || '',
+                    batch: ''
+                };
                 Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, ts);
             }
         }
@@ -727,6 +734,18 @@ export const Core = {
             newUsers.forEach(u => Core.pendingUsers.add(u));
             Storage.setSessionJSON(CONFIG.KEYS.PENDING, [...Core.pendingUsers]);
 
+            // 記錄封鎖 context（來源貼文、原因類型、貼文摘要）供 Worker 寫入結構化 timestamp
+            const reason = CONFIG.LIKES_TEXTS.some(t => titleText.includes(t)) ? 'likes'
+                : CONFIG.QUOTES_TEXTS.some(t => titleText.includes(t)) ? 'quotes'
+                : CONFIG.REPOSTS_TEXTS.some(t => titleText.includes(t)) ? 'reposts' : 'manual';
+            Storage.set('hege_block_context', JSON.stringify({
+                src: window.location.href.split('?')[0],
+                reason,
+                postText: Utils.getPostText(),
+                postOwner: Utils.getPostOwner() || ''
+            }));
+            Storage.set('hege_current_batch_id', 'b_' + Date.now());
+
             const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
             const isRunning = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
 
@@ -873,6 +892,16 @@ export const Core = {
             // Arm the endless harvester
             sessionStorage.setItem('hege_endless_last_first_user', newEndlessUsers[0]);
             sessionStorage.setItem('hege_auto_triggered_once', 'true'); // 標記已觸發過一次，下次須進行死迴圈比對
+
+            // 記錄封鎖 context（定點絕來源）
+            Storage.set('hege_block_context', JSON.stringify({
+                src: window.location.href.split('?')[0],
+                reason: 'likes',
+                postText: Utils.getPostText(),
+                postOwner: Utils.getPostOwner() || ''
+            }));
+            Storage.set('hege_current_batch_id', 'b_' + Date.now());
+
             const batchSize = CONFIG.ENDLESS_BATCH_SIZE || newEndlessUsers.length;
             const batchUsers = newEndlessUsers.slice(0, batchSize);
             Storage.setJSON(CONFIG.KEYS.BG_QUEUE, [...new Set([...activeQueue, ...batchUsers])]);

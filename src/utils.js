@@ -43,6 +43,20 @@ export const Utils = {
         }
         return null;
     },
+
+    // 從 DOM 抓取當前貼文的文字摘要（前 100 字）
+    getPostText: () => {
+        // 貼文內容在 dialog 後面的主頁面，找 [data-pressable-container] 內的文字
+        const candidates = document.querySelectorAll('[data-pressable-container] span[dir="auto"], article span[dir="auto"]');
+        for (const el of candidates) {
+            // 跳過 dialog 內的元素（那是按讚名單，不是貼文本體）
+            if (el.closest('[role="dialog"]')) continue;
+            const text = (el.innerText || '').trim();
+            if (text.length > 20) return text.substring(0, 100);
+        }
+        return '';
+    },
+
     sleep: (ms) => new Promise(r => setTimeout(r, ms)),
 
     // 取得當前速度設定

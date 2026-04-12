@@ -486,7 +486,15 @@ export const Worker = {
                     delete ts[targetUser];
                 } else {
                     db.add(targetUser);
-                    ts[targetUser] = Date.now();
+                    const ctx = JSON.parse(Storage.get('hege_block_context') || '{}');
+                    ts[targetUser] = {
+                        t: Date.now(),
+                        src: ctx.src || '',
+                        reason: ctx.reason || 'manual',
+                        postText: ctx.postText || '',
+                        postOwner: ctx.postOwner || '',
+                        batch: Storage.get('hege_current_batch_id') || ''
+                    };
                 }
 
                 Storage.setJSON(CONFIG.KEYS.DB_KEY, [...db]);
@@ -640,7 +648,15 @@ export const Worker = {
                     delete ts[targetUser];
                 } else {
                     db.add(targetUser);
-                    ts[targetUser] = Date.now();
+                    const ctx = JSON.parse(Storage.get('hege_block_context') || '{}');
+                    ts[targetUser] = {
+                        t: Date.now(),
+                        src: ctx.src || '',
+                        reason: ctx.reason || 'manual',
+                        postText: ctx.postText || '',
+                        postOwner: ctx.postOwner || '',
+                        batch: Storage.get('hege_current_batch_id') || ''
+                    };
                 }
 
                 Storage.setJSON(CONFIG.KEYS.DB_KEY, [...db]);
