@@ -11,14 +11,22 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build
+        run: bash build.sh --no-bump
+
       - name: Zip extension folder
-        run: zip -r dist/extension.zip dist/extension/
-        
+        run: cd dist && zip -r extension.zip extension/
+
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
@@ -26,3 +34,4 @@ jobs:
           files: |
             dist/threads_block_tool.user.js
             dist/extension.zip
+            dist/threads_blocker_firefox.xpi
