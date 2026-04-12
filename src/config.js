@@ -77,12 +77,25 @@ export const CONFIG = {
         // Task 3: 定點絕歷史紀錄
         ENDLESS_HISTORY: 'hege_endless_history',
     },
-    // 多語系封鎖/解除封鎖文字偵測（含：中/英/西/法/德/義/日/韓/印尼/俄/波蘭/土耳其）
-    BLOCK_TEXTS: ['封鎖', 'Block', 'Bloquear', 'Bloquer', 'Blockieren', 'Blocca', 'ブロック', '차단', 'Blokir', 'Заблокировать', 'Zablokuj', 'Engelle'],
-    UNBLOCK_TEXTS: ['解除封鎖', 'Unblock', 'Desbloquear', 'Débloquer', 'Blockierung aufheben', 'Sblocca', 'ブロックを解除', '차단 해제', 'Buka blokir', 'Разблокировать', 'Odblokuj', 'Engeli kaldır'],
+    // 多語系文字偵測（20 國：繁中/簡中/英/日/韓/泰/印尼/西/法/德/義/葡/俄/波蘭/土耳其/越南/阿拉伯/印地/荷蘭/菲律賓）
+    BLOCK_TEXTS: ['封鎖', '屏蔽', 'Block', 'ブロック', '차단', 'บล็อก', 'Blokir', 'Bloquear', 'Bloquer', 'Blockieren', 'Blocca', 'Bloquear', 'Заблокировать', 'Zablokuj', 'Engelle', 'Chặn', 'حظر', 'ब्लॉक करें', 'Blokkeren', 'I-block'],
+    UNBLOCK_TEXTS: ['解除封鎖', '取消屏蔽', 'Unblock', 'ブロックを解除', '차단 해제', 'เลิกบล็อก', 'Buka blokir', 'Desbloquear', 'Débloquer', 'Blockierung aufheben', 'Sblocca', 'Desbloquear', 'Разблокировать', 'Odblokuj', 'Engeli kaldır', 'Bỏ chặn', 'إلغاء الحظر', 'अनब्लॉक करें', 'Deblokkeren', 'I-unblock'],
+
+    // 「讚」對話框標題
+    LIKES_TEXTS: ['讚', '赞', 'Likes', 'いいね', '좋아요', 'ถูกใจ', 'Suka', 'Me gusta', 'J\'aime', 'Gefällt mir', 'Mi piace', 'Curtidas', 'Нравится', 'Polubienia', 'Beğeni', 'Thích', 'إعجابات', 'पसंद', 'Vind-ik-leuks', 'Mga Like'],
+    // 「引用」對話框標題
+    QUOTES_TEXTS: ['引用', '引用', 'Quotes', '引用', '인용', 'การอ้างอิง', 'Kutipan', 'Citas', 'Citations', 'Zitate', 'Citazioni', 'Citações', 'Цитаты', 'Cytaty', 'Alıntılar', 'Trích dẫn', 'اقتباسات', 'उद्धरण', 'Citaten', 'Mga Quote'],
+    // 「轉發」對話框標題
+    REPOSTS_TEXTS: ['轉發', '转发', 'Reposts', '再投稿', '리포스트', 'รีโพสต์', 'Repost', 'Republicaciones', 'Republications', 'Reposts', 'Ripubblicazioni', 'Republicações', 'Репосты', 'Reposty', 'Yeniden paylaşımlar', 'Đăng lại', 'إعادة النشر', 'रीपोस्ट', 'Reposts', 'Mga Repost'],
+    // 「活動/查看動態」按鈕
+    ACTIVITY_TEXTS: ['查看動態', '查看动态', 'View activity', '活動', 'Activity', 'アクティビティを見る', 'アクティビティ', '활동 보기', '활동', 'ดูกิจกรรม', 'กิจกรรม', 'Lihat aktivitas', 'Aktivitas', 'Ver actividad', 'Actividad', 'Voir l\'activité', 'Activité', 'Aktivität ansehen', 'Aktivität', 'Visualizza attività', 'Attività', 'Ver atividade', 'Atividade', 'Посмотреть активность', 'Активность', 'Zobacz aktywność', 'Aktywność', 'Etkinliği gör', 'Etkinlik', 'Xem hoạt động', 'Hoạt động', 'عرض النشاط', 'النشاط', 'गतिविधि देखें', 'गतिविधि', 'Activiteit bekijken', 'Activiteit', 'Tingnan ang aktibidad', 'Aktibidad'],
+    // 「按讚內容」分頁
+    LIKES_TAB_TEXTS: ['按讚內容', '点赞内容', 'Likes', '讚', '赞', 'いいね', '좋아요', 'ถูกใจ', 'Suka', 'Me gusta', 'J\'aime', 'Gefällt mir', 'Mi piace', 'Curtidas', 'Нравится', 'Polubienia', 'Beğeni', 'Thích', 'إعجابات', 'पसंद', 'Vind-ik-leuks', 'Mga Like'],
+    // 對話框標題關鍵字（判斷是否為互動面板）
+    DIALOG_HEADER_TEXTS: ['讚', '赞', '引用', '轉發', '转发', '貼文動態', '帖子动态', '活動', '活动', 'Likes', 'Quotes', 'Reposts', 'Activity', 'いいね', '引用', '再投稿', 'アクティビティ', '좋아요', '인용', '리포스트', '활동', 'ถูกใจ', 'การอ้างอิง', 'รีโพสต์', 'กิจกรรม', 'Suka', 'Kutipan', 'Repost', 'Aktivitas', 'Me gusta', 'Citas', 'Republicaciones', 'Actividad', 'J\'aime', 'Citations', 'Activité', 'Gefällt mir', 'Zitate', 'Aktivität', 'Mi piace', 'Citazioni', 'Attività', 'Curtidas', 'Citações', 'Republicações', 'Atividade', 'Нравится', 'Цитаты', 'Репосты', 'Активность', 'Polubienia', 'Cytaty', 'Aktywność', 'Beğeni', 'Alıntılar', 'Etkinlik', 'Thích', 'Trích dẫn', 'Đăng lại', 'Hoạt động', 'إعجابات', 'اقتباسات', 'إعادة النشر', 'النشاط', 'पसंद', 'उद्धरण', 'रीपोस्ट', 'गतिविधि', 'Vind-ik-leuks', 'Citaten', 'Activiteit', 'Mga Like', 'Mga Quote', 'Mga Repost', 'Aktibidad'],
 
     SELECTORS: {
-        MORE_SVG: 'svg[aria-label="更多"], svg[aria-label="More"], svg[aria-label="もっと見る"], svg[aria-label="더 보기"], svg[aria-label="Más"], svg[aria-label="Plus"], svg[aria-label="Mehr"], svg[aria-label="Altro"], svg[aria-label="Lainnya"], svg[aria-label="Ещё"]',
+        MORE_SVG: 'svg[aria-label="更多"], svg[aria-label="更多"], svg[aria-label="More"], svg[aria-label="もっと見る"], svg[aria-label="더 보기"], svg[aria-label="เพิ่มเติม"], svg[aria-label="Lainnya"], svg[aria-label="Más"], svg[aria-label="Plus"], svg[aria-label="Mehr"], svg[aria-label="Altro"], svg[aria-label="Mais"], svg[aria-label="Ещё"], svg[aria-label="Więcej"], svg[aria-label="Diğer"], svg[aria-label="Thêm"], svg[aria-label="المزيد"], svg[aria-label="और"], svg[aria-label="Meer"], svg[aria-label="Higit pa"]',
         MENU_ITEM: 'div[role="menuitem"], div[role="button"]',
         DIALOG: 'div[role="dialog"]',
         DIALOG_HEADER: 'div[role="dialog"] h1',

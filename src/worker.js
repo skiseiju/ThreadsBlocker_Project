@@ -756,13 +756,13 @@ export const Worker = {
         try {
             // 智慧等待頁面載入
             const verifyPageLoaded = await Utils.pollUntil(() => {
-                return document.querySelector('svg[aria-label="更多"], svg[aria-label="More"]');
+                return document.querySelector(CONFIG.SELECTORS.MORE_SVG);
             }, 2500);
             if (!verifyPageLoaded) await Utils.safeSleep(1000);
 
             // Find "More" button again (智慧等待)
             let profileBtn = await Utils.pollUntil(() => {
-                const moreSvgs = document.querySelectorAll('svg[aria-label="更多"], svg[aria-label="More"]');
+                const moreSvgs = document.querySelectorAll(CONFIG.SELECTORS.MORE_SVG);
                 for (let svg of moreSvgs) {
                     if (svg.querySelector('circle') && svg.querySelectorAll('path').length >= 3) {
                         const btn = svg.closest('div[role="button"]');
@@ -819,7 +819,7 @@ export const Worker = {
                         for (let lvl = 0; lvl < 8; lvl++) {
                             container = container.parentElement;
                             if (!container) break;
-                            const svg = container.querySelector('svg[aria-label="更多"], svg[aria-label="More"]');
+                            const svg = container.querySelector(CONFIG.SELECTORS.MORE_SVG);
                             if (!svg) continue;
                             const btn = svg.closest('div[role="button"]');
                             if (!btn) continue;
@@ -980,7 +980,7 @@ export const Worker = {
             setStep('載入中...');
             // 智慧等待頁面載入，偵測到主要內容就繼續
             const pageLoaded = await Utils.pollUntil(() => {
-                return document.querySelector('svg[aria-label="更多"], svg[aria-label="More"]') ||
+                return document.querySelector(CONFIG.SELECTORS.MORE_SVG) ||
                        document.querySelector('div[role="button"]');
             }, 2500);
             if (!pageLoaded) await Utils.safeSleep(1500);
@@ -994,7 +994,7 @@ export const Worker = {
             {
                 // 1. Wait for "More" button (智慧等待)
                 let profileBtn = await Utils.pollUntil(() => {
-                    const moreSvgs = document.querySelectorAll('svg[aria-label="更多"], svg[aria-label="More"]');
+                    const moreSvgs = document.querySelectorAll(CONFIG.SELECTORS.MORE_SVG);
                     for (let svg of moreSvgs) {
                         if (svg.querySelector('circle') && svg.querySelectorAll('path').length >= 3) {
                             const btn = svg.closest('div[role="button"]');
@@ -1012,7 +1012,7 @@ export const Worker = {
                     // Diagnostic dump: collect all SVG info on page
                     const allSvgs = document.querySelectorAll('svg[aria-label]');
                     const svgLabels = Array.from(allSvgs).map(s => s.getAttribute('aria-label'));
-                    const moreSvgs = document.querySelectorAll('svg[aria-label="更多"], svg[aria-label="More"]');
+                    const moreSvgs = document.querySelectorAll(CONFIG.SELECTORS.MORE_SVG);
                     const svgDetails = Array.from(moreSvgs).map(s => {
                         const hasCircle = !!s.querySelector('circle');
                         const pathCount = s.querySelectorAll('path').length;
@@ -1128,7 +1128,7 @@ export const Worker = {
                             for (let lvl = 0; lvl < 8; lvl++) {
                                 container = container.parentElement;
                                 if (!container) break;
-                                const svg = container.querySelector('svg[aria-label="更多"], svg[aria-label="More"]');
+                                const svg = container.querySelector(CONFIG.SELECTORS.MORE_SVG);
                                 if (!svg) continue;
                                 const btn = svg.closest('div[role="button"]');
                                 if (!btn) continue;

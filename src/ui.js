@@ -603,6 +603,7 @@ export const UI = {
                         <div style="padding: 10px; background: #111; border-radius: 8px; border: 1px solid #2a2a2a;">
                             <span style="font-weight:600; font-size:12px; color:#4cd964;">💡 定點絕 + 8小時巡邏</span>
                             <p style="font-size: 11px; color: #888; line-height: 1.4; margin: 6px 0 0;">定點絕大掃除完畢後可加入「每 8 小時自動回鍋」。<br>⚠️ 需保持開著 Threads 分頁，系統才能跳出授權對話框。</p>
+                            ${Utils.isMobile() ? '<p style="font-size: 11px; color: #ff9f0a; line-height: 1.4; margin: 6px 0 0;">⚠️ 行動裝置限制：定點絕功能在手機／平板上可能無法正常運作（背景分頁會暫停腳本執行）。建議使用桌面版瀏覽器。</p>' : ''}
                         </div>
                     </div>
 

@@ -332,7 +332,7 @@ export const Core = {
 
                                 // Log the entire parent structure HTML (stripped of too much detail)
                                 // if it's a dialog header we care about
-                                if (isDialog && ['讚', '引用', '轉發', '貼文動態', '活動', 'Likes'].some(t => hText.includes(t))) {
+                                if (isDialog && CONFIG.DIALOG_HEADER_TEXTS.some(t => hText.includes(t))) {
                                     console.log(`[!] Target Header Parent HTML snippet:`, p ? p.outerHTML.substring(0, 300) + '...' : 'null');
                                 }
                             }
@@ -606,7 +606,7 @@ export const Core = {
                 const isExcludeCtx = ['回覆', '回文', 'Reply', 'Replies', '回應', '新串文', 'New thread', '發佈串文', 'Post', '編輯', 'Edit'].some(t => text.includes(t));
                 if (isExcludeCtx) continue;
 
-                if (isDialog || ['貼文動態', '讚', 'Likes', '引用', '轉發', '活動'].some(t => text.includes(t))) {
+                if (isDialog || CONFIG.DIALOG_HEADER_TEXTS.some(t => text.includes(t))) {
                     header = h;
                     titleText = text;
                 }
@@ -625,7 +625,7 @@ export const Core = {
             }
         }
 
-        const isLikesLayer = ['讚', 'Likes'].some(t => titleText.includes(t));
+        const isLikesLayer = CONFIG.LIKES_TEXTS.some(t => titleText.includes(t));
         const existingBlockAll = localCtx.querySelector('.hege-block-all-btn');
         const existingEndless = localCtx.querySelector('.hege-endless-sweep-btn');
 
@@ -987,7 +987,7 @@ export const Core = {
         for (let h of dialogHeaders) {
             const tempText = (h.innerText || h.textContent || '').trim();
             if (tempText && tempText !== 'Threads') {
-                if (isDialog || ['讚', '引用', '轉發', '貼文動態', '活動', 'Likes'].some(t => tempText.includes(t))) {
+                if (isDialog || CONFIG.DIALOG_HEADER_TEXTS.some(t => tempText.includes(t))) {
                     header = h;
                 }
             }
@@ -1611,7 +1611,9 @@ export const Core = {
             const _toggle = document.getElementById('hege-toggle');
             if (_toggle) _toggle.textContent = '▲';
         }
-        let remaining = totalSec;
+
+        // 用目標時間戳取代遞減計數器，避免背景分頁 setInterval 節流導致倒數停擺
+        const endTime = Date.now() + totalSec * 1000;
 
         const fmtTime = (s) => {
             if (s >= 3600) {
@@ -1622,11 +1624,11 @@ export const Core = {
             return m > 0 ? `${m}:${String(sec).padStart(2,'0')}` : `${sec} 秒`;
         };
 
-        const updateDisplay = () => {
+        const updateDisplay = (remaining) => {
             const statusEl = document.getElementById('hege-bg-status');
             if (statusEl) statusEl.textContent = `⏳ 定點絕冷卻中，${fmtTime(remaining)} 後自動下一批`;
         };
-        updateDisplay();
+        updateDisplay(totalSec);
 
         if (Core.endlessCountdownTimer) clearInterval(Core.endlessCountdownTimer);
         Core.endlessCountdownTimer = setInterval(() => {
@@ -1646,7 +1648,7 @@ export const Core = {
                 return;
             }
 
-            remaining--;
+            const remaining = Math.round((endTime - Date.now()) / 1000);
             if (remaining <= 0) {
                 clearInterval(Core.endlessCountdownTimer);
                 Core.endlessCountdownTimer = null;
@@ -1654,7 +1656,7 @@ export const Core = {
                 UI.showToast('[定點絕] 冷卻完畢，準備載入下一批...');
                 setTimeout(() => location.reload(), 1500);
             } else {
-                updateDisplay();
+                updateDisplay(remaining);
             }
         }, 1000);
     },
@@ -1704,7 +1706,7 @@ export const Core = {
             let targetLink = null;
             for (let span of buttons) {
                 const text = (span.innerText || span.textContent || '').trim();
-                if (text.includes('查看動態') || text.includes('View activity') || text.includes('活動')) {
+                if (CONFIG.ACTIVITY_TEXTS.some(t => text.includes(t))) {
                     targetLink = span.closest('div[role="button"]');
                     break;
                 }
@@ -1747,7 +1749,7 @@ export const Core = {
                     for (let span of spans) {
                         const text = (span.innerText || span.textContent || '').trim();
                         // 避免去點擊到數字，明確配對文字
-                        if (text === '按讚內容' || text === 'Likes' || text === '讚') {
+                        if (CONFIG.LIKES_TAB_TEXTS.some(t => text === t)) {
                             likesTab = span.closest('div[role="tab"], div[role="button"], div[class*="x6s0dn4"][class*="x1qv9dbp"]');
                             if (likesTab) break;
                         }
@@ -2192,7 +2194,7 @@ export const Core = {
         const langDetected = hasZh ? 'zh' : (hasEn ? 'en' : 'unknown');
 
         // SVG structure of "More" buttons
-        const moreSvgs = document.querySelectorAll('svg[aria-label="更多"], svg[aria-label="More"]');
+        const moreSvgs = document.querySelectorAll(CONFIG.SELECTORS.MORE_SVG);
         const svgDetails = Array.from(moreSvgs).map(s => {
             const hasCircle = !!s.querySelector('circle');
             const pathCount = s.querySelectorAll('path').length;
