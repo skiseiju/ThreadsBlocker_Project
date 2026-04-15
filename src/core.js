@@ -610,7 +610,7 @@ export const Core = {
             const text = tempText.trim();
             if (text && text !== 'Threads') {
                 // 排除回覆/回文/發文 dialog — 會回文/發文代表不想或不能封鎖
-                const isExcludeCtx = ['回覆', '回文', 'Reply', 'Replies', '回應', '新串文', 'New thread', '發佈串文', 'Post', '編輯', 'Edit'].some(t => text.includes(t));
+                const isExcludeCtx = ['回覆', '回文', 'Reply', 'Replies', '回應', '新串文', 'New thread', '發佈串文', 'Post', '編輯', 'Edit', '刪除', '删除', 'Delete', '確定刪除', '確認刪除'].some(t => text.includes(t));
                 if (isExcludeCtx) continue;
 
                 if (isDialog || CONFIG.DIALOG_HEADER_TEXTS.some(t => text.includes(t))) {

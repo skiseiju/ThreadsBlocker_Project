@@ -156,6 +156,120 @@
             font-size: 0.9rem; color: var(--text-light); line-height: 1.6;
         }
 
+        /* Install steps horizontal layout */
+        .install-steps {
+            display: flex; align-items: flex-start; gap: 0;
+            overflow-x: auto; padding-bottom: 1rem;
+            scroll-snap-type: x mandatory;
+        }
+        .install-card {
+            flex: 0 0 180px; text-align: center; scroll-snap-align: center;
+        }
+        .install-arrow {
+            flex-shrink: 0; display: flex; align-items: center;
+            font-size: 1.5rem; color: var(--border-md); padding: 60px 4px 0;
+        }
+        .install-desc {
+            font-size: 0.85rem; color: var(--text-light); margin-top: 0.6rem;
+            line-height: 1.4;
+        }
+        .mock-device {
+            background: var(--white); border: 2px solid var(--border-md);
+            border-radius: 12px; overflow: hidden; width: 100%;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+        }
+        .mock-bar {
+            padding: 6px 10px; background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            font-size: 10px; color: var(--text-light); text-align: center; font-weight: 500;
+        }
+        .mock-body { padding: 10px; min-height: 90px; }
+
+        @media (max-width: 900px) {
+            .install-steps { gap: 0; }
+            .install-card { flex: 0 0 160px; }
+        }
+        @media (max-width: 600px) {
+            .install-steps {
+                flex-direction: column; align-items: center;
+            }
+            .install-card { flex: none; width: 240px; }
+            .install-arrow {
+                transform: rotate(90deg); padding: 0; font-size: 1.2rem;
+            }
+        }
+
+        /* iOS mockup components */
+        .ios-step-num {
+            width: 28px; height: 28px; border-radius: 50%;
+            background: var(--accent); color: var(--white);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.85rem; font-weight: 700; flex-shrink: 0; margin-top: 4px;
+        }
+        .ios-phone {
+            background: var(--white); border: 2px solid var(--border-md);
+            border-radius: 16px; overflow: hidden; width: 180px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+        }
+        .ios-status-bar {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 4px 10px; font-size: 9px; font-weight: 600; color: var(--text);
+        }
+        .ios-screen { padding: 4px 8px 10px; min-height: 80px; position: relative; }
+        .ios-safari-bar { display: flex; gap: 4px; margin-bottom: 6px; }
+        .ios-app-row {
+            display: flex; align-items: center; gap: 8px;
+            background: var(--surface); border-radius: 8px; padding: 6px;
+        }
+        .ios-btn-get {
+            background: var(--accent); color: var(--white);
+            font-size: 9px; font-weight: 700; padding: 3px 10px;
+            border-radius: 12px; flex-shrink: 0;
+        }
+        .ios-setting-row {
+            display: flex; align-items: center; justify-content: space-between;
+            background: var(--surface); border-radius: 8px; padding: 6px 8px;
+        }
+        .ios-toggle {
+            width: 34px; height: 20px; border-radius: 10px; position: relative;
+            transition: background 0.3s;
+        }
+        .ios-toggle-on { background: #4cd964; }
+        .ios-toggle-thumb {
+            width: 16px; height: 16px; background: #fff; border-radius: 50%;
+            position: absolute; top: 2px; transition: left 0.3s;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+        }
+        .ios-toggle-thumb-on { left: 16px; }
+        .ios-dialog {
+            background: var(--white); border: 1px solid var(--border-md);
+            border-radius: 10px; padding: 12px; width: 100%;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08); text-align: center;
+        }
+        .ios-progress-bar {
+            height: 4px; background: var(--surface); border-radius: 2px;
+            overflow: hidden; margin-top: 4px;
+        }
+        .ios-progress-fill {
+            height: 100%; width: 0%; background: var(--accent); border-radius: 2px;
+            animation: ios-loading 2s ease-in-out infinite;
+        }
+        @keyframes ios-loading {
+            0% { width: 0%; }
+            50% { width: 80%; }
+            100% { width: 100%; }
+        }
+        .ios-pulse { animation: ios-pulse-anim 2s ease-in-out infinite; }
+        @keyframes ios-pulse-anim {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .ios-float { animation: ios-float-anim 3s ease-in-out infinite; }
+        @keyframes ios-float-anim {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-3px); }
+        }
+
         /* Footer */
         footer {
             border-top: 1px solid var(--border); padding: 1.5rem 0;
@@ -187,6 +301,7 @@
             <a href="#" class="logo">留友封</a>
             <ul class="links">
                 <li><a href="#features">功能</a></li>
+                <li><a href="#install-safari">安裝教學</a></li>
                 <li><a href="#privacy">隱私政策</a></li>
                 <li><a href="https://github.com/skiseiju/ThreadsBlocker_Project" target="_blank">GitHub</a></li>
             </ul>
@@ -202,7 +317,7 @@
             <div class="cta-buttons">
                 <a href="https://chromewebstore.google.com/detail/%E7%95%99%E5%8F%8B%E5%B0%81-threads-block-tool/goibhoemcnjojlejjlojpikfehmccbbj" target="_blank" class="btn btn-primary">Chrome 擴充功能</a>
                 <a href="https://addons.mozilla.org/en-US/firefox/addon/%E7%95%99%E5%8F%8B%E5%B0%81-threads-block-tool/" target="_blank" class="btn btn-outline">Firefox 擴充功能</a>
-                <a href="https://github.com/skiseiju/ThreadsBlocker_Project" target="_blank" class="btn btn-outline">iOS / Safari</a>
+                <a href="#install-safari" class="btn btn-outline">iOS / Safari 安裝</a>
             </div>
         </div>
     </section>
@@ -255,6 +370,121 @@
         </div>
     </section>
 
+    <section class="features" id="install-safari" style="border-bottom: 1px solid var(--border);">
+        <div class="container">
+            <h2 class="section-title">Safari / iOS 安裝教學</h2>
+            <p style="text-align:center;color:var(--text-light);font-size:0.95rem;margin:-1.5rem 0 2rem;">macOS、iOS、iPadOS 皆透過 <a href="https://apps.apple.com/app/userscripts/id1463298887" target="_blank" style="color:var(--accent);">Userscripts</a> App 安裝（免費）</p>
+
+            <!-- 橫向步驟流程 -->
+            <div class="install-steps">
+
+                <!-- Step 1 -->
+                <div class="install-card">
+                    <div class="ios-step-num" style="margin:0 auto 0.75rem;">1</div>
+                    <div class="mock-device">
+                        <div class="mock-bar">App Store</div>
+                        <div class="mock-body">
+                            <div class="ios-app-row">
+                                <div style="width:40px;height:40px;background:linear-gradient(135deg,#5856d6,#af52de);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;color:#fff;flex-shrink:0;">U</div>
+                                <div style="flex:1;min-width:0;">
+                                    <div style="font-size:11px;font-weight:600;color:var(--text);">Userscripts</div>
+                                    <div style="font-size:10px;color:var(--text-light);">Safari 腳本管理</div>
+                                </div>
+                                <div class="ios-btn-get ios-pulse" style="font-size:11px;padding:4px 14px;">取得</div>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="install-desc">從 App Store 安裝<br><strong>Userscripts</strong>（免費）</p>
+                </div>
+
+                <div class="install-arrow">→</div>
+
+                <!-- Step 2 -->
+                <div class="install-card">
+                    <div class="ios-step-num" style="margin:0 auto 0.75rem;">2</div>
+                    <div class="mock-device">
+                        <div class="mock-bar">Safari</div>
+                        <div class="mock-body" style="text-align:center;">
+                            <div style="background:var(--surface);border-radius:8px;padding:6px;font-size:10px;color:var(--text-light);margin-bottom:8px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">github.com/.../留友封.user.js</div>
+                            <div style="font-size:11px;color:var(--text);font-weight:600;margin-bottom:6px;">下載腳本中...</div>
+                            <div class="ios-progress-bar" style="height:6px;border-radius:3px;"><div class="ios-progress-fill" style="border-radius:3px;"></div></div>
+                        </div>
+                    </div>
+                    <p class="install-desc">用 Safari 開啟<br><a href="https://github.com/skiseiju/ThreadsBlocker_Project/releases/latest/download/threads_block_tool.user.js" style="color:var(--accent);">腳本安裝連結</a></p>
+                </div>
+
+                <div class="install-arrow">→</div>
+
+                <!-- Step 3 -->
+                <div class="install-card">
+                    <div class="ios-step-num" style="margin:0 auto 0.75rem;">3</div>
+                    <div class="mock-device">
+                        <div class="mock-bar">Userscripts</div>
+                        <div class="mock-body" style="display:flex;align-items:center;justify-content:center;">
+                            <div class="ios-dialog ios-float" style="width:100%;box-shadow:none;border:none;padding:10px;">
+                                <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:4px;">安裝腳本？</div>
+                                <div style="font-size:10px;color:var(--text-light);margin-bottom:10px;">「留友封 v2.5.2」</div>
+                                <div style="display:flex;gap:8px;">
+                                    <div style="flex:1;text-align:center;font-size:10px;padding:6px;border-radius:8px;background:var(--surface);color:var(--text-light);">取消</div>
+                                    <div style="flex:1;text-align:center;font-size:10px;padding:6px;border-radius:8px;background:var(--accent);color:#fff;font-weight:600;" class="ios-pulse">安裝</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="install-desc">確認安裝提示<br>按下「<strong>安裝</strong>」</p>
+                </div>
+
+                <div class="install-arrow">→</div>
+
+                <!-- Step 4 -->
+                <div class="install-card">
+                    <div class="ios-step-num" style="margin:0 auto 0.75rem;">4</div>
+                    <div class="mock-device">
+                        <div class="mock-bar">⚙️ 設定 → Safari</div>
+                        <div class="mock-body">
+                            <div style="font-size:11px;color:var(--text);margin-bottom:8px;">延伸功能</div>
+                            <div class="ios-setting-row" style="padding:8px 10px;">
+                                <div style="display:flex;align-items:center;gap:8px;">
+                                    <div style="width:28px;height:28px;background:linear-gradient(135deg,#5856d6,#af52de);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;color:#fff;">U</div>
+                                    <span style="font-size:11px;color:var(--text);">Userscripts</span>
+                                </div>
+                                <div class="ios-toggle ios-toggle-on" style="width:40px;height:24px;border-radius:12px;"><div class="ios-toggle-thumb ios-toggle-thumb-on" style="width:20px;height:20px;left:18px;"></div></div>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="install-desc">啟用延伸功能<br><span style="font-size:0.8rem;">macOS: Safari 設定<br>iOS: 系統設定 → Safari</span></p>
+                </div>
+
+                <div class="install-arrow">→</div>
+
+                <!-- Step 5 -->
+                <div class="install-card">
+                    <div class="ios-step-num" style="margin:0 auto 0.75rem;background:#4cd964;">5</div>
+                    <div class="mock-device" style="border-color:rgba(76,217,100,0.3);">
+                        <div class="mock-bar">threads.net</div>
+                        <div class="mock-body" style="position:relative;">
+                            <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:6px;">Threads</div>
+                            <div style="display:flex;align-items:center;gap:8px;background:var(--surface);border-radius:8px;padding:6px 8px;">
+                                <div style="width:24px;height:24px;background:#e0d5c8;border-radius:50%;"></div>
+                                <div style="flex:1;">
+                                    <div style="font-size:10px;color:var(--text);">@someone</div>
+                                    <div style="font-size:9px;color:var(--text-light);">今天天氣真好...</div>
+                                </div>
+                            </div>
+                            <div class="ios-float" style="position:absolute;bottom:6px;right:6px;background:var(--accent);color:#fff;font-size:10px;font-weight:700;padding:4px 12px;border-radius:14px;box-shadow:0 2px 8px rgba(140,92,40,0.3);">留友封 ✓</div>
+                        </div>
+                    </div>
+                    <p class="install-desc">開啟 <a href="https://www.threads.net" target="_blank" style="color:var(--accent);">threads.net</a><br>留友封自動載入</p>
+                </div>
+
+            </div>
+
+            <div style="background:var(--surface);border:1px solid var(--border-md);border-radius:8px;padding:1rem 1.25rem;margin-top:2rem;max-width:600px;margin-left:auto;margin-right:auto;">
+                <p style="font-size:0.9rem;color:var(--text-light);margin:0;line-height:1.6;">⚠️ <strong>iOS 使用者注意：</strong>必須使用 Safari 開啟 Threads 網頁版（不是 Threads App）。定點絕功能在行動裝置上可能受背景分頁節流影響，建議使用桌面版執行。</p>
+            </div>
+        </div>
+    </section>
+
     <section class="privacy" id="privacy">
         <div class="container">
             <div class="privacy-content">
@@ -301,7 +531,7 @@
                 <a href="https://github.com/skiseiju/ThreadsBlocker_Project" target="_blank">GitHub</a>
                 <a href="https://skiseiju.com" target="_blank">skiseiju.com</a>
             </div>
-            <div class="footer-meta">v2.5.1 · © 2026 海哥</div>
+            <div class="footer-meta">v2.5.2 · © 2026 海哥</div>
         </div>
     </footer>
 </body>
