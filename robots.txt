@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://threadsblocker.skiseiju.com/sitemap.xml
