@@ -111,9 +111,14 @@ import './features/cockroach.js';
             console.log('[留友封] DB migrated from legacy "undefined" key');
         }
 
-        // 清除暫存佇列
+        const legacyDelayedQueue = Storage.getJSON(CONFIG.KEYS.DELAYED_QUEUE, []);
+        const legacyBgQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+        const migratedBgQueue = [...new Set([...legacyBgQueue, ...legacyDelayedQueue])];
+
+        // 清除暫存佇列；舊延時水庫併回背景佇列
         Storage.setSessionJSON(CONFIG.KEYS.PENDING, []);
-        Storage.setJSON(CONFIG.KEYS.BG_QUEUE, []);
+        Storage.setJSON(CONFIG.KEYS.BG_QUEUE, migratedBgQueue);
+        Storage.setJSON(CONFIG.KEYS.DELAYED_QUEUE, []);
         Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, []);
         Storage.setJSON(CONFIG.KEYS.BG_STATUS, {});
 
@@ -126,8 +131,35 @@ import './features/cockroach.js';
         localStorage.removeItem('hege_ios_active');
         localStorage.removeItem('hege_mac_mode');
 
+        // 重設貼文水庫所有 entry 狀態為 pending，避免升版時有卡住的 sweeping/cooldown/error
+        try {
+            const postQ = Storage.getJSON(CONFIG.KEYS.POST_QUEUE, []);
+            const resetQ = postQ.map(p => p && typeof p === 'object'
+                ? { ...p, status: 'pending', done: false }
+                : p);
+            Storage.setJSON(CONFIG.KEYS.POST_QUEUE, resetQ);
+            console.log(`[留友封] POST_QUEUE 重設 ${resetQ.length} 個 entry 狀態為 pending`);
+        } catch (e) {
+            console.warn('[留友封] POST_QUEUE reset 失敗:', e);
+        }
+
+        // 清掉 sweep session 殘留（hege_sweep_*）
+        const sweepSessionKeys = [
+            'hege_sweep_state', 'hege_sweep_target', 'hege_sweep_last_first_user',
+            'hege_sweep_auto_triggered_once', 'hege_sweep_wait_started_at',
+            'hege_sweep_lock', 'hege_sweep_worker_standby', 'hege_sweep_stopped',
+        ];
+        sweepSessionKeys.forEach(k => {
+            sessionStorage.removeItem(k);
+            localStorage.removeItem(k);
+        });
+        // 同時清掉 hege_sweep_processed_* 與 hege_sweep_last_batch_*
+        Object.keys(localStorage).filter(k => k.startsWith('hege_sweep_')).forEach(k => localStorage.removeItem(k));
+        Object.keys(sessionStorage).filter(k => k.startsWith('hege_sweep_')).forEach(k => sessionStorage.removeItem(k));
+        console.log('[留友封] Sweep session 殘留全數清除');
+
         Storage.set(CONFIG.KEYS.VERSION_CHECK, CONFIG.VERSION);
-        console.log(`[留友封] Updated to v${CONFIG.VERSION}. Cleared all temporary queues.`);
+        console.log(`[留友封] Updated to v${CONFIG.VERSION}. Cleared temporary queues. Migrated delayed queue: ${legacyDelayedQueue.length}`);
     }
 
     // Clear stale sweep standby flag from previous session
@@ -198,8 +230,10 @@ import './features/cockroach.js';
                 const cooldownUntil = parseInt(Storage.get(CONFIG.KEYS.COOLDOWN) || '0');
                 if (cooldownUntil > Date.now()) {
                     const remainHrs = Math.ceil((cooldownUntil - Date.now()) / (1000 * 60 * 60));
+                    const dailyLimit = Storage.getDailyBlockLimit();
+                    const blocks24h = Storage.getBlocksLast24h();
                     UI.showConfirm(
-                        `⚠️ 目前處於冷卻保護中（約 ${remainHrs} 小時後自動解除）\n\n強制取消冷卻並繼續封鎖？\n\n若您確認今日封鎖未超過 100 位，這可能是系統誤判，可放心繼續執行。\n\n若已大量封鎖，後續操作可能失敗，Meta 也可能對您的帳號施加額外限制。`,
+                        `⚠️ 目前處於冷卻保護中（約 ${remainHrs} 小時後自動解除）\n\n強制取消冷卻並繼續封鎖？\n\n最近 24 小時紀錄：${blocks24h}/${dailyLimit}。\n\n若已大量封鎖，後續操作可能失敗，Meta 也可能對您的帳號施加額外限制。`,
                         () => {
                             // Force cancel cooldown and resume
                             const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
@@ -233,54 +267,8 @@ import './features/cockroach.js';
                     return;
                 }
 
-                const delayEnabled = Storage.get(CONFIG.KEYS.DELAYED_BLOCK_ENABLED) === 'true';
                 let toAdd = Array.from(pending);
                 let currentQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
-
-                if (delayEnabled) {
-                    const dq = Storage.getJSON(CONFIG.KEYS.DELAYED_QUEUE, []);
-                    const lastTime = parseInt(Storage.get(CONFIG.KEYS.LAST_BATCH_TIME) || '0');
-                    const now = Date.now();
-                    const delayMs = CONFIG.DELAY_HOURS * 60 * 60 * 1000;
-                    
-                    if (lastTime > 0 && (now - lastTime) < delayMs) {
-                        // 在冷卻期內，圈選名單優先進入水庫
-                        if (toAdd.length > 0) {
-                            const newDq = [...new Set([...dq, ...toAdd])];
-                            Storage.setJSON(CONFIG.KEYS.DELAYED_QUEUE, newDq);
-                            const remainHrs = ((delayMs - (now - lastTime)) / (1000 * 60 * 60)).toFixed(1);
-                            UI.showToast(`📥 已存入延時水庫（共 ${newDq.length} 人排隊中），預計於 ${Math.ceil(remainHrs)} 小時後釋放`);
-                            
-                            Core.pendingUsers.clear();
-                            Storage.setSessionJSON(CONFIG.KEYS.PENDING, []);
-                            Core.updateControllerUI();
-                        }
-                        
-                        // 如果背景沒有正在跑的佇列，就不需要啟動 Worker
-                        if (currentQueue.length === 0) {
-                            if (toAdd.length === 0) UI.showToast('水庫冷卻中，選取名單將自動被加入水庫。');
-                            return; 
-                        } else {
-                            toAdd = []; // 已進入水庫，不直接加入 BG_QUEUE
-                        }
-                    } else {
-                        // 能夠發放 (lastTime == 0 或已滿 13 小時)
-                        const allCandidates = [...new Set([...dq, ...toAdd])];
-                        if (allCandidates.length > CONFIG.MAX_BLOCKS_PER_BATCH) {
-                            toAdd = allCandidates.slice(0, CONFIG.MAX_BLOCKS_PER_BATCH);
-                            const remainder = allCandidates.slice(CONFIG.MAX_BLOCKS_PER_BATCH);
-                            Storage.setJSON(CONFIG.KEYS.DELAYED_QUEUE, remainder);
-                            UI.showToast(`💧 水庫排程：發放 ${toAdd.length} 人，剩餘 ${remainder.length} 人待下次發動`);
-                        } else {
-                            toAdd = allCandidates;
-                            Storage.setJSON(CONFIG.KEYS.DELAYED_QUEUE, []);
-                        }
-                        
-                        if (toAdd.length > 0) {
-                            Storage.set(CONFIG.KEYS.LAST_BATCH_TIME, now.toString());
-                        }
-                    }
-                }
 
                 if (toAdd.length === 0 && currentQueue.length === 0) { UI.showToast('請先勾選用戶！'); return; }
 
@@ -292,7 +280,7 @@ import './features/cockroach.js';
                     const newQ = [...new Set([...q, ...toAdd])];
                     Storage.setJSON(CONFIG.KEYS.BG_QUEUE, newQ);
                     
-                    if (toAdd.length > 0 && !delayEnabled) {
+                    if (toAdd.length > 0) {
                         UI.showToast(`已提交 ${toAdd.length} 筆至背景佇列`);
                     }
 
@@ -427,15 +415,10 @@ import './features/cockroach.js';
 
     // --- 全局除錯/測試函式（只在 DEBUG_MODE 下暴露）---
     if (CONFIG.DEBUG_MODE) {
-        window.__DEBUG_HEGE_FAST_FORWARD_TIME = (hours = 8) => {
-            const ms = hours * 60 * 60 * 1000;
-            const lastTime = parseInt(localStorage.getItem(CONFIG.KEYS.LAST_BATCH_TIME) || '0');
-            if (lastTime > 0) {
-                localStorage.setItem(CONFIG.KEYS.LAST_BATCH_TIME, (lastTime - ms).toString());
-                console.log(`[DEBUG] 延時水庫時鐘已倒轉 ${hours} 小時！`);
-            } else {
-                console.log(`[DEBUG] LAST_BATCH_TIME 為空，水庫本來就可以直接發放！`);
-            }
+        window.__DEBUG_HEGE_CLEAR_DAILY_RING = () => {
+            localStorage.removeItem(CONFIG.KEYS.BLOCK_TIMESTAMPS_RING);
+            Storage.invalidate(CONFIG.KEYS.BLOCK_TIMESTAMPS_RING);
+            console.log('[DEBUG] Meta 每日安全上限紀錄已清空。');
         };
 
         window.__DEBUG_GENERATE_COCKROACH = (username = 'test_roach_' + Math.floor(Math.random()*1000)) => {

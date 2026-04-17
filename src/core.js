@@ -360,20 +360,20 @@ export const Core = {
         }
 
         let blockAllBtn = existingBlockAll;
-        let endlessSweepBtn = existingEndless;
         
         let shouldAddBlockAll = !existingBlockAll || !document.body.contains(existingBlockAll);
-        let shouldAddEndless = isLikesLayer && (!existingEndless || !document.body.contains(existingEndless));
 
-        if (!shouldAddBlockAll && !shouldAddEndless) return;
+        if (!shouldAddBlockAll) return;
 
         if (shouldAddBlockAll) {
             blockAllBtn = document.createElement('div');
             blockAllBtn.className = 'hege-block-all-btn';
             blockAllBtn.innerHTML = `
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
-                <span>殺螂囉~</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2.5 2v6h6M21.5 22v-6h-6M22 11.5A10 10 0 0 0 3.2 7.2L2.5 8M2 12.5a10 10 0 0 0 18.8 4.2l.7-.8"></path></svg>
+                <span>定點絕</span>
             `;
+            blockAllBtn.title = '定點絕：圈選 dialog 內全數帳號 + 加進貼文水庫排程';
+            blockAllBtn.dataset.hegeRole = 'endless-sweep';
 
             const bgMode = Core.getBgMode();
             if (bgMode === 'UNBLOCKING') {
@@ -473,24 +473,6 @@ export const Core = {
             Core.updateControllerUI();
         };
 
-        // Add endless sweep button UI
-        if (shouldAddEndless) {
-            endlessSweepBtn = document.createElement('div');
-            endlessSweepBtn.className = 'hege-endless-sweep-btn';
-            endlessSweepBtn.style.cssText = 'background-color: #ff3b30; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 6px 14px; border-radius: 9px; color: white; font-weight: bold; font-size: 14px; border: 1px solid rgba(255,255,255,0.2); position: absolute; left: 56px; z-index: 10;';
-            endlessSweepBtn.innerHTML = `
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M2.5 2v6h6M21.5 22v-6h-6M22 11.5A10 10 0 0 0 3.2 7.2L2.5 8M2 12.5a10 10 0 0 0 18.8 4.2l.7-.8"></path></svg>
-                <span style="display:none;" class="hege-desktop-text">定點絕</span>
-            `;
-            endlessSweepBtn.title = "定點絕：圈選畫面上即將顯示的全數帳號，並在封鎖完畢後自動換頁繼續圈選";
-            endlessSweepBtn.dataset.hegeRole = 'endless-sweep'; // 穩定識別用，不依賴 title（title 會被 updateControllerUI 清空）
-            
-            // Show text on desktop
-            if (!Utils.isMobile() && window.innerWidth > 600) {
-                const spanTextNode = endlessSweepBtn.querySelector('.hege-desktop-text');
-                if (spanTextNode) spanTextNode.style.display = 'inline';
-            }
-        }
 
         const handleEndlessSweep = (e) => {
             if (e) {
@@ -511,8 +493,22 @@ export const Core = {
                     longTermLoop: !!exists?.longTermLoop,
                 });
                 const queueLength = Storage.postReservoir.getAll().filter(p => p.advanceOnComplete).length;
+                const postOwner = Utils.getPostOwner();
+                const shouldAutoMarkLeader = Storage.get(CONFIG.KEYS.AUTO_MARK_LEADER) !== 'false';
+                let didAutoMarkLeader = false;
+                if (shouldAutoMarkLeader && postOwner) {
+                    const cockroachDb = Storage.getJSON(CONFIG.KEYS.COCKROACH_DB, []);
+                    const cockroachSet = new Set(cockroachDb.map(c => (typeof c === 'string') ? c : c.username));
+                    if (!cockroachSet.has(postOwner)) {
+                        cockroachDb.push({ username: postOwner, timestamp: Date.now() });
+                        Storage.setJSON(CONFIG.KEYS.COCKROACH_DB, cockroachDb);
+                    }
+                    didAutoMarkLeader = true;
+                }
                 if (Core.SweepDriver) Core.SweepDriver.clearLoopStateForCurrentPost();
-                UI.showToast(`✅ 已加入定點絕排程（第 ${queueLength} 批）`);
+                UI.showToast(didAutoMarkLeader
+                    ? `✅ 已加入定點絕排程，並標記 @${postOwner} 為大蟑螂`
+                    : `✅ 已加入定點絕排程（第 ${queueLength} 批）`);
                 Core.updateControllerUI();
                 return;
             }
@@ -551,8 +547,7 @@ export const Core = {
             }
         };
 
-        if (shouldAddBlockAll) attachEvents(blockAllBtn, handleBlockAll);
-        if (shouldAddEndless) attachEvents(endlessSweepBtn, handleEndlessSweep);
+        if (shouldAddBlockAll) attachEvents(blockAllBtn, handleEndlessSweep);
 
         if (sortSpan && sortSpan.closest('[role="button"]')) {
             const sortBtn = sortSpan.closest('[role="button"]');
@@ -579,12 +574,6 @@ export const Core = {
             }
         }
 
-        if (shouldAddEndless) {
-            if (window.getComputedStyle(headerContainer).position === 'static') {
-                headerContainer.style.position = 'relative';
-            }
-            headerContainer.appendChild(endlessSweepBtn);
-        }
     },
 
     injectDialogCheckboxes: () => {
@@ -989,8 +978,6 @@ export const Core = {
                     if (bg.includes(u)) Storage.setJSON(CONFIG.KEYS.BG_QUEUE, bg.filter(x => x !== u));
                     let cdq = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
                     if (cdq.includes(u)) Storage.setJSON(CONFIG.KEYS.COOLDOWN_QUEUE, cdq.filter(x => x !== u));
-                    let dq = Storage.getJSON(CONFIG.KEYS.DELAYED_QUEUE, []);
-                    if (dq.includes(u)) Storage.setJSON(CONFIG.KEYS.DELAYED_QUEUE, dq.filter(x => x !== u));
                 }
             } else if (targetAction === 'check' && !box.classList.contains('checked') && !box.classList.contains('finished')) {
                 box.classList.add('checked');
@@ -1079,12 +1066,39 @@ export const Core = {
         const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
         const cdq = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
         const bgq = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
-        const dq = new Set(Storage.getJSON(CONFIG.KEYS.DELAYED_QUEUE, []));
+        const getQueueEtaText = (bgQueueLen) => {
+            if (bgQueueLen === 0) return '';
+
+            const SECS_PER_BLOCK = 8;
+            const dailyLimit = parseInt(Storage.get(CONFIG.KEYS.DAILY_BLOCK_LIMIT)) || CONFIG.DAILY_LIMIT_DEFAULT || 200;
+            const emergency = Storage.get(CONFIG.KEYS.EMERGENCY_MODE) === 'true';
+            const blocksDone24h = Storage.getBlocksLast24h ? Storage.getBlocksLast24h() : 0;
+            const remainingAllowance = Math.max(0, dailyLimit - blocksDone24h);
+
+            let etaText = '';
+            if (emergency) {
+                // 緊急模式無上限
+                const mins = Math.ceil(bgQueueLen * SECS_PER_BLOCK / 60);
+                etaText = mins < 60 ? `≈${mins}m` : `≈${Math.ceil(mins/60)}h`;
+            } else if (bgQueueLen <= remainingAllowance) {
+                // worker 不會撞 limit，全速跑
+                const mins = Math.ceil(bgQueueLen * SECS_PER_BLOCK / 60);
+                etaText = mins < 60 ? `≈${mins}m` : `≈${Math.ceil(mins/60)}h`;
+            } else {
+                // 會撞 limit。先跑掉 remainingAllowance，再等 24h window 釋放，再跑剩下的
+                const minsBurst = Math.ceil(remainingAllowance * SECS_PER_BLOCK / 60);
+                const remainingAfter = bgQueueLen - remainingAllowance;
+                const waitHrs = Math.ceil(remainingAfter / dailyLimit * 24);
+                etaText = `≈${minsBurst}m + 等 ${waitHrs}h 上限`;
+            }
+
+            return etaText;
+        };
 
         // Global cleanup
         let pendingChanged = false;
         for (const u of Core.pendingUsers) {
-            if (db.has(u) || cdq.has(u) || bgq.has(u) || dq.has(u)) {
+            if (db.has(u) || cdq.has(u) || bgq.has(u)) {
                 Core.pendingUsers.delete(u);
                 pendingChanged = true;
             }
@@ -1101,7 +1115,7 @@ export const Core = {
                     el.classList.add('finished');
                     el.classList.remove('checked');
                 }
-            } else if (Core.pendingUsers.has(u) || cdq.has(u) || bgq.has(u) || dq.has(u)) {
+            } else if (Core.pendingUsers.has(u) || cdq.has(u) || bgq.has(u)) {
                 if (!el.classList.contains('checked') && !el.classList.contains('finished')) {
                     el.classList.add('checked');
                 } else if (el.classList.contains('finished')) {
@@ -1185,38 +1199,22 @@ export const Core = {
             const cdQueueSize = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []).length;
             mainText = `⛔ 限制保護中 (${remainHrs}小時候恢復)`;
             headerColor = '#ff453a';
-            badgeText = `(${cdQueueSize}冷卻中)`;
+            const cdEta = getQueueEtaText(cdQueueSize);
+            badgeText = `${cdQueueSize}${cdEta ? ' (' + cdEta + ')' : ''}`;
         } else {
-            const delayEnabled = Storage.get(CONFIG.KEYS.DELAYED_BLOCK_ENABLED) === 'true';
-            const delayedQueue = Storage.getJSON(CONFIG.KEYS.DELAYED_QUEUE, []);
-            const lastTime = parseInt(Storage.get(CONFIG.KEYS.LAST_BATCH_TIME) || '0');
-            const now = Date.now();
-            const delayMs = CONFIG.DELAY_HOURS * 60 * 60 * 1000;
-            const isDelayReady = delayEnabled && delayedQueue.length > 0 && (lastTime === 0 || (now - lastTime) >= delayMs);
-
             const bgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
             if (bgStatus.state === 'running' && (Date.now() - (bgStatus.lastUpdate || 0) < 10000)) {
                 shouldShowStop = true;
-                mainText = `${isUnblockTask ? '解除封鎖' : '背景執行'}中 剩餘 ${bgStatus.total}`;
+                const bgEta = getQueueEtaText(bgStatus.total);
+                mainText = `${isUnblockTask ? '解除封鎖' : '背景執行'}中 剩餘 ${bgStatus.total} 人${bgEta ? ' ' + bgEta : ''}`;
                 headerColor = '#4cd964';
-                badgeText = `(${bgStatus.total}剩餘)`; // Show progress in header badge explicitly
+                badgeText = `${bgStatus.total}${bgEta ? ' (' + bgEta + ')' : ''}`;
             } else if (bgq.size > 0) {
                 // Worker stopped/idle but queue has remaining items from a previous run
-                mainText = `${isUnblockTask ? '繼續解除' : '繼續封鎖'} (${bgq.size} 筆待處理)`;
+                const bgEta = getQueueEtaText(bgq.size);
+                mainText = `${isUnblockTask ? '繼續解除' : '繼續封鎖'} (${bgq.size} 人)${bgEta ? ' ' + bgEta : ''}`;
                 headerColor = '#ff9500';
-                badgeText = `(${bgq.size}待處理)`;
-            } else if (isDelayReady) {
-                // 延時水庫準備發放提示
-                mainText = `💧 點擊釋放下一批 100 人`;
-                headerColor = '#0a84ff';
-                badgeText = `(${delayedQueue.length}人排隊中)`;
-            } else if (delayEnabled && delayedQueue.length > 0) {
-                // 水庫冷卻中狀態展示（但不要擋住一般勾選後的 "開始封鎖"）
-                if (Core.pendingUsers.size === 0) {
-                    const remainHrs = Math.ceil((delayMs - (now - lastTime)) / (1000 * 60 * 60));
-                    mainText = `📥 排隊中 (${remainHrs}小時候發放)`;
-                    badgeText = `(${delayedQueue.length}水庫)`;
-                }
+                badgeText = `${bgq.size}${bgEta ? ' (' + bgEta + ')' : ''}`;
             }
         }
 

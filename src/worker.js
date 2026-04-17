@@ -544,6 +544,18 @@ export const Worker = {
             return;
         }
 
+        if (!Storage.isUnderLimit()) {
+            const cooldownUntil = Date.now() + 60 * 60 * 1000;
+            const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
+            Storage.setJSON(CONFIG.KEYS.COOLDOWN_QUEUE, [...new Set([...cooldownQueue, ...queue])]);
+            Storage.setJSON(CONFIG.KEYS.BG_QUEUE, []);
+            Storage.set(CONFIG.KEYS.COOLDOWN, cooldownUntil.toString());
+            Worker.updateStatus('error', 'Meta 上限保護中，已暫停');
+            const stopBtn = document.getElementById('hege-worker-stop');
+            if (stopBtn) stopBtn.style.display = 'none';
+            return;
+        }
+
         // Record initial total on first run, and dynamically sync if queue grows
         if (Worker.initialTotal === 0) {
             Worker.initialTotal = queue.length;
@@ -589,6 +601,7 @@ export const Worker = {
         } else {
             Worker.updateStatus('running', `${isUnblock ? '解除封鎖中' : '封鎖中'}: ${targetUser}`, 0, currentTotal);
             const result = await Worker.autoBlock(targetUser, isUnblock);
+            Storage.recordBlock();
 
             if (result === 'success' || result === 'already_blocked' || result === 'already_unblocked') {
                 // Post-block/unblock verification via adaptive sampling

@@ -46,6 +46,35 @@ export const Storage = {
         localStorage.setItem(key, JSON.stringify(value));
     },
 
+    getDailyBlockLimit: () => {
+        const limit = parseInt(Storage.get(CONFIG.KEYS.DAILY_BLOCK_LIMIT), 10);
+        return CONFIG.DAILY_LIMIT_OPTIONS.includes(limit) ? limit : CONFIG.DAILY_LIMIT_DEFAULT;
+    },
+
+    recordBlock: () => {
+        const now = Date.now();
+        const cutoff = now - 48 * 60 * 60 * 1000;
+        const ring = Storage.getJSON(CONFIG.KEYS.BLOCK_TIMESTAMPS_RING, [])
+            .filter(t => typeof t === 'number' && t >= cutoff);
+        ring.push(now);
+        Storage.setJSON(CONFIG.KEYS.BLOCK_TIMESTAMPS_RING, ring);
+    },
+
+    getBlocksLast24h: () => {
+        const now = Date.now();
+        const cutoff48h = now - 48 * 60 * 60 * 1000;
+        const cutoff24h = now - 24 * 60 * 60 * 1000;
+        const ring = Storage.getJSON(CONFIG.KEYS.BLOCK_TIMESTAMPS_RING, [])
+            .filter(t => typeof t === 'number' && t >= cutoff48h);
+        Storage.setJSON(CONFIG.KEYS.BLOCK_TIMESTAMPS_RING, ring);
+        return ring.filter(t => t >= cutoff24h).length;
+    },
+
+    isUnderLimit: () => {
+        if (Storage.get(CONFIG.KEYS.EMERGENCY_MODE) === 'true') return true;
+        return Storage.getBlocksLast24h() < Storage.getDailyBlockLimit();
+    },
+
     // Session Storage
     getSessionJSON: (key, defaultVal = []) => {
         let parsed;

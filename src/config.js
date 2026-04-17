@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.5.3-beta9', // Beta
+    VERSION: '2.5.3-beta42', // Beta
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec',
@@ -15,9 +15,8 @@ export const CONFIG = {
         turbo:    { label: '🚀 加速模式', multiplier: 0.4, usePolling: true,  warnOnSelect: true, forceVerify: true },
     },
     
-    // 延時封鎖常數 (Task 1)
-    DELAY_HOURS: 8,
-    MAX_BLOCKS_PER_BATCH: 100,
+    DAILY_LIMIT_DEFAULT: 200,
+    DAILY_LIMIT_OPTIONS: [50, 100, 150, 200, 250, 300],
     
     // 深層貼文收割常數 (Task 4)
     POST_SWEEP_BATCH_SIZE: 500,
@@ -26,12 +25,6 @@ export const CONFIG = {
     // 定點絕批次設定 (Task 3)
     ENDLESS_BATCH_SIZE: 100,
     ENDLESS_COOLDOWN_SEC: 8 * 3600,
-
-    // 貼文水庫批次大小（使用者可調）
-    SWEEP_BATCH_SIZE_DEFAULT: 100,
-    SWEEP_BATCH_SIZE_MIN: 50,
-    SWEEP_BATCH_SIZE_MAX: 300,
-    SWEEP_BATCH_SIZE_OPTIONS: [50, 80, 100, 150, 200, 250, 300],
 
     KEYS: {
         DB_KEY: 'hege_block_db_v1',
@@ -61,9 +54,16 @@ export const CONFIG = {
         DELAYED_QUEUE: 'hege_delayed_queue',
         DELAYED_BLOCK_ENABLED: 'hege_delayed_block_enabled',
         LAST_BATCH_TIME: 'hege_last_batch_time',
+        SWEEP_BATCH_SIZE: 'hege_sweep_batch_size',
+
+        // Meta 每日安全上限
+        DAILY_BLOCK_LIMIT: 'hege_daily_block_limit',
+        EMERGENCY_MODE: 'hege_emergency_mode',
+        BLOCK_TIMESTAMPS_RING: 'hege_block_timestamps_ring',
         
         // Task 2: 大蟑螂
         COCKROACH_DB: 'hege_cockroach_db_v1',
+        AUTO_MARK_LEADER: 'hege_auto_mark_leader',
         
         // Task 3: 進階同列全封
         ADVANCED_SCROLL_ENABLED: 'hege_advanced_scroll_enabled',
@@ -92,8 +92,6 @@ export const CONFIG = {
         // 定點絕 worker 待命旗標（'true' 字串）
         ENDLESS_WORKER_STANDBY: 'hege_endless_worker_standby',
 
-        // 貼文水庫使用者設定
-        SWEEP_BATCH_SIZE: 'hege_sweep_batch_size',
     },
 
     // 跨分頁同步 & 輪詢 invalidate 用的 queue/status key 群組
@@ -104,12 +102,12 @@ export const CONFIG = {
         'hege_rate_limit_until',   // COOLDOWN
         'hege_cooldown_queue',     // COOLDOWN_QUEUE
         'hege_failed_queue',       // FAILED_QUEUE
-        'hege_delayed_queue',      // DELAYED_QUEUE
         'hege_post_sweep_queue',   // POST_QUEUE
         'hege_endless_post_queue', // ENDLESS_POST_QUEUE
         'hege_sweep_worker_standby',
         'hege_sweep_stopped',
         'hege_block_timestamps',   // DB_TIMESTAMPS
+        'hege_block_timestamps_ring', // BLOCK_TIMESTAMPS_RING
     ],
     // 多語系文字偵測（20 國：繁中/簡中/英/日/韓/泰/印尼/西/法/德/義/葡/俄/波蘭/土耳其/越南/阿拉伯/印地/荷蘭/菲律賓）
     BLOCK_TEXTS: ['封鎖', '屏蔽', 'Block', 'ブロック', '차단', 'บล็อก', 'Blokir', 'Bloquear', 'Bloquer', 'Blockieren', 'Blocca', 'Bloquear', 'Заблокировать', 'Zablokuj', 'Engelle', 'Chặn', 'حظر', 'ब्लॉक करें', 'Blokkeren', 'I-block'],

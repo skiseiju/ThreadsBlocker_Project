@@ -546,7 +546,7 @@ export const UI = {
                             <span class="status">${db.length}</span>
                         </div>
                         <div class="hege-menu-item" id="hege-s-cockroach">
-                            <span>大蟑螂資料庫</span>
+                            <span>大蟑螂名單</span>
                             <span class="status">${(Array.isArray(Storage.getJSON(CONFIG.KEYS.COCKROACH_DB, [])) ? Storage.getJSON(CONFIG.KEYS.COCKROACH_DB, []) : []).length}</span>
                         </div>
                         <div class="hege-menu-item" id="hege-s-reservoir">
@@ -566,38 +566,11 @@ export const UI = {
                             <span>匯出紀錄</span>
                         </div>
 
-                        <div style="height:1px;background:#333;margin:6px 0 4px;"></div>
-                        <div style="font-size:11px;color:#666;font-weight:600;padding:2px 8px;letter-spacing:1px;">⚙️ 系統</div>
-                        <div class="hege-menu-item" id="hege-s-speed">
-                            <span>速度模式</span>
-                            <span class="status" id="hege-s-speed-status">🧠 智慧</span>
-                        </div>
-                        <div class="hege-menu-item" id="hege-s-batch-size" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
-                            <div style="display:flex; align-items:center; justify-content:space-between;">
-                                <span>水庫批次大小</span>
-                                <select id="hege-s-batch-size-select" style="background:#1a1a1a; border:1px solid #444; color:#f5f5f5; padding:2px 6px; border-radius:4px; font-size:11px;">
-                                    ${CONFIG.SWEEP_BATCH_SIZE_OPTIONS.map(n => `<option value="${n}">${n}</option>`).join('')}
-                                </select>
-                            </div>
-                            <span style="font-size:10px; color:#ff9f0a; line-height:1.3;">⚠️ Meta 每日上限約 200-300，設太高會提早觸發冷卻</span>
-                        </div>
-                        <div class="hege-menu-item danger" id="hege-s-clear-db" style="border-bottom: none;">
-                            <span>清除所有歷史</span>
-                        </div>
                     </div>
 
                     <!-- 右欄 -->
                     <div style="display: flex; flex-direction: column; gap: 10px;">
                         <div style="font-size:11px;color:#666;font-weight:600;padding:2px 0;letter-spacing:1px;">🎛️ 封鎖設定</div>
-                        <div style="display: flex; flex-direction: column; gap: 6px; padding: 10px; background: #111; border-radius: 8px; border: 1px solid #2a2a2a;">
-                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-                                <input type="checkbox" id="hege-s-delay-toggle" style="width:16px; height:16px;">
-                                <span style="font-weight:600; font-size:13px;">延時封鎖 (100人/8小時)</span>
-                            </label>
-                            <span style="font-size: 11px; color: #888; line-height: 1.4;">將圈選名單存入水庫，自動分批排放執行，避免觸發 Meta 次數上限。</span>
-                            <button class="hege-manager-btn secondary" id="hege-s-clear-delay" style="font-size: 12px; padding: 5px 10px; width: 100%;">清空延時水庫 (0 人)</button>
-                        </div>
-
                         <div style="display: flex; flex-direction: column; gap: 6px; padding: 10px; background: #111; border-radius: 8px; border: 1px solid #2a2a2a;">
                             <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
                                 <input type="checkbox" id="hege-s-advance-scroll-toggle" style="width:16px; height:16px;">
@@ -606,12 +579,38 @@ export const UI = {
                             <span style="font-size: 11px; color: #888; line-height: 1.4;">按下同列全封時，自動向下捲動網頁強制抓取未顯示的名單。</span>
                         </div>
 
-                        <div style="padding: 10px; background: #111; border-radius: 8px; border: 1px solid #2a2a2a;">
-                            <span style="font-weight:600; font-size:12px; color:#4cd964;">💡 定點絕 + 8小時巡邏</span>
-                            <p style="font-size: 11px; color: #888; line-height: 1.4; margin: 6px 0 0;">定點絕大掃除完畢後可加入「每 8 小時自動回鍋」。<br>⚠️ 需保持開著 Threads 分頁，系統才能跳出授權對話框。</p>
-                            ${Utils.isMobile() ? '<p style="font-size: 11px; color: #ff9f0a; line-height: 1.4; margin: 6px 0 0;">⚠️ 行動裝置限制：定點絕功能在手機／平板上可能無法正常運作（背景分頁會暫停腳本執行）。建議使用桌面版瀏覽器。</p>' : ''}
+                        <div style="height:1px;background:#333;margin:6px 0 4px;"></div>
+                        <div style="font-size:11px;color:#666;font-weight:600;padding:2px 8px;letter-spacing:1px;">⚙️ 系統</div>
+                        <div class="hege-menu-item" id="hege-s-speed">
+                            <span>速度模式</span>
+                            <span class="status" id="hege-s-speed-status">🧠 智慧</span>
                         </div>
-
+                        <div class="hege-menu-item" id="hege-s-daily-limit" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
+                            <div style="display:flex; align-items:center; justify-content:space-between;">
+                                <span>Meta 每日安全上限</span>
+                                <select id="hege-s-daily-limit-select" style="background:#1a1a1a; border:1px solid #444; color:#f5f5f5; padding:2px 6px; border-radius:4px; font-size:11px;">
+                                    ${CONFIG.DAILY_LIMIT_OPTIONS.map(n => `<option value="${n}">${n}</option>`).join('')}
+                                </select>
+                            </div>
+                            <span style="font-size:10px; color:#ff9f0a; line-height:1.3;">超過此數 worker 會自動進冷卻 1 小時，避免被 Meta 抓</span>
+                        </div>
+                        <div class="hege-menu-item" id="hege-s-emergency-mode" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
+                            <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
+                                <span>緊急模式</span>
+                                <input type="checkbox" id="hege-s-emergency-toggle" style="width:16px; height:16px;">
+                            </label>
+                            <span style="font-size:10px; color:#ff453a; line-height:1.3;">跳過上限保護，可能觸發 Meta 帳號限制，僅短時急用</span>
+                        </div>
+                        <div class="hege-menu-item" id="hege-s-auto-mark-leader-row" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
+                            <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
+                                <span>🦟 定點絕時自動標頭目</span>
+                                <input type="checkbox" id="hege-s-auto-mark-leader" style="width:16px; height:16px;">
+                            </label>
+                            <span style="font-size:10px; color:#888; line-height:1.3;">按下定點絕時自動把貼文作者加入大蟑螂名單，10 天後提醒回查</span>
+                        </div>
+                        <div class="hege-menu-item danger" id="hege-s-clear-db" style="border-bottom: none;">
+                            <span>清除所有歷史</span>
+                        </div>
                         <div style="height:1px;background:#333;margin:2px 0;"></div>
                         <div style="display:flex;gap:6px;">
                             <div class="hege-menu-item" id="hege-s-report" style="flex:1;border-bottom:none;">
@@ -683,46 +682,47 @@ export const UI = {
             };
         }
 
-        // 水庫批次大小選單
-        const batchSelect = overlay.querySelector('#hege-s-batch-size-select');
-        if (batchSelect) {
-            const curBatch = parseInt(Storage.get(CONFIG.KEYS.SWEEP_BATCH_SIZE)) || CONFIG.SWEEP_BATCH_SIZE_DEFAULT;
-            batchSelect.value = String(curBatch);
-            batchSelect.onchange = (e) => {
+        // Meta 每日安全上限
+        const dailyLimitSelect = overlay.querySelector('#hege-s-daily-limit-select');
+        if (dailyLimitSelect) {
+            dailyLimitSelect.value = String(Storage.getDailyBlockLimit());
+            dailyLimitSelect.onchange = (e) => {
                 const val = parseInt(e.target.value);
                 if (!isNaN(val)) {
-                    Storage.set(CONFIG.KEYS.SWEEP_BATCH_SIZE, String(val));
-                    UI.showToast(`批次大小已設為 ${val} 人`);
+                    Storage.set(CONFIG.KEYS.DAILY_BLOCK_LIMIT, String(val));
+                    UI.showToast(`Meta 每日安全上限已設為 ${val} 人`);
                 }
             };
-            // 防止 row click 造成 modal 關閉（此 row 為設定控制項，不該 close）
-            const batchRow = overlay.querySelector('#hege-s-batch-size');
-            if (batchRow) batchRow.onclick = (e) => e.stopPropagation();
+            const dailyLimitRow = overlay.querySelector('#hege-s-daily-limit');
+            if (dailyLimitRow) dailyLimitRow.onclick = (e) => e.stopPropagation();
+        }
+
+        const emergencyToggle = overlay.querySelector('#hege-s-emergency-toggle');
+        if (emergencyToggle) {
+            emergencyToggle.checked = Storage.get(CONFIG.KEYS.EMERGENCY_MODE) === 'true';
+            emergencyToggle.onchange = (e) => {
+                Storage.set(CONFIG.KEYS.EMERGENCY_MODE, e.target.checked ? 'true' : 'false');
+                UI.showToast(e.target.checked ? '緊急模式已開啟' : '緊急模式已關閉');
+            };
+            const emergencyRow = overlay.querySelector('#hege-s-emergency-mode');
+            if (emergencyRow) emergencyRow.onclick = (e) => e.stopPropagation();
+        }
+
+        const autoMarkLeaderToggle = overlay.querySelector('#hege-s-auto-mark-leader');
+        if (autoMarkLeaderToggle) {
+            autoMarkLeaderToggle.checked = Storage.get(CONFIG.KEYS.AUTO_MARK_LEADER) !== 'false';
+            autoMarkLeaderToggle.onchange = (e) => {
+                Storage.set(CONFIG.KEYS.AUTO_MARK_LEADER, e.target.checked ? 'true' : 'false');
+                UI.showToast(e.target.checked ? '定點絕自動標頭目已開啟' : '定點絕自動標頭目已關閉');
+            };
+            const autoMarkLeaderRow = overlay.querySelector('#hege-s-auto-mark-leader-row');
+            if (autoMarkLeaderRow) autoMarkLeaderRow.onclick = (e) => e.stopPropagation();
         }
 
         bind('hege-s-sponsor', () => {
             alert('目前還不急著收贊助，但歡迎來看看我還可以幫你解決什麼 → skiseiju.com');
             window.open('https://skiseiju.com?utm_source=extension&utm_medium=popup', '_blank');
         });
-
-        // Task 1: 延時封鎖 UI 事件
-        const delayToggle = overlay.querySelector('#hege-s-delay-toggle');
-        const clearDelayBtn = overlay.querySelector('#hege-s-clear-delay');
-        delayToggle.checked = Storage.get(CONFIG.KEYS.DELAYED_BLOCK_ENABLED) === 'true';
-        delayToggle.onchange = (e) => Storage.set(CONFIG.KEYS.DELAYED_BLOCK_ENABLED, e.target.checked ? 'true' : 'false');
-        
-        const dq = Storage.getJSON(CONFIG.KEYS.DELAYED_QUEUE, []);
-        clearDelayBtn.textContent = `清空延時水庫 (${dq.length} 人)`;
-        if (dq.length === 0) clearDelayBtn.style.opacity = '0.5';
-        clearDelayBtn.onclick = () => {
-            if (dq.length === 0) return;
-            UI.showConfirm(`確定要清空水庫中排隊的 ${dq.length} 人嗎？\n這將會永遠放棄這些尚未封鎖的名單。`, () => {
-                Storage.setJSON(CONFIG.KEYS.DELAYED_QUEUE, []);
-                clearDelayBtn.textContent = '清空延時水庫 (0 人)';
-                clearDelayBtn.style.opacity = '0.5';
-                UI.showToast('延時水庫已清空');
-            });
-        };
 
         // Task 3: 進階同列全封 UI 事件
         const advanceToggle = overlay.querySelector('#hege-s-advance-scroll-toggle');
@@ -974,7 +974,7 @@ export const UI = {
 
             const entries = Storage.postReservoir.getAll();
             const history = Storage.getJSON(CONFIG.KEYS.ENDLESS_HISTORY, []);
-            const pendingAdvanceCount = entries.filter(p => p.advanceOnComplete && p.status !== 'done').length;
+            const pendingAdvanceCount = entries.filter(p => p.advanceOnComplete && (p.status === 'pending' || p.status === 'done' || p.done === true)).length;
             const isEndlessRunning = Storage.get('hege_sweep_worker_standby') === 'true'
                 || ['WAIT_FOR_BG', 'RELOADING', 'SCANNING'].includes(sessionStorage.getItem('hege_sweep_state'));
             const canStart = pendingAdvanceCount > 0 && !isEndlessRunning && typeof onStart === 'function';
@@ -984,7 +984,7 @@ export const UI = {
             overlay.className = 'hege-manager-overlay';
 
             const rows = entries.length === 0
-                ? `<div style="padding:32px; text-align:center; color:#555;">貼文水庫為空<br><span style="font-size:11px;">新增貼文或在貼文頁標記大蟑螂</span></div>`
+                ? `<div style="padding:32px; text-align:center; color:#555;">貼文水庫為空<br><span style="font-size:11px;">新增貼文或在貼文頁標記為大蟑螂</span></div>`
                 : entries.map((entry, i) => {
                     const label = entry.label || entry.url;
                     const short = label.length > 40 ? label.slice(0, 40) + '…' : label;
@@ -993,6 +993,7 @@ export const UI = {
                         <div style="display:flex; align-items:center; gap:6px; width:100%;">
                             ${statusBadge(entry)}
                             <span style="font-size:12px; color:#f5f5f5; flex:1; word-break:break-all;">${short}</span>
+                            ${entry.status !== 'pending' ? `<span class="hege-reservoir-reset" data-url="${entry.url}" style="font-size:14px; color:#5ac8fa; cursor:pointer; padding:0 6px; line-height:1;" title="重置狀態">🔄</span>` : ''}
                             <span class="hege-reservoir-remove" data-url="${entry.url}" style="font-size:18px; color:#555; cursor:pointer; padding:0 4px; line-height:1;">×</span>
                         </div>
                         <div style="display:flex; gap:6px; flex-wrap:wrap; padding-left:2px;">
@@ -1042,8 +1043,8 @@ export const UI = {
                         ${entries.some(e => e.status === 'done' && e.advanceOnComplete && !e.longTermLoop) ? `<button id="hege-reservoir-clear-done" class="hege-manager-btn secondary" style="font-size:12px;">清除已完成的定點絕項目</button>` : ''}
                     </div>
                     ${history.length > 0 ? `
-                    <div style="border-top:1px solid #333;">
-                        <div style="padding:8px 14px; font-size:11px; color:#555; font-weight:600; letter-spacing:0.5px;">已完成紀錄（近 10 筆）</div>
+                    <div style="border-top:1px solid #333; max-height:200px; overflow-y:auto;">
+                        <div style="padding:8px 14px; font-size:11px; color:#555; font-weight:600; letter-spacing:0.5px; position:sticky; top:0; background:#1a1a1a; z-index:1;">已完成紀錄（近 10 筆）</div>
                         ${histRows}
                     </div>` : ''}
                 </div>
@@ -1067,6 +1068,24 @@ export const UI = {
                 btn.onclick = (e) => {
                     e.stopPropagation();
                     Storage.postReservoir.removeEntry(btn.dataset.url);
+                    renderOverlay();
+                };
+            });
+
+            // 重置單篇狀態（卡住時用）
+            overlay.querySelectorAll('.hege-reservoir-reset').forEach(btn => {
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    const url = btn.dataset.url;
+                    const queue = Storage.getJSON(CONFIG.KEYS.POST_QUEUE, []);
+                    const updated = queue.map(p => {
+                        if (p && p.url && p.url.split('?')[0] === url.split('?')[0]) {
+                            return { ...p, status: 'pending', done: false };
+                        }
+                        return p;
+                    });
+                    Storage.setJSON(CONFIG.KEYS.POST_QUEUE, updated);
+                    UI.showToast('狀態已重置為待處理');
                     renderOverlay();
                 };
             });
@@ -1192,13 +1211,23 @@ export const UI = {
                                 </svg>
                             </div>
                         </div>
-                        <div class="user-info">
+                        <div class="user-info" style="flex:1;">
                             <a href="https://www.threads.net/@${safeU}" target="_blank" style="color: #4cd964; text-decoration: underline; font-weight: 600;" onclick="event.stopPropagation()">@${safeU}</a>
                             <span class="time">${timeStr}</span>
                         </div>
+                        <button class="hege-cockroach-open-profile" data-username="${safeU}" style="background:#5ac8fa; color:#001018; border:1px solid #5ac8fa; border-radius:6px; padding:5px 8px; font-size:12px; font-weight:700; cursor:pointer; white-space:nowrap;">📂 開啟主頁</button>
                     </div>
                 `;
             }).join('');
+
+            listEl.querySelectorAll('.hege-cockroach-open-profile').forEach(btn => {
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    const username = btn.dataset.username;
+                    window.open(`https://www.threads.com/@${username}`, '_blank');
+                    UI.showToast(`已開啟 @${username} 主頁，可在新 tab 手動定點絕想清的貼文`);
+                };
+            });
 
             const items = listEl.querySelectorAll('.hege-manager-item');
             items.forEach((item, index) => {
@@ -1246,7 +1275,7 @@ export const UI = {
             <div class="hege-manager-box">
                 <div class="hege-manager-header">
                     <span class="hege-manager-title" style="display:flex; align-items:center;">
-                        ${backArrow}大蟑螂資料庫 (Cockroach DB)
+                        ${backArrow}大蟑螂名單 (Cockroach DB)
                     </span>
                     <span class="hege-manager-close">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>

@@ -50,12 +50,6 @@ Object.assign(Core, {
             }
         },
 
-        getBatchSize() {
-            const userBatch = parseInt(Storage.get(CONFIG.KEYS.SWEEP_BATCH_SIZE));
-            if (userBatch && userBatch > 0) return userBatch;
-            return CONFIG.SWEEP_BATCH_SIZE_DEFAULT || CONFIG.ENDLESS_BATCH_SIZE || 100;
-        },
-
         getEntry(url) {
             return Storage.postReservoir.getByUrl(url);
         },
@@ -139,8 +133,50 @@ Object.assign(Core, {
 
         tick() {
             if (Core.SweepDriver.isRunning()) return;
+
+            // 跨 tab 防爭搶：worker 在跑、BG_QUEUE 還有人，都 skip
+            const bgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
+            const workerActive = bgStatus.state === 'running' && (Date.now() - (bgStatus.lastUpdate || 0) < 30000);
+            if (workerActive) {
+                console.log('[SweepDriver] tick skipped: another tab worker is running');
+                return;
+            }
+            const bgQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+            if (bgQueue.length > 0) {
+                console.log('[SweepDriver] tick skipped: BG_QUEUE has', bgQueue.length, 'pending users');
+                return;
+            }
+
             const lastLock = parseInt(sessionStorage.getItem(SWEEP_KEYS.LOCK) || '0');
             if (Date.now() - lastLock < 5 * 60 * 1000) return;
+
+            // 自動救援：把卡 sweeping > 5 分鐘的 entry 重設為 pending
+            const STALE_MS = 5 * 60 * 1000;
+            const now = Date.now();
+            const queue = Storage.getJSON(CONFIG.KEYS.POST_QUEUE, []);
+            let recovered = 0;
+            const cleaned = queue.map(p => {
+                if (p && typeof p === 'object' && p.status === 'sweeping' && now - (p.lastSweptAt || 0) > STALE_MS) {
+                    recovered++;
+                    return { ...p, status: 'pending' };
+                }
+                return p;
+            });
+            if (recovered > 0) {
+                Storage.setJSON(CONFIG.KEYS.POST_QUEUE, cleaned);
+                console.log('[SweepDriver] tick auto-recovered stuck entries:', recovered);
+            }
+
+            // 自動清掉 stale WORKER_STANDBY（無 BG_QUEUE 活動 + 無 sweeping entry → 殘留）
+            const standbyFlag = Storage.get(SWEEP_KEYS.WORKER_STANDBY);
+            if (standbyFlag === 'true') {
+                const bgEmpty = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []).length === 0;
+                const noSweeping = !cleaned.some(p => p && p.status === 'sweeping');
+                if (bgEmpty && noSweeping) {
+                    Storage.remove(SWEEP_KEYS.WORKER_STANDBY);
+                    console.log('[SweepDriver] cleared stale WORKER_STANDBY flag');
+                }
+            }
 
             const target = Core.SweepDriver.pickTickEntry();
             if (!target) return;
@@ -152,13 +188,30 @@ Object.assign(Core, {
         },
 
         startNow() {
+            // 重設所有 advance entry 的卡住狀態
+            const queue = Storage.getJSON(CONFIG.KEYS.POST_QUEUE, []).map(entry => {
+                if (!entry || typeof entry !== 'object') return entry;
+                if (entry.advanceOnComplete === true) {
+                    const stuckStates = ['done', 'sweeping', 'cooldown', 'error'];
+                    if (stuckStates.includes(entry.status) || entry.done === true) {
+                        return { ...entry, status: 'pending', done: false };
+                    }
+                }
+                return entry;
+            });
+            Storage.setJSON(CONFIG.KEYS.POST_QUEUE, queue);
+
+            // 清掉前次 sweep session 殘留（避免狀態衝突）
+            Object.values(SWEEP_KEYS).forEach(k => sessionStorage.removeItem(k));
+            Storage.remove(SWEEP_KEYS.WORKER_STANDBY);
+            Storage.remove(SWEEP_KEYS.STOPPED);
+
             const entry = Storage.postReservoir.getAll()
                 .find(p => p.advanceOnComplete === true && p.status === 'pending');
             if (!entry) {
                 UI.showToast('⚠️ 定點絕排程為空，請先在貼文頁加入貼文水庫');
                 return;
             }
-            Storage.remove(SWEEP_KEYS.STOPPED);
             Core.SweepDriver.clearLoopStateForCurrentPost();
             const next = Core.SweepDriver.markSweeping(entry);
             if (!next) return;
@@ -183,19 +236,58 @@ Object.assign(Core, {
                 sessionStorage.setItem(SWEEP_KEYS.STATE, SWEEP_STATE.SCANNING);
                 sessionStorage.setItem(SWEEP_KEYS.TARGET, currentUrl);
 
+                // === NUCLEAR DIAGNOSTIC ===
+                console.log('[SweepDriver] DIAG url:', window.location.href);
+                console.log('[SweepDriver] DIAG title:', document.title);
+                console.log('[SweepDriver] DIAG body length:', document.body.innerHTML.length);
+                console.log('[SweepDriver] DIAG total aria-labels:', document.querySelectorAll('[aria-label]').length);
+                console.log('[SweepDriver] DIAG total a tags:', document.querySelectorAll('a').length);
+                console.log('[SweepDriver] DIAG article count:', document.querySelectorAll('article').length);
+                // 等 3 秒給頁面 hydrate
+                await Utils.safeSleep(3000);
+                console.log('[SweepDriver] DIAG after 3s wait, aria-labels:', document.querySelectorAll('[aria-label]').length);
+                // 列出前 20 個含數字的 aria-label
+                const allAria = Array.from(document.querySelectorAll('[aria-label]'))
+                    .map(el => ({ tag: el.tagName, label: (el.getAttribute('aria-label') || '').slice(0, 80) }))
+                    .filter(x => /\d/.test(x.label) && x.label.length < 80)
+                    .slice(0, 20);
+                console.log('[SweepDriver] DIAG aria-labels with digit:', JSON.stringify(allAria));
+                // 列出前 20 個含「讚」的 element 類型（任何 element）
+                const allWithLike = [];
+                document.querySelectorAll('*').forEach(el => {
+                    if (allWithLike.length >= 20) return;
+                    const text = (el.innerText || el.textContent || '').trim();
+                    if (text.length > 0 && text.length < 100 && /讚/.test(text)) {
+                        allWithLike.push({ tag: el.tagName, role: el.getAttribute('role'), text: text.slice(0, 60) });
+                    }
+                });
+                console.log('[SweepDriver] DIAG elements containing 讚:', JSON.stringify(allWithLike));
+                // === END DIAGNOSTIC ===
+
                 UI.showToast('貼文水庫：正在讀取互動名單...', 4000);
                 const ctx = await Core.SweepDriver.openEngagementList();
                 if (!ctx) {
+                    console.log('[SweepDriver] runCurrentPage finalizeEntry path: no ctx');
                     await Core.SweepDriver.finalizeEntry(entry, 'no_list');
                     return;
                 }
 
                 const result = await Core.SweepDriver.collectBatch(ctx);
+                console.log('[SweepDriver] runCurrentPage collectBatch result', JSON.stringify({
+                    usersLength: result.users.length,
+                    reason: result.reason,
+                }));
                 if (!result.users.length) {
+                    console.log('[SweepDriver] runCurrentPage finalizeEntry path', JSON.stringify({
+                        reason: result.reason || 'exhausted',
+                    }));
                     await Core.SweepDriver.finalizeEntry(entry, result.reason || 'exhausted');
                     return;
                 }
 
+                console.log('[SweepDriver] runCurrentPage enqueueBatch path', JSON.stringify({
+                    usersLength: result.users.length,
+                }));
                 Core.SweepDriver.enqueueBatch(entry, result.users);
             } catch (err) {
                 console.error('[SweepDriver] runCurrentPage failed:', err);
@@ -212,46 +304,157 @@ Object.assign(Core, {
             const existingDialog = Core.getTopContext();
             if (existingDialog && existingDialog !== document.body) return existingDialog;
 
-            const findActivityButton = () => {
-                const spans = document.querySelectorAll('div[role="button"] span[dir="auto"], span[role="link"], a[role="link"] span[dir="auto"]');
-                for (const span of spans) {
-                    const text = (span.innerText || span.textContent || '').trim();
-                    if (CONFIG.ACTIVITY_TEXTS.some(t => text.includes(t))) {
-                        return span.closest('div[role="button"], a[role="link"], span[role="link"]');
+            const findLikesLink = () => {
+                const directLinks = document.querySelectorAll('a[href*="liked_by"], a[href*="/likes/"]');
+                for (const link of directLinks) {
+                    if (!link.closest('[role="dialog"]')) {
+                        console.log('[SweepDriver] findLikesLink direct href match:', link.getAttribute('href'));
+                        return link;
                     }
                 }
-                const links = document.querySelectorAll('a[href*="/likes/"], a[href*="/quotes/"], a[href*="/reposts/"], a[href*="liked_by"]');
-                if (links[0]) return links[0];
-                const roleLinks = document.querySelectorAll('a[role="link"], span[role="link"]');
-                for (const link of roleLinks) {
-                    const text = (link.innerText || link.textContent || '').trim().toLowerCase();
-                    if (/\d+.*?(讚|like)/i.test(text) && !link.closest('[role="dialog"]')) return link;
+                const ariaElements = document.querySelectorAll('[aria-label]');
+                const ariaCandidates = [];
+                for (const el of ariaElements) {
+                    if (el.closest('[role="dialog"]')) continue;
+                    const label = (el.getAttribute('aria-label') || '').trim();
+                    if (!label) continue;
+                    const hasLikes = /讚/.test(label) || /\blike(s|d)?\b/i.test(label);
+                    const hasDigit = /\d/.test(label);
+                    if (hasLikes && hasDigit) {
+                        console.log('[SweepDriver] findLikesLink aria-label match:', el.tagName, '–', label.slice(0, 80));
+                        return el;
+                    }
+                    if (hasDigit && label.length < 80) ariaCandidates.push({ tag: el.tagName, label: label.slice(0, 60) });
+                }
+                const allElements = document.querySelectorAll('a, span, div[role="button"], button');
+                const textCandidates = [];
+                for (const el of allElements) {
+                    if (el.closest('[role="dialog"]')) continue;
+                    const text = (el.innerText || el.textContent || '').trim();
+                    if (text.length === 0 || text.length > 80) continue;
+                    if (/讚/.test(text) || /\blike(s|d)?\b/i.test(text)) {
+                        if (/\d/.test(text)) {
+                            console.log('[SweepDriver] findLikesLink text match:', el.tagName, '–', text.slice(0, 60));
+                            return el;
+                        }
+                        textCandidates.push({ tag: el.tagName, text: text.slice(0, 60) });
+                    }
                 }
                 return null;
             };
 
-            let target = null;
+            const findActivityButton = () => {
+                // 使用 includes 寬鬆比對（v2.5.2 行為）
+                const containers = document.querySelectorAll('article, main, [role="article"], [role="main"]');
+                const scopes = containers.length > 0 ? Array.from(containers) : [document];
+                for (const scope of scopes) {
+                    const spans = scope.querySelectorAll('div[role="button"] span[dir="auto"], span[role="link"], a[role="link"] span[dir="auto"]');
+                    for (const span of spans) {
+                        const text = (span.innerText || span.textContent || '').trim();
+                        if (CONFIG.ACTIVITY_TEXTS.some(t => text.includes(t))) {
+                            console.log('[SweepDriver] findActivityButton match:', text);
+                            return span.closest('div[role="button"], a[role="link"], span[role="link"]');
+                        }
+                    }
+                }
+                return null;
+            };
+
+            // === Strategy 1：Activity（查看動態）→ 按讚內容（v2.5.2 行為）===
+            let activityButton = null;
             for (let i = 0; i < 60; i++) {
-                target = findActivityButton();
-                if (target) break;
+                activityButton = findActivityButton();
+                if (activityButton) break;
                 await Utils.safeSleep(500);
             }
-            if (!target) return null;
 
-            Utils.simClick(target);
-            await Utils.safeSleep(1200);
+            if (activityButton) {
+                console.log('[SweepDriver] Strategy 1: clicking Activity button. URL before:', window.location.href, '. dialog count:', document.querySelectorAll('[role="dialog"]').length);
+                Utils.simClick(activityButton);
+                await Utils.safeSleep(800);
+                console.log('[SweepDriver] After Activity click. URL after:', window.location.href, '. dialog count:', document.querySelectorAll('[role="dialog"]').length);
 
-            for (let i = 0; i < 40; i++) {
-                const ctx = Core.getTopContext();
-                if (ctx && ctx !== document.body) {
-                    const likesTab = Core.SweepDriver.findLikesTab(ctx);
-                    if (likesTab) {
-                        Utils.simClick(likesTab);
-                        await Utils.safeSleep(1000);
-                    }
-                    return Core.getTopContext();
+                // 等 dialog 出現（最多 10 秒）
+                let dialogCtx = null;
+                for (let i = 0; i < 20; i++) {
+                    await Utils.safeSleep(500);
+                    const ctx = Core.getTopContext();
+                    if (ctx && ctx !== document.body) { dialogCtx = ctx; break; }
                 }
+
+                if (dialogCtx) {
+                    const dialogChildren = Array.from(dialogCtx.children).map(c => c.tagName + (c.getAttribute('role') ? '['+c.getAttribute('role')+']' : ''));
+                    console.log('[SweepDriver] Activity dialog opened. children:', JSON.stringify(dialogChildren.slice(0, 10)), 'spans:', dialogCtx.querySelectorAll('span').length, 'tabs:', dialogCtx.querySelectorAll('[role="tab"]').length, 'text snippet:', (dialogCtx.innerText || '').slice(0, 200));
+
+                    // 找「按讚內容」tab 並點擊（最多 20 秒，掃描所有 dialog）
+                    let likesTab = null;
+                    let foundInDialog = null;
+                    for (let i = 0; i < 40; i++) {
+                        const allDialogs = document.querySelectorAll('[role="dialog"]');
+                        for (const d of allDialogs) {
+                            const tab = Core.SweepDriver.findLikesTab(d);
+                            if (tab) { likesTab = tab; foundInDialog = d; break; }
+                        }
+                        if (likesTab) break;
+
+                        // 5/15/25 次失敗時 dump 所有 dialog 結構幫診斷
+                        if (i === 5 || i === 15 || i === 25) {
+                            const dialogStates = Array.from(allDialogs).map((d, idx) => ({
+                                idx,
+                                spans: d.querySelectorAll('span').length,
+                                tabs: d.querySelectorAll('[role="tab"]').length,
+                                buttons: d.querySelectorAll('[role="button"]').length,
+                                textSnippet: (d.innerText || '').slice(0, 150),
+                                outerHTMLSnippet: d.outerHTML.slice(0, 300),
+                            }));
+                            console.log('[SweepDriver] findLikesTab still searching, all dialogs:', JSON.stringify(dialogStates));
+                        }
+
+                        await Utils.safeSleep(500);
+                    }
+                    if (likesTab) {
+                        console.log('[SweepDriver] findLikesTab found in dialog #' + Array.from(document.querySelectorAll('[role="dialog"]')).indexOf(foundInDialog));
+                        Utils.simClick(likesTab);
+
+                        // 等 user 連結載入（最多 20 秒，含 lazy scroll）
+                        const finalCtx = Core.getTopContext();
+                        const scrollBoxForLazy = Core.SweepDriver.findScrollBox(finalCtx);
+                        for (let i = 0; i < 40; i++) {
+                            if (finalCtx.querySelectorAll('a[href*="/@"]').length > 0) break;
+                            if (i === 5 || i === 15 || i === 25) {
+                                scrollBoxForLazy.scrollBy({ top: 200, behavior: 'auto' });
+                            }
+                            await Utils.safeSleep(500);
+                        }
+                        const userCount = finalCtx.querySelectorAll('a[href*="/@"]').length;
+                        console.log('[SweepDriver] openEngagementList ready – userLinks:', userCount);
+                        if (userCount > 0) return finalCtx;
+                        console.log('[SweepDriver] Activity dialog 內 0 user 連結，fallback 到 Strategy 2');
+                    } else {
+                        console.log('[SweepDriver] findLikesTab failed after 20s in Activity dialog – fallback to Strategy 2');
+                    }
+                } else {
+                    console.log('[SweepDriver] Activity click 後 dialog 沒出現，fallback 到 Strategy 2');
+                }
+            }
+
+            // === Strategy 2 (fallback)：直接點按讚連結 ===
+            let likesLink = null;
+            for (let i = 0; i < 20; i++) {
+                likesLink = findLikesLink();
+                if (likesLink) break;
                 await Utils.safeSleep(500);
+            }
+            if (!likesLink) {
+                console.log('[SweepDriver] Both strategies failed – aborting');
+                UI.showToast('⚠️ 找不到「按讚名單」入口，已停止本次掃描', 5000);
+                return null;
+            }
+            Utils.simClick(likesLink);
+            for (let i = 0; i < 40; i++) {
+                await Utils.safeSleep(500);
+                const ctx = Core.getTopContext();
+                if (ctx && ctx !== document.body && ctx.querySelectorAll('a[href*="/@"]').length > 0) return ctx;
             }
             return null;
         },
@@ -264,6 +467,12 @@ Object.assign(Core, {
                     return span.closest('div[role="tab"], div[role="button"], div[class*="x6s0dn4"][class*="x1qv9dbp"]');
                 }
             }
+            // diagnostic: findLikesTab 找不到 likes tab 時，dump 所有可用的 span 文字
+            const allTexts = Array.from(ctx.querySelectorAll('span[dir="auto"]'))
+                .map(s => (s.innerText || s.textContent || '').trim())
+                .filter(t => t.length > 0 && t.length < 40)
+                .slice(0, 30);
+            console.log('[SweepDriver] findLikesTab no match. Available span texts:', JSON.stringify(allTexts));
             return null;
         },
 
@@ -282,9 +491,13 @@ Object.assign(Core, {
         },
 
         async collectBatch(ctx) {
-            const batchSize = Core.SweepDriver.getBatchSize();
             const collectedLinks = new Set();
             const scrollBox = Core.SweepDriver.findScrollBox(ctx);
+            console.log('[SweepDriver] collectBatch scrollBox selected', JSON.stringify({
+                sameAsCtx: scrollBox === ctx,
+                scrollHeight: scrollBox.scrollHeight,
+                clientHeight: scrollBox.clientHeight,
+            }));
 
             const collectVisible = () => {
                 const links = ctx.querySelectorAll('a[href^="/@"]');
@@ -299,35 +512,80 @@ Object.assign(Core, {
                 });
             };
 
+            let prevSize = 0;
+            let stallCount = 0;
             for (let i = 0; i < 50; i++) {
                 collectVisible();
-                if (collectedLinks.size >= batchSize) break;
-                if (i > 0) scrollBox.scrollBy({ top: 300, behavior: 'smooth' });
-                await Utils.safeSleep(600);
+                if (collectedLinks.size === prevSize) {
+                    stallCount++;
+                    if (stallCount >= 4) break; // 4 連續無新進度 → 收工（節省時間）
+                } else {
+                    stallCount = 0;
+                    prevSize = collectedLinks.size;
+                }
+                if (i > 0) scrollBox.scrollBy({ top: 400, behavior: 'auto' });
+                await Utils.safeSleep(350);
             }
+            console.log('[SweepDriver] collectBatch collection loop finished', JSON.stringify({
+                collectedLinksSize: collectedLinks.size,
+            }));
 
             const skipUsers = Core.buildSkipUsers(ctx);
+            console.log('[SweepDriver] collectBatch skipUsers built', JSON.stringify({
+                skipUsers: [...skipUsers],
+            }));
             let rawUsers = [...collectedLinks].filter(u => !skipUsers.has(u));
+            console.log('[SweepDriver] collectBatch after skipUsers filter', JSON.stringify({
+                rawUsersLength: rawUsers.length,
+            }));
             rawUsers = Core.filterNewUsers(rawUsers);
+            console.log('[SweepDriver] collectBatch after filterNewUsers', JSON.stringify({
+                rawUsersLength: rawUsers.length,
+            }));
 
             const processedSetKey = 'hege_sweep_processed_' + window.location.pathname;
             const processedList = Storage.getJSON(processedSetKey, []);
             const processedSet = new Set(processedList);
 
             if (rawUsers.length > 0 && rawUsers.every(u => processedSet.has(u))) {
+                console.log('[SweepDriver] collectBatch return empty', JSON.stringify({
+                    reason: 'processed_loop',
+                    collectedLinksSize: collectedLinks.size,
+                    rawUsersLength: rawUsers.length,
+                    processedSetSize: processedSet.size,
+                }));
                 return { users: [], reason: 'processed_loop' };
             }
 
             const newUsers = rawUsers.filter(u => !processedSet.has(u));
-            if (newUsers.length === 0) return { users: [], reason: 'exhausted' };
+            console.log('[SweepDriver] collectBatch after processedSet compare', JSON.stringify({
+                processedSetSize: processedSet.size,
+                newUsersLength: newUsers.length,
+            }));
+            if (newUsers.length === 0) {
+                console.log('[SweepDriver] collectBatch return empty', JSON.stringify({
+                    reason: 'exhausted',
+                    collectedLinksSize: collectedLinks.size,
+                    rawUsersLength: rawUsers.length,
+                    processedSetSize: processedSet.size,
+                }));
+                return { users: [], reason: 'exhausted' };
+            }
 
             const lastFirst = sessionStorage.getItem(SWEEP_KEYS.LAST_FIRST_USER);
             const shouldCompareFirst = sessionStorage.getItem(SWEEP_KEYS.AUTO_TRIGGERED_ONCE) === 'true';
             if (shouldCompareFirst && lastFirst && lastFirst === newUsers[0]) {
+                console.log('[SweepDriver] collectBatch return empty', JSON.stringify({
+                    reason: 'first_user_loop',
+                    lastFirst,
+                    firstNewUser: newUsers[0],
+                    newUsersLength: newUsers.length,
+                    processedSetSize: processedSet.size,
+                }));
                 return { users: [], reason: 'first_user_loop' };
             }
 
-            const batchUsers = newUsers.slice(0, batchSize);
+            const batchUsers = newUsers;
             const lastBatchKey = 'hege_sweep_last_batch_' + window.location.pathname;
             const lastBatchStr = sessionStorage.getItem(lastBatchKey);
             if (lastBatchStr && batchUsers.length > 0) {
@@ -337,6 +595,13 @@ Object.assign(Core, {
                     const overlapRate = intersection.length / batchUsers.length;
                     if (overlapRate > 0.8) {
                         console.error('[SweepDriver] Loop breaker triggered.', { lastBatch, batchUsers });
+                        console.log('[SweepDriver] collectBatch return empty', {
+                            reason: 'batch_overlap_loop',
+                            overlapRate,
+                            intersectionLength: intersection.length,
+                            batchUsersLength: batchUsers.length,
+                            processedSetSize: processedSet.size,
+                        });
                         return { users: [], reason: 'batch_overlap_loop' };
                     }
                 } catch (e) {}
@@ -493,18 +758,25 @@ Object.assign(Core, {
             }
             Core.SweepDriver.recordHistory(fresh);
 
-            if (!fresh.advanceOnComplete && !fresh.longTermLoop) {
+            // 移除條件：longTermLoop 為 false（無論 advance 開不開都不需要留 entry）
+            const shouldRemove = !fresh.longTermLoop;
+            if (shouldRemove) {
                 Storage.postReservoir.removeEntry(cleanUrl);
+            } else {
+                // 留著：longTermLoop=true 的 entry（單純深層清理 / advance+loop 雙 flag）
+                Core.SweepDriver.updateEntry(cleanUrl, p => ({
+                    ...p,
+                    status: 'done',
+                    lastSweptAt: now,
+                }));
+            }
+
+            // 純單次任務（兩個 flag 都關）：移除完直接收工
+            if (!fresh.advanceOnComplete && !fresh.longTermLoop) {
                 Core.SweepDriver.clearTransientState();
                 UI.showToast('✅ 貼文水庫單次任務完成，已移除 entry。');
                 return;
             }
-
-            Core.SweepDriver.updateEntry(cleanUrl, p => ({
-                ...p,
-                status: 'done',
-                lastSweptAt: now,
-            }));
 
             const shouldAdvance = fresh.advanceOnComplete === true;
             const next = shouldAdvance ? Core.SweepDriver.findNextAdvance(cleanUrl) : null;
