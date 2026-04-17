@@ -362,22 +362,22 @@ Object.assign(Core, {
 
             // === Strategy 1：Activity（查看動態）→ 按讚內容（v2.5.2 行為）===
             let activityButton = null;
-            for (let i = 0; i < 60; i++) {
+            for (let i = 0; i < CONFIG.SWEEP_POLL_ACTIVITY_TIMES; i++) {
                 activityButton = findActivityButton();
                 if (activityButton) break;
-                await Utils.safeSleep(500);
+                await Utils.safeSleep(CONFIG.SWEEP_POLL_INTERVAL_MS);
             }
 
             if (activityButton) {
                 console.log('[SweepDriver] Strategy 1: clicking Activity button. URL before:', window.location.href, '. dialog count:', document.querySelectorAll('[role="dialog"]').length);
                 Utils.simClick(activityButton);
-                await Utils.safeSleep(800);
+                await Utils.safeSleep(CONFIG.SWEEP_DIALOG_OPEN_DELAY_MS);
                 console.log('[SweepDriver] After Activity click. URL after:', window.location.href, '. dialog count:', document.querySelectorAll('[role="dialog"]').length);
 
                 // 等 dialog 出現（最多 10 秒）
                 let dialogCtx = null;
-                for (let i = 0; i < 20; i++) {
-                    await Utils.safeSleep(500);
+                for (let i = 0; i < CONFIG.SWEEP_POLL_DIALOG_TIMES; i++) {
+                    await Utils.safeSleep(CONFIG.SWEEP_POLL_INTERVAL_MS);
                     const ctx = Core.getTopContext();
                     if (ctx && ctx !== document.body) { dialogCtx = ctx; break; }
                 }
@@ -389,7 +389,7 @@ Object.assign(Core, {
                     // 找「按讚內容」tab 並點擊（最多 20 秒，掃描所有 dialog）
                     let likesTab = null;
                     let foundInDialog = null;
-                    for (let i = 0; i < 40; i++) {
+                    for (let i = 0; i < CONFIG.SWEEP_POLL_LIKES_TAB_TIMES; i++) {
                         const allDialogs = document.querySelectorAll('[role="dialog"]');
                         for (const d of allDialogs) {
                             const tab = Core.SweepDriver.findLikesTab(d);
@@ -398,7 +398,7 @@ Object.assign(Core, {
                         if (likesTab) break;
 
                         // 5/15/25 次失敗時 dump 所有 dialog 結構幫診斷
-                        if (i === 5 || i === 15 || i === 25) {
+                        if (CONFIG.SWEEP_LAZY_SCROLL_AT.includes(i)) {
                             const dialogStates = Array.from(allDialogs).map((d, idx) => ({
                                 idx,
                                 spans: d.querySelectorAll('span').length,
@@ -410,7 +410,7 @@ Object.assign(Core, {
                             console.log('[SweepDriver] findLikesTab still searching, all dialogs:', JSON.stringify(dialogStates));
                         }
 
-                        await Utils.safeSleep(500);
+                        await Utils.safeSleep(CONFIG.SWEEP_POLL_INTERVAL_MS);
                     }
                     if (likesTab) {
                         console.log('[SweepDriver] findLikesTab found in dialog #' + Array.from(document.querySelectorAll('[role="dialog"]')).indexOf(foundInDialog));
@@ -419,12 +419,12 @@ Object.assign(Core, {
                         // 等 user 連結載入（最多 20 秒，含 lazy scroll）
                         const finalCtx = Core.getTopContext();
                         const scrollBoxForLazy = Core.SweepDriver.findScrollBox(finalCtx);
-                        for (let i = 0; i < 40; i++) {
+                        for (let i = 0; i < CONFIG.SWEEP_POLL_USER_LINKS_TIMES; i++) {
                             if (finalCtx.querySelectorAll('a[href*="/@"]').length > 0) break;
-                            if (i === 5 || i === 15 || i === 25) {
+                            if (CONFIG.SWEEP_LAZY_SCROLL_AT.includes(i)) {
                                 scrollBoxForLazy.scrollBy({ top: 200, behavior: 'auto' });
                             }
-                            await Utils.safeSleep(500);
+                            await Utils.safeSleep(CONFIG.SWEEP_POLL_INTERVAL_MS);
                         }
                         const userCount = finalCtx.querySelectorAll('a[href*="/@"]').length;
                         console.log('[SweepDriver] openEngagementList ready – userLinks:', userCount);
@@ -440,10 +440,10 @@ Object.assign(Core, {
 
             // === Strategy 2 (fallback)：直接點按讚連結 ===
             let likesLink = null;
-            for (let i = 0; i < 20; i++) {
+            for (let i = 0; i < CONFIG.SWEEP_POLL_FIND_LINK_TIMES; i++) {
                 likesLink = findLikesLink();
                 if (likesLink) break;
-                await Utils.safeSleep(500);
+                await Utils.safeSleep(CONFIG.SWEEP_POLL_INTERVAL_MS);
             }
             if (!likesLink) {
                 console.log('[SweepDriver] Both strategies failed – aborting');

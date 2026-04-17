@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.5.3-beta42', // Beta
+    VERSION: '2.5.3', // Beta
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec',
@@ -21,6 +21,16 @@ export const CONFIG = {
     // 深層貼文收割常數 (Task 4)
     POST_SWEEP_BATCH_SIZE: 500,
     POST_SWEEP_COOLDOWN_HOURS: 8,
+
+    // 貼文水庫 SPA polling 時序（毫秒；單位 ms = millisec）
+    SWEEP_POLL_INTERVAL_MS: 500,        // 每次 polling 等待間隔
+    SWEEP_POLL_FIND_LINK_TIMES: 60,     // 找按讚連結最大重試次數 (60 × 500 = 30s)
+    SWEEP_POLL_DIALOG_TIMES: 20,        // 等 dialog 出現最大重試次數 (20 × 500 = 10s)
+    SWEEP_POLL_LIKES_TAB_TIMES: 40,     // 等 Likes tab 出現最大重試次數 (40 × 500 = 20s)
+    SWEEP_POLL_USER_LINKS_TIMES: 40,    // 等 user 連結載入最大重試次數 (40 × 500 = 20s)
+    SWEEP_POLL_ACTIVITY_TIMES: 60,      // 找 Activity 按鈕最大重試次數 (60 × 500 = 30s)
+    SWEEP_DIALOG_OPEN_DELAY_MS: 800,    // Activity click 後等 dialog 開的固定延遲
+    SWEEP_LAZY_SCROLL_AT: [5, 15, 25],  // 等 user 連結時觸發 lazy scroll 的 retry 次數
 
     // 定點絕批次設定 (Task 3)
     ENDLESS_BATCH_SIZE: 100,
