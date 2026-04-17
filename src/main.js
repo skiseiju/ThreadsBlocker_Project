@@ -5,6 +5,11 @@ import { UI } from './ui.js';
 import { Core } from './core.js';
 import { Worker } from './worker.js';
 
+// Side-effect imports: feature files attach methods to Core via Object.assign
+// (Build strips imports and concatenates; this matters for direct ESM dev mode)
+import './features/post-reservoir-engine.js';
+import './features/cockroach.js';
+
 (function () {
     'use strict';
 
@@ -12,7 +17,92 @@ import { Worker } from './worker.js';
     Utils.initConsoleInterceptor();
     console.log('[留友封] Extension Script Initializing...');
 
+    function migratePostReservoirPhase2() {
+        if (Storage.get(CONFIG.KEYS.RESERVOIR_PHASE2_MIGRATED) === 'true') {
+            console.log('[留友封] Post Reservoir Phase 2 migration already completed; skipping');
+            return;
+        }
+
+        const norm = (url) => ((url || '').split('?')[0]);
+        const parseQueue = (key) => {
+            try {
+                return JSON.parse(localStorage.getItem(key) || '[]');
+            } catch (e) {
+                return [];
+            }
+        };
+        const normalizeStatus = (status, done) => {
+            if (done) return 'done';
+            if (status === 'error' || status === 'done' || status === 'cooldown') return status;
+            return 'pending';
+        };
+        const mergeEntry = (byUrl, entry, source) => {
+            if (!entry || !entry.url) return;
+            const key = norm(entry.url);
+            if (!key) return;
+            const existing = byUrl[key] || {
+                url: key,
+                label: entry.label || key,
+                addedAt: entry.addedAt || Date.now(),
+                advanceOnComplete: false,
+                longTermLoop: false,
+                lastSweptAt: 0,
+                sweepCount: 0,
+                batchCount: 0,
+                totalBlocked: 0,
+                status: 'pending',
+            };
+
+            existing.label = entry.label || existing.label || key;
+            existing.addedAt = Math.min(existing.addedAt || Date.now(), entry.addedAt || Date.now());
+            existing.lastSweptAt = Math.max(existing.lastSweptAt || 0, entry.lastSweptAt || 0);
+            existing.sweepCount = (existing.sweepCount || 0) + (entry.sweepCount || 0);
+            existing.batchCount = (existing.batchCount || 0) + (entry.batchCount || 0);
+            existing.totalBlocked = (existing.totalBlocked || 0) + (entry.totalBlocked || 0);
+
+            if (source === 'post') {
+                const alreadyCanonical = Object.prototype.hasOwnProperty.call(entry, 'advanceOnComplete')
+                    || Object.prototype.hasOwnProperty.call(entry, 'longTermLoop');
+                existing.longTermLoop = alreadyCanonical ? !!entry.longTermLoop : true;
+                existing.advanceOnComplete = alreadyCanonical ? !!entry.advanceOnComplete : !!existing.advanceOnComplete;
+                existing.status = normalizeStatus(entry.status, false);
+            } else if (source === 'endless') {
+                existing.advanceOnComplete = true;
+                existing.longTermLoop = !!existing.longTermLoop;
+                existing.status = entry.done ? 'done' : normalizeStatus(existing.status, false);
+            }
+
+            byUrl[key] = existing;
+        };
+
+        const postRaw = localStorage.getItem(CONFIG.KEYS.POST_QUEUE);
+        if (localStorage.getItem(CONFIG.KEYS.POST_QUEUE_BACKUP_PHASE2) === null) {
+            localStorage.setItem(CONFIG.KEYS.POST_QUEUE_BACKUP_PHASE2, postRaw || '[]');
+        }
+
+        const postQueue = parseQueue(CONFIG.KEYS.POST_QUEUE);
+        const endlessQueue = parseQueue(CONFIG.KEYS.ENDLESS_POST_QUEUE);
+        const byUrl = {};
+        postQueue.forEach(entry => mergeEntry(byUrl, entry, 'post'));
+        endlessQueue.forEach(entry => mergeEntry(byUrl, entry, 'endless'));
+
+        Storage.setJSON(CONFIG.KEYS.POST_QUEUE, Object.values(byUrl));
+
+        [
+            'hege_endless_state',
+            'hege_endless_target',
+            'hege_endless_last_first_user',
+            'hege_auto_triggered_once',
+            'hege_post_sweep_lock',
+        ].forEach(key => sessionStorage.removeItem(key));
+        localStorage.removeItem(CONFIG.KEYS.ENDLESS_WORKER_STANDBY);
+        Storage.set(CONFIG.KEYS.RESERVOIR_PHASE2_MIGRATED, 'true');
+        console.log('[留友封] Post Reservoir Phase 2 migration complete');
+    }
+
     if (Storage.get(CONFIG.KEYS.VERSION_CHECK) !== CONFIG.VERSION) {
+        migratePostReservoirPhase2();
+
         // DB_KEY 遷移：舊版本使用 "undefined" 作為 key（CONFIG.KEYS.DB_KEY 未定義的 bug）
         const legacyDB = localStorage.getItem('undefined');
         if (legacyDB && !localStorage.getItem(CONFIG.KEYS.DB_KEY)) {
@@ -40,10 +130,10 @@ import { Worker } from './worker.js';
         console.log(`[留友封] Updated to v${CONFIG.VERSION}. Cleared all temporary queues.`);
     }
 
-    // Clear stale endless standby flag from previous session
-    if (!sessionStorage.getItem('hege_endless_state') && localStorage.getItem('hege_endless_worker_standby') === 'true') {
-        localStorage.removeItem('hege_endless_worker_standby');
-        console.log('[留友封] Cleared stale hege_endless_worker_standby flag');
+    // Clear stale sweep standby flag from previous session
+    if (!sessionStorage.getItem('hege_sweep_state') && localStorage.getItem('hege_sweep_worker_standby') === 'true') {
+        localStorage.removeItem('hege_sweep_worker_standby');
+        console.log('[留友封] Cleared stale hege_sweep_worker_standby flag');
     }
 
     // Unconditional safety clear: if the user manually fired an event but they are stuck, force them away
@@ -68,26 +158,15 @@ import { Worker } from './worker.js';
 
             UI.injectStyles();
             
-            // Task 2: Check for Endless Sweep Resumption
-            const endlessState = sessionStorage.getItem('hege_endless_state');
-            const endlessTarget = sessionStorage.getItem('hege_endless_target');
-            if (endlessState === 'RELOADING' && endlessTarget === window.location.href) {
-                Core.resumeEndlessSweep();
-            } else if (endlessState === 'WAIT_FOR_BG' && endlessTarget === window.location.href) {
-                // Same-tab worker 完成後返回此頁，需重新啟動 monitor 來偵測空 queue 並觸發下一批倒數
-                console.log('[定點絕] main.js: WAIT_FOR_BG 偵測到，重啟 monitor');
-                if (typeof Core.startEndlessMonitor === 'function') Core.startEndlessMonitor();
-            } else if (endlessState === 'COOLDOWN' && endlessTarget === window.location.href) {
-                // 手動 reload 打斷倒數中，重新啟動剩餘冷卻（以完整時間重跑）
-                if (typeof Core.startEndlessCooldown === 'function') Core.startEndlessCooldown(CONFIG.ENDLESS_COOLDOWN_SEC || 60);
-            } else if (endlessState) {
-                // If user navigated away, clear state
-                if (endlessTarget !== window.location.href) {
-                    sessionStorage.removeItem('hege_endless_state');
-                    sessionStorage.removeItem('hege_endless_target');
-                    sessionStorage.removeItem('hege_endless_last_first_user');
-                    Storage.remove('hege_endless_worker_standby');
-                }
+            // Phase 2: Check for SweepDriver resumption
+            const sweepState = sessionStorage.getItem('hege_sweep_state');
+            const sweepTarget = sessionStorage.getItem('hege_sweep_target');
+            const currentCleanUrl = window.location.href.split('?')[0];
+            const targetCleanUrl = (sweepTarget || '').split('?')[0];
+            if (sweepState === 'WAIT_FOR_BG' && targetCleanUrl === currentCleanUrl) {
+                Core.SweepDriver.waitForWorkerDrain();
+            } else if (sweepState && targetCleanUrl && targetCleanUrl !== currentCleanUrl) {
+                Core.SweepDriver.clearTransientState();
             }
 
             // Task 2: Cockroach Reminder
@@ -226,6 +305,11 @@ import { Worker } from './worker.js';
                 }
             };
 
+            const confirmClearDB = () => UI.showConfirm('確定清除所有歷史紀錄？', () => {
+                Storage.setJSON(CONFIG.KEYS.DB_KEY, []);
+                Core.updateControllerUI();
+            });
+
             const callbacks = {
                 onMainClick: handleMainButton,
                 onClearSel: () => {
@@ -244,70 +328,46 @@ import { Worker } from './worker.js';
                         UI.showToast('待封鎖清單與背景佇列已全數清除');
                     });
                 },
-                onClearDB: () => { UI.showConfirm('清空歷史？', () => { Storage.setJSON(CONFIG.KEYS.DB_KEY, []); Core.updateControllerUI(); }); },
-                onDeepMine: () => {
-                    const postQueue = Storage.getJSON(CONFIG.KEYS.POST_QUEUE, []);
-                    if (postQueue.length === 0) {
-                        UI.showToast('目前水庫為空。請先進入單一貼文頁面，啟動變強封鎖對話框后點標記大蟑螂穩。');
-                        return;
-                    }
-                    const list = postQueue.map(p => {
-                        const url = p.url || '';
-                        const lastSweep = p.lastSweptAt ? new Date(p.lastSweptAt).toLocaleString() : '尚未執行';
-                        return `${url}\n  \u2514 上次: ${lastSweep}`;
-                    }).join('\n');
-                    UI.showConfirm(`【深層清理水庫】目前有 ${postQueue.length} 篇貼文排程中：\n\n${list}\n\n是否要現在就展開清理？`, () => {
-                        Core.checkPostQueueWakeup();
-                    });
-                },
-                onCockroach: () => Core.openCockroachManager(),
-                onEndlessQueue: () => UI.showEndlessPostQueueManager(),
-                onStartEndless: () => Core.startEndlessQueue(),
+                onEndlessQueue: () => UI.showPostReservoir({
+                    onStart: () => Core.SweepDriver.startNow()
+                }),
                 onSettings: () => {
                     const openSettings = () => {
                         UI.showSettingsModal({
                             onManage: () => Core.openBlockManager(),
                             onImport: () => Core.importList(),
                             onExport: () => Core.exportHistory(),
-                            onClearDB: () => { UI.showConfirm('確定清除所有歷史紀錄？', () => { Storage.setJSON(CONFIG.KEYS.DB_KEY, []); Core.updateControllerUI(); }); },
+                            onClearDB: confirmClearDB,
                             onCockroach: () => Core.openCockroachManager(() => openSettings()),
+                            onReservoir: () => UI.showPostReservoir({
+                                onStart: () => Core.SweepDriver.startNow()
+                            }),
                             onReport: () => Core.showReportDialog(),
                             onAnalytics: () => UI.showAnalyticsReport(),
                         });
                     };
                     openSettings();
                 },
-                onImport: () => Core.importList(),
-                onManage: () => Core.openBlockManager(),
-                onExport: () => Core.exportHistory(),
                 onRetryFailed: () => Core.retryFailedQueue(),
-                onReport: () => Core.showReportDialog(),
                 onStop: () => { UI.showConfirm('確定要停止背景執行？', () => {
                     Storage.set(CONFIG.KEYS.BG_CMD, 'stop');
-                    Storage.remove('hege_endless_worker_standby');
+                    Storage.set('hege_sweep_stopped', 'true');
+                    Storage.remove('hege_sweep_worker_standby');
                 }); }
             };
 
             const panel = UI.createPanel(callbacks);
 
             // Sync Logic (Restored from beta46)
+            const syncKeySet = new Set(CONFIG.SYNC_KEYS);
             window.addEventListener('storage', (e) => {
-                if (e.key === CONFIG.KEYS.BG_STATUS || e.key === CONFIG.KEYS.DB_KEY || e.key === CONFIG.KEYS.BG_QUEUE || e.key === CONFIG.KEYS.COOLDOWN || e.key === CONFIG.KEYS.COOLDOWN_QUEUE || e.key === CONFIG.KEYS.FAILED_QUEUE || e.key === CONFIG.KEYS.DELAYED_QUEUE || e.key === CONFIG.KEYS.POST_QUEUE || e.key === CONFIG.KEYS.ENDLESS_POST_QUEUE) {
+                if (syncKeySet.has(e.key)) {
                     Storage.invalidate(e.key); // Force cache clear so getJSON fetches fresh data
                     Core.updateControllerUI();
                 }
             });
             setInterval(() => {
-                Storage.invalidate(CONFIG.KEYS.DB_KEY);
-                Storage.invalidate(CONFIG.KEYS.BG_STATUS);
-                Storage.invalidate(CONFIG.KEYS.BG_QUEUE);
-                Storage.invalidate(CONFIG.KEYS.COOLDOWN);
-                Storage.invalidate(CONFIG.KEYS.COOLDOWN_QUEUE);
-                Storage.invalidate(CONFIG.KEYS.FAILED_QUEUE);
-                Storage.invalidate(CONFIG.KEYS.DB_TIMESTAMPS);
-                Storage.invalidate(CONFIG.KEYS.DELAYED_QUEUE);
-                Storage.invalidate(CONFIG.KEYS.POST_QUEUE);
-                Storage.invalidate(CONFIG.KEYS.ENDLESS_POST_QUEUE);
+                Storage.invalidateMulti(CONFIG.SYNC_KEYS);
                 Core.updateControllerUI();
             }, 2000); // Polling backup
 
@@ -328,21 +388,29 @@ import { Worker } from './worker.js';
 
             // Task 1: 貼文深層收割 8hr 排程定期巡檢 (每 1 分鐘檢查一次)
             setInterval(() => {
-                Core.checkPostQueueWakeup();
+                Core.SweepDriver.tick();
             }, 60000);
 
             // Task 1: Debug 測試後門，允許無視 8H 直接歸零並立即跳轉
-            window.HegeDebug = {
-                forceWakeup: () => {
-                    let queue = Storage.getJSON(CONFIG.KEYS.POST_QUEUE, []);
-                    queue.forEach(q => q.lastSweptAt = 0);
-                    Storage.setJSON(CONFIG.KEYS.POST_QUEUE, queue);
-                    console.log('[DeepSweep-Q] 測試後門觸發：已將所有深層清理貼文的冷卻時間歸零！');
-                    Core.checkPostQueueWakeup();
-                }
-            };
+            if (CONFIG.DEBUG_MODE) {
+                window.HegeDebug = {
+                    forceWakeup: () => {
+                        let queue = Storage.getJSON(CONFIG.KEYS.POST_QUEUE, []);
+                        queue.forEach(q => q.lastSweptAt = 0);
+                        Storage.setJSON(CONFIG.KEYS.POST_QUEUE, queue);
+                        console.log('[DeepSweep-Q] 測試後門觸發：已將所有深層清理貼文的冷卻時間歸零！');
+                        Core.SweepDriver.tick();
+                    }
+                };
+            }
 
             Core.init();
+
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('hege_sweep') === 'true' || params.get('hege_post_sweep') === 'true') {
+                Utils.pollUntil(() => document.querySelector('a[role="link"], span[role="link"], div[role="button"]'), 10000)
+                    .then(() => Core.SweepDriver.runCurrentPage());
+            }
 
             // Log Sync
             if (CONFIG.DEBUG_MODE) {
@@ -357,24 +425,26 @@ import { Worker } from './worker.js';
         main();
     }
 
-    // --- 全局除錯/測試函式 ---
-    window.__DEBUG_HEGE_FAST_FORWARD_TIME = (hours = 8) => {
-        const ms = hours * 60 * 60 * 1000;
-        const lastTime = parseInt(localStorage.getItem(CONFIG.KEYS.LAST_BATCH_TIME) || '0');
-        if (lastTime > 0) {
-            localStorage.setItem(CONFIG.KEYS.LAST_BATCH_TIME, (lastTime - ms).toString());
-            console.log(`[DEBUG] 延時水庫時鐘已倒轉 ${hours} 小時！`);
-        } else {
-            console.log(`[DEBUG] LAST_BATCH_TIME 為空，水庫本來就可以直接發放！`);
-        }
-    };
+    // --- 全局除錯/測試函式（只在 DEBUG_MODE 下暴露）---
+    if (CONFIG.DEBUG_MODE) {
+        window.__DEBUG_HEGE_FAST_FORWARD_TIME = (hours = 8) => {
+            const ms = hours * 60 * 60 * 1000;
+            const lastTime = parseInt(localStorage.getItem(CONFIG.KEYS.LAST_BATCH_TIME) || '0');
+            if (lastTime > 0) {
+                localStorage.setItem(CONFIG.KEYS.LAST_BATCH_TIME, (lastTime - ms).toString());
+                console.log(`[DEBUG] 延時水庫時鐘已倒轉 ${hours} 小時！`);
+            } else {
+                console.log(`[DEBUG] LAST_BATCH_TIME 為空，水庫本來就可以直接發放！`);
+            }
+        };
 
-    window.__DEBUG_GENERATE_COCKROACH = (username = 'test_roach_' + Math.floor(Math.random()*1000)) => {
-        const db = JSON.parse(localStorage.getItem(CONFIG.KEYS.COCKROACH_DB) || '[]');
-        // 設定為 11 天前，以觸發 10 天提醒
-        db.push({ username, timestamp: Date.now() - (11 * 24 * 60 * 60 * 1000) });
-        localStorage.setItem(CONFIG.KEYS.COCKROACH_DB, JSON.stringify(db));
-        console.log(`[DEBUG] 已注入大蟑螂 @${username} (時標為 11 天前)。重新裝載網頁後將會觸發回望提醒！`);
-    };
+        window.__DEBUG_GENERATE_COCKROACH = (username = 'test_roach_' + Math.floor(Math.random()*1000)) => {
+            const db = JSON.parse(localStorage.getItem(CONFIG.KEYS.COCKROACH_DB) || '[]');
+            // 設定為 11 天前，以觸發 10 天提醒
+            db.push({ username, timestamp: Date.now() - (11 * 24 * 60 * 60 * 1000) });
+            localStorage.setItem(CONFIG.KEYS.COCKROACH_DB, JSON.stringify(db));
+            console.log(`[DEBUG] 已注入大蟑螂 @${username} (時標為 11 天前)。重新裝載網頁後將會觸發回望提醒！`);
+        };
+    }
 
 })();

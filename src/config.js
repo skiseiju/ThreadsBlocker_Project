@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.5.2', // Official Release
+    VERSION: '2.5.3-beta9', // Beta
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec',
@@ -26,6 +26,12 @@ export const CONFIG = {
     // 定點絕批次設定 (Task 3)
     ENDLESS_BATCH_SIZE: 100,
     ENDLESS_COOLDOWN_SEC: 8 * 3600,
+
+    // 貼文水庫批次大小（使用者可調）
+    SWEEP_BATCH_SIZE_DEFAULT: 100,
+    SWEEP_BATCH_SIZE_MIN: 50,
+    SWEEP_BATCH_SIZE_MAX: 300,
+    SWEEP_BATCH_SIZE_OPTIONS: [50, 80, 100, 150, 200, 250, 300],
 
     KEYS: {
         DB_KEY: 'hege_block_db_v1',
@@ -67,16 +73,44 @@ export const CONFIG = {
 
         // 貼文深層收割
         POST_QUEUE: 'hege_post_sweep_queue',
+        POST_QUEUE_BACKUP_PHASE2: 'hege_post_sweep_queue_backup_phase2',
+        RESERVOIR_PHASE2_MIGRATED: 'hege_post_reservoir_phase2_migrated',
 
         // Task 3: 定點絕停止旗標
         ENDLESS_STOPPED: 'hege_endless_stopped',
 
-        // Task 3: 定點絕多貼文排程
+        // Task 3: 定點絕多貼文排程（deprecated：Phase 2 migration 讀取用）
         ENDLESS_POST_QUEUE: 'hege_endless_post_queue',
 
         // Task 3: 定點絕歷史紀錄
         ENDLESS_HISTORY: 'hege_endless_history',
+
+        // 封鎖 context metadata（worker 啟動前由 core 寫入）
+        BLOCK_CONTEXT: 'hege_block_context',
+        CURRENT_BATCH_ID: 'hege_current_batch_id',
+
+        // 定點絕 worker 待命旗標（'true' 字串）
+        ENDLESS_WORKER_STANDBY: 'hege_endless_worker_standby',
+
+        // 貼文水庫使用者設定
+        SWEEP_BATCH_SIZE: 'hege_sweep_batch_size',
     },
+
+    // 跨分頁同步 & 輪詢 invalidate 用的 queue/status key 群組
+    SYNC_KEYS: [
+        'hege_bg_status',          // BG_STATUS
+        'hege_block_db_v1',        // DB_KEY
+        'hege_active_queue',       // BG_QUEUE
+        'hege_rate_limit_until',   // COOLDOWN
+        'hege_cooldown_queue',     // COOLDOWN_QUEUE
+        'hege_failed_queue',       // FAILED_QUEUE
+        'hege_delayed_queue',      // DELAYED_QUEUE
+        'hege_post_sweep_queue',   // POST_QUEUE
+        'hege_endless_post_queue', // ENDLESS_POST_QUEUE
+        'hege_sweep_worker_standby',
+        'hege_sweep_stopped',
+        'hege_block_timestamps',   // DB_TIMESTAMPS
+    ],
     // 多語系文字偵測（20 國：繁中/簡中/英/日/韓/泰/印尼/西/法/德/義/葡/俄/波蘭/土耳其/越南/阿拉伯/印地/荷蘭/菲律賓）
     BLOCK_TEXTS: ['封鎖', '屏蔽', 'Block', 'ブロック', '차단', 'บล็อก', 'Blokir', 'Bloquear', 'Bloquer', 'Blockieren', 'Blocca', 'Bloquear', 'Заблокировать', 'Zablokuj', 'Engelle', 'Chặn', 'حظر', 'ब्लॉक करें', 'Blokkeren', 'I-block'],
     UNBLOCK_TEXTS: ['解除封鎖', '取消屏蔽', 'Unblock', 'ブロックを解除', '차단 해제', 'เลิกบล็อก', 'Buka blokir', 'Desbloquear', 'Débloquer', 'Blockierung aufheben', 'Sblocca', 'Desbloquear', 'Разблокировать', 'Odblokuj', 'Engeli kaldır', 'Bỏ chặn', 'إلغاء الحظر', 'अनब्लॉक करें', 'Deblokkeren', 'I-unblock'],

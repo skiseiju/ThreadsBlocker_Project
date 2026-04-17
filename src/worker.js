@@ -84,10 +84,10 @@ export const Worker = {
             }
             // Persist to localStorage buffer
             try {
-                const logs = JSON.parse(localStorage.getItem(CONFIG.KEYS.DEBUG_LOG) || '[]');
+                const logs = Storage.getJSON(CONFIG.KEYS.DEBUG_LOG, []);
                 logs.push(`[${new Date().toLocaleTimeString()}] ${msg}`);
                 if (logs.length > 100) logs.splice(0, logs.length - 100);
-                localStorage.setItem(CONFIG.KEYS.DEBUG_LOG, JSON.stringify(logs));
+                Storage.setJSON(CONFIG.KEYS.DEBUG_LOG, logs);
             } catch (e) { }
         };
 
@@ -195,7 +195,7 @@ export const Worker = {
                 <div id="bg-status" style="font-size:15px;font-weight:600;color:#4cd964;margin-bottom:20px;">等待指令...</div>
 
                 <!-- Stop Button -->
-                <div id="hege-worker-stop" style="background:#ff453a;color:#fff;font-size:16px;font-weight:700;padding:14px 48px;border-radius:14px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;box-shadow:0 4px 12px rgba(255,69,58,0.3);transition:transform 0.15s,opacity 0.15s;margin-bottom:20px;">🛑 停止${Storage.get('hege_endless_worker_standby') === 'true' ? '定點絕' : (isUnblock ? '解除封鎖' : '封鎖')}</div>
+                <div id="hege-worker-stop" style="background:#ff453a;color:#fff;font-size:16px;font-weight:700;padding:14px 48px;border-radius:14px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;box-shadow:0 4px 12px rgba(255,69,58,0.3);transition:transform 0.15s,opacity 0.15s;margin-bottom:20px;">🛑 停止${Storage.get('hege_sweep_worker_standby') === 'true' ? '定點絕' : (isUnblock ? '解除封鎖' : '封鎖')}</div>
 
                 <!-- Debug Log -->
                 <div id="hege-worker-log" style="width:100%;flex:1;overflow-y:auto;border:1px solid #222;border-radius:8px;padding:10px;text-align:left;font-family:monospace;font-size:11px;color:#555;background:#0a0a0a;"></div>
@@ -207,13 +207,13 @@ export const Worker = {
         const stopBtn = document.getElementById('hege-worker-stop');
         if (stopBtn) {
             const handleStop = () => {
-                Storage.set(CONFIG.KEYS.ENDLESS_STOPPED, 'true'); // 讓主頁面 monitor 立即中止，防止空 queue 被誤判為批次完成
+                Storage.set('hege_sweep_stopped', 'true'); // 讓主頁面 driver 立即中止，防止空 queue 被誤判為批次完成
                 Storage.set(CONFIG.KEYS.BG_CMD, 'stop');
-                Storage.remove('hege_endless_worker_standby');
-                sessionStorage.removeItem('hege_endless_state');
-                sessionStorage.removeItem('hege_endless_target');
-                sessionStorage.removeItem('hege_endless_last_first_user');
-                sessionStorage.removeItem('hege_auto_triggered_once');
+                Storage.remove('hege_sweep_worker_standby');
+                sessionStorage.removeItem('hege_sweep_state');
+                sessionStorage.removeItem('hege_sweep_target');
+                sessionStorage.removeItem('hege_sweep_last_first_user');
+                sessionStorage.removeItem('hege_sweep_auto_triggered_once');
                 stopBtn.textContent = '⏳ 正在停止...';
                 stopBtn.style.background = '#666';
                 stopBtn.style.pointerEvents = 'none';
@@ -341,17 +341,9 @@ export const Worker = {
             } else {
                 if (window.hegeLog) window.hegeLog(`[批次驗證] @${user} ❌ 驗證失敗`);
                 // 從 DB 移除未確認的封鎖
-                let db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
-                let ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
-                if (!isUnblock && db.has(user)) {
-                    db.delete(user);
-                    delete ts[user];
-                    Storage.setJSON(CONFIG.KEYS.DB_KEY, [...db]);
-                    Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, ts);
-                    // 加入失敗佇列
-                    let fq = new Set(Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []));
-                    fq.add(user);
-                    Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, [...fq]);
+                if (!isUnblock && Storage.getJSON(CONFIG.KEYS.DB_KEY, []).includes(user)) {
+                    Storage.removeFromBlockDB(user);
+                    Storage.queueAddUnique(CONFIG.KEYS.FAILED_QUEUE, user);
                     if (window.hegeLog) window.hegeLog(`[批次驗證] @${user} 已從 DB 移除，加入失敗佇列`);
                 }
             }
@@ -407,13 +399,13 @@ export const Worker = {
         if (Storage.get(CONFIG.KEYS.BG_CMD) === 'stop') {
             Storage.remove(CONFIG.KEYS.BG_CMD);
             Storage.remove(CONFIG.KEYS.VERIFY_PENDING);
-            Storage.remove('hege_endless_worker_standby');
+            Storage.remove('hege_sweep_worker_standby');
             Storage.remove('hege_batch_verify_idx');
             Storage.setJSON(CONFIG.KEYS.BATCH_VERIFY, []);
-            sessionStorage.removeItem('hege_endless_state');
-            sessionStorage.removeItem('hege_endless_target');
-            sessionStorage.removeItem('hege_endless_last_first_user');
-            sessionStorage.removeItem('hege_auto_triggered_once');
+            sessionStorage.removeItem('hege_sweep_state');
+            sessionStorage.removeItem('hege_sweep_target');
+            sessionStorage.removeItem('hege_sweep_last_first_user');
+            sessionStorage.removeItem('hege_sweep_auto_triggered_once');
             Worker.updateStatus('stopped', '已停止');
             Worker.clearStats();
             Worker.navigateBack();
@@ -461,9 +453,7 @@ export const Worker = {
                         queue.shift();
                         Storage.setJSON(CONFIG.KEYS.BG_QUEUE, queue);
                     }
-                    let fq = new Set(Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []));
-                    fq.add(targetUser);
-                    Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, [...fq]);
+                    Storage.queueAddUnique(CONFIG.KEYS.FAILED_QUEUE, targetUser);
                     Worker.updateStatus('running', targetUser, 0, currentTotal);
                     setTimeout(Worker.runStep, 100);
                     return;
@@ -478,27 +468,11 @@ export const Worker = {
                     Storage.setJSON(CONFIG.KEYS.BG_QUEUE, queue);
                 }
 
-                let db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
-                let ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
-
                 if (isUnblockVerify) {
-                    db.delete(targetUser);
-                    delete ts[targetUser];
+                    Storage.removeFromBlockDB(targetUser);
                 } else {
-                    db.add(targetUser);
-                    const ctx = JSON.parse(Storage.get('hege_block_context') || '{}');
-                    ts[targetUser] = {
-                        t: Date.now(),
-                        src: ctx.src || '',
-                        reason: ctx.reason || 'manual',
-                        postText: ctx.postText || '',
-                        postOwner: ctx.postOwner || '',
-                        batch: Storage.get('hege_current_batch_id') || ''
-                    };
+                    Storage.addToBlockDBFromContext(targetUser);
                 }
-
-                Storage.setJSON(CONFIG.KEYS.DB_KEY, [...db]);
-                Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, ts);
                 Worker.updateStatus('running', targetUser, 0, currentTotal);
                 setTimeout(Worker.runStep, 100);
                 return;
@@ -513,14 +487,14 @@ export const Worker = {
         Storage.invalidate(CONFIG.KEYS.BG_QUEUE);
         let queue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
         if (queue.length === 0) {
-            // 定點絕待命模式：即使佇列空了也保持開啟，等待主視窗塞入下一批
-            if (Storage.get('hege_endless_worker_standby') === 'true') {
+            // 貼文水庫待命模式：即使佇列空了也保持開啟，等待主視窗接續下一批
+            if (Storage.get('hege_sweep_worker_standby') === 'true') {
                 Worker.updateStatus('idle', '⌛ 等待定點絕餵食...', 0, 0);
-                if (window.hegeLog) window.hegeLog('[BG] 佇列空，但定點絕待命中...');
+                if (window.hegeLog) window.hegeLog('[BG] 佇列空，但貼文水庫待命中...');
 
-                // Same-tab 模式（無 opener）：直接返回主頁面，由主頁面的 startEndlessMonitor 接管倒數/下一批
+                // Same-tab 模式（無 opener）：直接返回主頁面，由 SweepDriver 接管下一批
                 if (!window.opener || window.opener.closed) {
-                    if (window.hegeLog) window.hegeLog('[BG] Same-tab 模式，返回主頁面讓 startEndlessMonitor 處理下一批...');
+                    if (window.hegeLog) window.hegeLog('[BG] Same-tab 模式，返回主頁面讓 SweepDriver 處理下一批...');
                     Worker.navigateBack();
                     return;
                 }
@@ -528,10 +502,10 @@ export const Worker = {
                 // Popup 模式（有 opener）：Safari Background Tab 最終防線，由 Active Worker 強制重載 Opener
                 try {
                     if (window.opener && !window.opener.closed) {
-                        const openerState = window.opener.sessionStorage.getItem('hege_endless_state');
+                        const openerState = window.opener.sessionStorage.getItem('hege_sweep_state');
                         if (openerState === 'WAIT_FOR_BG') {
-                            window.opener.sessionStorage.setItem('hege_endless_state', 'RELOADING');
-                            window.opener.sessionStorage.removeItem('hege_auto_triggered_once');
+                            window.opener.sessionStorage.setItem('hege_sweep_state', 'RELOADING');
+                            window.opener.sessionStorage.removeItem('hege_sweep_auto_triggered_once');
                             if (window.hegeLog) window.hegeLog('[BG] 主視窗休眠中，由 Worker 強行代為 Reload 跨視窗喚醒...');
                             window.opener.location.reload();
                         }
@@ -640,27 +614,11 @@ export const Worker = {
                     Storage.setJSON(CONFIG.KEYS.BG_QUEUE, q);
                 }
 
-                db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
-                let ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
-
                 if (isUnblock) {
-                    db.delete(targetUser);
-                    delete ts[targetUser];
+                    Storage.removeFromBlockDB(targetUser);
                 } else {
-                    db.add(targetUser);
-                    const ctx = JSON.parse(Storage.get('hege_block_context') || '{}');
-                    ts[targetUser] = {
-                        t: Date.now(),
-                        src: ctx.src || '',
-                        reason: ctx.reason || 'manual',
-                        postText: ctx.postText || '',
-                        postOwner: ctx.postOwner || '',
-                        batch: Storage.get('hege_current_batch_id') || ''
-                    };
+                    Storage.addToBlockDBFromContext(targetUser);
                 }
-
-                Storage.setJSON(CONFIG.KEYS.DB_KEY, [...db]);
-                Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, ts);
 
                 Worker.updateStatus('running', targetUser, 0, currentTotal);
                 setTimeout(Worker.runStep, 100);
@@ -675,9 +633,7 @@ export const Worker = {
                 }
 
                 // Add to failed queue (DO NOT add to history DB)
-                let fq = new Set(Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []));
-                fq.add(targetUser);
-                Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, [...fq]);
+                Storage.queueAddUnique(CONFIG.KEYS.FAILED_QUEUE, targetUser);
 
                 Worker.updateStatus('running', targetUser, 0, currentTotal);
                 setTimeout(Worker.runStep, 100);
@@ -692,13 +648,8 @@ export const Worker = {
                 }
 
                 // Remove from database since user is gone
-                let db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
-                let ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
-                if (db.has(targetUser)) {
-                    db.delete(targetUser);
-                    delete ts[targetUser];
-                    Storage.setJSON(CONFIG.KEYS.DB_KEY, [...db]);
-                    Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, ts);
+                if (Storage.getJSON(CONFIG.KEYS.DB_KEY, []).includes(targetUser)) {
+                    Storage.removeFromBlockDB(targetUser);
                     window.hegeLog(`[清理] @${targetUser} 已從資料庫移除 (404/失效)`);
                 }
 
@@ -724,9 +675,7 @@ export const Worker = {
                         q.shift();
                         Storage.setJSON(CONFIG.KEYS.BG_QUEUE, q);
                     }
-                    let fq = new Set(Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []));
-                    fq.add(targetUser);
-                    Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, [...fq]);
+                    Storage.queueAddUnique(CONFIG.KEYS.FAILED_QUEUE, targetUser);
 
                     Worker.updateStatus('running', targetUser, 0, currentTotal);
                     await Utils.safeSleep(3000); // extra breather — 不受速度模式影響
@@ -767,6 +716,39 @@ export const Worker = {
         }
     },
 
+    findMoreButton: async (timeout = 5000) => {
+        return await Utils.pollUntil(() => {
+            const moreSvgs = document.querySelectorAll(CONFIG.SELECTORS.MORE_SVG);
+            for (let svg of moreSvgs) {
+                if (svg.querySelector('circle') && svg.querySelectorAll('path').length >= 3) {
+                    const btn = svg.closest('div[role="button"]');
+                    if (btn) return btn;
+                }
+            }
+            if (moreSvgs.length > 0) return moreSvgs[0].closest('div[role="button"]');
+            return null;
+        }, timeout, 200);
+    },
+
+    findPostMoreButtons: (user) => {
+        const postLinks = document.querySelectorAll(`a[href*="/@${CSS.escape(user)}/post/"]`);
+        const results = [];
+        for (const link of postLinks) {
+            let container = link;
+            for (let lvl = 0; lvl < 8; lvl++) {
+                container = container.parentElement;
+                if (!container) break;
+                const svg = container.querySelector(CONFIG.SELECTORS.MORE_SVG);
+                if (!svg) continue;
+                const btn = svg.closest('div[role="button"]');
+                if (!btn) continue;
+                results.push({ btn, link });
+                break;
+            }
+        }
+        return results;
+    },
+
     verifyBlock: async (user, isUnblockTask = false) => {
         // Page has been reloaded — check if "Unblock" appears in menu (= block succeeded)
         try {
@@ -777,17 +759,7 @@ export const Worker = {
             if (!verifyPageLoaded) await Utils.safeSleep(1000);
 
             // Find "More" button again (智慧等待)
-            let profileBtn = await Utils.pollUntil(() => {
-                const moreSvgs = document.querySelectorAll(CONFIG.SELECTORS.MORE_SVG);
-                for (let svg of moreSvgs) {
-                    if (svg.querySelector('circle') && svg.querySelectorAll('path').length >= 3) {
-                        const btn = svg.closest('div[role="button"]');
-                        if (btn) return btn;
-                    }
-                }
-                if (moreSvgs.length > 0) return moreSvgs[0].closest('div[role="button"]');
-                return null;
-            }, 5000, 200);
+            let profileBtn = await Worker.findMoreButton(5000);
 
             let blockStatus = null; // 'unblocked', 'blocked', or null
 
@@ -828,23 +800,8 @@ export const Worker = {
                 const onRepliesPage = window.location.pathname.includes('/replies');
                 if (onRepliesPage) {
                     window.hegeLog('[驗證] Profile 選單無效，嘗試從貼文驗證...');
-                    const postLinks = document.querySelectorAll(`a[href*="/@${CSS.escape(user)}/post/"]`);
-                    for (const link of postLinks) {
-                        let container = link;
-                        let postMoreBtn = null;
-                        for (let lvl = 0; lvl < 8; lvl++) {
-                            container = container.parentElement;
-                            if (!container) break;
-                            const svg = container.querySelector(CONFIG.SELECTORS.MORE_SVG);
-                            if (!svg) continue;
-                            const btn = svg.closest('div[role="button"]');
-                            if (!btn) continue;
-                            postMoreBtn = btn;
-                            break;
-                        }
-
-                        if (!postMoreBtn) continue;
-
+                    const postBtns = Worker.findPostMoreButtons(user);
+                    for (const { btn: postMoreBtn } of postBtns) {
                         postMoreBtn.scrollIntoView({ block: 'center' });
                         await Utils.speedSleep(300);
                         Utils.simClick(postMoreBtn);
@@ -1009,20 +966,7 @@ export const Worker = {
             let blockBtn = null;
             {
                 // 1. Wait for "More" button (智慧等待)
-                let profileBtn = await Utils.pollUntil(() => {
-                    const moreSvgs = document.querySelectorAll(CONFIG.SELECTORS.MORE_SVG);
-                    for (let svg of moreSvgs) {
-                        if (svg.querySelector('circle') && svg.querySelectorAll('path').length >= 3) {
-                            const btn = svg.closest('div[role="button"]');
-                            if (btn) return btn;
-                        }
-                    }
-                    // Fallback
-                    if (moreSvgs.length > 0) {
-                        return moreSvgs[0].closest('div[role="button"]');
-                    }
-                    return null;
-                }, 12000, 200);
+                let profileBtn = await Worker.findMoreButton(12000);
 
                 if (!profileBtn) {
                     // Diagnostic dump: collect all SVG info on page
@@ -1134,26 +1078,10 @@ export const Worker = {
                         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
                         await Utils.speedSleep(300);
 
-                        const postLinks = document.querySelectorAll(`a[href*="/@${CSS.escape(user)}/post/"]`);
-                        if (window.hegeLog) window.hegeLog(`[DIAG] 在 replies 頁找到 ${postLinks.length} 篇貼文連結`);
+                        const postBtns = Worker.findPostMoreButtons(user);
+                        if (window.hegeLog) window.hegeLog(`[DIAG] 在 replies 頁找到 ${postBtns.length} 篇貼文連結`);
 
-                        for (const link of postLinks) {
-                            // 從貼文連結往上爬 DOM，尋找包含「更多」SVG 的共同容器
-                            let container = link;
-                            let postMoreBtn = null;
-                            for (let lvl = 0; lvl < 8; lvl++) {
-                                container = container.parentElement;
-                                if (!container) break;
-                                const svg = container.querySelector(CONFIG.SELECTORS.MORE_SVG);
-                                if (!svg) continue;
-                                const btn = svg.closest('div[role="button"]');
-                                if (!btn) continue;
-                                postMoreBtn = btn;
-                                break;
-                            }
-
-                            if (!postMoreBtn) continue;
-
+                        for (const { btn: postMoreBtn, link } of postBtns) {
                             if (window.hegeLog) window.hegeLog(`[DIAG] 嘗試貼文「更多」按鈕: ${link.getAttribute('href')}`);
 
                             // 點擊 Post 層的三個點

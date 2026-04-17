@@ -16,5 +16,4 @@ Threads 批量封鎖 Chrome Extension（Manifest V3）。
 - `docs/` — 說明文件
 
 ## 注意事項
-- `src/threads_block_tool.full.js` 是 userscript 完整打包版，不要手動編輯
 - 修改後執行 `bash build.sh` 重新打包

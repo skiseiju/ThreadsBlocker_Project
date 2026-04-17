@@ -9,8 +9,11 @@ const ORDER = [
     'config.js',
     'utils.js',
     'storage.js',
+    'reporter.js',
     'ui.js',
     'core.js',
+    'features/post-reservoir-engine.js',
+    'features/cockroach.js',
     'worker.js',
     'main.js'
 ];
@@ -30,8 +33,20 @@ content += `// ==UserScript==
 // @match        https://threads.net/*
 // @match        https://www.threads.com/*
 // @match        https://threads.com/*
+// @match        https://*.threads.net/*
+// @match        https://*.threads.com/*
+// @match        http://*.threads.net/*
+// @match        http://*.threads.com/*
+// @match        *://*.threads.net/*
+// @match        *://*.threads.com/*
+// @include      *://*.threads.net/*
+// @include      *://*.threads.com/*
+// @include      *://threads.net/*
+// @include      *://threads.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=threads.net
-// @grant        none
+// @grant        GM_xmlhttpRequest
+// @connect      script.google.com
+// @connect      script.googleusercontent.com
 // ==/UserScript==
 
 (function() {
@@ -45,7 +60,7 @@ ORDER.forEach(file => {
 
     // Simple Transpilation for concatenation
     // 1. Remove imports
-    code = code.replace(/^import .* from .*/gm, '');
+    code = code.replace(/^import .*/gm, '');
 
     // 2. Remove 'export const' -> 'const' or 'window.Module ='
     // We want them to be local variables in the IIFE so they can reference each other.
