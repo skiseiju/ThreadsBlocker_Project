@@ -218,9 +218,10 @@ export const Utils = {
     },
 
     openWorkerWindow: () => {
-        const w = window.open('https://www.threads.net/?hege_bg=true', 'HegeBlockWorker', 'width=800,height=600');
+        const workerUrl = `${window.location.origin}/?hege_bg=true`;
+        const w = window.open(workerUrl, 'HegeBlockWorker', 'width=800,height=600');
         if (!w || w.closed) {
-            alert('瀏覽器阻擋了彈出視窗。\n請允許 threads.net 的彈出視窗權限，或手動開啟新分頁前往：\nhttps://www.threads.net/?hege_bg=true');
+            alert(`瀏覽器阻擋了彈出視窗。\n請允許 ${window.location.host} 的彈出視窗權限，或手動開啟新分頁前往：\n${workerUrl}`);
         }
         return w;
     },

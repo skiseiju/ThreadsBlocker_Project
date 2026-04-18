@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.5.3', // Beta
+    VERSION: '2.5.4-beta45', // Beta
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec',
@@ -17,6 +17,8 @@ export const CONFIG = {
     
     DAILY_LIMIT_DEFAULT: 200,
     DAILY_LIMIT_OPTIONS: [50, 100, 150, 200, 250, 300],
+    DAILY_REPORT_LIMIT_DEFAULT: 300,
+    DAILY_REPORT_LIMIT_OPTIONS: [100, 150, 200, 300, 500],
     
     // 深層貼文收割常數 (Task 4)
     POST_SWEEP_BATCH_SIZE: 500,
@@ -42,6 +44,7 @@ export const CONFIG = {
         BG_STATUS: 'hege_bg_status',
         BG_QUEUE: 'hege_active_queue',
         BG_CMD: 'hege_bg_command',
+        WORKER_MODE: 'hege_worker_mode',
         COOLDOWN: 'hege_rate_limit_until',
         POST_FALLBACK: 'hege_post_fallback',
         WORKER_STATS: 'hege_worker_stats',
@@ -69,7 +72,19 @@ export const CONFIG = {
         // Meta 每日安全上限
         DAILY_BLOCK_LIMIT: 'hege_daily_block_limit',
         EMERGENCY_MODE: 'hege_emergency_mode',
+        BLOCK_VISUAL_DEBUG: 'hege_block_visual_debug',
         BLOCK_TIMESTAMPS_RING: 'hege_block_timestamps_ring',
+        REPORT_QUEUE: 'hege_report_queue',
+        REPORT_PATH: 'hege_report_path',
+        REPORT_BATCH_PATH: 'hege_report_batch_path',
+        REPORT_CONTEXT: 'hege_report_context',
+        DAILY_REPORT_LIMIT: 'hege_daily_report_limit',
+        REPORT_TIMESTAMPS_RING: 'hege_report_timestamps_ring',
+        REPORT_VISUAL_DEBUG: 'hege_report_visual_debug',
+        REPORT_BATCH_USERS: 'hege_report_batch_users',
+        REPORT_COMPLETED_USERS: 'hege_report_completed_users',
+        REPORT_KEEP_BLOCK_SELECTION: 'hege_report_keep_block_selection',
+        REPORT_RESTORE_PENDING: 'hege_report_restore_pending',
         
         // Task 2: 大蟑螂
         COCKROACH_DB: 'hege_cockroach_db_v1',
@@ -107,6 +122,7 @@ export const CONFIG = {
     // 跨分頁同步 & 輪詢 invalidate 用的 queue/status key 群組
     SYNC_KEYS: [
         'hege_bg_status',          // BG_STATUS
+        'hege_worker_mode',        // WORKER_MODE
         'hege_block_db_v1',        // DB_KEY
         'hege_active_queue',       // BG_QUEUE
         'hege_rate_limit_until',   // COOLDOWN
@@ -118,6 +134,16 @@ export const CONFIG = {
         'hege_sweep_stopped',
         'hege_block_timestamps',   // DB_TIMESTAMPS
         'hege_block_timestamps_ring', // BLOCK_TIMESTAMPS_RING
+        'hege_block_visual_debug', // BLOCK_VISUAL_DEBUG
+        'hege_report_queue',        // REPORT_QUEUE
+        'hege_report_batch_path',   // REPORT_BATCH_PATH
+        'hege_report_context',      // REPORT_CONTEXT
+        'hege_report_timestamps_ring', // REPORT_TIMESTAMPS_RING
+        'hege_report_visual_debug', // REPORT_VISUAL_DEBUG
+        'hege_report_batch_users',   // REPORT_BATCH_USERS
+        'hege_report_completed_users', // REPORT_COMPLETED_USERS
+        'hege_report_keep_block_selection', // REPORT_KEEP_BLOCK_SELECTION
+        'hege_report_restore_pending', // REPORT_RESTORE_PENDING
     ],
     // 多語系文字偵測（20 國：繁中/簡中/英/日/韓/泰/印尼/西/法/德/義/葡/俄/波蘭/土耳其/越南/阿拉伯/印地/荷蘭/菲律賓）
     BLOCK_TEXTS: ['封鎖', '屏蔽', 'Block', 'ブロック', '차단', 'บล็อก', 'Blokir', 'Bloquear', 'Bloquer', 'Blockieren', 'Blocca', 'Bloquear', 'Заблокировать', 'Zablokuj', 'Engelle', 'Chặn', 'حظر', 'ब्लॉक करें', 'Blokkeren', 'I-block'],
@@ -142,5 +168,45 @@ export const CONFIG = {
         DIALOG: 'div[role="dialog"]',
         DIALOG_HEADER: 'div[role="dialog"] h1',
         DIALOG_USER_LINK: 'div[role="dialog"] div.html-div a[href^="/@"]',
+    },
+
+    REPORT_MENU_TREE: {
+        '這是垃圾訊息': null,
+        '霸凌或擾人的聯繫': {
+            '威脅分享裸照': { ageQuestion: true },
+            '霸凌或騷擾': {
+                '我': { ageQuestion: true },
+                '朋友': { ageQuestion: true },
+                '我不認識對方': { ageQuestion: true },
+            },
+            '垃圾訊息': null,
+        },
+        '暴力、仇恨或剝削': {
+            '對安全構成具體威脅': null,
+            '疑似為恐怖主義或組織犯罪': null,
+            '似乎涉及剝削': {
+                '人口販運': null,
+                '似乎涉及性剝削': { ageQuestion: true },
+            },
+            '仇恨言論或象徵符號': null,
+            '煽動暴力': null,
+            '展示暴力、死亡或重傷畫面': null,
+            '虐待動物': null,
+        },
+        '裸露或性行為': {
+            '威脅分享裸照': { ageQuestion: true },
+            '似乎涉及賣淫': null,
+            '似乎涉及性剝削': { ageQuestion: true },
+            '裸露或性行為': null,
+        },
+        '詐騙或詐欺': {
+            '金融或投資詐騙': null,
+            '身分盜用': null,
+            '銷售虛假商品或服務': null,
+            '生理或心理威脅': null,
+            '可疑或擾人的聯繫': null,
+            '可疑連結': null,
+            '我想減少看到這類內容': null,
+        },
     }
 };

@@ -58,6 +58,7 @@ FILES=(
     "ui.js"
     "core.js"
     "features/post-reservoir-engine.js"
+    "features/report-flow.js"
     "features/cockroach.js"
     "worker.js"
     "main.js"

@@ -1,0 +1,88 @@
+{
+  "L0": "refactor: 消除 5 項功能重複（DB 寫入統一、死碼刪除、helper 提取、選單操作共用、Storage 快取修正），全部完成並 build 通過",
+  "compact_version": "2.0",
+  "timestamp": "2026-04-16T15:09:10Z",
+  "project": {
+    "name": "ThreadsBlocker",
+    "path": "/Volumes/Working 2T/CODE/products/ThreadsBlocker",
+    "tech_stack": ["JavaScript", "Chrome Extension Manifest V3", "Tampermonkey Userscript"],
+    "description": "Threads 批量封鎖瀏覽器擴充功能"
+  },
+  "session_goal": "分析整個 codebase 找出邏輯問題和重複程式碼，討論是否需要重構，然後逐步修復功能重複",
+  "completed": [
+    {
+      "task": "全量程式碼分析（3 個 sonnet agent 平行掃描）",
+      "files": [],
+      "detail": "找出 7 個邏輯 bug、17 項重複程式碼、9 個架構問題，結論是不需要大重構"
+    },
+    {
+      "task": "刪除 addPostTask 死碼",
+      "files": ["src/core.js"],
+      "detail": "core.js 第 545 行的 addPostTask 被第 2327 行覆蓋，是永遠不執行的死碼"
+    },
+    {
+      "task": "提取 buildSkipUsers + filterNewUsers helper，修 pendingUsers bug",
+      "files": ["src/core.js"],
+      "detail": "3 處重複的使用者過濾邏輯統一為 Core.buildSkipUsers/filterNewUsers，修復 handleEndlessSweep 缺少 pendingUsers 和 replyMatch 過濾"
+    },
+    {
+      "task": "統一 DB 寫入到 Storage.addToBlockDB/removeFromBlockDB",
+      "files": ["src/storage.js", "src/core.js", "src/worker.js"],
+      "detail": "core.js saveToDB 和 worker.js 4 處 inline DB 操作統一到 Storage 層，消除 src/reason metadata 格式不一致"
+    },
+    {
+      "task": "提取 findMoreButton + findPostMoreButtons helper",
+      "files": ["src/worker.js"],
+      "detail": "verifyBlock 和 autoBlock 共用的 SVG 偵測和貼文層 DOM 攀爬邏輯提取為共用函式"
+    },
+    {
+      "task": "修正 hegeLog 和 collectDiagnostics 繞過 Storage 快取",
+      "files": ["src/worker.js", "src/core.js"],
+      "detail": "裸 localStorage 呼叫改為 Storage.getJSON/setJSON，避免快取不同步"
+    }
+  ],
+  "in_progress": [],
+  "failed_approaches": [
+    {
+      "attempt": "嘗試用 gemini CLI 做全量分析",
+      "why_failed": "gemini CLI 未安裝",
+      "lesson": "改用多個 sonnet explore agent 平行分析，效果一樣好"
+    }
+  ],
+  "key_decisions": [
+    {
+      "decision": "不做大重構，只在現有架構內整理",
+      "reason": "模組邊界劃分合理（core/ui/worker/utils/storage/config），問題是紀律債不是架構債，且工具操作封鎖真人帳號，大重構引入 regression 風險高",
+      "alternatives_rejected": ["重新設計模組結構", "引入新抽象層"]
+    },
+    {
+      "decision": "DB 操作統一放在 Storage 而非 Core",
+      "reason": "Core 和 Worker 互不引用，都已 import Storage，放 Storage 不新增依賴",
+      "alternatives_rejected": ["讓 Worker import Core 呼叫 saveToDB"]
+    },
+    {
+      "decision": "Log 系統不合併",
+      "reason": "hegeLog 是 worker 操作紀錄、initConsoleInterceptor 是自動攔截，bug report 分開顯示兩個區段",
+      "alternatives_rejected": ["合併為單一 log 系統"]
+    },
+    {
+      "decision": "選單掃描邏輯不提取共用",
+      "reason": "verifyBlock 只讀狀態，autoBlock 需找按鈕+處理方向，需求不同強行合併反而更亂",
+      "alternatives_rejected": ["提取 scanMenuBlockStatus 統一函式"]
+    }
+  ],
+  "user_preferences": [
+    "用 gemini 或 haiku 做實作，主對話只規劃和協調",
+    "做完每一步就測試（build）",
+    "先討論再動手，不盲目重構"
+  ],
+  "key_files": {
+    "src/core.js": "核心業務邏輯（2380 行），新增 buildSkipUsers/filterNewUsers helper",
+    "src/worker.js": "背景封鎖執行（1270 行），新增 findMoreButton/findPostMoreButtons helper",
+    "src/storage.js": "localStorage 抽象層，新增 addToBlockDB/removeFromBlockDB",
+    "src/ui.js": "UI 元件（本次未修改）",
+    "src/config.js": "常數設定（本次未修改）",
+    "build.sh": "完整 build 流程（Chrome/Firefox/Safari/Userscript）"
+  },
+  "handover_context": "ThreadsBlocker 完成功能重複整理：統一了 DB 寫入、使用者過濾、選單偵測的共用邏輯，修了 handleEndlessSweep 的 pendingUsers/replyMatch bug。程式碼分析還發現 7 個未修的邏輯 bug（triggerCooldown 排序失效、addToBatchVerify 抽樣偏移、checkPostQueueWakeup lock 時機等）和多個裸字串未入 CONFIG.KEYS 的問題，這些是下一步可處理的項目。目前版本 2.5.3-beta6，build 全平台通過。"
+}

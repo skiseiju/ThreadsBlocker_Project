@@ -8,6 +8,7 @@ import { Worker } from './worker.js';
 // Side-effect imports: feature files attach methods to Core via Object.assign
 // (Build strips imports and concatenates; this matters for direct ESM dev mode)
 import './features/post-reservoir-engine.js';
+import './features/report-flow.js';
 import './features/cockroach.js';
 
 (function () {
@@ -121,10 +122,18 @@ import './features/cockroach.js';
         Storage.setJSON(CONFIG.KEYS.DELAYED_QUEUE, []);
         Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, []);
         Storage.setJSON(CONFIG.KEYS.BG_STATUS, {});
+        Storage.setJSON(CONFIG.KEYS.REPORT_QUEUE, []);
+        Storage.setJSON(CONFIG.KEYS.REPORT_CONTEXT, {});
+        Storage.setJSON(CONFIG.KEYS.REPORT_BATCH_USERS, []);
+        Storage.setJSON(CONFIG.KEYS.REPORT_COMPLETED_USERS, []);
+        Storage.remove(CONFIG.KEYS.REPORT_RESTORE_PENDING);
 
         Storage.remove(CONFIG.KEYS.COOLDOWN_QUEUE);
         Storage.remove(CONFIG.KEYS.COOLDOWN);
         Storage.remove(CONFIG.KEYS.WORKER_STATS);
+        Storage.remove(CONFIG.KEYS.WORKER_MODE);
+        Storage.remove(CONFIG.KEYS.REPORT_BATCH_PATH);
+        Storage.remove(CONFIG.KEYS.REPORT_KEEP_BLOCK_SELECTION);
         Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
 
         // 清除歷史遺留 key
@@ -159,7 +168,7 @@ import './features/cockroach.js';
         console.log('[留友封] Sweep session 殘留全數清除');
 
         Storage.set(CONFIG.KEYS.VERSION_CHECK, CONFIG.VERSION);
-        console.log(`[留友封] Updated to v${CONFIG.VERSION}. Cleared temporary queues. Migrated delayed queue: ${legacyDelayedQueue.length}`);
+        console.log(`[留友封] Updated to v${CONFIG.VERSION}. Cleared temporary queues and report queue/context. Migrated delayed queue: ${legacyDelayedQueue.length}`);
     }
 
     // Clear stale sweep standby flag from previous session
@@ -256,6 +265,7 @@ import './features/cockroach.js';
 
                             // Directly start worker with restored queue
                             Storage.remove(CONFIG.KEYS.BG_CMD);
+                            Storage.set(CONFIG.KEYS.WORKER_MODE, 'block');
                             if (Utils.isMobile()) {
                                 Core.runSameTabWorker();
                             } else {
@@ -288,6 +298,7 @@ import './features/cockroach.js';
                     const running = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
                     if (!running) {
                         Storage.remove(CONFIG.KEYS.BG_CMD);
+                        Storage.set(CONFIG.KEYS.WORKER_MODE, 'block');
                         Utils.openWorkerWindow();
                     }
                 }
@@ -300,6 +311,68 @@ import './features/cockroach.js';
 
             const callbacks = {
                 onMainClick: handleMainButton,
+                onStartReport: () => {
+                    const pending = Array.from(Core.pendingUsers || new Set());
+                    const existing = Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []);
+
+                    if (pending.length === 0 && existing.length === 0) {
+                        UI.showToast('請先勾選使用者，或在互動名單 dialog 點只檢舉');
+                        return;
+                    }
+
+                    const startWorker = () => {
+                        Storage.remove(CONFIG.KEYS.BG_CMD);
+                        Storage.set(CONFIG.KEYS.WORKER_MODE, 'report');
+                        Storage.remove(CONFIG.KEYS.WORKER_STATS);
+                        if (Utils.isMobile()) {
+                            Core.runSameTabReportWorker();
+                        } else {
+                            Utils.openWorkerWindow();
+                        }
+                    };
+
+                    const enqueueAndStart = (keepBlockSelection) => {
+                        UI.showReportPicker((path) => {
+                            Storage.setJSON(CONFIG.KEYS.REPORT_COMPLETED_USERS, []);
+                            Storage.remove(CONFIG.KEYS.REPORT_RESTORE_PENDING);
+                            Storage.set(CONFIG.KEYS.REPORT_KEEP_BLOCK_SELECTION, keepBlockSelection ? 'true' : 'false');
+                            Storage.set(CONFIG.KEYS.REPORT_BATCH_PATH, JSON.stringify(path));
+                            let added = 0;
+                            pending.forEach(u => {
+                                Core.setReportContext(u, {
+                                    sourceUrl: Storage.getJSON(CONFIG.KEYS.REPORT_CONTEXT, {})[u]?.sourceUrl || Core.findSourcePostUrl(document.body),
+                                    source: 'panel',
+                                    targetType: 'account',
+                                });
+                                if (Storage.queueAddUnique(CONFIG.KEYS.REPORT_QUEUE, u)) added++;
+                            });
+                            const total = Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []).length;
+                            Storage.setJSON(CONFIG.KEYS.REPORT_BATCH_USERS, Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []));
+                            if (pending.length > 0) {
+                                Core.clearPendingUsers(pending);
+                            }
+                            const keepNote = pending.length > 0
+                                ? (keepBlockSelection ? '，完成後回填封鎖清單' : '，不保留封鎖清單')
+                                : '';
+                            Core.updateControllerUI();
+                            UI.showToast(pending.length > 0
+                                ? `已加入 ${added} 人進檢舉佇列（共 ${total} 筆）${keepNote}，啟動 worker`
+                                : `已選擇檢舉項目，啟動佇列內 ${existing.length} 筆`);
+                            startWorker();
+                        });
+                    };
+
+                    if (pending.length > 0) {
+                        UI.showConfirm(
+                            '檢舉完後要保留封鎖清單嗎？\n\n按「保留」：檢舉完後可以再手動封鎖\n按「不保留」：只檢舉，啟動後清掉所有清單',
+                            () => enqueueAndStart(true),
+                            () => enqueueAndStart(false),
+                            { confirm: '保留', cancel: '不保留' }
+                        );
+                    } else {
+                        enqueueAndStart(true);
+                    }
+                },
                 onClearSel: () => {
                     UI.showConfirm('確定要清除目前的「選取清單」與所有「背景排隊」的帳號嗎？\n(這不會影響已完成的封鎖歷史紀錄)', () => {
                         Core.pendingUsers.clear();
@@ -307,13 +380,20 @@ import './features/cockroach.js';
                         Storage.setJSON(CONFIG.KEYS.BG_QUEUE, []);
                         Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, []);
                         Storage.setJSON(CONFIG.KEYS.BG_STATUS, {});
+                        Storage.setJSON(CONFIG.KEYS.REPORT_QUEUE, []);
+                        Storage.setJSON(CONFIG.KEYS.REPORT_CONTEXT, {});
+                        Storage.setJSON(CONFIG.KEYS.REPORT_BATCH_USERS, []);
+                        Storage.setJSON(CONFIG.KEYS.REPORT_COMPLETED_USERS, []);
+                        Storage.remove(CONFIG.KEYS.REPORT_BATCH_PATH);
+                        Storage.remove(CONFIG.KEYS.REPORT_KEEP_BLOCK_SELECTION);
+                        Storage.remove(CONFIG.KEYS.REPORT_RESTORE_PENDING);
                         Core.blockQueue.forEach(b => {
                             const cb = b.parentElement.querySelector('.hege-checkbox-container');
                             if (cb) cb.classList.remove('checked');
                         });
                         Core.blockQueue.clear();
                         Core.updateControllerUI();
-                        UI.showToast('待封鎖清單與背景佇列已全數清除');
+                        UI.showToast('待封鎖、待檢舉與背景佇列已全數清除');
                     });
                 },
                 onEndlessQueue: () => UI.showPostReservoir({
@@ -346,16 +426,42 @@ import './features/cockroach.js';
 
             const panel = UI.createPanel(callbacks);
 
+            const syncCompletedReportSelection = () => {
+                const completedUsers = Storage.getJSON(CONFIG.KEYS.REPORT_COMPLETED_USERS, []);
+                if (completedUsers.length === 0) return;
+                const keepBlockSelection = Storage.get(CONFIG.KEYS.REPORT_KEEP_BLOCK_SELECTION, 'true') !== 'false';
+                if (keepBlockSelection) {
+                    Core.restorePendingUsers(completedUsers);
+                } else {
+                    Core.clearPendingUsers(completedUsers);
+                }
+            };
+            const syncReportRestorePending = () => {
+                const payload = Storage.getJSON(CONFIG.KEYS.REPORT_RESTORE_PENDING, {});
+                const users = Array.isArray(payload.users) ? payload.users : [];
+                if (users.length === 0) return;
+                Core.restorePendingUsers(users);
+                Storage.remove(CONFIG.KEYS.REPORT_RESTORE_PENDING);
+            };
+
             // Sync Logic (Restored from beta46)
             const syncKeySet = new Set(CONFIG.SYNC_KEYS);
             window.addEventListener('storage', (e) => {
                 if (syncKeySet.has(e.key)) {
                     Storage.invalidate(e.key); // Force cache clear so getJSON fetches fresh data
+                    if (e.key === CONFIG.KEYS.REPORT_COMPLETED_USERS) {
+                        Storage.invalidate(CONFIG.KEYS.REPORT_KEEP_BLOCK_SELECTION);
+                        syncCompletedReportSelection();
+                    } else if (e.key === CONFIG.KEYS.REPORT_RESTORE_PENDING) {
+                        syncReportRestorePending();
+                    }
                     Core.updateControllerUI();
                 }
             });
             setInterval(() => {
                 Storage.invalidateMulti(CONFIG.SYNC_KEYS);
+                syncReportRestorePending();
+                syncCompletedReportSelection();
                 Core.updateControllerUI();
             }, 2000); // Polling backup
 

@@ -1,0 +1,73 @@
+{
+  "L0": "feat(seo): 為 threadsblocker.skiseiju.com 和 skiseiju.com 補上 sitemap.xml/robots.txt 並部署完成",
+  "compact_version": "2.0",
+  "timestamp": "2026-04-15T18:00:00+08:00",
+  "project": {
+    "name": "ThreadsBlocker",
+    "path": "/Volumes/Working 2T/CODE/products/ThreadsBlocker",
+    "tech_stack": ["JavaScript", "Chrome Extension MV3", "Tampermonkey Userscript"],
+    "description": "Threads 批量封鎖 Chrome/Firefox/Safari 擴充套件"
+  },
+  "session_goal": "查看 v2.5.2 changelog、了解定點絕功能、修復 Google 搜不到產品網站的 SEO 問題",
+  "completed": [
+    {
+      "task": "建立 threadsblocker.skiseiju.com 的 sitemap.xml、robots.txt、_headers、_redirects",
+      "files": ["site/sitemap.xml", "site/robots.txt", "site/_headers", "site/_redirects"],
+      "detail": "CF Pages 需要 _headers 指定 XML content-type，_redirects 避免 SPA fallback 攔截靜態檔案"
+    },
+    {
+      "task": "建立 skiseiju.com 的 sitemap.xml、robots.txt 並部署到 Linode",
+      "files": ["/Volumes/Working 2T/CODE/infra/linode/linode-maintain/sitemap.xml", "/Volumes/Working 2T/CODE/infra/linode/linode-maintain/robots.txt"],
+      "detail": "SCP 到 Linode /home/wwwroot/skiseiju.com/，nginx 加上 sitemap XML MIME type 並 reload"
+    },
+    {
+      "task": "手動 wrangler deploy threadsblocker CF Pages",
+      "files": [],
+      "detail": "wrangler pages deploy site/ --project-name=threadsblocker，驗證 sitemap 回傳 application/xml"
+    },
+    {
+      "task": "merge feature/dialog-checkbox 到 main 並 push",
+      "files": [],
+      "detail": "包含 Safari 安裝教學 UI、SEO 檔案、core.js 修改"
+    }
+  ],
+  "in_progress": [],
+  "failed_approaches": [
+    {
+      "attempt": "git push origin main 以為會觸發 CF Pages 自動部署",
+      "why_failed": "threadsblocker CF Pages 的 Git Provider 是 No，不連 GitHub，只能手動 wrangler deploy",
+      "lesson": "先用 wrangler pages project list 查部署方式，不要假設是 GitHub 自動部署"
+    },
+    {
+      "attempt": "把 sitemap.xml 放到 repo 根目錄試圖讓 CF Pages 讀到",
+      "why_failed": "CF Pages build output 是 site/，根目錄的檔案不會被部署",
+      "lesson": "靜態檔案要放在 build output directory（site/）內"
+    }
+  ],
+  "key_decisions": [
+    {
+      "decision": "skiseiju.com 的 nginx 加 location ~* sitemap\\.xml$ { default_type application/xml; }",
+      "reason": "nginx 預設把 .xml 當 text/html 回傳，Google Search Console 會拒絕",
+      "alternatives_rejected": ["在 mime.types 全域改"]
+    },
+    {
+      "decision": "CF Pages 用 _redirects 明確指定 sitemap.xml 和 robots.txt 為靜態路由",
+      "reason": "CF Pages SPA fallback 會攔截所有未知路徑回傳 index.html",
+      "alternatives_rejected": ["只用 _headers"]
+    }
+  ],
+  "user_preferences": [
+    "不要反覆問問題，自己查清楚再動手",
+    "部署相關任務要一次做完：查部署方式 → 建檔 → 部署 → 驗證",
+    "台灣繁體中文"
+  ],
+  "key_files": {
+    "site/index.html": "產品網站首頁（含 Safari 安裝教學）",
+    "site/sitemap.xml": "Google SEO sitemap",
+    "site/robots.txt": "搜尋引擎爬蟲指引",
+    "site/_headers": "CF Pages 自訂 response header（XML MIME type）",
+    "site/_redirects": "CF Pages 路由規則（避免 SPA fallback 攔截靜態檔案）",
+    "push.sh": "發布腳本（build + commit + push + CWS 上傳），不含 CF Pages deploy"
+  },
+  "handover_context": "ThreadsBlocker 產品網站的 SEO 已完成：sitemap.xml 和 robots.txt 已部署到 CF Pages（threadsblocker.skiseiju.com）和 Linode（skiseiju.com），Google Search Console 可提交。注意 CF Pages 是手動 wrangler deploy，git push 不會自動部署。建議下一步：考慮在 push.sh 中加入 wrangler pages deploy 步驟。"
+}

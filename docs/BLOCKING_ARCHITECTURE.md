@@ -83,14 +83,15 @@ location.reload();
 ### 流程
 
 1. 將 `pendingUsers` 合併至 `BG_QUEUE`
-2. `window.open('https://www.threads.net/?hege_bg=true', ...)` 開啟新分頁
+2. `window.open(<current-origin>/?hege_bg=true, ...)` 開啟同網域新分頁
 3. 新分頁載入 → `Worker.init()` → `Worker.runStep()` 循環
 4. Worker 顯示進度 UI（與 Mobile 相同的進度條、ETA、統計、停止按鈕）
-5. Worker 以 `window.location.href` 逐一跳轉（Desktop 不受 Universal Links 影響）
+5. Worker 以同網域路徑逐一跳轉（Desktop 不受 Universal Links 影響）
 6. 完成後 `window.close()` 關閉分頁
 
 ### 跨分頁通訊
 
+- Worker 必須與主分頁維持同一個 origin，避免 `threads.com` / `threads.net` 的 localStorage 設定與 queue 分裂
 - Worker 透過 `localStorage` (BG_STATUS, BG_QUEUE, FAILED_QUEUE) 與主分頁同步狀態
 - 主分頁透過 `window.addEventListener('storage', ...)` + `setInterval` 輪詢更新 UI
 - 監聯的 key 包含：`BG_STATUS`, `DB_KEY`, `BG_QUEUE`, `COOLDOWN`, `COOLDOWN_QUEUE`, `FAILED_QUEUE`
@@ -99,24 +100,29 @@ location.reload();
 
 ## 其他觸發封鎖的入口
 
-### 同列全封 (`handleBlockAll`)
+### 清理名單 Picker (`handleCleanList`)
 
 **檔案**：`core.js:injectDialogBlockAll`
-**行為**：將對話框（如「貼文動態」、「讚」）中的所有使用者加入 `pendingUsers`
-**不直接執行封鎖**，使用者需回到面板點擊「開始封鎖」
+**行為**：互動名單 dialog 只注入一顆「清理名單」，點擊後開啟多選 picker。
+
+Picker 目前包含兩個動作：
+- 收集整串名單做封鎖或檢舉：自動捲完整個互動 dialog，將整串使用者同時加入 `pendingUsers` 與 `REPORT_QUEUE`；不在 dialog 選檢舉項目，需回到面板點擊「開始檢舉」才會選路徑並啟動 worker
+- 定點絕（定期封鎖）：將目前貼文加入貼文水庫/定點絕排程
+
+「收集整串名單做封鎖或檢舉」只負責加入清單，不直接執行 worker；使用者需回到面板點擊「開始封鎖」或「開始檢舉」。
 
 #### iOS 觸控事件處理
 
 ```javascript
 // Mobile: touchstart + touchend 搭配 preventDefault
-blockAllBtn.addEventListener('touchend', (e) => {
+cleanListBtn.addEventListener('touchend', (e) => {
     e.stopPropagation();
     e.preventDefault(); // 防止合成 click 觸發 Universal Links
-    handleBlockAll(e);
+    handleCleanList(e);
 }, { passive: false });
 
 // Desktop: 原生 click
-blockAllBtn.addEventListener('click', handleBlockAll);
+cleanListBtn.addEventListener('click', handleCleanList);
 ```
 
 ### 重試失敗清單 (`retryFailedQueue`)

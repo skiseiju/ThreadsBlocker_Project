@@ -1,0 +1,86 @@
+{
+  "L0": "ThreadsBlocker 2.5.4-beta36 四件優化：Activity dialog 切按讚 tab + 愛心 row filter、可視化開關走 URL query、scheduleNext 延遲縮短、keepWorkerOpenOnError 改 false（全部完成並 build）",
+  "compact_version": "2.0",
+  "timestamp": "2026-04-18T08:01:46Z",
+  "project": {
+    "name": "ThreadsBlocker",
+    "path": "/Volumes/Working 2T/CODE/products/ThreadsBlocker",
+    "tech_stack": ["JavaScript", "Chrome Extension Manifest V3", "Tampermonkey Userscript"],
+    "description": "Threads 批量封鎖/檢舉工具，支援 extension + userscript 雙版本"
+  },
+  "session_goal": "修掉使用者回報的四個痛點：同列全封會掃到轉發引用者、可視化開關關不掉、每個檢舉完要等很久、找不到 menu 就卡死",
+  "completed": [
+    {
+      "task": "Activity dialog 自動切到『按讚內容』子 tab（第一層防線）",
+      "files": ["src/core.js"],
+      "detail": "collectFullDialogUsers 開頭偵測 CONFIG.ACTIVITY_TEXTS，是 Activity dialog 就呼叫 Core.SweepDriver.findLikesTab 切 tab 並 getTopContext 重拿 ctx"
+    },
+    {
+      "task": "愛心 SVG row filter（第二層防線）",
+      "files": ["src/core.js"],
+      "detail": "collectFullDialogUsers 回傳前，Activity dialog 情境下對每個 user link 往上找 row 祖先，驗證含 svg[viewBox='0 0 18 18'] path[d*='8.33956']，沒愛心的排除；結果為 0 時 fallback 回未過濾避免誤殺"
+    },
+    {
+      "task": "可視化開關改走 URL query 避免跨 .com/.net localStorage 失效",
+      "files": ["src/utils.js", "src/worker.js"],
+      "detail": "utils.js:220-227 開 worker 時塞 visual=0/1；worker.js:383-391 isReportVisualDebugEnabled 優先讀 URL query，localStorage 當 fallback"
+    },
+    {
+      "task": "scheduleNext 延遲從 5-8 秒縮短到 300-600ms",
+      "files": ["src/features/report-flow.js"],
+      "detail": "line 421-425 delay 從 5000+random(3000) 改成 300+random(300)"
+    },
+    {
+      "task": "keepWorkerOpenOnError 改 false，worker 不再卡住",
+      "files": ["src/worker.js"],
+      "detail": "line 850 和 893 兩處硬編碼 true 改 false，skipOrPauseForDebug 走 skip 分支而非 pause，找不到 menu 自動 removeCurrent + scheduleNext 跑下一個"
+    }
+  ],
+  "in_progress": [],
+  "failed_approaches": [
+    {
+      "attempt": "一開始以為 Threads 互動 dialog 都是分 tab（讚/轉發/引用），建議切 tab 就能解決",
+      "why_failed": "使用者指出『查看動態』(Activity) 頁是混合列表，不分 tab",
+      "lesson": "Threads 互動 dialog 至少兩種形態：貼文底下分 tab 的 dialog，和側邊『查看動態』的混合 Activity dialog；需要 row 層級過濾才穩"
+    }
+  ],
+  "key_decisions": [
+    {
+      "decision": "切 tab + 愛心 filter 兩層防線並存，不二擇一",
+      "reason": "切 tab 對有『按讚內容』子 tab 的 Activity dialog 有效；row filter 對沒有子 tab 或切 tab 失敗的情境救場",
+      "alternatives_rejected": ["只做切 tab（怕沒子 tab 的 dialog）", "只做 row filter（切 tab 能一次處理大範圍更快）"]
+    },
+    {
+      "decision": "愛心 SVG selector 用 path[d*='8.33956'] 子字串比對",
+      "reason": "比 d^='M5 8.33956' 寬鬆一點，Threads 改 path 開頭不會立刻壞；8.33956 是愛心曲線特徵數字幾乎不重複",
+      "alternatives_rejected": ["嚴格前綴比對", "aria-label 比對（Threads 這個 SVG 沒 label）"]
+    },
+    {
+      "decision": "可視化開關用 URL query 而非 postMessage / BroadcastChannel",
+      "reason": "URL query 不依賴 localStorage 跨域、不依賴父子視窗通訊，worker 開起來當下讀一次就定案",
+      "alternatives_rejected": ["BroadcastChannel（一個開關不值得）", "window.opener.localStorage（cross-origin 被擋）", "把 worker default 改 false（改不動原行為）"]
+    },
+    {
+      "decision": "Task 4 不加 retry，只改 keepWorkerOpenOnError 旗標",
+      "reason": "findMoreButton 內部 pollUntil 已等 12 秒，暫時性問題多半被吸收；真正找不到就 skip 比 retry 更乾脆",
+      "alternatives_rejected": ["失敗後 reload 頁面 retry", "失敗後 sleep 再掃一次"]
+    }
+  ],
+  "user_preferences": [
+    "Opus 只決策派工，不自己 Read/Write/Edit；寫程式派 Haiku（≤30 行）或 Codex（>30 行）",
+    "多任務拆多個 Haiku 並行，不 bundle 給單一 Codex",
+    "改動完執行 bash build.sh 重新打包（目前維持 --no-bump）",
+    "工作樹本來就有大量既有改動，diff 不要整份 revert",
+    "台灣繁體中文，不要用簡中/中國用語"
+  ],
+  "key_files": {
+    "src/core.js": "Core 物件定義處，含 collectFullDialogUsers（清理名單主掃描函式）",
+    "src/features/report-flow.js": "檢舉流程 report-flow，processNext/scheduleNext/skipOrPauseForDebug 主迴圈",
+    "src/features/post-reservoir-engine.js": "SweepDriver 定義處，含 findLikesTab 可被 core.js 重用",
+    "src/worker.js": "小視窗 worker，runStep 狀態機 + 可視化開關讀取 + processNext 兩處 options 設定",
+    "src/utils.js": "openWorkerWindow 等 helper，含 workerUrl 組裝點",
+    "src/config.js": "所有 CONFIG.KEYS 與多語系常數（ACTIVITY_TEXTS / LIKES_TAB_TEXTS 等）",
+    "src/ui.js": "設定 menu、toggle 寫入 storage 的位置"
+  },
+  "handover_context": "ThreadsBlocker 2.5.4-beta36 剛做完四件功能修正並 build + 同步 iCloud userscript。下一步：使用者實測四個 golden path（可視化開關關掉、查看動態清理名單只抓按讚者、檢舉換人速度、找不到 menu 自動跳過）。若通過可 bump 到 beta37，若 selector 或 findLikesTab 失效需要看 console 錯誤再決定修法。工作樹有既有未 commit 改動，接手時看 git diff 不要整份 revert。"
+}

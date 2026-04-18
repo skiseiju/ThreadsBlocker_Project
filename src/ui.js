@@ -38,6 +38,30 @@ export const UI = {
             .hege-block-all-btn:active { transform: scale(0.95); }
             .hege-block-all-btn svg { width: 16px; height: 16px; }
 
+            .hege-clean-list-btn {
+                display: flex; align-items: center; justify-content: center;
+                gap: 6px; padding: 6px 12px; margin-left: 12px;
+                background-color: rgba(48, 209, 88, 0.12); color: #30d158;
+                border: 1px solid rgba(48, 209, 88, 0.35); border-radius: 16px;
+                font-size: 14px; font-weight: bold; cursor: pointer;
+                transition: all 0.2s;
+            }
+            .hege-clean-list-btn:hover { background-color: rgba(48, 209, 88, 0.22); }
+            .hege-clean-list-btn:active { transform: scale(0.95); }
+            .hege-clean-list-btn svg { width: 16px; height: 16px; }
+
+            .hege-report-only-btn {
+                display: flex; align-items: center; justify-content: center;
+                gap: 6px; padding: 6px 12px; margin-left: 8px;
+                background-color: rgba(255, 149, 0, 0.12); color: #ff9500;
+                border: 1px solid rgba(255, 149, 0, 0.35); border-radius: 16px;
+                font-size: 14px; font-weight: bold; cursor: pointer;
+                transition: all 0.2s;
+            }
+            .hege-report-only-btn:hover { background-color: rgba(255, 149, 0, 0.22); }
+            .hege-report-only-btn:active { transform: scale(0.95); }
+            .hege-report-only-btn svg { width: 16px; height: 16px; }
+
             #hege-panel {
                 position: fixed; z-index: 2147483647;
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -69,6 +93,12 @@ export const UI = {
                  box-shadow: 0 4px 20px rgba(0,0,0,0.6);
                  overflow: hidden;
                  display: flex; flex-direction: column;
+            }
+            #hege-panel.opens-up:not(.minimized) .hege-content {
+                 top: auto;
+                 bottom: 100%;
+                 margin-top: 0;
+                 margin-bottom: 8px;
             }
 
             .hege-menu-item {
@@ -123,6 +153,24 @@ export const UI = {
                 padding: 0; width: 90%; max-width: 500px; max-height: 80vh;
                 color: #f5f5f5; display: flex; flex-direction: column;
                 box-shadow: 0 20px 60px rgba(0,0,0,0.8); overflow: hidden;
+            }
+            .hege-settings-box {
+                max-height: calc(100vh - 24px);
+                max-height: calc(100dvh - 24px);
+            }
+            .hege-settings-content {
+                flex: 1;
+                min-height: 0;
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            @media (max-height: 720px) {
+                .hege-settings-box { max-height: calc(100vh - 12px); max-height: calc(100dvh - 12px); }
+                .hege-settings-content { padding: 12px !important; gap: 10px !important; }
+                .hege-settings-box .hege-menu-item { padding: 10px 12px; }
+            }
+            @media (max-width: 640px) {
+                .hege-settings-content { grid-template-columns: 1fr !important; }
             }
             .hege-manager-header {
                 padding: 20px 24px; border-bottom: 1px solid #333;
@@ -200,6 +248,11 @@ export const UI = {
                     <span class="status" id="hege-sel-count">0 選取</span>
                 </div>
 
+                <div class="hege-menu-item" id="hege-report-btn-item">
+                    <span>🚨 開始檢舉</span>
+                    <span class="status" id="hege-report-count">0 筆</span>
+                </div>
+
                 <div class="hege-menu-item" id="hege-clear-sel-item">
                     <span>清除選取</span>
                 </div>
@@ -217,7 +270,7 @@ export const UI = {
                 <div class="hege-menu-item" id="hege-settings-item">
                     <span style="display:flex; align-items:center; gap:6px;">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-                        設定
+                        <span id="hege-settings-title-text">設定</span>
                     </span>
                 </div>
 
@@ -247,6 +300,7 @@ export const UI = {
         };
 
         bindClick('hege-main-btn-item', callbacks.onMainClick);
+        bindClick('hege-report-btn-item', callbacks.onStartReport);
         bindClick('hege-clear-sel-item', callbacks.onClearSel);
         bindClick('hege-retry-failed-item', callbacks.onRetryFailed);
         bindClick('hege-endless-queue-item', callbacks.onEndlessQueue);
@@ -336,6 +390,10 @@ export const UI = {
             // Visibility Check: Ensure the anchor is actually visible
             if (rect.width > 0 && rect.height > 0 && rect.top >= 0) {
                 panel.style.top = (rect.top) + 'px';
+                const headerHeight = panel.querySelector('#hege-header')?.offsetHeight || 38;
+                const contentHeight = panel.querySelector('.hege-content')?.scrollHeight || 360;
+                const needsOpenUp = rect.top + headerHeight + contentHeight + 12 > window.innerHeight;
+                panel.classList.toggle('opens-up', needsOpenUp);
                 let rightVal = window.innerWidth - rect.left + 5;
                 rightVal = rightVal - 3;
                 if (window.innerWidth < 450) {
@@ -373,7 +431,7 @@ export const UI = {
         }
     },
 
-    showConfirm: (message, onConfirm, onCancel) => {
+    showConfirm: (message, onConfirm, onCancel, labels = {}) => {
         const existing = document.getElementById('hege-confirm-overlay');
         if (existing) existing.remove();
 
@@ -382,6 +440,8 @@ export const UI = {
         overlay.className = 'hege-manager-overlay';
 
         const safeMsg = Utils.escapeHTML(message).replace(/\n/g, '<br>');
+        const cancelLabel = Utils.escapeHTML(labels.cancel || '取消');
+        const confirmLabel = Utils.escapeHTML(labels.confirm || '確認繼續');
         overlay.innerHTML = `
             <div class="hege-manager-box" style="max-width:420px;">
                 <div class="hege-manager-header">
@@ -390,8 +450,8 @@ export const UI = {
                 <div style="padding:20px;font-size:14px;line-height:1.7;color:#ccc;">${safeMsg}</div>
                 <div class="hege-manager-footer">
                     <div style="display:flex;gap:12px;width:100%;justify-content:flex-end;">
-                        <button class="hege-manager-btn secondary" id="hege-confirm-cancel">取消</button>
-                        <button class="hege-manager-btn primary" id="hege-confirm-ok">確認繼續</button>
+                        <button class="hege-manager-btn secondary" id="hege-confirm-cancel">${cancelLabel}</button>
+                        <button class="hege-manager-btn primary" id="hege-confirm-ok">${confirmLabel}</button>
                     </div>
                 </div>
             </div>
@@ -516,6 +576,190 @@ export const UI = {
         };
     },
 
+    showReportPicker: (callback, options = {}) => {
+        const existing = document.getElementById('hege-report-picker-overlay');
+        if (existing) existing.remove();
+
+        const confirmLabel = Utils.escapeHTML(options.confirmLabel || '確定執行');
+        const defaultReportPath = ['這是垃圾訊息'];
+        const normalizeReportPath = (path) => {
+            const source = Array.isArray(path) && path.length > 0 ? path : defaultReportPath;
+            const ageChoice = source.includes('是') ? '是' : '否';
+            const out = [];
+            let node = CONFIG.REPORT_MENU_TREE;
+
+            while (node && typeof node === 'object') {
+                if (node.ageQuestion === true) {
+                    out.push(ageChoice);
+                    break;
+                }
+                const options = Object.keys(node).filter(k => k !== 'ageQuestion');
+                if (options.length === 0) break;
+                const idx = out.length;
+                const selected = options.includes(source[idx]) ? source[idx] : options[0];
+                out.push(selected);
+                node = node[selected];
+            }
+
+            return out;
+        };
+
+        let reportPath = normalizeReportPath(Storage.getJSON(CONFIG.KEYS.REPORT_PATH, defaultReportPath));
+        const overlay = document.createElement('div');
+        overlay.id = 'hege-report-picker-overlay';
+        overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.72); z-index:2147483647; display:flex; align-items:center; justify-content:center; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
+        overlay.innerHTML = `
+            <div style="width:min(420px, calc(100vw - 32px)); background:#181818; color:#f5f5f5; border:1px solid #333; border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,0.55); overflow:hidden;">
+                <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid #2a2a2a;">
+                    <div style="font-size:15px; font-weight:700;">選擇檢舉項目</div>
+                    <button id="hege-report-picker-close" style="background:transparent; border:0; color:#999; font-size:22px; line-height:1; cursor:pointer; padding:0 4px;">×</button>
+                </div>
+                <div id="hege-report-picker-controls" style="display:flex; flex-direction:column; gap:10px; padding:16px;"></div>
+                <div style="display:flex; justify-content:flex-end; gap:10px; padding:12px 16px; border-top:1px solid #2a2a2a;">
+                    <button class="hege-manager-btn secondary" id="hege-report-picker-cancel">取消</button>
+                    <button class="hege-manager-btn primary" id="hege-report-picker-confirm">${confirmLabel}</button>
+                </div>
+            </div>
+        `;
+
+        const controls = overlay.querySelector('#hege-report-picker-controls');
+        const close = () => overlay.remove();
+        const render = () => {
+            reportPath = normalizeReportPath(reportPath);
+            controls.innerHTML = '';
+            let node = CONFIG.REPORT_MENU_TREE;
+            let depth = 0;
+
+            while (node && typeof node === 'object') {
+                const label = document.createElement('label');
+                label.style.cssText = 'display:flex; flex-direction:column; gap:6px; font-size:12px; color:#aaa;';
+                const text = document.createElement('span');
+                const select = document.createElement('select');
+                select.dataset.level = String(depth);
+                select.style.cssText = 'width:100%; box-sizing:border-box; background:#111; border:1px solid #444; color:#f5f5f5; padding:9px 10px; border-radius:8px; font-size:13px; outline:none;';
+
+                if (node.ageQuestion === true) {
+                    text.textContent = '是否未滿 18 歲';
+                    ['否', '是'].forEach(v => {
+                        const option = document.createElement('option');
+                        option.value = v;
+                        option.textContent = v;
+                        select.appendChild(option);
+                    });
+                    select.value = reportPath[depth] === '是' ? '是' : '否';
+                    select.onchange = () => {
+                        reportPath[depth] = select.value;
+                        reportPath = normalizeReportPath(reportPath);
+                    };
+                    label.appendChild(text);
+                    label.appendChild(select);
+                    controls.appendChild(label);
+                    break;
+                }
+
+                const options = Object.keys(node).filter(k => k !== 'ageQuestion');
+                if (options.length === 0) break;
+
+                text.textContent = depth === 0 ? '大類' : '子類';
+                options.forEach(v => {
+                    const option = document.createElement('option');
+                    option.value = v;
+                    option.textContent = v;
+                    select.appendChild(option);
+                });
+                select.value = options.includes(reportPath[depth]) ? reportPath[depth] : options[0];
+                select.onchange = () => {
+                    const level = parseInt(select.dataset.level, 10);
+                    reportPath = reportPath.slice(0, level);
+                    reportPath[level] = select.value;
+                    reportPath = normalizeReportPath(reportPath);
+                    render();
+                };
+                label.appendChild(text);
+                label.appendChild(select);
+                controls.appendChild(label);
+
+                node = node[select.value];
+                depth++;
+            }
+        };
+
+        overlay.querySelector('#hege-report-picker-close').onclick = close;
+        overlay.querySelector('#hege-report-picker-cancel').onclick = close;
+        overlay.querySelector('#hege-report-picker-confirm').onclick = () => {
+            const path = normalizeReportPath(reportPath);
+            close();
+            if (typeof callback === 'function') callback(path);
+        };
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) close();
+        });
+
+        document.body.appendChild(overlay);
+        render();
+    },
+
+    showCleanListPicker: (callback) => {
+        const existing = document.getElementById('hege-clean-list-picker-overlay');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'hege-clean-list-picker-overlay';
+        overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.72); z-index:2147483647; display:flex; align-items:center; justify-content:center; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
+        overlay.innerHTML = `
+            <div style="width:min(440px, calc(100vw - 32px)); background:#181818; color:#f5f5f5; border:1px solid #333; border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,0.55); overflow:hidden;">
+                <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid #2a2a2a;">
+                    <div style="font-size:15px; font-weight:700;">清理名單</div>
+                    <button id="hege-clean-list-picker-close" style="background:transparent; border:0; color:#999; font-size:22px; line-height:1; cursor:pointer; padding:0 4px;">×</button>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:12px; padding:16px;">
+                    <div style="font-size:11px;color:#777;font-weight:700;letter-spacing:1px;">整串互動名單</div>
+                    <label style="display:flex; align-items:flex-start; gap:10px; padding:10px; border:1px solid #333; border-radius:8px; background:#111; cursor:pointer;">
+                        <input type="checkbox" id="hege-clean-list-collect" style="width:16px;height:16px;margin-top:2px;">
+                        <span style="display:flex; flex-direction:column; gap:3px;">
+                            <span style="font-size:13px;font-weight:700;color:#fff;">收集整串名單做封鎖或檢舉</span>
+                            <span style="font-size:11px;color:#888;line-height:1.35;">自動捲完整個互動 dialog，把整串帳號同時加入封鎖選取與檢舉清單。</span>
+                        </span>
+                    </label>
+                    <div style="height:1px;background:#2a2a2a;"></div>
+                    <div style="font-size:11px;color:#777;font-weight:700;letter-spacing:1px;">整篇貼文</div>
+                    <label style="display:flex; align-items:flex-start; gap:10px; padding:10px; border:1px solid #333; border-radius:8px; background:#111; cursor:pointer;">
+                        <input type="checkbox" id="hege-clean-list-endless" style="width:16px;height:16px;margin-top:2px;">
+                        <span style="display:flex; flex-direction:column; gap:3px;">
+                            <span style="font-size:13px;font-weight:700;color:#fff;">定點絕（定期封鎖）</span>
+                            <span style="font-size:11px;color:#888;line-height:1.35;">把目前貼文加入定點絕排程。</span>
+                        </span>
+                    </label>
+                </div>
+                <div style="display:flex; justify-content:flex-end; gap:10px; padding:12px 16px; border-top:1px solid #2a2a2a;">
+                    <button class="hege-manager-btn secondary" id="hege-clean-list-picker-cancel">取消</button>
+                    <button class="hege-manager-btn primary" id="hege-clean-list-picker-confirm">確定加入清單</button>
+                </div>
+            </div>
+        `;
+
+        const close = () => overlay.remove();
+        overlay.querySelector('#hege-clean-list-picker-close').onclick = close;
+        overlay.querySelector('#hege-clean-list-picker-cancel').onclick = close;
+        overlay.querySelector('#hege-clean-list-picker-confirm').onclick = () => {
+            const actions = {
+                collect: !!overlay.querySelector('#hege-clean-list-collect')?.checked,
+                endless: !!overlay.querySelector('#hege-clean-list-endless')?.checked,
+            };
+            if (!actions.collect && !actions.endless) {
+                UI.showToast('請至少選一個清理動作');
+                return;
+            }
+            close();
+            if (typeof callback === 'function') callback(actions);
+        };
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) close();
+        });
+
+        document.body.appendChild(overlay);
+    },
+
     showSettingsModal: (callbacks) => {
         if (document.getElementById('hege-settings-overlay')) return;
 
@@ -526,7 +770,7 @@ export const UI = {
         overlay.className = 'hege-manager-overlay';
 
         overlay.innerHTML = `
-            <div class="hege-manager-box" style="max-width: 660px; width: 90vw;">
+            <div class="hege-manager-box hege-settings-box" style="max-width: 760px; width: 92vw;">
                 <div class="hege-manager-header">
                     <span class="hege-manager-title" style="display:flex; align-items:center; gap:6px;">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -536,14 +780,63 @@ export const UI = {
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
                     </span>
                 </div>
-                <div style="padding: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start;">
+                <div class="hege-settings-content" style="padding: 16px; display:block;">
+                    <div data-hege-settings-view-panel="home" style="display:flex; flex-direction:column; gap:14px;">
+                        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px;">
+                            <div class="hege-menu-item" data-hege-settings-open="data" style="border:1px solid #2d2d2d; border-radius:8px; min-height:112px; align-items:flex-start; flex-direction:column; gap:7px;">
+                                <span style="font-size:14px;font-weight:700;">資料與工具</span>
+                                <span style="font-size:11px;color:#888;line-height:1.4;">已封鎖、分析、匯入匯出、名單工具與貼文水庫</span>
+                            </div>
+                            <div class="hege-menu-item" data-hege-settings-open="block" style="border:1px solid #2d2d2d; border-radius:8px; min-height:112px; align-items:flex-start; flex-direction:column; gap:7px;">
+                                <span style="font-size:14px;font-weight:700;">封鎖設定</span>
+                                <span style="font-size:11px;color:#888;line-height:1.4;">完整收集、速度、每日上限、緊急模式、定點絕設定</span>
+                            </div>
+                            <div class="hege-menu-item" data-hege-settings-open="report" style="border:1px solid #2d2d2d; border-radius:8px; min-height:112px; align-items:flex-start; flex-direction:column; gap:7px;">
+                                <span style="font-size:14px;font-weight:700;">檢舉設定</span>
+                                <span style="font-size:11px;color:#888;line-height:1.4;">每日上限、預設路徑、流程可視化</span>
+                            </div>
+                        </div>
 
-                    <!-- 左欄 -->
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <div style="font-size:11px;color:#666;font-weight:600;padding:2px 8px;letter-spacing:1px;">📂 資料管理</div>
+                        <div style="height:1px;background:#2a2a2a;"></div>
+                        <div style="display:flex;gap:6px;">
+                            <div class="hege-menu-item" id="hege-s-report" style="flex:1;border-bottom:none;">
+                                <span style="display:flex;align-items:center;gap:4px;font-size:12px;">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"></path></svg>
+                                    回報問題
+                                </span>
+                            </div>
+                            <a href="https://threadsblocker.skiseiju.com" target="_blank" class="hege-menu-item" style="flex:1;border-bottom:none;text-decoration:none;color:#5ac8fa;">
+                                <span style="font-size:12px;">📋 說明</span>
+                            </a>
+                            <div class="hege-menu-item" id="hege-s-sponsor" style="flex:1;color:#ecc351;border-bottom:none;">
+                                <span style="font-size:12px;">☕️ 贊助</span>
+                            </div>
+                        </div>
+                        <p style="color:#555;font-size:11px;text-align:right;margin:0;">v${CONFIG.VERSION}</p>
+                    </div>
+
+                    <div data-hege-settings-view-panel="data" style="display:none; flex-direction:column; gap:10px;">
+                        <div class="hege-menu-item" data-hege-settings-back style="border-bottom:none;color:#aaa;">
+                            <span>← 返回設定</span>
+                        </div>
+                        <div style="font-size:11px;color:#666;font-weight:600;padding:2px 8px;letter-spacing:1px;">資料與工具</div>
                         <div class="hege-menu-item" id="hege-s-manage">
                             <span>管理已封鎖</span>
                             <span class="status">${db.length}</span>
+                        </div>
+                        <div class="hege-menu-item" id="hege-s-analytics" style="color: #5ac8fa;">
+                            <span style="display:flex; align-items:center; gap:6px;">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="12" width="4" height="9"/><rect x="10" y="7" width="4" height="14"/><rect x="17" y="3" width="4" height="18"/></svg>
+                                封鎖分析
+                            </span>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+                            <div class="hege-menu-item" id="hege-s-import" style="border-bottom:none;">
+                                <span>匯入名單</span>
+                            </div>
+                            <div class="hege-menu-item" id="hege-s-export" style="border-bottom:none;">
+                                <span>匯出紀錄</span>
+                            </div>
                         </div>
                         <div class="hege-menu-item" id="hege-s-cockroach">
                             <span>大蟑螂名單</span>
@@ -553,34 +846,23 @@ export const UI = {
                             <span>貼文水庫</span>
                             <span class="status">${Storage.postReservoir.getAll().length}</span>
                         </div>
-                        <div class="hege-menu-item" id="hege-s-analytics" style="color: #5ac8fa;">
-                            <span style="display:flex; align-items:center; gap:6px;">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="12" width="4" height="9"/><rect x="10" y="7" width="4" height="14"/><rect x="17" y="3" width="4" height="18"/></svg>
-                                封鎖分析
-                            </span>
+                        <div class="hege-menu-item danger" id="hege-s-clear-db" style="border-bottom: none;">
+                            <span>清除所有歷史</span>
                         </div>
-                        <div class="hege-menu-item" id="hege-s-import">
-                            <span>匯入名單</span>
-                        </div>
-                        <div class="hege-menu-item" id="hege-s-export">
-                            <span>匯出紀錄</span>
-                        </div>
-
                     </div>
 
-                    <!-- 右欄 -->
-                    <div style="display: flex; flex-direction: column; gap: 10px;">
-                        <div style="font-size:11px;color:#666;font-weight:600;padding:2px 0;letter-spacing:1px;">🎛️ 封鎖設定</div>
+                    <div data-hege-settings-view-panel="block" style="display:none; flex-direction:column; gap:10px;">
+                        <div class="hege-menu-item" data-hege-settings-back style="border-bottom:none;color:#aaa;">
+                            <span>← 返回設定</span>
+                        </div>
+                        <div style="font-size:11px;color:#666;font-weight:600;padding:2px 8px;letter-spacing:1px;">封鎖設定</div>
                         <div style="display: flex; flex-direction: column; gap: 6px; padding: 10px; background: #111; border-radius: 8px; border: 1px solid #2a2a2a;">
                             <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-                                <input type="checkbox" id="hege-s-advance-scroll-toggle" style="width:16px; height:16px;">
-                                <span style="font-weight:600; font-size:13px;">進階同列全封</span>
+                                <input type="checkbox" id="hege-s-advance-scroll-toggle" checked disabled style="width:16px; height:16px; opacity:0.65;">
+                                <span style="font-weight:600; font-size:13px;">完整互動名單收集</span>
                             </label>
-                            <span style="font-size: 11px; color: #888; line-height: 1.4;">按下同列全封時，自動向下捲動網頁強制抓取未顯示的名單。</span>
+                            <span style="font-size: 11px; color: #888; line-height: 1.4;">清理名單會固定捲完整個互動 dialog，抓完整串帳號。</span>
                         </div>
-
-                        <div style="height:1px;background:#333;margin:6px 0 4px;"></div>
-                        <div style="font-size:11px;color:#666;font-weight:600;padding:2px 8px;letter-spacing:1px;">⚙️ 系統</div>
                         <div class="hege-menu-item" id="hege-s-speed">
                             <span>速度模式</span>
                             <span class="status" id="hege-s-speed-status">🧠 智慧</span>
@@ -603,32 +885,49 @@ export const UI = {
                         </div>
                         <div class="hege-menu-item" id="hege-s-auto-mark-leader-row" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
                             <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
-                                <span>🦟 定點絕時自動標頭目</span>
+                                <span>定點絕時自動標頭目</span>
                                 <input type="checkbox" id="hege-s-auto-mark-leader" style="width:16px; height:16px;">
                             </label>
                             <span style="font-size:10px; color:#888; line-height:1.3;">按下定點絕時自動把貼文作者加入大蟑螂名單，10 天後提醒回查</span>
                         </div>
-                        <div class="hege-menu-item danger" id="hege-s-clear-db" style="border-bottom: none;">
-                            <span>清除所有歷史</span>
+                        <div class="hege-menu-item" id="hege-s-block-visual-debug-row" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
+                            <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
+                                <span>封鎖流程可視化</span>
+                                <input type="checkbox" id="hege-s-block-visual-debug-toggle" style="width:16px; height:16px;">
+                            </label>
+                            <span style="font-size:10px; color:#888; line-height:1.3;">可在 worker 中即時切換；開啟後用 compact UI，不蓋住 Threads 畫面。</span>
                         </div>
-                        <div style="height:1px;background:#333;margin:2px 0;"></div>
-                        <div style="display:flex;gap:6px;">
-                            <div class="hege-menu-item" id="hege-s-report" style="flex:1;border-bottom:none;">
-                                <span style="display:flex;align-items:center;gap:4px;font-size:12px;">
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"></path></svg>
-                                    回報問題
-                                </span>
-                            </div>
-                            <a href="https://threadsblocker.skiseiju.com" target="_blank" class="hege-menu-item" style="flex:1;border-bottom:none;text-decoration:none;color:#5ac8fa;">
-                                <span style="font-size:12px;">📋 說明</span>
-                            </a>
-                            <div class="hege-menu-item" id="hege-s-sponsor" style="flex:1;color:#ecc351;border-bottom:none;">
-                                <span style="font-size:12px;">☕️ 贊助</span>
-                            </div>
-                        </div>
-                        <p style="color:#555;font-size:11px;text-align:right;margin:0;">v${CONFIG.VERSION}</p>
                     </div>
 
+                    <div data-hege-settings-view-panel="report" style="display:none; flex-direction:column; gap:10px;">
+                        <div class="hege-menu-item" data-hege-settings-back style="border-bottom:none;color:#aaa;">
+                            <span>← 返回設定</span>
+                        </div>
+                        <div style="font-size:11px;color:#666;font-weight:600;padding:2px 8px;letter-spacing:1px;">檢舉設定</div>
+                        <div class="hege-menu-item" id="hege-s-daily-report-limit" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
+                            <div style="display:flex; align-items:center; justify-content:space-between;">
+                                <span>每日只檢舉上限</span>
+                                <select id="hege-s-daily-report-limit-select" style="background:#1a1a1a; border:1px solid #444; color:#f5f5f5; padding:2px 6px; border-radius:4px; font-size:11px;">
+                                    ${CONFIG.DAILY_REPORT_LIMIT_OPTIONS.map(n => `<option value="${n}">${n}</option>`).join('')}
+                                </select>
+                            </div>
+                            <span style="font-size:10px; color:#ff9f0a; line-height:1.3;">REPORT_QUEUE 使用獨立上限，預設 300</span>
+                        </div>
+                        <div class="hege-menu-item" id="hege-s-report-path" style="display:flex; flex-direction:column; align-items:stretch; gap:6px;">
+                            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                                <span>檢舉預設路徑</span>
+                            </div>
+                            <div id="hege-s-report-path-controls" style="display:flex; flex-direction:column; gap:6px;"></div>
+                            <span style="font-size:10px; color:#888; line-height:1.3;">與「開始檢舉」picker 使用同一套路徑</span>
+                        </div>
+                        <div class="hege-menu-item" id="hege-s-report-visual-debug-row" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
+                            <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
+                                <span>檢舉流程可視化</span>
+                                <input type="checkbox" id="hege-s-report-visual-debug-toggle" style="width:16px; height:16px;">
+                            </label>
+                            <span style="font-size:10px; color:#888; line-height:1.3;">可在 worker 中即時切換；開啟後用 compact UI，不蓋住 Threads 畫面。</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         `;
@@ -636,6 +935,28 @@ export const UI = {
 
         const close = () => overlay.remove();
         overlay.querySelector('.hege-manager-close').onclick = close;
+
+        const titleText = overlay.querySelector('#hege-settings-title-text');
+        const settingViewLabels = { home: '設定', data: '資料與工具', block: '封鎖設定', report: '檢舉設定' };
+        const showSettingsView = (view) => {
+            overlay.querySelectorAll('[data-hege-settings-view-panel]').forEach(panel => {
+                const isActive = panel.dataset.hegeSettingsViewPanel === view;
+                panel.style.display = isActive ? 'flex' : 'none';
+            });
+            if (titleText) titleText.textContent = settingViewLabels[view] || '設定';
+        };
+        overlay.querySelectorAll('[data-hege-settings-open]').forEach(card => {
+            card.onclick = (e) => {
+                e.stopPropagation();
+                showSettingsView(card.dataset.hegeSettingsOpen);
+            };
+        });
+        overlay.querySelectorAll('[data-hege-settings-back]').forEach(back => {
+            back.onclick = (e) => {
+                e.stopPropagation();
+                showSettingsView('home');
+            };
+        });
 
         const bind = (id, fn) => {
             const el = document.getElementById(id);
@@ -697,6 +1018,144 @@ export const UI = {
             if (dailyLimitRow) dailyLimitRow.onclick = (e) => e.stopPropagation();
         }
 
+        const dailyReportLimitSelect = overlay.querySelector('#hege-s-daily-report-limit-select');
+        if (dailyReportLimitSelect) {
+            dailyReportLimitSelect.value = String(Storage.getDailyReportLimit());
+            dailyReportLimitSelect.onchange = (e) => {
+                const val = parseInt(e.target.value);
+                if (!isNaN(val)) {
+                    Storage.set(CONFIG.KEYS.DAILY_REPORT_LIMIT, String(val));
+                    UI.showToast(`每日只檢舉上限已設為 ${val} 人`);
+                }
+            };
+            const dailyReportLimitRow = overlay.querySelector('#hege-s-daily-report-limit');
+            if (dailyReportLimitRow) dailyReportLimitRow.onclick = (e) => e.stopPropagation();
+        }
+
+        const reportPathRow = overlay.querySelector('#hege-s-report-path');
+        const reportPathControls = overlay.querySelector('#hege-s-report-path-controls');
+        const defaultReportPath = ['這是垃圾訊息'];
+        const normalizeReportPath = (path) => {
+            const source = Array.isArray(path) && path.length > 0 ? path : defaultReportPath;
+            const ageChoice = source.includes('是') ? '是' : '否';
+            const out = [];
+            let node = CONFIG.REPORT_MENU_TREE;
+
+            while (node && typeof node === 'object') {
+                if (node.ageQuestion === true) {
+                    out.push(ageChoice);
+                    break;
+                }
+                const options = Object.keys(node).filter(k => k !== 'ageQuestion');
+                if (options.length === 0) break;
+                const idx = out.length;
+                const selected = options.includes(source[idx]) ? source[idx] : options[0];
+                out.push(selected);
+                node = node[selected];
+            }
+
+            return out;
+        };
+        if (reportPathRow) reportPathRow.onclick = (e) => e.stopPropagation();
+        if (reportPathControls) {
+            let reportPath = normalizeReportPath(Storage.getJSON(CONFIG.KEYS.REPORT_PATH, defaultReportPath));
+            const saveReportPath = () => {
+                Storage.setJSON(CONFIG.KEYS.REPORT_PATH, reportPath);
+                UI.showToast('檢舉預設路徑已更新', 1200);
+            };
+            const renderReportPathControls = () => {
+                reportPath = normalizeReportPath(reportPath);
+                reportPathControls.innerHTML = '';
+                let node = CONFIG.REPORT_MENU_TREE;
+                let depth = 0;
+
+                while (node && typeof node === 'object') {
+                    if (node.ageQuestion === true) {
+                        const label = document.createElement('label');
+                        label.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:11px; color:#ccc;';
+                        const text = document.createElement('span');
+                        text.textContent = '未滿 18';
+                        const select = document.createElement('select');
+                        select.dataset.level = String(depth);
+                        select.style.cssText = 'background:#1a1a1a; border:1px solid #444; color:#f5f5f5; padding:4px 6px; border-radius:4px; font-size:11px; max-width:150px;';
+                        ['否', '是'].forEach(v => {
+                            const option = document.createElement('option');
+                            option.value = v;
+                            option.textContent = v;
+                            select.appendChild(option);
+                        });
+                        select.value = reportPath[depth] === '是' ? '是' : '否';
+                        select.onchange = () => {
+                            reportPath[depth] = select.value;
+                            reportPath = normalizeReportPath(reportPath);
+                            saveReportPath();
+                        };
+                        label.appendChild(text);
+                        label.appendChild(select);
+                        reportPathControls.appendChild(label);
+                        break;
+                    }
+
+                    const options = Object.keys(node).filter(k => k !== 'ageQuestion');
+                    if (options.length === 0) break;
+
+                    const label = document.createElement('label');
+                    label.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:11px; color:#ccc;';
+                    const text = document.createElement('span');
+                    text.textContent = depth === 0 ? '大類' : `第 ${depth + 1} 層`;
+                    const select = document.createElement('select');
+                    select.dataset.level = String(depth);
+                    select.style.cssText = 'background:#1a1a1a; border:1px solid #444; color:#f5f5f5; padding:4px 6px; border-radius:4px; font-size:11px; max-width:170px;';
+                    options.forEach(v => {
+                        const option = document.createElement('option');
+                        option.value = v;
+                        option.textContent = v;
+                        select.appendChild(option);
+                    });
+                    select.value = options.includes(reportPath[depth]) ? reportPath[depth] : options[0];
+                    select.onchange = () => {
+                        const level = parseInt(select.dataset.level, 10);
+                        reportPath = reportPath.slice(0, level);
+                        reportPath[level] = select.value;
+                        reportPath = normalizeReportPath(reportPath);
+                        saveReportPath();
+                        renderReportPathControls();
+                    };
+                    label.appendChild(text);
+                    label.appendChild(select);
+                    reportPathControls.appendChild(label);
+
+                    node = node[select.value];
+                    depth++;
+                }
+
+                Storage.setJSON(CONFIG.KEYS.REPORT_PATH, reportPath);
+            };
+            renderReportPathControls();
+        }
+
+        const reportVisualDebugToggle = overlay.querySelector('#hege-s-report-visual-debug-toggle');
+        if (reportVisualDebugToggle) {
+            reportVisualDebugToggle.checked = Storage.get(CONFIG.KEYS.REPORT_VISUAL_DEBUG) === 'true';
+            reportVisualDebugToggle.onchange = (e) => {
+                Storage.set(CONFIG.KEYS.REPORT_VISUAL_DEBUG, e.target.checked ? 'true' : 'false');
+                UI.showToast(e.target.checked ? '檢舉可視化已開啟' : '檢舉可視化已關閉');
+            };
+            const reportVisualDebugRow = overlay.querySelector('#hege-s-report-visual-debug-row');
+            if (reportVisualDebugRow) reportVisualDebugRow.onclick = (e) => e.stopPropagation();
+        }
+
+        const blockVisualDebugToggle = overlay.querySelector('#hege-s-block-visual-debug-toggle');
+        if (blockVisualDebugToggle) {
+            blockVisualDebugToggle.checked = Storage.get(CONFIG.KEYS.BLOCK_VISUAL_DEBUG) === 'true';
+            blockVisualDebugToggle.onchange = (e) => {
+                Storage.set(CONFIG.KEYS.BLOCK_VISUAL_DEBUG, e.target.checked ? 'true' : 'false');
+                UI.showToast(e.target.checked ? '封鎖可視化已開啟' : '封鎖可視化已關閉');
+            };
+            const blockVisualDebugRow = overlay.querySelector('#hege-s-block-visual-debug-row');
+            if (blockVisualDebugRow) blockVisualDebugRow.onclick = (e) => e.stopPropagation();
+        }
+
         const emergencyToggle = overlay.querySelector('#hege-s-emergency-toggle');
         if (emergencyToggle) {
             emergencyToggle.checked = Storage.get(CONFIG.KEYS.EMERGENCY_MODE) === 'true';
@@ -724,10 +1183,12 @@ export const UI = {
             window.open('https://skiseiju.com?utm_source=extension&utm_medium=popup', '_blank');
         });
 
-        // Task 3: 進階同列全封 UI 事件
+        // 清理名單固定完整收集，保留唯讀狀態讓使用者知道目前行為。
         const advanceToggle = overlay.querySelector('#hege-s-advance-scroll-toggle');
-        advanceToggle.checked = Storage.get(CONFIG.KEYS.ADVANCED_SCROLL_ENABLED) === 'true';
-        advanceToggle.onchange = (e) => Storage.set(CONFIG.KEYS.ADVANCED_SCROLL_ENABLED, e.target.checked ? 'true' : 'false');
+        if (advanceToggle) {
+            advanceToggle.checked = true;
+            advanceToggle.disabled = true;
+        }
     },
 
     showAnalyticsReport: () => {

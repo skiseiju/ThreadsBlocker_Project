@@ -30,6 +30,264 @@ export const Core = {
         return rawUsers.filter(u => !db.has(u) && !activeSet.has(u) && !Core.pendingUsers.has(u));
     },
 
+    collectVisibleDialogUsers: (ctx) => {
+        if (!ctx) return [];
+        const containerRect = ctx.getBoundingClientRect();
+        const links = ctx.querySelectorAll('a[href^="/@"]');
+        let rawUsers = Array.from(links).filter(a => {
+            const rect = a.getBoundingClientRect();
+            const isVisible = rect.height > 5 && rect.width > 5;
+            const isInBounds = rect.top >= (containerRect.top - 10) &&
+                rect.bottom <= (containerRect.bottom + 10);
+            const isHeaderLink = a.closest('h1, h2, [role="heading"]');
+            return isVisible && isInBounds && !isHeaderLink;
+        }).map(a => {
+            const href = a.getAttribute('href');
+            return href.split('/@')[1].split('/')[0];
+        }).filter(Boolean);
+
+        const skipUsers = Core.buildSkipUsers(ctx);
+        rawUsers = [...new Set(rawUsers)].filter(u => !skipUsers.has(u));
+        return rawUsers;
+    },
+
+    collectFullDialogUsers: async (ctx, options = {}) => {
+        if (!ctx) return [];
+
+        let isActivityDialog = false;
+
+        // Activity dialog: auto-switch to likes tab to avoid mixing reposts/quotes/replies
+        try {
+            // Detect if this is an Activity dialog by checking for activity-related text in headers
+            const headerElements = ctx.querySelectorAll('span[dir="auto"], h1, h2');
+            for (const el of headerElements) {
+                const text = (el.innerText || el.textContent || '').trim();
+                if (CONFIG.ACTIVITY_TEXTS.some(t => text === t)) {
+                    isActivityDialog = true;
+                    console.log('[collectFullDialogUsers] Detected Activity dialog, attempting to switch to likes tab');
+                    break;
+                }
+            }
+
+            if (isActivityDialog) {
+                const likesTab = Core.SweepDriver.findLikesTab(ctx);
+                if (likesTab) {
+                    Utils.simClick(likesTab);
+                    await Utils.safeSleep(500);
+                    const newCtx = Core.getTopContext();
+                    if (newCtx && newCtx !== document.body) {
+                        ctx = newCtx;
+                        console.log('[collectFullDialogUsers] Successfully switched to likes tab, using updated context');
+                    }
+                }
+            }
+        } catch (err) {
+            console.warn('[collectFullDialogUsers] activity tab switch failed, fallback to raw ctx', err);
+        }
+
+        let scrollBox = ctx;
+        if (ctx.scrollHeight === ctx.clientHeight) {
+            const innerBoxes = ctx.querySelectorAll('div');
+            for (let b of innerBoxes) {
+                if (b.scrollHeight > b.clientHeight && window.getComputedStyle(b).overflowY !== 'hidden') {
+                    scrollBox = b;
+                    break;
+                }
+            }
+        }
+
+        const maxLimit = window.__DEBUG_HEGE_LIKES_LIMIT || 1000;
+        const label = options.label || '掃描整串互動名單';
+        const collectedLinks = new Set();
+        let isAborted = false;
+        let unchangedCount = 0;
+        let lastCollectedSize = 0;
+        let scrollCount = 0;
+        const maxScrolls = 800;
+
+        const progressId = 'hege-full-dialog-progress-' + Date.now();
+        const progressUI = document.createElement('div');
+        progressUI.id = progressId;
+        progressUI.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.86);color:#fff;padding:10px 16px;border-radius:18px;z-index:99999;display:flex;align-items:center;gap:12px;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,0.3);';
+
+        const countSpan = document.createElement('span');
+        countSpan.textContent = `${label}... 已收集: 0 人`;
+
+        const stopBtn = document.createElement('button');
+        stopBtn.textContent = '停止並結算';
+        stopBtn.style.cssText = 'background:#ff3b30;color:white;border:none;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;font-weight:700;';
+        stopBtn.onclick = () => { isAborted = true; };
+
+        progressUI.appendChild(countSpan);
+        progressUI.appendChild(stopBtn);
+
+        const currentPos = window.getComputedStyle(scrollBox).position;
+        if (currentPos === 'static') scrollBox.style.position = 'relative';
+        scrollBox.appendChild(progressUI);
+
+        const escListener = (e) => { if (e.key === 'Escape') isAborted = true; };
+        document.addEventListener('keydown', escListener);
+
+        const collectRendered = () => {
+            const links = ctx.querySelectorAll('a[href^="/@"]');
+            let lastLink = null;
+            Array.from(links).forEach(a => {
+                const isHeaderLink = a.closest('h1, h2, [role="heading"]');
+                if (isHeaderLink) return;
+
+                const href = a.getAttribute('href') || '';
+                const match = href.match(/^\/@([^/?#]+)/);
+                if (!match || !match[1]) return;
+
+                collectedLinks.add(match[1]);
+                lastLink = a;
+            });
+            return lastLink;
+        };
+
+        try {
+            while (scrollCount < maxScrolls && !isAborted) {
+                const lastNode = collectRendered();
+                countSpan.textContent = `${label}... 已收集: ${collectedLinks.size} 人`;
+
+                if (collectedLinks.size >= maxLimit) {
+                    UI.showToast(`已達最大安全上限 (${maxLimit} 人)，自動結算。`, 3000);
+                    break;
+                }
+
+                if (scrollBox && typeof scrollBox.scrollBy === 'function') {
+                    const step = Math.max(900, Math.round((scrollBox.clientHeight || 700) * 1.25));
+                    scrollBox.scrollBy({ top: step, behavior: 'auto' });
+                } else if (lastNode) {
+                    lastNode.scrollIntoView({ behavior: 'auto', block: 'end' });
+                } else {
+                    scrollBox.scrollTo(0, scrollBox.scrollHeight + 100);
+                }
+
+                await Utils.safeSleep(180);
+
+                if (collectedLinks.size === lastCollectedSize) {
+                    unchangedCount++;
+                    if (unchangedCount >= 4) break;
+                    if (scrollBox && typeof scrollBox.scrollBy === 'function') {
+                        scrollBox.scrollBy({ top: 1600, behavior: 'auto' });
+                    }
+                    await Utils.safeSleep(160);
+                } else {
+                    unchangedCount = 0;
+                    lastCollectedSize = collectedLinks.size;
+                }
+
+                scrollCount++;
+            }
+
+            collectRendered();
+        } finally {
+            document.removeEventListener('keydown', escListener);
+            if (progressUI.parentNode) progressUI.parentNode.removeChild(progressUI);
+            if (scrollBox && typeof scrollBox.scrollTo === 'function') scrollBox.scrollTo(0, 0);
+        }
+
+        const skipUsers = Core.buildSkipUsers(ctx);
+        let rawUsers = Array.from(collectedLinks).filter(u => !skipUsers.has(u));
+
+        // Activity dialog row filter: keep only rows with heart icon (likes)
+        if (isActivityDialog && rawUsers.length > 0) {
+            const filteredUsers = [];
+            for (const username of rawUsers) {
+                // Find all links with this username
+                const userLinks = Array.from(ctx.querySelectorAll('a[href^="/@"]')).filter(link => {
+                    const href = link.getAttribute('href') || '';
+                    return href === `/@${username}` || href.startsWith(`/@${username}?`) || href.startsWith(`/@${username}/`);
+                });
+                let hasHeartIcon = false;
+
+                for (const link of userLinks) {
+                    // Walk up to find row-like ancestor (listitem or data-* container)
+                    let row = link.closest('[role="listitem"]');
+                    if (!row) {
+                        let parent = link;
+                        for (let i = 0; i < 5 && parent && parent !== ctx; i++) {
+                            parent = parent.parentElement;
+                            if (parent && parent.hasAttribute && (parent.hasAttribute('data-testid') || parent.hasAttribute('data-key'))) {
+                                row = parent;
+                                break;
+                            }
+                        }
+                    }
+                    if (!row) {
+                        row = link.parentElement?.parentElement?.parentElement?.parentElement?.parentElement;
+                    }
+
+                    // Check for heart icon in this row
+                    if (row && row.querySelector('svg[viewBox="0 0 18 18"] path[d*="8.33956"]')) {
+                        hasHeartIcon = true;
+                        break;
+                    }
+                }
+
+                if (hasHeartIcon) {
+                    filteredUsers.push(username);
+                }
+            }
+
+            if (filteredUsers.length > 0) {
+                rawUsers = filteredUsers;
+            } else {
+                console.warn('[collectFullDialogUsers] Heart icon filter returned 0 users, falling back to unfiltered results');
+            }
+        }
+
+        return rawUsers;
+    },
+
+    normalizeSourceUrl: (url) => {
+        try {
+            const parsed = new URL(url, window.location.origin);
+            return `${parsed.origin}${parsed.pathname}`;
+        } catch (e) {
+            return '';
+        }
+    },
+
+    findSourcePostUrl: (element) => {
+        if (window.location.pathname.includes('/post/')) {
+            return Core.normalizeSourceUrl(window.location.href);
+        }
+
+        let node = element;
+        for (let i = 0; i < 12 && node && node !== document.body; i++) {
+            if (node.querySelector) {
+                const postLink = node.querySelector('a[href*="/post/"]');
+                if (postLink) return Core.normalizeSourceUrl(postLink.getAttribute('href'));
+            }
+            node = node.parentElement;
+        }
+        return '';
+    },
+
+    setReportContext: (username, context = {}) => {
+        if (!username) return;
+        const map = Storage.getJSON(CONFIG.KEYS.REPORT_CONTEXT, {});
+        const existing = map[username] || {};
+        map[username] = {
+            ...existing,
+            ...context,
+            sourceUrl: Core.normalizeSourceUrl(context.sourceUrl || existing.sourceUrl || ''),
+            updatedAt: Date.now(),
+        };
+        Storage.setJSON(CONFIG.KEYS.REPORT_CONTEXT, map);
+    },
+
+    removeReportContext: (username) => {
+        if (!username) return;
+        const map = Storage.getJSON(CONFIG.KEYS.REPORT_CONTEXT, {});
+        if (map[username]) {
+            delete map[username];
+            Storage.setJSON(CONFIG.KEYS.REPORT_CONTEXT, map);
+        }
+    },
+
     init: () => {
         Core.pendingUsers = new Set(Storage.getSessionJSON(CONFIG.KEYS.PENDING));
 
@@ -130,7 +388,7 @@ export const Core = {
                             if (hText) {
                                 const p = h.parentElement;
                                 const injected = p ? p.dataset.hegeDialogInjected : 'N/A';
-                                const hasBtn = p ? !!p.querySelector('.hege-block-all-btn') : false;
+                                const hasBtn = p ? !!p.querySelector('.hege-clean-list-btn, .hege-block-all-btn') : false;
 
                                 // Check if inside dialog
                                 let isDialog = false;
@@ -286,6 +544,7 @@ export const Core = {
         }
 
         newUsers.forEach(u => Core.pendingUsers.add(u));
+        Core.markReportSelectable(newUsers);
         Storage.setSessionJSON(CONFIG.KEYS.PENDING, [...Core.pendingUsers]);
 
         const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
@@ -351,88 +610,59 @@ export const Core = {
             }
         }
 
-        const isLikesLayer = CONFIG.LIKES_TEXTS.some(t => titleText.includes(t));
-        const existingBlockAll = localCtx.querySelector('.hege-block-all-btn');
-        const existingEndless = localCtx.querySelector('.hege-endless-sweep-btn');
+        const existingCleanList = localCtx.querySelector('.hege-clean-list-btn');
+        localCtx.querySelectorAll('.hege-block-all-btn, .hege-report-only-btn, .hege-endless-sweep-btn').forEach(btn => btn.remove());
 
-        if (!isLikesLayer && existingEndless) {
-            existingEndless.remove();
-        }
-
-        let blockAllBtn = existingBlockAll;
+        let cleanListBtn = existingCleanList;
         
-        let shouldAddBlockAll = !existingBlockAll || !document.body.contains(existingBlockAll);
+        const shouldAddCleanList = !existingCleanList || !document.body.contains(existingCleanList);
 
-        if (!shouldAddBlockAll) return;
+        if (!shouldAddCleanList) return;
 
-        if (shouldAddBlockAll) {
-            blockAllBtn = document.createElement('div');
-            blockAllBtn.className = 'hege-block-all-btn';
-            blockAllBtn.innerHTML = `
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2.5 2v6h6M21.5 22v-6h-6M22 11.5A10 10 0 0 0 3.2 7.2L2.5 8M2 12.5a10 10 0 0 0 18.8 4.2l.7-.8"></path></svg>
-                <span>定點絕</span>
+        if (shouldAddCleanList) {
+            cleanListBtn = document.createElement('div');
+            cleanListBtn.className = 'hege-clean-list-btn';
+            cleanListBtn.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M7 12h10"></path><path d="M10 18h4"></path></svg>
+                <span>清理名單</span>
             `;
-            blockAllBtn.title = '定點絕：圈選 dialog 內全數帳號 + 加進貼文水庫排程';
-            blockAllBtn.dataset.hegeRole = 'endless-sweep';
+            cleanListBtn.title = '清理名單：同列全封、只檢舉、定點絕';
+            cleanListBtn.dataset.hegeRole = 'clean-list';
 
             const bgMode = Core.getBgMode();
             if (bgMode === 'UNBLOCKING') {
-                blockAllBtn.style.opacity = '0.5';
-                blockAllBtn.style.filter = 'grayscale(1)';
-                blockAllBtn.style.cursor = 'not-allowed';
-                blockAllBtn.title = '正在解除封鎖，暫時無法封鎖';
+                cleanListBtn.style.opacity = '0.5';
+                cleanListBtn.style.filter = 'grayscale(1)';
+                cleanListBtn.style.cursor = 'not-allowed';
+                cleanListBtn.title = '正在解除封鎖，暫時無法清理名單';
             }
         }
 
-        const handleBlockAll = (e) => {
+        const handleBlockAll = async (e, rawUsersOverride = null) => {
             if (Core.getBgMode() === 'UNBLOCKING') {
                 UI.showToast('目前正在「解除封鎖」，請先暫停任務再執行封鎖');
                 return;
             }
-            e.stopPropagation();
-            e.preventDefault();
+            if (e) {
+                e.stopPropagation();
+                e.preventDefault();
+            }
 
             // Beta 56: Re-calculate context and bounds at click-time for maximum precision
             const activeCtx = Core.getTopContext();
-            
-            // Task 3: 進階同列全封 (自動捲動收集未顯示名單)
-            if (Storage.get(CONFIG.KEYS.ADVANCED_SCROLL_ENABLED) === 'true') {
-                Core.advancedBlockAll(activeCtx);
-                return;
-            }
 
-            const containerRect = activeCtx.getBoundingClientRect();
-
-            // Narrow search scope to prevent "bleeding" into background layers if the list is short
-            const links = activeCtx.querySelectorAll('a[href^="/@"]');
-            let rawUsers = Array.from(links).filter(a => {
-                const rect = a.getBoundingClientRect();
-                // 1. Must be visible and have dimensions
-                const isVisible = rect.height > 5 && rect.width > 5;
-                // 2. Must be within the visual viewport of the active dialog
-                // Adding a small 10px buffer to account for padding/rounding
-                const isInBounds = rect.top >= (containerRect.top - 10) &&
-                    rect.bottom <= (containerRect.bottom + 10);
-
-                // 3. Avoid IDs in headers (labels) to focus on the actual list items
-                const isHeaderLink = a.closest('h1, h2, [role="heading"]');
-
-                return isVisible && isInBounds && !isHeaderLink;
-            }).map(a => {
-                const href = a.getAttribute('href');
-                return href.split('/@')[1].split('/')[0];
-            });
-
-            const skipUsers = Core.buildSkipUsers(activeCtx);
-            rawUsers = [...new Set(rawUsers)].filter(u => !skipUsers.has(u));
+            const rawUsers = Array.isArray(rawUsersOverride)
+                ? rawUsersOverride
+                : await Core.collectFullDialogUsers(activeCtx);
             const newUsers = Core.filterNewUsers(rawUsers);
 
             if (newUsers.length === 0) {
-                UI.showToast('沒有新帳號可加入');
+                UI.showToast('整串名單沒有新帳號可加入');
                 return;
             }
 
             newUsers.forEach(u => Core.pendingUsers.add(u));
+            Core.markReportSelectable(newUsers);
             Storage.setSessionJSON(CONFIG.KEYS.PENDING, [...Core.pendingUsers]);
 
             // 記錄封鎖 context（來源貼文、原因類型、貼文摘要）供 Worker 寫入結構化 timestamp
@@ -454,7 +684,7 @@ export const Core = {
                 const activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
                 const combinedQueue = [...activeQueue, ...Core.pendingUsers];
                 Storage.setJSON(CONFIG.KEYS.BG_QUEUE, [...new Set(combinedQueue)]);
-                UI.showToast(`已將畫面上 ${newUsers.length} 筆帳號加入背景排隊`);
+                UI.showToast(`已將整串名單 ${newUsers.length} 筆帳號加入背景排隊`);
             } else {
                 UI.showToast(`已加入「${Core.pendingUsers.size} 選取」，請至清單「開始封鎖」`);
             }
@@ -470,6 +700,39 @@ export const Core = {
                 }
             });
 
+            Core.updateControllerUI();
+            return newUsers.length;
+        };
+
+
+        const handleReportOnly = async (e, rawUsersOverride = null) => {
+            if (e) {
+                e.stopPropagation();
+                e.preventDefault();
+            }
+
+            const activeCtx = Core.getTopContext();
+            if (Core.ReportDriver) Core.ReportDriver.rememberDialogContext(activeCtx);
+            const rawUsers = Array.isArray(rawUsersOverride)
+                ? rawUsersOverride
+                : await Core.collectFullDialogUsers(activeCtx);
+
+            if (rawUsers.length === 0) {
+                UI.showToast('沒有帳號可加入只檢舉佇列');
+                return;
+            }
+
+            let added = 0;
+            rawUsers.forEach(u => {
+                Core.setReportContext(u, {
+                    sourceUrl: Core.findSourcePostUrl(activeCtx),
+                    source: 'dialog',
+                    targetType: 'account',
+                });
+                if (Storage.queueAddUnique(CONFIG.KEYS.REPORT_QUEUE, u)) added++;
+            });
+
+            UI.showToast(`已將整串名單 ${added} 人加入檢舉清單，請回主面板按「開始檢舉」`);
             Core.updateControllerUI();
         };
 
@@ -522,6 +785,39 @@ export const Core = {
             }
         };
 
+        const handleCleanList = (e) => {
+            if (Core.getBgMode() === 'UNBLOCKING') {
+                UI.showToast('目前正在「解除封鎖」，請先暫停任務再清理名單');
+                return;
+            }
+            if (e) {
+                e.stopPropagation();
+                e.preventDefault();
+            }
+
+            UI.showCleanListPicker(async (actions) => {
+                let fullUsers = null;
+                if (actions.collect) {
+                    const activeCtx = Core.getTopContext();
+                    fullUsers = await Core.collectFullDialogUsers(activeCtx);
+                    if (fullUsers.length === 0 && !actions.endless) {
+                        UI.showToast('整串名單沒有可加入的帳號');
+                        return;
+                    }
+                }
+
+                if (actions.collect) {
+                    await handleBlockAll(null, fullUsers);
+                }
+                if (actions.endless) {
+                    handleEndlessSweep();
+                }
+                if (actions.collect) {
+                    await handleReportOnly(null, fullUsers);
+                }
+            });
+        };
+
         // EXPORT FOR CONSOLE TESTING
         window.__hegeTestEndless = handleEndlessSweep;
         console.log('[DEBUG] 已注入 window.__hegeTestEndless() 供主控台測試');
@@ -547,29 +843,29 @@ export const Core = {
             }
         };
 
-        if (shouldAddBlockAll) attachEvents(blockAllBtn, handleEndlessSweep);
+        if (shouldAddCleanList) attachEvents(cleanListBtn, handleCleanList);
 
         if (sortSpan && sortSpan.closest('[role="button"]')) {
             const sortBtn = sortSpan.closest('[role="button"]');
             
-            if (shouldAddBlockAll) {
-                blockAllBtn.style.marginRight = '8px';
+            if (shouldAddCleanList) {
+                cleanListBtn.style.marginRight = '8px';
                 try {
                     sortBtn.parentElement.style.display = 'flex';
                     sortBtn.parentElement.style.alignItems = 'center';
-                    sortBtn.parentElement.insertBefore(blockAllBtn, sortBtn);
+                    sortBtn.parentElement.insertBefore(cleanListBtn, sortBtn);
                 } catch (e) {
-                    headerContainer.appendChild(blockAllBtn);
+                    headerContainer.appendChild(cleanListBtn);
                 }
             }
         } else {
-            if (shouldAddBlockAll) {
-                blockAllBtn.style.marginLeft = 'auto';
-                blockAllBtn.style.marginRight = '8px';
+            if (shouldAddCleanList) {
+                cleanListBtn.style.marginLeft = 'auto';
+                cleanListBtn.style.marginRight = '8px';
                 if (header.nextSibling) {
-                    headerContainer.insertBefore(blockAllBtn, header.nextSibling);
+                    headerContainer.insertBefore(cleanListBtn, header.nextSibling);
                 } else {
-                    headerContainer.appendChild(blockAllBtn);
+                    headerContainer.appendChild(cleanListBtn);
                 }
             }
         }
@@ -965,6 +1261,7 @@ export const Core = {
                     if (btnElement) btnElement.dataset.username = u; // Ensure dataset exists safely
                     if (btnElement) Core.blockQueue.add(btnElement);
                     Core.pendingUsers.add(u);
+                    Core.setReportContext(u, { sourceUrl: Core.findSourcePostUrl(box), source: 'checkbox-reset' });
                 }
             } else if (targetAction === 'uncheck' && box.classList.contains('checked')) {
                 box.classList.remove('checked');
@@ -974,6 +1271,7 @@ export const Core = {
                 });
                 if (u) {
                     Core.pendingUsers.delete(u);
+                    Core.removeReportContext(u);
                     let bg = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
                     if (bg.includes(u)) Storage.setJSON(CONFIG.KEYS.BG_QUEUE, bg.filter(x => x !== u));
                     let cdq = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
@@ -983,9 +1281,14 @@ export const Core = {
                 box.classList.add('checked');
                 if (btnElement) btnElement.dataset.username = u;
                 if (btnElement) Core.blockQueue.add(btnElement);
-                if (u) Core.pendingUsers.add(u);
+                if (u) {
+                    Core.pendingUsers.add(u);
+                    Core.setReportContext(u, { sourceUrl: Core.findSourcePostUrl(box), source: 'checkbox' });
+                }
             }
         });
+
+        Core.markReportSelectable(targetBoxes.map(box => box.dataset.username));
 
         if (targetAction === 'reset') {
             Storage.setJSON(CONFIG.KEYS.DB_KEY, [...currentDB]);
@@ -1020,6 +1323,81 @@ export const Core = {
         });
     },
 
+    clearPendingUsers: (usernames = []) => {
+        const targets = new Set((Array.isArray(usernames) ? usernames : []).filter(Boolean));
+        if (!Array.isArray(usernames)) {
+            Core.pendingUsers.forEach(u => targets.add(u));
+        }
+        if (targets.size === 0) return 0;
+
+        let removed = 0;
+        targets.forEach(u => {
+            if (Core.pendingUsers.delete(u)) removed++;
+        });
+        Storage.setSessionJSON(CONFIG.KEYS.PENDING, [...Core.pendingUsers]);
+
+        document.querySelectorAll('.hege-checkbox-container.checked').forEach(cb => {
+            if (!cb.dataset.username || targets.has(cb.dataset.username)) {
+                cb.classList.remove('checked');
+            }
+        });
+        Array.from(Core.blockQueue || []).forEach(b => {
+            if (!b.dataset || targets.has(b.dataset.username)) Core.blockQueue.delete(b);
+        });
+
+        Core.updateControllerUI();
+        return removed;
+    },
+
+    restorePendingUsers: (usernames = []) => {
+        const targets = [...new Set((Array.isArray(usernames) ? usernames : []).filter(Boolean))];
+        if (targets.length === 0) return 0;
+
+        const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+        const bgq = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
+        const cdq = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
+        let added = 0;
+
+        targets.forEach(u => {
+            if (db.has(u) || bgq.has(u) || cdq.has(u) || Core.pendingUsers.has(u)) return;
+            Core.pendingUsers.add(u);
+            added++;
+        });
+        if (added === 0) return 0;
+
+        Storage.setSessionJSON(CONFIG.KEYS.PENDING, [...Core.pendingUsers]);
+        document.querySelectorAll('.hege-checkbox-container').forEach(cb => {
+            const u = cb.dataset.username;
+            if (u && Core.pendingUsers.has(u) && !cb.classList.contains('finished')) {
+                cb.classList.add('checked');
+                if (cb.parentElement) {
+                    cb.parentElement.dataset.username = u;
+                    Core.blockQueue.add(cb.parentElement);
+                }
+            }
+        });
+
+        Core.updateControllerUI();
+        return added;
+    },
+
+    markReportSelectable: (usernames = []) => {
+        const targets = new Set((Array.isArray(usernames) ? usernames : []).filter(Boolean));
+        if (targets.size === 0) return;
+
+        const completed = Storage.getJSON(CONFIG.KEYS.REPORT_COMPLETED_USERS, []);
+        const filtered = completed.filter(u => !targets.has(u));
+        if (filtered.length !== completed.length) {
+            Storage.setJSON(CONFIG.KEYS.REPORT_COMPLETED_USERS, filtered);
+        }
+
+        const batch = Storage.getJSON(CONFIG.KEYS.REPORT_BATCH_USERS, []);
+        const filteredBatch = batch.filter(u => !targets.has(u));
+        if (filteredBatch.length !== batch.length) {
+            Storage.setJSON(CONFIG.KEYS.REPORT_BATCH_USERS, filteredBatch);
+        }
+    },
+
     startUnblock: (usernames) => {
         if (!usernames || usernames.length === 0) return;
 
@@ -1036,6 +1414,7 @@ export const Core = {
         const running = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
         if (!running) {
             Storage.remove(CONFIG.KEYS.BG_CMD);
+            Storage.set(CONFIG.KEYS.WORKER_MODE, 'block');
             if (Utils.isMobile()) {
                 Core.runSameTabWorker();
             } else {
@@ -1150,6 +1529,25 @@ export const Core = {
             }
         }
 
+        // 檢舉計數：已在 REPORT_QUEUE + 目前勾選但尚未加入檢舉佇列的人
+        const reportQueue = Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []);
+        const reportQueueSet = new Set(reportQueue);
+        const activeReportBatch = new Set(Storage.getJSON(CONFIG.KEYS.REPORT_BATCH_USERS, []));
+        const completedReportUsers = new Set(Storage.getJSON(CONFIG.KEYS.REPORT_COMPLETED_USERS, []));
+        const visibleReportQueueCount = reportQueue.filter(u => !activeReportBatch.has(u)).length;
+        const pendingReportCount = Array.from(Core.pendingUsers)
+            .filter(u => !reportQueueSet.has(u) && !activeReportBatch.has(u) && !completedReportUsers.has(u)).length;
+        const hiddenActiveReportCount = reportQueue.length - visibleReportQueueCount;
+        const reportTotalCount = visibleReportQueueCount + pendingReportCount;
+        const reportCountBadge = document.getElementById('hege-report-count');
+        if (reportCountBadge) {
+            reportCountBadge.textContent = `${reportTotalCount} 筆`;
+            reportCountBadge.style.color = reportTotalCount > 0 ? '#ff9500' : '';
+            reportCountBadge.title = pendingReportCount > 0
+                ? `${pendingReportCount} 筆可加入檢舉，${visibleReportQueueCount} 筆待啟動，${hiddenActiveReportCount} 筆執行中`
+                : `${visibleReportQueueCount} 筆待啟動，${hiddenActiveReportCount} 筆執行中`;
+        }
+
         // 貼文水庫 badge：顯示統一總數（含深層 + 定點絕）
         const reservoirEntries = Storage.postReservoir.getAll();
         const endlessQueueBadge = document.getElementById('hege-endless-queue-count');
@@ -1235,17 +1633,26 @@ export const Core = {
             box.title = isUnblocking ? '正在解除封鎖' : '';
         });
 
-        document.querySelectorAll('.hege-block-all-btn').forEach(btn => {
+        document.querySelectorAll('.hege-clean-list-btn, .hege-block-all-btn').forEach(btn => {
             btn.style.opacity = isUnblocking ? '0.5' : '1';
             btn.style.filter = isUnblocking ? 'grayscale(1)' : 'none';
             btn.style.cursor = isUnblocking ? 'not-allowed' : 'pointer';
             // 貼文水庫按鈕的 title 有語意用途，不覆寫為空字串。
-            if (btn.dataset.hegeRole !== 'endless-sweep') {
+            if (btn.dataset.hegeRole === 'clean-list') {
+                btn.title = isUnblocking ? '正在解除封鎖，暫時無法清理名單' : '清理名單：同列全封、只檢舉、定點絕';
+            } else if (btn.dataset.hegeRole !== 'endless-sweep') {
                 btn.title = isUnblocking ? '正在解除封鎖，暫時無法封鎖' : '';
             } else if (isUnblocking) {
                 btn.title = '正在解除封鎖，暫時無法封鎖';
                 // 解除封鎖結束後由 btn.dataset.hegeRole 恢復語意，不需額外寫回
             }
+        });
+
+        document.querySelectorAll('.hege-report-only-btn').forEach(btn => {
+            btn.style.opacity = isUnblocking ? '0.5' : '1';
+            btn.style.filter = isUnblocking ? 'grayscale(1)' : 'none';
+            btn.style.cursor = isUnblocking ? 'not-allowed' : 'pointer';
+            btn.title = isUnblocking ? '正在解除封鎖，暫時無法只檢舉' : '只檢舉：把目前按讚名單加入 REPORT_QUEUE，不封鎖';
         });
 
         // Mutex: Gray out Unblock Start if Blocking
@@ -1276,6 +1683,7 @@ export const Core = {
 
         Storage.setJSON(CONFIG.KEYS.BG_QUEUE, newQ);
         Storage.remove(CONFIG.KEYS.BG_CMD);
+        Storage.set(CONFIG.KEYS.WORKER_MODE, 'block');
         Storage.remove('hege_worker_stats'); // Fresh stats for new session
 
         if (toAdd.length > 0 && !explicitToAdd) {
@@ -1292,6 +1700,31 @@ export const Core = {
         // Since we're already on threads.net, we modify the URL in-place (no navigation event)
         // and reload. Safari sees this as a page refresh, NOT a navigation to a new URL,
         // so Universal Links cannot intercept it.
+        const workerUrl = new URL(window.location.origin);
+        workerUrl.searchParams.set('hege_bg', 'true');
+        history.replaceState(null, '', workerUrl.toString());
+        location.reload();
+    },
+
+    runSameTabReportWorker: () => {
+        const q = Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []);
+
+        if (q.length === 0) {
+            UI.showToast('沒有待檢舉的帳號');
+            return;
+        }
+
+        if (Storage.getJSON(CONFIG.KEYS.REPORT_BATCH_USERS, []).length === 0) {
+            Storage.setJSON(CONFIG.KEYS.REPORT_BATCH_USERS, q);
+        }
+        Storage.remove(CONFIG.KEYS.BG_CMD);
+        Storage.set(CONFIG.KEYS.WORKER_MODE, 'report');
+        Storage.remove('hege_worker_stats');
+
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete('hege_bg');
+        Storage.set('hege_return_url', cleanUrl.toString());
+
         const workerUrl = new URL(window.location.origin);
         workerUrl.searchParams.set('hege_bg', 'true');
         history.replaceState(null, '', workerUrl.toString());
@@ -1324,6 +1757,7 @@ export const Core = {
             const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
             const isRunning = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
             if (!isRunning) {
+                Storage.set(CONFIG.KEYS.WORKER_MODE, 'block');
                 if (Utils.isMobile()) {
                     Core.runSameTabWorker();
                 } else {
@@ -1364,6 +1798,7 @@ export const Core = {
 
         if (!isRunning) {
             UI.showConfirm(`已匯入 ${newUsers.length} 筆名單。\n是否立即開始背景執行？`, () => {
+                Storage.set(CONFIG.KEYS.WORKER_MODE, 'block');
                 if (Utils.isMobile()) {
                     Core.runSameTabWorker();
                 } else {
