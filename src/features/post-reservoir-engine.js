@@ -98,12 +98,16 @@ Object.assign(Core, {
             Storage.remove(SWEEP_KEYS.STOPPED);
         },
 
-        clearLoopStateForCurrentPost() {
-            const path = window.location.pathname;
+        clearLoopStateForUrl(url = window.location.href) {
+            const path = new URL(url, window.location.origin).pathname;
             Storage.remove('hege_sweep_processed_' + path);
             sessionStorage.removeItem('hege_sweep_last_batch_' + path);
             sessionStorage.removeItem(SWEEP_KEYS.LAST_FIRST_USER);
             sessionStorage.removeItem(SWEEP_KEYS.AUTO_TRIGGERED_ONCE);
+        },
+
+        clearLoopStateForCurrentPost() {
+            Core.SweepDriver.clearLoopStateForUrl(window.location.href);
         },
 
         navigateTo(url, delay = 0) {
@@ -125,8 +129,8 @@ Object.assign(Core, {
             const now = Date.now();
             const cooldownMs = CONFIG.POST_SWEEP_COOLDOWN_HOURS * 60 * 60 * 1000;
             const entries = Storage.postReservoir.getAll();
-            return entries.find(p => p.status === 'pending')
-                || entries.find(p => p.status === 'cooldown' && (now - (p.lastSweptAt || 0)) >= cooldownMs)
+            return entries.find(p => p.longTermLoop === true && p.status === 'pending')
+                || entries.find(p => p.longTermLoop === true && p.status === 'cooldown' && (now - (p.lastSweptAt || 0)) >= cooldownMs)
                 || entries.find(p => p.status === 'done' && p.longTermLoop === true && (now - (p.lastSweptAt || 0)) >= cooldownMs)
                 || null;
         },
@@ -188,6 +192,38 @@ Object.assign(Core, {
         },
 
         startNow() {
+            Storage.invalidate(CONFIG.KEYS.BG_QUEUE);
+            const existingBgQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+            if (existingBgQueue.length > 0) {
+                Storage.remove(CONFIG.KEYS.BG_CMD);
+                Storage.set(CONFIG.KEYS.WORKER_MODE, 'block');
+                Storage.remove(CONFIG.KEYS.WORKER_STATS);
+
+                const entries = Storage.postReservoir.getAll();
+                const targetEntry = entries.find(p => p && p.status === 'sweeping')
+                    || entries.find(p => p && p.advanceOnComplete === true && p.status === 'pending')
+                    || entries.find(p => p && p.advanceOnComplete === true);
+                const targetUrl = Core.SweepDriver.norm(targetEntry?.url || Core.SweepDriver.cleanCurrentUrl());
+                sessionStorage.setItem(SWEEP_KEYS.STATE, SWEEP_STATE.WAIT_FOR_BG);
+                sessionStorage.setItem(SWEEP_KEYS.TARGET, targetUrl);
+                sessionStorage.setItem(SWEEP_KEYS.WAIT_STARTED_AT, Date.now().toString());
+                Storage.set(SWEEP_KEYS.WORKER_STANDBY, 'true');
+                UI.showToast(`定點絕：已有 ${existingBgQueue.length} 人待封鎖，直接交給 worker 執行。`, 3500);
+
+                if (Utils.isMobile()) {
+                    Core.runSameTabWorker([]);
+                    return;
+                }
+
+                const workerWindow = Utils.openWorkerWindow();
+                if (workerWindow && !workerWindow.closed) {
+                    Core.SweepDriver.waitForWorkerDrain();
+                } else {
+                    Core.runSameTabWorker([]);
+                }
+                return;
+            }
+
             // 重設所有 advance entry 的卡住狀態
             const queue = Storage.getJSON(CONFIG.KEYS.POST_QUEUE, []).map(entry => {
                 if (!entry || typeof entry !== 'object') return entry;
@@ -215,6 +251,7 @@ Object.assign(Core, {
             Core.SweepDriver.clearLoopStateForCurrentPost();
             const next = Core.SweepDriver.markSweeping(entry);
             if (!next) return;
+            Core.SweepDriver.clearLoopStateForUrl(next.url);
             UI.showToast(`🚀 貼文水庫啟動，前往：${next.label || next.url}`, 3000);
             Core.SweepDriver.navigateTo(next.url, 1000);
         },
@@ -546,6 +583,7 @@ Object.assign(Core, {
             const processedSetKey = 'hege_sweep_processed_' + window.location.pathname;
             const processedList = Storage.getJSON(processedSetKey, []);
             const processedSet = new Set(processedList);
+            const lastBatchKey = 'hege_sweep_last_batch_' + window.location.pathname;
 
             if (rawUsers.length > 0 && rawUsers.every(u => processedSet.has(u))) {
                 console.log('[SweepDriver] collectBatch return empty', JSON.stringify({
@@ -563,6 +601,20 @@ Object.assign(Core, {
                 newUsersLength: newUsers.length,
             }));
             if (newUsers.length === 0) {
+                const fallbackUsers = await Core.collectFullDialogUsers(ctx, { label: '定點絕掃描名單' });
+                const fallbackNewUsers = Core.filterNewUsers(fallbackUsers).filter(u => !processedSet.has(u));
+                if (fallbackNewUsers.length > 0) {
+                    const fallbackBatch = fallbackNewUsers;
+                    Storage.setJSON(processedSetKey, [...new Set([...processedList, ...fallbackBatch])]);
+                    sessionStorage.setItem(lastBatchKey, JSON.stringify(fallbackBatch));
+                    sessionStorage.setItem(SWEEP_KEYS.LAST_FIRST_USER, fallbackBatch[0]);
+                    sessionStorage.setItem(SWEEP_KEYS.AUTO_TRIGGERED_ONCE, 'true');
+                    console.log('[SweepDriver] collectBatch fallback Core.collectFullDialogUsers success', JSON.stringify({
+                        fallbackUsersLength: fallbackUsers.length,
+                        fallbackNewUsersLength: fallbackNewUsers.length,
+                    }));
+                    return { users: fallbackBatch, reason: 'batch_fallback_full_dialog' };
+                }
                 console.log('[SweepDriver] collectBatch return empty', JSON.stringify({
                     reason: 'exhausted',
                     collectedLinksSize: collectedLinks.size,
@@ -586,7 +638,6 @@ Object.assign(Core, {
             }
 
             const batchUsers = newUsers;
-            const lastBatchKey = 'hege_sweep_last_batch_' + window.location.pathname;
             const lastBatchStr = sessionStorage.getItem(lastBatchKey);
             if (lastBatchStr && batchUsers.length > 0) {
                 try {
@@ -625,6 +676,7 @@ Object.assign(Core, {
                 postOwner: Utils.getPostOwner() || '',
             }));
             Storage.set(CONFIG.KEYS.CURRENT_BATCH_ID, 'b_' + Date.now());
+            Storage.set(CONFIG.KEYS.WORKER_MODE, 'block');
 
             Core.SweepDriver.updateEntry(entry.url, p => ({
                 ...p,
@@ -643,7 +695,17 @@ Object.assign(Core, {
             UI.showToast(`[貼文水庫] 已抓取 ${batchUsers.length} 人，送入背景水庫執行。`);
 
             Storage.remove(CONFIG.KEYS.BG_CMD);
-            Core.runSameTabWorker([]);
+            Storage.remove(CONFIG.KEYS.WORKER_STATS);
+            if (Utils.isMobile()) {
+                Core.runSameTabWorker(batchUsers);
+            } else {
+                const workerWindow = Utils.openWorkerWindow();
+                if (workerWindow && !workerWindow.closed) {
+                    Core.SweepDriver.waitForWorkerDrain();
+                } else {
+                    Core.runSameTabWorker(batchUsers);
+                }
+            }
         },
 
         waitForWorkerDrain() {

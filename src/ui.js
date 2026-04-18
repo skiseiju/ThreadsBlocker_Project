@@ -730,6 +730,13 @@ export const UI = {
                             <span style="font-size:11px;color:#888;line-height:1.35;">把目前貼文加入定點絕排程。</span>
                         </span>
                     </label>
+                    <label id="hege-clean-list-loop-row" style="display:none; align-items:flex-start; gap:10px; margin-top:-4px; margin-left:26px; padding:10px; border:1px solid #28445a; border-radius:8px; background:#0b1b25; cursor:pointer;">
+                        <input type="checkbox" id="hege-clean-list-loop" style="width:16px;height:16px;margin-top:2px;">
+                        <span style="display:flex; flex-direction:column; gap:3px;">
+                            <span style="font-size:13px;font-weight:700;color:#d8f0ff;">要做深層清理嗎？</span>
+                            <span style="font-size:11px;color:#8fb8d0;line-height:1.35;">每 8 小時回頭再清一次。</span>
+                        </span>
+                    </label>
                 </div>
                 <div style="display:flex; justify-content:flex-end; gap:10px; padding:12px 16px; border-top:1px solid #2a2a2a;">
                     <button class="hege-manager-btn secondary" id="hege-clean-list-picker-cancel">取消</button>
@@ -741,10 +748,21 @@ export const UI = {
         const close = () => overlay.remove();
         overlay.querySelector('#hege-clean-list-picker-close').onclick = close;
         overlay.querySelector('#hege-clean-list-picker-cancel').onclick = close;
+        const endlessInput = overlay.querySelector('#hege-clean-list-endless');
+        const loopRow = overlay.querySelector('#hege-clean-list-loop-row');
+        const loopInput = overlay.querySelector('#hege-clean-list-loop');
+        const syncLoopRow = () => {
+            const enabled = !!endlessInput?.checked;
+            if (loopRow) loopRow.style.display = enabled ? 'flex' : 'none';
+            if (!enabled && loopInput) loopInput.checked = false;
+        };
+        endlessInput?.addEventListener('change', syncLoopRow);
+        syncLoopRow();
         overlay.querySelector('#hege-clean-list-picker-confirm').onclick = () => {
             const actions = {
                 collect: !!overlay.querySelector('#hege-clean-list-collect')?.checked,
                 endless: !!overlay.querySelector('#hege-clean-list-endless')?.checked,
+                longTermLoop: !!overlay.querySelector('#hege-clean-list-loop')?.checked,
             };
             if (!actions.collect && !actions.endless) {
                 UI.showToast('請至少選一個清理動作');
@@ -895,7 +913,6 @@ export const UI = {
                                 <span>封鎖流程可視化</span>
                                 <input type="checkbox" id="hege-s-block-visual-debug-toggle" style="width:16px; height:16px;">
                             </label>
-                            <span style="font-size:10px; color:#888; line-height:1.3;">可在 worker 中即時切換；開啟後用 compact UI，不蓋住 Threads 畫面。</span>
                         </div>
                     </div>
 
@@ -925,7 +942,6 @@ export const UI = {
                                 <span>檢舉流程可視化</span>
                                 <input type="checkbox" id="hege-s-report-visual-debug-toggle" style="width:16px; height:16px;">
                             </label>
-                            <span style="font-size:10px; color:#888; line-height:1.3;">可在 worker 中即時切換；開啟後用 compact UI，不蓋住 Threads 畫面。</span>
                         </div>
                     </div>
                 </div>
@@ -1409,10 +1425,11 @@ export const UI = {
 
         // 模式 badge：ON 彩色 + 可點擊關閉，OFF 灰色 + 可點擊開啟
         const modeBadges = (entry) => {
-            const onAdvance = `<span class="hege-mode-badge" data-url="${entry.url}" data-flag="advance" style="font-size:10px; color:#ff9500; background:#2d2200; padding:2px 6px; border-radius:4px; cursor:pointer;" title="點擊關閉定點絕">🎯 定點絕</span>`;
-            const offAdvance = `<span class="hege-mode-badge" data-url="${entry.url}" data-flag="advance" style="font-size:10px; color:#555; background:#1a1a1a; padding:2px 6px; border-radius:4px; cursor:pointer; opacity:0.6;" title="點擊開啟定點絕">🎯 定點絕</span>`;
-            const onLoop = `<span class="hege-mode-badge" data-url="${entry.url}" data-flag="loop" style="font-size:10px; color:#5ac8fa; background:#0a2332; padding:2px 6px; border-radius:4px; cursor:pointer;" title="點擊關閉深層清理">💧 深層清理</span>`;
-            const offLoop = `<span class="hege-mode-badge" data-url="${entry.url}" data-flag="loop" style="font-size:10px; color:#555; background:#1a1a1a; padding:2px 6px; border-radius:4px; cursor:pointer; opacity:0.6;" title="點擊開啟深層清理">💧 深層清理</span>`;
+            const baseStyle = 'display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:30px;padding:6px 10px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;line-height:1;user-select:none;';
+            const onAdvance = `<span class="hege-mode-badge" data-url="${entry.url}" data-flag="advance" style="${baseStyle} color:#ffb340; background:#2d2200; border:1px solid #6b4a00;" title="點擊關閉定點絕">🎯 定點絕</span>`;
+            const offAdvance = `<span class="hege-mode-badge" data-url="${entry.url}" data-flag="advance" style="${baseStyle} color:#777; background:#171717; border:1px solid #333;" title="點擊開啟定點絕">🎯 定點絕</span>`;
+            const onLoop = `<span class="hege-mode-badge" data-url="${entry.url}" data-flag="loop" style="${baseStyle} color:#7fd2ff; background:#0a2332; border:1px solid #1f6588;" title="點擊關閉深層清理">💧 深層清理</span>`;
+            const offLoop = `<span class="hege-mode-badge" data-url="${entry.url}" data-flag="loop" style="${baseStyle} color:#777; background:#171717; border:1px solid #333;" title="點擊開啟深層清理">💧 深層清理</span>`;
             return (entry.advanceOnComplete ? onAdvance : offAdvance) + ' ' + (entry.longTermLoop ? onLoop : offLoop);
         };
 
@@ -1436,9 +1453,34 @@ export const UI = {
             const entries = Storage.postReservoir.getAll();
             const history = Storage.getJSON(CONFIG.KEYS.ENDLESS_HISTORY, []);
             const pendingAdvanceCount = entries.filter(p => p.advanceOnComplete && (p.status === 'pending' || p.status === 'done' || p.done === true)).length;
-            const isEndlessRunning = Storage.get('hege_sweep_worker_standby') === 'true'
-                || ['WAIT_FOR_BG', 'RELOADING', 'SCANNING'].includes(sessionStorage.getItem('hege_sweep_state'));
-            const canStart = pendingAdvanceCount > 0 && !isEndlessRunning && typeof onStart === 'function';
+            const sweepState = sessionStorage.getItem('hege_sweep_state') || '';
+            const standbyRunning = Storage.get('hege_sweep_worker_standby') === 'true';
+            const isEndlessRunning = standbyRunning || ['WAIT_FOR_BG', 'RELOADING', 'SCANNING'].includes(sweepState);
+            const hasStartHandler = typeof onStart === 'function';
+            const canStart = pendingAdvanceCount > 0 && !isEndlessRunning && hasStartHandler;
+            const runningReason = standbyRunning
+                ? 'worker 待命或執行中'
+                : (sweepState ? `流程狀態：${sweepState}` : '流程執行中');
+            const startActionHtml = (() => {
+                if (!hasStartHandler) return '';
+                if (canStart) {
+                    return `<button id="hege-reservoir-start" class="hege-manager-btn" style="padding:10px; font-size:13px; font-weight:700; background:#ff3b30; color:#fff; border:none; border-radius:8px; cursor:pointer;">🚀 立即執行定點絕（${pendingAdvanceCount} 篇待跑）</button>`;
+                }
+                if (pendingAdvanceCount > 0 && isEndlessRunning) {
+                    return `
+                        <div style="display:flex; flex-direction:column; gap:8px; padding:10px; border:1px solid #3a3020; background:#17130b; border-radius:8px;">
+                            <button class="hege-manager-btn" disabled style="padding:10px; font-size:13px; font-weight:700; background:#333; color:#999; border:none; border-radius:8px; cursor:not-allowed;">定點絕執行中（${pendingAdvanceCount} 篇待跑）</button>
+                            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                                <span style="font-size:11px; color:#c9a86a; line-height:1.35;">${runningReason}</span>
+                                <button id="hege-reservoir-reset-run-state" class="hege-manager-btn secondary" style="font-size:12px; padding:7px 10px; white-space:nowrap;">重置執行狀態</button>
+                            </div>
+                        </div>`;
+                }
+                if (entries.length > 0) {
+                    return `<div style="padding:10px; border:1px solid #2a2a2a; background:#111; border-radius:8px; font-size:11px; color:#888; line-height:1.4;">沒有可立即執行的定點絕。請先把文章下方的「🎯 定點絕」點亮。</div>`;
+                }
+                return '';
+            })();
 
             const overlay = document.createElement('div');
             overlay.id = 'hege-reservoir-overlay';
@@ -1457,7 +1499,7 @@ export const UI = {
                             ${entry.status !== 'pending' ? `<span class="hege-reservoir-reset" data-url="${entry.url}" style="font-size:14px; color:#5ac8fa; cursor:pointer; padding:0 6px; line-height:1;" title="重置狀態">🔄</span>` : ''}
                             <span class="hege-reservoir-remove" data-url="${entry.url}" style="font-size:18px; color:#555; cursor:pointer; padding:0 4px; line-height:1;">×</span>
                         </div>
-                        <div style="display:flex; gap:6px; flex-wrap:wrap; padding-left:2px;">
+                        <div style="display:flex; gap:8px; flex-wrap:wrap; padding-left:2px;">
                             ${modeBadges(entry)}
                         </div>
                         ${statsLine(entry) ? `<div style="font-size:10px; color:#555; padding-left:2px;">${statsLine(entry)}</div>` : ''}
@@ -1486,7 +1528,7 @@ export const UI = {
                         ${rows}
                     </div>
                     <div style="padding:12px 16px; border-top:1px solid #333; display:flex; flex-direction:column; gap:8px;">
-                        ${canStart ? `<button id="hege-reservoir-start" class="hege-manager-btn" style="padding:10px; font-size:13px; font-weight:700; background:#ff3b30; color:#fff; border:none; border-radius:8px; cursor:pointer;">🚀 立即執行定點絕（${pendingAdvanceCount} 篇待跑）</button>` : ''}
+                        ${startActionHtml}
                         <div style="display:flex; gap:8px;">
                             <input id="hege-reservoir-input" type="text" placeholder="貼入貼文網址 (/@.../post/...)" style="flex:1; background:#1a1a1a; border:1px solid #444; border-radius:6px; padding:8px 10px; color:#f5f5f5; font-size:12px; outline:none;">
                             <button id="hege-reservoir-add" class="hege-manager-btn" style="padding:8px 14px; font-size:12px;">新增</button>
@@ -1522,6 +1564,23 @@ export const UI = {
                         onStart();
                     };
                 }
+            }
+
+            const resetRunBtn = overlay.querySelector('#hege-reservoir-reset-run-state');
+            if (resetRunBtn) {
+                resetRunBtn.onclick = () => {
+                    Storage.remove('hege_sweep_worker_standby');
+                    Storage.remove('hege_sweep_stopped');
+                    Storage.remove(CONFIG.KEYS.BG_CMD);
+                    sessionStorage.removeItem('hege_sweep_state');
+                    sessionStorage.removeItem('hege_sweep_target');
+                    sessionStorage.removeItem('hege_sweep_last_first_user');
+                    sessionStorage.removeItem('hege_sweep_auto_triggered_once');
+                    sessionStorage.removeItem('hege_sweep_wait_started_at');
+                    sessionStorage.removeItem('hege_sweep_lock');
+                    UI.showToast('定點絕執行狀態已重置');
+                    renderOverlay();
+                };
             }
 
             // 移除單篇

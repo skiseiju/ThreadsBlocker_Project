@@ -221,7 +221,7 @@ export const Utils = {
         const workerUrl = `${window.location.origin}/?hege_bg=true`;
         const w = window.open(workerUrl, 'HegeBlockWorker', 'width=800,height=600');
         if (!w || w.closed) {
-            alert(`瀏覽器阻擋了彈出視窗。\n請允許 ${window.location.host} 的彈出視窗權限，或手動開啟新分頁前往：\n${workerUrl}`);
+            console.warn('[HegeBlock] Worker popup blocked; caller should fall back to same-tab worker:', workerUrl);
         }
         return w;
     },

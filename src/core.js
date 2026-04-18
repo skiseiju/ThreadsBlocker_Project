@@ -737,7 +737,7 @@ export const Core = {
         };
 
 
-        const handleEndlessSweep = (e) => {
+        const handleEndlessSweep = (e, options = {}) => {
             if (e) {
                 e.stopPropagation(); e.preventDefault();
             }
@@ -753,7 +753,7 @@ export const Core = {
                 Storage.postReservoir.addEntry(currentUrl, {
                     label,
                     advanceOnComplete: true,
-                    longTermLoop: !!exists?.longTermLoop,
+                    longTermLoop: !!options.longTermLoop || !!exists?.longTermLoop,
                 });
                 const queueLength = Storage.postReservoir.getAll().filter(p => p.advanceOnComplete).length;
                 const postOwner = Utils.getPostOwner();
@@ -769,9 +769,10 @@ export const Core = {
                     didAutoMarkLeader = true;
                 }
                 if (Core.SweepDriver) Core.SweepDriver.clearLoopStateForCurrentPost();
+                const loopText = options.longTermLoop ? '，並啟用 8 小時深層清理' : '';
                 UI.showToast(didAutoMarkLeader
-                    ? `✅ 已加入定點絕排程，並標記 @${postOwner} 為大蟑螂`
-                    : `✅ 已加入定點絕排程（第 ${queueLength} 批）`);
+                    ? `✅ 已加入定點絕排程${loopText}，並標記 @${postOwner} 為大蟑螂`
+                    : `✅ 已加入定點絕排程${loopText}（第 ${queueLength} 批）`);
                 Core.updateControllerUI();
                 return;
             }
@@ -810,7 +811,7 @@ export const Core = {
                     await handleBlockAll(null, fullUsers);
                 }
                 if (actions.endless) {
-                    handleEndlessSweep();
+                    handleEndlessSweep(null, { longTermLoop: actions.longTermLoop });
                 }
                 if (actions.collect) {
                     await handleReportOnly(null, fullUsers);
@@ -1418,7 +1419,11 @@ export const Core = {
             if (Utils.isMobile()) {
                 Core.runSameTabWorker();
             } else {
-                Utils.openWorkerWindow();
+                const workerWindow = Utils.openWorkerWindow();
+                if (!workerWindow || workerWindow.closed) {
+                    UI.showToast('彈出視窗被阻擋，改用目前視窗執行。');
+                    Core.runSameTabWorker();
+                }
             }
         }
     },
@@ -1761,7 +1766,11 @@ export const Core = {
                 if (Utils.isMobile()) {
                     Core.runSameTabWorker();
                 } else {
-                    Utils.openWorkerWindow();
+                    const workerWindow = Utils.openWorkerWindow();
+                    if (!workerWindow || workerWindow.closed) {
+                        UI.showToast('彈出視窗被阻擋，改用目前視窗執行。');
+                        Core.runSameTabWorker();
+                    }
                 }
             }
         });
@@ -1802,7 +1811,11 @@ export const Core = {
                 if (Utils.isMobile()) {
                     Core.runSameTabWorker();
                 } else {
-                    Utils.openWorkerWindow();
+                    const workerWindow = Utils.openWorkerWindow();
+                    if (!workerWindow || workerWindow.closed) {
+                        UI.showToast('彈出視窗被阻擋，改用目前視窗執行。');
+                        Core.runSameTabWorker();
+                    }
                 }
             });
         } else if (isRunning) {

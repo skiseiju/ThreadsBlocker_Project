@@ -567,7 +567,7 @@ export const Worker = {
             const label = document.getElementById('hege-worker-report-visual-label');
             if (label) label.textContent = enabled ? '可視化開啟' : '可視化關閉';
             const hint = document.getElementById('hege-worker-report-visual-hint');
-            if (hint) hint.textContent = enabled ? 'compact UI：不蓋住 Threads 畫面' : '正常 worker 介面';
+            if (hint) hint.textContent = '';
         };
 
         const bindWorkerVisualToggle = () => {
@@ -581,7 +581,7 @@ export const Worker = {
                 if (window.hegeLog) window.hegeLog(`[${visualInfo.actionText}][VISUAL] worker 即時切換 ${enabled ? 'ON' : 'OFF'}`);
                 Worker.refreshStatusUI();
                 const statusEl = document.getElementById('bg-status');
-                if (statusEl) statusEl.textContent = enabled ? '可視化已開啟：compact UI 已啟用' : '可視化已關閉：回到正常 worker 介面';
+                if (statusEl) statusEl.textContent = enabled ? '可視化已開啟' : '可視化已關閉';
             });
         };
 
@@ -628,7 +628,6 @@ export const Worker = {
                 <label id="hege-worker-report-visual-control" style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:6px 8px;margin-bottom:6px;cursor:pointer;user-select:none;">
                     <span style="display:flex;flex-direction:column;gap:1px;">
                         <span id="hege-worker-report-visual-label" style="font-size:11px;font-weight:700;color:#e5f0ff;">可視化開啟</span>
-                        <span id="hege-worker-report-visual-hint" style="font-size:10px;color:#8ea2bd;">compact UI：不蓋住 Threads 畫面</span>
                     </span>
                     <input type="checkbox" id="hege-worker-report-visual-toggle" checked style="width:16px;height:16px;flex:0 0 auto;">
                 </label>
@@ -697,7 +696,6 @@ export const Worker = {
                 <label id="hege-worker-report-visual-control" style="width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;background:#111827;border:1px solid #26364d;border-radius:10px;padding:10px 12px;margin-bottom:14px;box-sizing:border-box;cursor:pointer;user-select:none;">
                     <span style="display:flex;flex-direction:column;gap:2px;">
                         <span id="hege-worker-report-visual-label" style="font-size:13px;font-weight:700;color:#e5f0ff;">${workerVisualDebugEnabled ? '可視化開啟' : '可視化關閉'}</span>
-                        <span id="hege-worker-report-visual-hint" style="font-size:11px;color:#8ea2bd;">${workerVisualDebugEnabled ? 'compact UI：不蓋住 Threads 畫面' : '正常 worker 介面'}</span>
                     </span>
                     <input type="checkbox" id="hege-worker-report-visual-toggle" ${workerVisualDebugEnabled ? 'checked' : ''} style="width:18px;height:18px;flex:0 0 auto;">
                 </label>
@@ -1068,15 +1066,33 @@ export const Worker = {
                 return;
             }
 
-            // 貼文水庫待命模式：即使佇列空了也保持開啟，等待主視窗接續下一批
+            // 貼文水庫批次完成橋接：通知主視窗接續下一批；空 queue 啟動不再待命。
             if (Storage.get('hege_sweep_worker_standby') === 'true') {
-                Worker.updateStatus('idle', '⌛ 等待定點絕餵食...', 0, 0);
-                if (window.hegeLog) window.hegeLog('[BG] 佇列空，但貼文水庫待命中...');
-
-                // Same-tab 模式（無 opener）：直接返回主頁面，由 SweepDriver 接管下一批
-                if (!window.opener || window.opener.closed) {
-                    if (window.hegeLog) window.hegeLog('[BG] Same-tab 模式，返回主頁面讓 SweepDriver 處理下一批...');
+                const hadWork = Worker.initialTotal > 0
+                    || Worker.sessionQueue.length > 0
+                    || (Worker.stats.success + Worker.stats.skipped + Worker.stats.failed + Worker.stats.vanished) > 0;
+                if (!hadWork) {
+                    Storage.remove('hege_sweep_worker_standby');
+                    Worker.updateStatus('idle', '定點絕 worker 無待處理佇列，已結束。', 0, 0);
+                    if (window.hegeLog) window.hegeLog('[BG] 空 queue 啟動，清除貼文水庫待命旗標。');
                     Worker.navigateBack();
+                    return;
+                }
+
+                Worker.updateStatus('idle', '✅ 本批定點絕完成，等待主視窗接續...', 0, Worker.initialTotal);
+                if (window.hegeLog) window.hegeLog('[BG] 本批佇列完成，等待主視窗接續下一批...');
+
+                // Same-tab fallback 會有 hege_return_url；獨立 popup 無 opener 時直接完成關閉。
+                const returnUrl = Storage.get('hege_return_url');
+                if (!window.opener || window.opener.closed) {
+                    if (returnUrl) {
+                        if (window.hegeLog) window.hegeLog('[BG] Same-tab 模式，返回主頁面讓 SweepDriver 處理下一批...');
+                        Worker.navigateBack();
+                    } else {
+                        if (window.hegeLog) window.hegeLog('[BG] Popup 無 opener，交由主視窗輪詢 queue 狀態後接續。');
+                        Storage.remove('hege_sweep_worker_standby');
+                        setTimeout(Worker.runStep, 1000);
+                    }
                     return;
                 }
 

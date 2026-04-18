@@ -270,7 +270,11 @@ import './features/cockroach.js';
                                 Core.runSameTabWorker();
                             } else {
                                 // window.open must be called directly in the click handler to preserve user gesture
-                                Utils.openWorkerWindow();
+                                const workerWindow = Utils.openWorkerWindow();
+                                if (!workerWindow || workerWindow.closed) {
+                                    UI.showToast('彈出視窗被阻擋，改用目前視窗執行。');
+                                    Core.runSameTabWorker();
+                                }
                             }
                         }
                     );
@@ -299,7 +303,11 @@ import './features/cockroach.js';
                     if (!running) {
                         Storage.remove(CONFIG.KEYS.BG_CMD);
                         Storage.set(CONFIG.KEYS.WORKER_MODE, 'block');
-                        Utils.openWorkerWindow();
+                        const workerWindow = Utils.openWorkerWindow();
+                        if (!workerWindow || workerWindow.closed) {
+                            UI.showToast('彈出視窗被阻擋，改用目前視窗執行。');
+                            Core.runSameTabWorker();
+                        }
                     }
                 }
             };
@@ -327,7 +335,11 @@ import './features/cockroach.js';
                         if (Utils.isMobile()) {
                             Core.runSameTabReportWorker();
                         } else {
-                            Utils.openWorkerWindow();
+                            const workerWindow = Utils.openWorkerWindow();
+                            if (!workerWindow || workerWindow.closed) {
+                                UI.showToast('彈出視窗被阻擋，改用目前視窗執行。');
+                                Core.runSameTabReportWorker();
+                            }
                         }
                     };
 
