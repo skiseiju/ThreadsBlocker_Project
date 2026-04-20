@@ -1,6 +1,7 @@
 import { CONFIG } from './config.js';
 import { Utils } from './utils.js';
 import { Storage } from './storage.js';
+import { Reporter } from './reporter.js';
 
 export const UI = {
     injectStyles: () => {
@@ -314,8 +315,7 @@ export const UI = {
 
         // Auto-collapse on outside click（定點絕執行中不折疊，避免 simClick 誤觸發）
         document.addEventListener('click', (e) => {
-            const isEndlessRunning = Storage.get('hege_sweep_worker_standby') === 'true'
-                || ['WAIT_FOR_BG', 'RELOADING', 'SCANNING'].includes(sessionStorage.getItem('hege_sweep_state'));
+            const isEndlessRunning = Utils.isSweepRunning();
             if (isEndlessRunning) return;
             const p = document.getElementById('hege-panel');
             if (p && !p.classList.contains('minimized') && !p.contains(e.target) && !e.target.closest('#hege-panel')) {
@@ -991,7 +991,6 @@ export const UI = {
         bind('hege-s-clear-db', callbacks.onClearDB);
         bind('hege-s-report', callbacks.onReport);
         bind('hege-s-analytics', callbacks.onAnalytics);
-
         // 速度模式切換（設定 modal 中）
         const speedModes = ['smart', 'stable', 'standard', 'turbo'];
         const speedLabels = { smart: '🧠 智慧', stable: '🛡️ 穩定', standard: '⚡ 標準', turbo: '🚀 加速' };
@@ -1209,12 +1208,25 @@ export const UI = {
 
     showAnalyticsReport: () => {
         if (document.getElementById('hege-analytics-overlay')) return;
+        const analyticsShowAdvanced = Storage.get(CONFIG.KEYS.ANALYTICS_SHOW_ADVANCED, 'false') === 'true';
 
         const db = Storage.getJSON(CONFIG.KEYS.DB_KEY, []);
         const ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
         const cockroachDB = Storage.getJSON(CONFIG.KEYS.COCKROACH_DB, []);
         const endlessHistory = Storage.getJSON(CONFIG.KEYS.ENDLESS_HISTORY, []);
         const endlessQueue = Storage.postReservoir.getAll().filter(p => p.advanceOnComplete);
+        const reportHistory = Storage.getJSON(CONFIG.KEYS.REPORT_HISTORY, []);
+        const evidenceIndexRaw = Storage.getJSON(CONFIG.KEYS.SOURCE_EVIDENCE_INDEX, {});
+        const evidenceIndexMap = (evidenceIndexRaw && typeof evidenceIndexRaw === 'object' && !Array.isArray(evidenceIndexRaw))
+            ? evidenceIndexRaw
+            : {};
+        const sourceEvidenceList = Object.entries(evidenceIndexMap)
+            .map(([sourceUrl, item]) => ({ sourceUrl, ...(item || {}) }))
+            .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        const activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+        const failedQueue = Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []);
+        const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
+        const cooldownUntil = parseInt(Storage.get(CONFIG.KEYS.COOLDOWN) || '0', 10);
 
         // 向下相容 timestamp 取值
         const getTs = (u) => { const e = ts[u]; return typeof e === 'object' && e !== null ? (e.t || 0) : (e || 0); };
@@ -1223,6 +1235,9 @@ export const UI = {
         // === 統計計算 ===
         const totalBlocked = db.length;
         const cockroachCount = Array.isArray(cockroachDB) ? cockroachDB.length : 0;
+        const knownEntries = db.map(u => ({ username: u, ...getEntry(u) }));
+        const structuredEntries = knownEntries.filter(e => e.t > 0 && (e.src || e.reason || e.batch || e.postOwner || e.postText));
+        const legacyCount = Math.max(0, totalBlocked - structuredEntries.length);
 
         // 封鎖原因分布
         const reasonCounts = { likes: 0, quotes: 0, reposts: 0, manual: 0, unknown: 0 };
@@ -1233,49 +1248,152 @@ export const UI = {
         });
 
         // 時間範圍
-        const allTimes = db.map(u => getTs(u)).filter(t => t > 0).sort((a, b) => a - b);
-        const earliest = allTimes.length > 0 ? new Date(allTimes[0]).toLocaleDateString() : '-';
-        const latest = allTimes.length > 0 ? new Date(allTimes[allTimes.length - 1]).toLocaleDateString() : '-';
+        const now = Date.now();
+        const blockTimes = db.map(u => getTs(u)).filter(t => t > 0).sort((a, b) => a - b);
+        const reportTimes = reportHistory.map(entry => entry.t || 0).filter(t => t > 0).sort((a, b) => a - b);
+        const actionTimes = [...blockTimes, ...reportTimes].sort((a, b) => a - b);
+        const sourceEvidenceWithSnippetCount = sourceEvidenceList.filter(item => !!item.snippet).length;
+        const sourceEvidenceRecent7dCount = sourceEvidenceList.filter(item => (item.updatedAt || 0) >= now - 7 * 24 * 3600 * 1000).length;
+        const sourceEvidencePreview = sourceEvidenceList.slice(0, 8);
+        const earliest = actionTimes.length > 0 ? new Date(actionTimes[0]).toLocaleDateString() : '-';
+        const latest = actionTimes.length > 0 ? new Date(actionTimes[actionTimes.length - 1]).toLocaleDateString() : '-';
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        const countSince = (ms) => actionTimes.filter(t => t >= ms).length;
+        const todayCount = countSince(startOfToday.getTime());
+        const sevenDayCount = countSince(now - 7 * 24 * 3600 * 1000);
+        const thirtyDayCount = countSince(now - 30 * 24 * 3600 * 1000);
 
         // 來源貼文排行（哪篇貼文封最多人）
         const srcMap = {};
         db.forEach(u => {
             const entry = getEntry(u);
             if (entry.src) {
-                if (!srcMap[entry.src]) srcMap[entry.src] = { count: 0, postText: entry.postText || '', postOwner: entry.postOwner || '' };
+                if (!srcMap[entry.src]) srcMap[entry.src] = {
+                    count: 0,
+                    postText: entry.postText || '',
+                    postOwner: entry.postOwner || '',
+                    reasons: {}
+                };
                 srcMap[entry.src].count++;
+                const reason = entry.reason || 'unknown';
+                srcMap[entry.src].reasons[reason] = (srcMap[entry.src].reasons[reason] || 0) + 1;
             }
         });
         const topSources = Object.entries(srcMap).sort((a, b) => b[1].count - a[1].count).slice(0, 10);
+        const uniqueSources = Object.keys(srcMap).length;
+        const sourceLinkedCount = Object.values(srcMap).reduce((sum, info) => sum + info.count, 0);
+        const sourceCoveragePct = totalBlocked > 0 ? Math.round(sourceLinkedCount / totalBlocked * 100) : 0;
+        const topSourceShare = totalBlocked > 0 && topSources.length > 0 ? Math.round(topSources[0][1].count / totalBlocked * 100) : 0;
+        const reportSourceMap = {};
+        reportHistory.forEach(entry => {
+            const src = entry.sourceUrl || '';
+            if (!src) return;
+            if (!reportSourceMap[src]) reportSourceMap[src] = { count: 0, paths: {}, sources: {} };
+            reportSourceMap[src].count++;
+            const pathLabel = Array.isArray(entry.path) ? entry.path.join(' > ') : '';
+            if (pathLabel) reportSourceMap[src].paths[pathLabel] = (reportSourceMap[src].paths[pathLabel] || 0) + 1;
+            const sourceLabel = entry.source || 'unknown';
+            reportSourceMap[src].sources[sourceLabel] = (reportSourceMap[src].sources[sourceLabel] || 0) + 1;
+        });
+        const reportSourceLinkedCount = Object.values(reportSourceMap).reduce((sum, info) => sum + info.count, 0);
+        const reportSourceCoveragePct = reportHistory.length > 0 ? Math.round(reportSourceLinkedCount / reportHistory.length * 100) : 0;
+        const provenanceMap = {};
+        Object.entries(srcMap).forEach(([url, info]) => {
+            if (!provenanceMap[url]) provenanceMap[url] = { blocked: 0, reported: 0, postText: info.postText || '', postOwner: info.postOwner || '', reportPaths: {} };
+            provenanceMap[url].blocked += info.count;
+        });
+        Object.entries(reportSourceMap).forEach(([url, info]) => {
+            if (!provenanceMap[url]) provenanceMap[url] = { blocked: 0, reported: 0, postText: '', postOwner: '', reportPaths: {} };
+            provenanceMap[url].reported += info.count;
+            Object.entries(info.paths).forEach(([path, count]) => {
+                provenanceMap[url].reportPaths[path] = (provenanceMap[url].reportPaths[path] || 0) + count;
+            });
+        });
+        const allProvenanceSources = Object.entries(provenanceMap)
+            .sort((a, b) => (b[1].blocked + b[1].reported) - (a[1].blocked + a[1].reported));
+        const topProvenanceSources = allProvenanceSources.slice(0, 12);
+        const sourceEvidenceCoveragePct = allProvenanceSources.length > 0
+            ? Math.min(100, Math.round(sourceEvidenceList.length / allProvenanceSources.length * 100))
+            : 0;
+        const sourceEvidenceSnippetCoveragePct = sourceEvidenceList.length > 0
+            ? Math.round(sourceEvidenceWithSnippetCount / sourceEvidenceList.length * 100)
+            : 0;
 
         // 每日封鎖量（最近 30 天，CSS 長條圖）
-        const now = Date.now();
         const thirtyDaysAgo = now - 30 * 24 * 3600 * 1000;
+        const dayKey = (t) => {
+            const d = new Date(t);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        };
+        const dayLabel = (t) => new Date(t).toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' });
         const dailyCounts = {};
         db.forEach(u => {
             const t = getTs(u);
             if (t >= thirtyDaysAgo) {
-                const day = new Date(t).toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' });
+                const day = dayKey(t);
                 dailyCounts[day] = (dailyCounts[day] || 0) + 1;
             }
         });
-        const dailyEntries = Object.entries(dailyCounts).slice(-14); // 最近 14 天
+        const dailyEntries = [];
+        for (let i = 13; i >= 0; i--) {
+            const d = new Date(now - i * 24 * 3600 * 1000);
+            const key = dayKey(d.getTime());
+            dailyEntries.push([dayLabel(d.getTime()), dailyCounts[key] || 0]);
+        }
         const maxDaily = Math.max(...dailyEntries.map(d => d[1]), 1);
+        const activeDays30 = Object.values(dailyCounts).filter(c => c > 0).length;
+        const avgPerActiveDay = activeDays30 > 0 ? Math.round(thirtyDayCount / activeDays30 * 10) / 10 : 0;
+        const peakDay = Object.entries(dailyCounts).sort((a, b) => b[1] - a[1])[0] || null;
 
         // 定點絕戰績
         const totalSweepPosts = endlessHistory.length + endlessQueue.filter(p => p.done).length;
         const totalSweepBlocked = endlessHistory.reduce((s, h) => s + (h.totalBlocked || 0), 0)
             + endlessQueue.filter(p => p.done).reduce((s, p) => s + (p.totalBlocked || 0), 0);
+        const pendingSweepPosts = endlessQueue.filter(p => p.advanceOnComplete && p.status === 'pending').length;
+        const loopSweepPosts = endlessQueue.filter(p => p.longTermLoop).length;
+        const sourcedBlockCount = knownEntries.filter(e => !!e.src).length;
+        const sourcedReportCount = reportHistory.filter(entry => !!entry.sourceUrl).length;
+
+        // 批次與發文者分析
+        const batchMap = {};
+        const ownerMap = {};
+        structuredEntries.forEach(e => {
+            if (e.batch) batchMap[e.batch] = (batchMap[e.batch] || 0) + 1;
+            if (e.postOwner) {
+                if (!ownerMap[e.postOwner]) ownerMap[e.postOwner] = { count: 0, sources: new Set() };
+                ownerMap[e.postOwner].count++;
+                if (e.src) ownerMap[e.postOwner].sources.add(e.src);
+            }
+        });
+        const batchCounts = Object.values(batchMap);
+        const batchTotal = batchCounts.length;
+        const avgBatchSize = batchTotal > 0 ? Math.round(batchCounts.reduce((s, c) => s + c, 0) / batchTotal * 10) / 10 : 0;
+        const maxBatchSize = batchTotal > 0 ? Math.max(...batchCounts) : 0;
+        const topOwners = Object.entries(ownerMap)
+            .sort((a, b) => b[1].count - a[1].count)
+            .slice(0, 8);
 
         // 最近封鎖（有 context 的前 20 筆）
         const recentWithContext = db
             .map(u => ({ username: u, ...getEntry(u) }))
             .filter(e => e.t > 0)
             .sort((a, b) => b.t - a.t)
-            .slice(0, 20);
+            .slice(0, 40);
 
         // 原因 label
         const reasonLabel = { likes: '👍 按讚名單', quotes: '💬 引用', reposts: '🔄 轉發', manual: '✋ 手動', unknown: '❓ 舊資料' };
+        const miniStat = (value, label, color = '#f5f5f5', sub = '') => `
+            <div style="background:#111;border-radius:8px;padding:12px;text-align:center;border:1px solid #2a2a2a;">
+                <div style="font-size:24px;font-weight:700;color:${color};">${value}</div>
+                <div style="font-size:11px;color:#888;margin-top:2px;">${label}</div>
+                ${sub ? `<div style="font-size:10px;color:#555;margin-top:3px;">${sub}</div>` : ''}
+            </div>`;
+        const queueStat = (value, label, color = '#f5f5f5') => `
+            <div style="background:#151515;border-radius:7px;padding:9px 10px;border:1px solid #292929;">
+                <div style="font-size:18px;font-weight:700;color:${color};">${value}</div>
+                <div style="font-size:10px;color:#777;margin-top:1px;">${label}</div>
+            </div>`;
         const reasonBar = (key, count) => {
             const pct = totalBlocked > 0 ? Math.round(count / totalBlocked * 100) : 0;
             return `<div style="display:flex;align-items:center;gap:8px;margin:3px 0;">
@@ -1286,6 +1404,359 @@ export const UI = {
                 <span style="min-width:50px;text-align:right;font-size:12px;color:#888;">${count} (${pct}%)</span>
             </div>`;
         };
+        const insightRows = [
+            sourceCoveragePct < 60 ? `封鎖來源覆蓋率只有 ${sourceCoveragePct}%，有些封鎖帳號還追不到來源貼文。` : `封鎖來源覆蓋率 ${sourceCoveragePct}%，大多數封鎖帳號都能回推到來源貼文。`,
+            reportHistory.length > 0
+                ? (reportSourceCoveragePct < 60 ? `檢舉來源覆蓋率只有 ${reportSourceCoveragePct}%，檢舉路徑已記錄，但還有部分缺少來源貼文。` : `檢舉來源覆蓋率 ${reportSourceCoveragePct}%，檢舉帳號也能穩定回推到來源貼文。`)
+                : '目前還沒有檢舉來源歷史；新版開始會持續累積。',
+            sourceEvidenceList.length > 0
+                ? `來源證據快照 ${sourceEvidenceList.length} 筆，含文字 snippet 比例 ${sourceEvidenceSnippetCoveragePct}%，最近 7 天更新 ${sourceEvidenceRecent7dCount} 筆。`
+                : '來源證據快照目前為 0；後續封鎖/檢舉會自動累積。',
+            legacyCount > 0 ? `有 ${legacyCount} 筆舊封鎖資料沒有完整來源欄位，分析時要和新版資料分開看。` : '目前封鎖資料都帶有可分析的來源欄位。',
+            topSourceShare >= 35 ? `最大單一來源文章占 ${topSourceShare}%，代表封鎖很集中在少數貼文。` : `最大單一來源文章占 ${topSourceShare}%，來源分布目前算平均。`,
+            allProvenanceSources.length > 0 ? `目前已整理出 ${allProvenanceSources.length} 篇來源文章，可直接拿去做平台交叉分析。` : '目前還沒有可交叉分析的來源文章。'
+        ];
+        const blockEvents = knownEntries.map((e, idx) => ({
+            eventId: `blk_${e.username || 'unknown'}_${e.t || 0}_${idx}`,
+            eventType: 'block',
+            accountId: e.username || '',
+            profileUrl: e.username ? `https://www.threads.com/@${e.username}` : '',
+            eventAt: e.t || 0,
+            sourceUrl: e.src || '',
+            sourceOwner: e.postOwner || '',
+            sourceText: e.postText || '',
+            sourceChannel: 'unknown',
+            blockReasonCode: e.reason || 'unknown',
+            reportPath: [],
+            reportPrimaryCategory: '',
+            reportLeafCategory: '',
+            reportTargetType: '',
+            batchId: e.batch || '',
+        }));
+        const reportEvents = reportHistory.map((entry, idx) => {
+            const path = Array.isArray(entry.path) ? entry.path : [];
+            return {
+                eventId: `rpt_${entry.username || 'unknown'}_${entry.t || 0}_${idx}`,
+                eventType: 'report',
+                accountId: entry.username || '',
+                profileUrl: entry.username ? `https://www.threads.com/@${entry.username}` : '',
+                eventAt: entry.t || 0,
+                sourceUrl: entry.sourceUrl || '',
+                sourceOwner: '',
+                sourceText: '',
+                sourceChannel: entry.source || 'unknown',
+                blockReasonCode: '',
+                reportPath: path,
+                reportPrimaryCategory: path[0] || '',
+                reportLeafCategory: path[path.length - 1] || '',
+                reportTargetType: entry.targetType || '',
+                batchId: '',
+            };
+        });
+        const unifiedEvents = [...blockEvents, ...reportEvents].sort((a, b) => (b.eventAt || 0) - (a.eventAt || 0));
+
+        const accountAgg = {};
+        unifiedEvents.forEach((event) => {
+            const accountId = (event.accountId || '').trim();
+            if (!accountId) return;
+            if (!accountAgg[accountId]) {
+                accountAgg[accountId] = {
+                    accountId,
+                    profileUrl: `https://www.threads.com/@${accountId}`,
+                    blockEventCount: 0,
+                    reportEventCount: 0,
+                    totalEventCount: 0,
+                    firstSeenAt: 0,
+                    lastSeenAt: 0,
+                    sourceUrls: new Set(),
+                    sourceOwners: new Set(),
+                    blockReasons: new Set(),
+                    reportPrimaryCategories: new Set(),
+                    reportLeafCategories: new Set(),
+                };
+            }
+            const agg = accountAgg[accountId];
+            agg.totalEventCount++;
+            if (event.eventType === 'block') agg.blockEventCount++;
+            if (event.eventType === 'report') agg.reportEventCount++;
+            if (event.sourceUrl) agg.sourceUrls.add(event.sourceUrl);
+            if (event.sourceOwner) agg.sourceOwners.add(event.sourceOwner);
+            if (event.blockReasonCode) agg.blockReasons.add(event.blockReasonCode);
+            if (event.reportPrimaryCategory) agg.reportPrimaryCategories.add(event.reportPrimaryCategory);
+            if (event.reportLeafCategory) agg.reportLeafCategories.add(event.reportLeafCategory);
+            if (event.eventAt > 0) {
+                if (!agg.firstSeenAt || event.eventAt < agg.firstSeenAt) agg.firstSeenAt = event.eventAt;
+                if (!agg.lastSeenAt || event.eventAt > agg.lastSeenAt) agg.lastSeenAt = event.eventAt;
+            }
+        });
+
+        const accounts = Object.values(accountAgg).map((acc) => {
+            const suspicionScore = Math.min(100,
+                acc.blockEventCount * 8 +
+                acc.reportEventCount * 12 +
+                acc.sourceUrls.size * 6 +
+                acc.reportLeafCategories.size * 5 +
+                (acc.blockEventCount > 0 && acc.reportEventCount > 0 ? 10 : 0)
+            );
+            const riskLevel = suspicionScore >= 65 ? 'high' : (suspicionScore >= 35 ? 'medium' : 'low');
+            return {
+                accountId: acc.accountId,
+                profileUrl: acc.profileUrl,
+                blockEventCount: acc.blockEventCount,
+                reportEventCount: acc.reportEventCount,
+                totalEventCount: acc.totalEventCount,
+                firstSeenAt: acc.firstSeenAt || 0,
+                lastSeenAt: acc.lastSeenAt || 0,
+                sourceUrlCount: acc.sourceUrls.size,
+                sourceUrls: Array.from(acc.sourceUrls),
+                sourceOwners: Array.from(acc.sourceOwners),
+                blockReasons: Array.from(acc.blockReasons),
+                reportPrimaryCategories: Array.from(acc.reportPrimaryCategories),
+                reportLeafCategories: Array.from(acc.reportLeafCategories),
+                platformReview: {
+                    isLikelyBot: null,
+                    isLikelyFakeAccount: null,
+                    botConfidence: null,
+                    fakeConfidence: null,
+                    suspicionScore,
+                    riskLevel,
+                    reviewNote: '',
+                },
+            };
+        }).sort((a, b) => b.totalEventCount - a.totalEventCount);
+
+        const extractHashtags = (text) => {
+            const raw = String(text || '');
+            const matches = raw.match(/#[^\s#.,，。!?！？:：;；、]+/g) || [];
+            return matches.slice(0, 8).map(tag => tag.toLowerCase());
+        };
+
+        const sourceAgg = {};
+        unifiedEvents.forEach((event) => {
+            const url = event.sourceUrl || '';
+            if (!url) return;
+            if (!sourceAgg[url]) {
+                sourceAgg[url] = {
+                    sourceUrl: url,
+                    sourceOwners: new Set(),
+                    sourceTextSamples: new Set(),
+                    blockEventCount: 0,
+                    reportEventCount: 0,
+                    totalEventCount: 0,
+                    accountIds: new Set(),
+                    reportPathCounts: {},
+                    blockReasonCounts: {},
+                    topicHintCounts: {},
+                };
+            }
+            const src = sourceAgg[url];
+            src.totalEventCount++;
+            if (event.eventType === 'block') src.blockEventCount++;
+            if (event.eventType === 'report') src.reportEventCount++;
+            if (event.accountId) src.accountIds.add(event.accountId);
+            if (event.sourceOwner) src.sourceOwners.add(event.sourceOwner);
+            if (event.sourceText) src.sourceTextSamples.add(event.sourceText);
+            if (event.reportPath.length > 0) {
+                const key = event.reportPath.join(' > ');
+                src.reportPathCounts[key] = (src.reportPathCounts[key] || 0) + 1;
+            }
+            if (event.reportPrimaryCategory) {
+                const key = `report:${event.reportPrimaryCategory}`;
+                src.topicHintCounts[key] = (src.topicHintCounts[key] || 0) + 1;
+            }
+            if (event.reportLeafCategory) {
+                const key = `report_leaf:${event.reportLeafCategory}`;
+                src.topicHintCounts[key] = (src.topicHintCounts[key] || 0) + 1;
+            }
+            if (event.blockReasonCode) {
+                src.blockReasonCounts[event.blockReasonCode] = (src.blockReasonCounts[event.blockReasonCode] || 0) + 1;
+            }
+            extractHashtags(event.sourceText).forEach((tag) => {
+                const key = `hashtag:${tag}`;
+                src.topicHintCounts[key] = (src.topicHintCounts[key] || 0) + 1;
+            });
+        });
+        sourceEvidenceList.forEach((ev) => {
+            if (!ev.sourceUrl) return;
+            if (!sourceAgg[ev.sourceUrl]) {
+                sourceAgg[ev.sourceUrl] = {
+                    sourceUrl: ev.sourceUrl,
+                    sourceOwners: new Set(),
+                    sourceTextSamples: new Set(),
+                    blockEventCount: 0,
+                    reportEventCount: 0,
+                    totalEventCount: 0,
+                    accountIds: new Set(),
+                    reportPathCounts: {},
+                    blockReasonCounts: {},
+                    topicHintCounts: {},
+                };
+            }
+            if (ev.sourceOwner) sourceAgg[ev.sourceUrl].sourceOwners.add(ev.sourceOwner);
+            if (ev.snippet) sourceAgg[ev.sourceUrl].sourceTextSamples.add(ev.snippet);
+        });
+        const sources = Object.values(sourceAgg).map((src) => {
+            const evidence = evidenceIndexMap[src.sourceUrl] || {};
+            const reportPathVariety = Object.keys(src.reportPathCounts).length;
+            const topicHintVariety = Object.keys(src.topicHintCounts).length;
+            const manipulationSignalScore = Math.min(100,
+                src.reportEventCount * 10 +
+                src.accountIds.size * 4 +
+                reportPathVariety * 8 +
+                topicHintVariety * 3 +
+                (src.blockEventCount > 0 && src.reportEventCount > 0 ? 8 : 0)
+            );
+            const manipulationRiskLevel = manipulationSignalScore >= 65 ? 'high' : (manipulationSignalScore >= 45 ? 'medium' : 'low');
+            return {
+                sourceUrl: src.sourceUrl,
+                sourceOwners: Array.from(src.sourceOwners),
+                sourceTextSamples: Array.from(src.sourceTextSamples).slice(0, 3),
+                blockEventCount: src.blockEventCount,
+                reportEventCount: src.reportEventCount,
+                totalEventCount: src.totalEventCount,
+                uniqueAccountCount: src.accountIds.size,
+                accountIds: Array.from(src.accountIds),
+                reportPathCounts: src.reportPathCounts,
+                blockReasonCounts: src.blockReasonCounts,
+                topicHintCounts: src.topicHintCounts,
+                topTopicHints: Object.entries(src.topicHintCounts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([topicHint, count]) => ({ topicHint, count })),
+                manipulationSignalScore,
+                manipulationRiskLevel,
+                evidence: {
+                    capturedAt: evidence.capturedAt || 0,
+                    updatedAt: evidence.updatedAt || 0,
+                    captureCount: evidence.captureCount || 0,
+                    textHash: evidence.textHash || '',
+                    snippet: evidence.snippet || '',
+                    sourceOwner: evidence.sourceOwner || '',
+                    sourceChannel: evidence.sourceChannel || '',
+                },
+                platformReview: {
+                    isLikelyNarrativeManipulation: null,
+                    isLikelyFakeTopic: null,
+                    isLikelyAICampaign: null,
+                    confidence: null,
+                    reviewNote: '',
+                },
+            };
+        }).sort((a, b) => b.totalEventCount - a.totalEventCount);
+
+        const topicMap = {};
+        reportEvents.forEach((event) => {
+            const leaf = event.reportLeafCategory || '';
+            if (!leaf) return;
+            if (!topicMap[leaf]) topicMap[leaf] = { category: leaf, eventCount: 0, accountIds: new Set(), sourceUrls: new Set() };
+            topicMap[leaf].eventCount++;
+            if (event.accountId) topicMap[leaf].accountIds.add(event.accountId);
+            if (event.sourceUrl) topicMap[leaf].sourceUrls.add(event.sourceUrl);
+        });
+        const topicSeeds = Object.values(topicMap)
+            .map((topic) => ({
+                topicLabel: topic.category,
+                eventCount: topic.eventCount,
+                accountCount: topic.accountIds.size,
+                sourceCount: topic.sourceUrls.size,
+                sampleAccounts: Array.from(topic.accountIds).slice(0, 5),
+                sampleSources: Array.from(topic.sourceUrls).slice(0, 5),
+            }))
+            .sort((a, b) => b.eventCount - a.eventCount)
+            .slice(0, 20);
+
+        const narrativeSeeds = sources.slice(0, 20).map((src) => ({
+            sourceUrl: src.sourceUrl,
+            sourceOwners: src.sourceOwners,
+            sourceTextSamples: src.sourceTextSamples,
+            totalEventCount: src.totalEventCount,
+            blockEventCount: src.blockEventCount,
+            reportEventCount: src.reportEventCount,
+            uniqueAccountCount: src.uniqueAccountCount,
+            dominantReportPaths: Object.entries(src.reportPathCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([path, count]) => ({ path, count })),
+            dominantBlockReasons: Object.entries(src.blockReasonCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([reasonCode, count]) => ({ reasonCode, count })),
+            dominantTopicHints: src.topTopicHints.slice(0, 5),
+            manipulationSignalScore: src.manipulationSignalScore,
+            manipulationRiskLevel: src.manipulationRiskLevel,
+        }));
+        const campaignCandidates = sources
+            .filter(src => src.manipulationSignalScore >= 45)
+            .slice(0, 50)
+            .map(src => ({
+                sourceUrl: src.sourceUrl,
+                sourceOwners: src.sourceOwners,
+                sourceTextSamples: src.sourceTextSamples,
+                manipulationSignalScore: src.manipulationSignalScore,
+                manipulationRiskLevel: src.manipulationRiskLevel,
+                blockEventCount: src.blockEventCount,
+                reportEventCount: src.reportEventCount,
+                uniqueAccountCount: src.uniqueAccountCount,
+                topTopicHints: src.topTopicHints.slice(0, 5),
+                dominantReportPaths: Object.entries(src.reportPathCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([path, count]) => ({ path, count })),
+            }));
+        const suspiciousAccountSeeds = accounts
+            .filter(acc => acc.platformReview.suspicionScore >= 35)
+            .slice(0, 50)
+            .map(acc => ({
+                accountId: acc.accountId,
+                profileUrl: acc.profileUrl,
+                suspicionScore: acc.platformReview.suspicionScore,
+                riskLevel: acc.platformReview.riskLevel,
+                blockEventCount: acc.blockEventCount,
+                reportEventCount: acc.reportEventCount,
+                sourceUrlCount: acc.sourceUrlCount,
+                reportLeafCategoryCount: acc.reportLeafCategories.length,
+            }));
+
+        const exportPayload = {
+            schema: 'threadsblocker.platform_upload.v2',
+            exportedAt: new Date().toISOString(),
+            exporter: {
+                tool: 'ThreadsBlocker',
+                version: CONFIG.VERSION,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+                locale: (typeof navigator !== 'undefined' && navigator.language) ? navigator.language : '',
+            },
+            fieldSpec: {
+                accounts: ['accountId', 'profileUrl', 'blockEventCount', 'reportEventCount', 'totalEventCount', 'firstSeenAt', 'lastSeenAt', 'sourceUrlCount', 'sourceUrls', 'sourceOwners', 'blockReasons', 'reportPrimaryCategories', 'reportLeafCategories', 'platformReview'],
+                events: ['eventId', 'eventType', 'accountId', 'profileUrl', 'eventAt', 'sourceUrl', 'sourceOwner', 'sourceText', 'sourceChannel', 'blockReasonCode', 'reportPath', 'reportPrimaryCategory', 'reportLeafCategory', 'reportTargetType', 'batchId'],
+                sources: ['sourceUrl', 'sourceOwners', 'sourceTextSamples', 'blockEventCount', 'reportEventCount', 'totalEventCount', 'uniqueAccountCount', 'accountIds', 'reportPathCounts', 'blockReasonCounts', 'topicHintCounts', 'topTopicHints', 'manipulationSignalScore', 'manipulationRiskLevel', 'platformReview'],
+                sourceEvidence: ['sourceUrl', 'capturedAt', 'updatedAt', 'captureCount', 'sourceOwner', 'sourceChannel', 'lastEventType', 'textHash', 'snippet'],
+                analysisSeeds: ['suspiciousAccounts', 'campaignCandidates', 'topicSeeds', 'narrativeSeeds'],
+            },
+            summary: {
+                accountCount: accounts.length,
+                blockEventCount: blockEvents.length,
+                reportEventCount: reportEvents.length,
+                totalEventCount: unifiedEvents.length,
+                bothBlockedAndReportedAccountCount: accounts.filter(acc => acc.blockEventCount > 0 && acc.reportEventCount > 0).length,
+                sourcedBlocked: sourcedBlockCount,
+                sourcedReported: sourcedReportCount,
+                sourceCoveragePct,
+                reportSourceCoveragePct,
+                sourcePostCount: sources.length,
+                sourceEvidenceCount: sourceEvidenceList.length,
+                sourceEvidenceCoveragePct,
+                sourceEvidenceSnippetCoveragePct,
+                suspiciousCandidateCount: suspiciousAccountSeeds.length,
+                campaignCandidateCount: campaignCandidates.length,
+                topTopicSeedCount: topicSeeds.length,
+            },
+            accounts,
+            events: unifiedEvents,
+            sources,
+            sourceEvidence: sourceEvidenceList,
+            analysisSeeds: {
+                suspiciousAccounts: suspiciousAccountSeeds,
+                campaignCandidates,
+                topicSeeds,
+                narrativeSeeds,
+            },
+        };
+        const previewRows = unifiedEvents.slice(0, 6).map((event) => ({
+            eventType: event.eventType,
+            accountId: event.accountId,
+            sourceUrl: event.sourceUrl,
+            topicHint: event.reportLeafCategory || event.blockReasonCode || '',
+            t: event.eventAt || 0,
+        }));
 
         const overlay = document.createElement('div');
         overlay.id = 'hege-analytics-overlay';
@@ -1296,41 +1767,104 @@ export const UI = {
                 <div class="hege-manager-header">
                     <span class="hege-manager-title" style="display:flex;align-items:center;gap:6px;">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5ac8fa" stroke-width="2"><rect x="3" y="12" width="4" height="9"/><rect x="10" y="7" width="4" height="14"/><rect x="17" y="3" width="4" height="18"/></svg>
-                        封鎖分析報告
+                        來源分析報告
                     </span>
                     <span class="hege-manager-close">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
                     </span>
                 </div>
                 <div style="padding:16px;overflow-y:auto;max-height:calc(85vh - 60px);">
-
-                    <!-- 總覽卡片 -->
+                    <div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:10px;">
+                        <button id="hege-analytics-toggle-advanced" class="hege-manager-btn secondary" style="font-size:12px;padding:6px 10px;white-space:nowrap;">${analyticsShowAdvanced ? '隱藏進階分析' : '顯示進階分析'}</button>
+                    </div>
+                    <div style="font-size:11px;color:#666;font-weight:700;letter-spacing:1px;margin-bottom:8px;">成果概況</div>
                     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px;">
-                        <div style="background:#111;border-radius:8px;padding:12px;text-align:center;border:1px solid #2a2a2a;">
-                            <div style="font-size:24px;font-weight:700;color:#ff453a;">${totalBlocked}</div>
-                            <div style="font-size:11px;color:#888;margin-top:2px;">總封鎖</div>
-                        </div>
-                        <div style="background:#111;border-radius:8px;padding:12px;text-align:center;border:1px solid #2a2a2a;">
-                            <div style="font-size:24px;font-weight:700;color:#ff9f0a;">${cockroachCount}</div>
-                            <div style="font-size:11px;color:#888;margin-top:2px;">大蟑螂</div>
-                        </div>
-                        <div style="background:#111;border-radius:8px;padding:12px;text-align:center;border:1px solid #2a2a2a;">
-                            <div style="font-size:24px;font-weight:700;color:#5ac8fa;">${totalSweepPosts}</div>
-                            <div style="font-size:11px;color:#888;margin-top:2px;">掃蕩貼文</div>
-                        </div>
-                        <div style="background:#111;border-radius:8px;padding:12px;text-align:center;border:1px solid #2a2a2a;">
-                            <div style="font-size:24px;font-weight:700;color:#4cd964;">${totalSweepBlocked}</div>
-                            <div style="font-size:11px;color:#888;margin-top:2px;">掃蕩封鎖</div>
-                        </div>
+                        ${miniStat(totalBlocked, '封鎖帳號', '#ff453a', `${sourcedBlockCount} 筆有來源`)}
+                        ${miniStat(reportHistory.length, '檢舉帳號', '#bf5af2', `${sourcedReportCount} 筆有來源`)}
+                        ${miniStat(allProvenanceSources.length, '來源文章', '#5ac8fa', `${earliest} ~ ${latest}`)}
+                        ${miniStat(todayCount, '今日新增動作', '#ffd60a', '封鎖 + 檢舉')}
+                    </div>
+                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px;">
+                        ${miniStat(sevenDayCount, '近 7 天新增', '#4cd964', '封鎖 + 檢舉')}
+                        ${miniStat(thirtyDayCount, '近 30 天新增', '#bf5af2', `${avgPerActiveDay} / 活躍日`)}
+                        ${miniStat(totalSweepPosts, '水庫任務文章', '#5ac8fa', `${pendingSweepPosts} 篇待跑`)}
+                        ${miniStat(totalSweepBlocked, '水庫累計封鎖', '#30d158', `${loopSweepPosts} 篇回訪中`)}
                     </div>
 
-                    <!-- 封鎖原因分布 -->
+                    <div style="font-size:11px;color:#666;font-weight:700;letter-spacing:1px;margin-bottom:8px;">來源分析</div>
                     <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;margin-bottom:12px;">
-                        <div style="font-weight:600;font-size:13px;margin-bottom:8px;">封鎖原因分布</div>
-                        ${Object.entries(reasonCounts).filter(([,c]) => c > 0).map(([k,c]) => reasonBar(k, c)).join('')}
+                        <div style="font-weight:600;font-size:13px;margin-bottom:8px;">來源資料概況</div>
+                        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;">
+                            ${queueStat(`${sourcedBlockCount}/${totalBlocked}`, '有來源的封鎖', '#5ac8fa')}
+                            ${queueStat(`${sourcedReportCount}/${reportHistory.length || 0}`, '有來源的檢舉', '#bf5af2')}
+                            ${queueStat(`${sourceCoveragePct}%`, '封鎖來源覆蓋率', '#4cd964')}
+                            ${queueStat(`${reportSourceCoveragePct}%`, '檢舉來源覆蓋率', '#bf5af2')}
+                        </div>
+                        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
+                            ${queueStat(uniqueSources, '封鎖來源文章', '#ffd60a')}
+                            ${queueStat(Object.keys(reportSourceMap).length, '檢舉來源文章', '#bf5af2')}
+                            ${queueStat(allProvenanceSources.length, '交叉來源文章', '#5ac8fa')}
+                            ${queueStat(legacyCount, '舊封鎖資料', legacyCount > 0 ? '#ff9f0a' : '#777')}
+                        </div>
+                        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px;">
+                            ${queueStat(sourceEvidenceList.length, '來源證據筆數', '#5ac8fa')}
+                            ${queueStat(`${sourceEvidenceCoveragePct}%`, '證據覆蓋率', '#4cd964')}
+                            ${queueStat(`${sourceEvidenceSnippetCoveragePct}%`, '含文字快照率', '#bf5af2')}
+                            ${queueStat(sourceEvidenceRecent7dCount, '7 天內更新', '#ffd60a')}
+                        </div>
                     </div>
 
-                    <!-- 每日封鎖量 -->
+                    <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;margin-bottom:12px;">
+                        <div style="font-weight:600;font-size:13px;margin-bottom:8px;">判讀摘要</div>
+                        <div style="display:flex;flex-direction:column;gap:6px;">
+                            ${insightRows.map(line => `<div style="font-size:12px;color:#ccc;line-height:1.45;background:#1a1a1a;border-radius:6px;padding:7px 8px;">${Utils.escapeHTML(line)}</div>`).join('')}
+                        </div>
+                    </div>
+
+                    ${sourceEvidencePreview.length > 0 ? `
+                    <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;margin-bottom:12px;">
+                        <div style="font-weight:600;font-size:13px;margin-bottom:8px;">來源證據快照（最近 ${sourceEvidencePreview.length} 筆）</div>
+                        <div style="display:flex;flex-direction:column;gap:6px;">
+                            ${sourceEvidencePreview.map((ev, i) => `
+                                <div style="display:flex;align-items:flex-start;gap:8px;padding:7px;background:#1a1a1a;border-radius:6px;">
+                                    <span style="font-size:15px;font-weight:700;color:#555;min-width:18px;">${i + 1}</span>
+                                    <div style="flex:1;min-width:0;">
+                                        <a href="${Utils.escapeHTML(ev.sourceUrl || '')}" target="_blank" style="font-size:11px;color:#5ac8fa;text-decoration:none;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${Utils.escapeHTML((ev.sourceUrl || '').replace('https://www.threads.net', '').replace('https://www.threads.com', ''))}</a>
+                                        <div style="font-size:10px;color:#777;margin-top:2px;">${ev.sourceOwner ? `@${Utils.escapeHTML(ev.sourceOwner)} · ` : ''}${ev.sourceChannel ? `來源 ${Utils.escapeHTML(ev.sourceChannel)} · ` : ''}hash ${Utils.escapeHTML(ev.textHash || '-')}</div>
+                                        <div style="font-size:11px;color:#bbb;line-height:1.45;margin-top:3px;">${Utils.escapeHTML(ev.snippet || '(無文字快照)')}</div>
+                                    </div>
+                                    <div style="min-width:62px;text-align:right;">
+                                        <div style="font-size:11px;color:#ffd60a;">x${ev.captureCount || 0}</div>
+                                        <div style="font-size:10px;color:#666;">${ev.updatedAt ? new Date(ev.updatedAt).toLocaleDateString('zh-TW') : '-'}</div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>` : ''}
+
+                    ${topProvenanceSources.length > 0 ? `
+                    <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;margin-bottom:12px;">
+                        <div style="font-weight:600;font-size:13px;margin-bottom:8px;">封鎖 / 檢舉來源交叉表 TOP ${topProvenanceSources.length}</div>
+                        <div style="display:flex;flex-direction:column;gap:6px;">
+                            ${topProvenanceSources.map(([url, info], i) => {
+                                const pathSummary = Object.entries(info.reportPaths).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([path, count]) => `${Utils.escapeHTML(path)} ${count}`).join(' · ');
+                                return `
+                                <div style="display:flex;align-items:flex-start;gap:8px;padding:7px;background:#1a1a1a;border-radius:6px;">
+                                    <span style="font-size:16px;font-weight:700;color:#555;min-width:20px;">${i + 1}</span>
+                                    <div style="flex:1;min-width:0;">
+                                        <div style="font-size:12px;color:#ccc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${info.postText ? Utils.escapeHTML(info.postText) : (info.postOwner ? '@' + Utils.escapeHTML(info.postOwner) : '未知來源貼文')}</div>
+                                        <div style="font-size:10px;color:#777;margin-top:2px;">${info.postOwner ? `作者 @${Utils.escapeHTML(info.postOwner)} · ` : ''}${pathSummary || '無檢舉路徑紀錄'}</div>
+                                        <a href="${Utils.escapeHTML(url)}" target="_blank" style="font-size:10px;color:#5ac8fa;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;">${Utils.escapeHTML(url.replace('https://www.threads.net', '').replace('https://www.threads.com', ''))}</a>
+                                    </div>
+                                    <div style="display:flex;flex-direction:column;gap:3px;min-width:68px;text-align:right;">
+                                        <span style="font-size:12px;font-weight:700;color:#ff453a;">封 ${info.blocked}</span>
+                                        <span style="font-size:12px;font-weight:700;color:#bf5af2;">檢 ${info.reported}</span>
+                                    </div>
+                                </div>`;
+                            }).join('')}
+                        </div>
+                    </div>` : ''}
+
                     ${dailyEntries.length > 0 ? `
                     <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;margin-bottom:12px;">
                         <div style="font-weight:600;font-size:13px;margin-bottom:8px;">近期封鎖量（${earliest} ~ ${latest}）</div>
@@ -1345,10 +1879,9 @@ export const UI = {
                         </div>
                     </div>` : ''}
 
-                    <!-- 來源貼文排行 -->
                     ${topSources.length > 0 ? `
                     <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;margin-bottom:12px;">
-                        <div style="font-weight:600;font-size:13px;margin-bottom:8px;">來源貼文排行 TOP ${topSources.length}</div>
+                        <div style="font-weight:600;font-size:13px;margin-bottom:8px;">封鎖來源文章排行 TOP ${topSources.length}（最大來源 ${topSourceShare}%）</div>
                         <div style="display:flex;flex-direction:column;gap:6px;">
                             ${topSources.map(([url, info], i) => `
                                 <div style="display:flex;align-items:flex-start;gap:8px;padding:6px;background:#1a1a1a;border-radius:6px;">
@@ -1356,6 +1889,9 @@ export const UI = {
                                     <div style="flex:1;min-width:0;">
                                         <div style="font-size:12px;color:#ccc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
                                             ${info.postText ? Utils.escapeHTML(info.postText) : (info.postOwner ? '@' + Utils.escapeHTML(info.postOwner) : '未知貼文')}
+                                        </div>
+                                        <div style="font-size:10px;color:#777;margin-top:2px;">
+                                            ${info.postOwner ? `作者 @${Utils.escapeHTML(info.postOwner)} · ` : ''}${Object.entries(info.reasons).map(([k,c]) => `${reasonLabel[k] || k} ${c}`).join(' · ')}
                                         </div>
                                         <a href="${Utils.escapeHTML(url)}" target="_blank" style="font-size:10px;color:#5ac8fa;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;">🔗 ${Utils.escapeHTML(url.replace('https://www.threads.net', ''))}</a>
                                     </div>
@@ -1365,7 +1901,92 @@ export const UI = {
                         </div>
                     </div>` : ''}
 
-                    <!-- 最近封鎖紀錄 -->
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+                        <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;">
+                            <div style="font-weight:600;font-size:13px;margin-bottom:8px;">批次分析</div>
+                            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+                                ${queueStat(batchTotal, '批次數', '#5ac8fa')}
+                                ${queueStat(avgBatchSize, '平均批量', '#4cd964')}
+                                ${queueStat(maxBatchSize, '最大批量', '#ff9f0a')}
+                            </div>
+                        </div>
+                        <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;">
+                            <div style="font-weight:600;font-size:13px;margin-bottom:8px;">發文者來源 TOP ${topOwners.length}</div>
+                            ${topOwners.length > 0 ? `<div style="display:flex;flex-direction:column;gap:5px;">
+                                ${topOwners.map(([owner, info]) => `
+                                    <div style="display:flex;align-items:center;gap:8px;font-size:12px;background:#1a1a1a;border-radius:6px;padding:6px;">
+                                        <span style="color:#5ac8fa;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">@${Utils.escapeHTML(owner)}</span>
+                                        <span style="color:#888;">${info.sources.size} 篇</span>
+                                        <span style="color:#ff453a;font-weight:700;min-width:44px;text-align:right;">${info.count} 人</span>
+                                    </div>`).join('')}
+                            </div>` : `<div style="font-size:12px;color:#666;">沒有可分析的發文者資料</div>`}
+                        </div>
+                    </div>
+
+                    <div style="font-size:11px;color:#666;font-weight:700;letter-spacing:1px;margin-bottom:8px;">匯出準備</div>
+                    <div id="hege-analytics-upload-card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;background:#0f1720;border:1px solid #203040;border-radius:8px;padding:10px 12px;">
+                        <div style="font-size:12px;color:#cfe8ff;line-height:1.45;">會整理封鎖與檢舉對象來自哪篇貼文、哪個批次與哪條檢舉路徑；可匯出 JSON 供平台分析。</div>
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+                            <button id="hege-analytics-export-provenance" class="hege-manager-btn" style="font-size:12px;padding:8px 10px;white-space:nowrap;background:#5ac8fa;color:#001018;border:none;border-radius:7px;font-weight:700;cursor:pointer;">匯出來源 JSON</button>
+                            <button id="hege-analytics-upload-platform" class="hege-manager-btn" style="font-size:12px;padding:8px 10px;white-space:nowrap;background:#30d158;color:#00150a;border:none;border-radius:7px;font-weight:700;cursor:pointer;">一鍵上傳平台</button>
+                        </div>
+                    </div>
+                    <div id="hege-analytics-upload-status" style="font-size:11px;color:#888;margin-top:-8px;margin-bottom:12px;"></div>
+                    ${analyticsShowAdvanced ? `
+                    <div style="font-size:11px;color:#666;font-weight:700;letter-spacing:1px;margin-bottom:8px;">進階分析</div>
+                    <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;margin-bottom:12px;">
+                        <div style="font-weight:600;font-size:13px;margin-bottom:8px;">自動化背景</div>
+                        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
+                            ${queueStat(cockroachCount, '大蟑螂名單', '#ff9f0a')}
+                            ${queueStat(activeQueue.length, '待封鎖 queue', activeQueue.length > 0 ? '#ff453a' : '#777')}
+                            ${queueStat(failedQueue.length, '失敗可重試', failedQueue.length > 0 ? '#ff9f0a' : '#777')}
+                            ${queueStat(cooldownQueue.length, cooldownUntil > Date.now() ? '冷卻備份中' : '冷卻備份', cooldownQueue.length > 0 ? '#ff9f0a' : '#777')}
+                        </div>
+                    </div>
+
+                    <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;margin-bottom:12px;">
+                        <div style="font-weight:600;font-size:13px;margin-bottom:8px;">封鎖原因分布</div>
+                        ${Object.entries(reasonCounts).filter(([,c]) => c > 0).map(([k,c]) => reasonBar(k, c)).join('')}
+                    </div>
+
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+                        <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;">
+                            <div style="font-weight:600;font-size:13px;margin-bottom:8px;">批次分析</div>
+                            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+                                ${queueStat(batchTotal, '批次數', '#5ac8fa')}
+                                ${queueStat(avgBatchSize, '平均批量', '#4cd964')}
+                                ${queueStat(maxBatchSize, '最大批量', '#ff9f0a')}
+                            </div>
+                        </div>
+                        <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;">
+                            <div style="font-weight:600;font-size:13px;margin-bottom:8px;">發文者來源 TOP ${topOwners.length}</div>
+                            ${topOwners.length > 0 ? `<div style="display:flex;flex-direction:column;gap:5px;">
+                                ${topOwners.map(([owner, info]) => `
+                                    <div style="display:flex;align-items:center;gap:8px;font-size:12px;background:#1a1a1a;border-radius:6px;padding:6px;">
+                                        <span style="color:#5ac8fa;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">@${Utils.escapeHTML(owner)}</span>
+                                        <span style="color:#888;">${info.sources.size} 篇</span>
+                                        <span style="color:#ff453a;font-weight:700;min-width:44px;text-align:right;">${info.count} 人</span>
+                                    </div>`).join('')}
+                            </div>` : `<div style="font-size:12px;color:#666;">沒有可分析的發文者資料</div>`}
+                        </div>
+                    </div>
+
+                    <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;margin-bottom:12px;">
+                        <div style="font-weight:600;font-size:13px;margin-bottom:8px;">平台上傳預覽</div>
+                        <div style="font-size:11px;color:#888;line-height:1.45;margin-bottom:10px;">Schema v2 固定欄位：accounts / events / sources / sourceEvidence / analysisSeeds。已內建 suspiciousAccounts / campaignCandidates / topicSeeds，可直接送平台做假帳號與帶風向分析。</div>
+                        ${previewRows.length > 0 ? `
+                        <div style="display:flex;flex-direction:column;gap:6px;">
+                            ${previewRows.map(row => `
+                                <div style="display:grid;grid-template-columns:52px 110px 1fr 120px 72px;gap:8px;align-items:center;font-size:11px;background:#1a1a1a;border-radius:6px;padding:7px 8px;">
+                                    <span style="color:${row.eventType === 'block' ? '#ff453a' : '#bf5af2'};font-weight:700;">${row.eventType === 'block' ? 'block' : 'report'}</span>
+                                    <span style="color:#5ac8fa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">@${Utils.escapeHTML(row.accountId || '')}</span>
+                                    <span style="color:#aaa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${Utils.escapeHTML(row.sourceUrl || '')}">${Utils.escapeHTML((row.sourceUrl || '').replace('https://www.threads.com', '').replace('https://www.threads.net', ''))}</span>
+                                    <span style="color:#777;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${Utils.escapeHTML(row.topicHint || '')}</span>
+                                    <span style="color:#555;text-align:right;">${row.t ? new Date(row.t).toLocaleDateString('zh-TW') : ''}</span>
+                                </div>`).join('')}
+                        </div>` : `<div style="font-size:12px;color:#666;">目前還沒有可預覽的匯出資料。</div>`}
+                    </div>
+
                     ${recentWithContext.length > 0 ? `
                     <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;">
                         <div style="font-weight:600;font-size:13px;margin-bottom:8px;">最近封鎖紀錄</div>
@@ -1383,6 +2004,9 @@ export const UI = {
                     <div style="background:#111;border-radius:8px;padding:20px;border:1px solid #2a2a2a;text-align:center;color:#555;">
                         尚無結構化封鎖紀錄。新封鎖的帳號會自動記錄來源與原因。
                     </div>`}
+                    ` : `
+                    <div style="font-size:11px;color:#666;margin-bottom:12px;">進階分析已收合（可展開查看自動化背景、批次分析、預覽樣本與最近封鎖紀錄）</div>
+                    `}
 
                 </div>
             </div>
@@ -1392,6 +2016,63 @@ export const UI = {
 
         overlay.querySelector('.hege-manager-close').onclick = () => overlay.remove();
         overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        const exportBtn = overlay.querySelector('#hege-analytics-export-provenance');
+        if (exportBtn) {
+            exportBtn.onclick = async (e) => {
+                e.stopPropagation();
+                const text = JSON.stringify(exportPayload, null, 2);
+                try {
+                    await navigator.clipboard.writeText(text);
+                    UI.showToast(`已複製 v2 JSON（封鎖 ${exportPayload.summary.blockEventCount}、檢舉 ${exportPayload.summary.reportEventCount}）`);
+                } catch (err) {
+                    prompt('請手動複製來源分析 JSON：', text);
+                }
+            };
+        }
+        const uploadBtn = overlay.querySelector('#hege-analytics-upload-platform');
+        const uploadStatusEl = overlay.querySelector('#hege-analytics-upload-status');
+        const uploadCardEl = overlay.querySelector('#hege-analytics-upload-card');
+        if (uploadBtn) {
+            uploadBtn.onclick = async (e) => {
+                e.stopPropagation();
+                uploadBtn.disabled = true;
+                uploadBtn.style.opacity = '0.7';
+                if (uploadStatusEl) uploadStatusEl.textContent = '平台上傳中...';
+
+                try {
+                    const result = await Reporter.submitPlatformPayload(exportPayload, { source: 'analytics_overlay' });
+                    if (Number(result?.code) === 200) {
+                        if (result?.duplicate) {
+                            if (uploadStatusEl) uploadStatusEl.textContent = `已存在相同批次（ID ${result?.id || '-'}）`;
+                            UI.showToast(`平台已存在同批資料（ID ${result?.id || '-'}）`);
+                        } else {
+                            if (uploadStatusEl) uploadStatusEl.textContent = `上傳成功（批次 ID ${result?.id || '-'}）`;
+                            UI.showToast(`平台上傳成功（ID ${result?.id || '-'}）`);
+                        }
+                    } else {
+                        const msg = result?.message || '未知錯誤';
+                        if (uploadStatusEl) uploadStatusEl.textContent = `上傳失敗：${msg}`;
+                        UI.showToast(`平台上傳失敗：${msg}`);
+                    }
+                } catch (err) {
+                    const msg = err?.message || String(err);
+                    if (uploadStatusEl) uploadStatusEl.textContent = `上傳失敗：${msg}`;
+                    UI.showToast(`平台上傳失敗：${msg}`);
+                } finally {
+                    uploadBtn.disabled = false;
+                    uploadBtn.style.opacity = '1';
+                }
+            };
+        }
+        const toggleAdvancedBtn = overlay.querySelector('#hege-analytics-toggle-advanced');
+        if (toggleAdvancedBtn) {
+            toggleAdvancedBtn.onclick = (e) => {
+                e.stopPropagation();
+                Storage.set(CONFIG.KEYS.ANALYTICS_SHOW_ADVANCED, analyticsShowAdvanced ? 'false' : 'true');
+                overlay.remove();
+                UI.showAnalyticsReport();
+            };
+        }
     },
 
     // ========================================================================
@@ -1453,14 +2134,16 @@ export const UI = {
             const entries = Storage.postReservoir.getAll();
             const history = Storage.getJSON(CONFIG.KEYS.ENDLESS_HISTORY, []);
             const pendingAdvanceCount = entries.filter(p => p.advanceOnComplete && (p.status === 'pending' || p.status === 'done' || p.done === true)).length;
-            const sweepState = sessionStorage.getItem('hege_sweep_state') || '';
-            const standbyRunning = Storage.get('hege_sweep_worker_standby') === 'true';
-            const isEndlessRunning = standbyRunning || ['WAIT_FOR_BG', 'RELOADING', 'SCANNING'].includes(sweepState);
+            const sweepRuntime = Utils.getSweepRuntimeState();
+            const isEndlessRunning = sweepRuntime.running;
+
             const hasStartHandler = typeof onStart === 'function';
             const canStart = pendingAdvanceCount > 0 && !isEndlessRunning && hasStartHandler;
-            const runningReason = standbyRunning
-                ? 'worker 待命或執行中'
-                : (sweepState ? `流程狀態：${sweepState}` : '流程執行中');
+            const runningReason = sweepRuntime.flowActive
+                ? `流程狀態：${sweepRuntime.state}`
+                : (sweepRuntime.waitForBgActive
+                    ? `等待 worker 清空佇列（目前 ${sweepRuntime.bgQueueLen} 人）`
+                    : 'worker 待命或執行中');
             const startActionHtml = (() => {
                 if (!hasStartHandler) return '';
                 if (canStart) {

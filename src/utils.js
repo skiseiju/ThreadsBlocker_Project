@@ -34,9 +34,13 @@ export const Utils = {
         return null;
     },
 
-    getPostOwner: () => {
-        const path = window.location.pathname;
-        // Format: /@username/post/postId
+    getPostOwner: (sourceUrl = '') => {
+        let path = window.location.pathname;
+        if (sourceUrl) {
+            try {
+                path = new URL(sourceUrl, window.location.origin).pathname || path;
+            } catch (e) {}
+        }
         if (path.includes('/post/')) {
             const match = path.match(/^\/@([^/]+)\/post\//);
             if (match && match[1]) return match[1];
@@ -44,15 +48,70 @@ export const Utils = {
         return null;
     },
 
-    // 從 DOM 抓取當前貼文的文字摘要（前 100 字）
-    getPostText: () => {
-        // 貼文內容在 dialog 後面的主頁面，找 [data-pressable-container] 內的文字
-        const candidates = document.querySelectorAll('[data-pressable-container] span[dir="auto"], article span[dir="auto"]');
-        for (const el of candidates) {
-            // 跳過 dialog 內的元素（那是按讚名單，不是貼文本體）
+    normalizePostUrl: (sourceUrl = '') => {
+        if (!sourceUrl) return '';
+        try {
+            const parsed = new URL(sourceUrl, window.location.origin);
+            if (!parsed.pathname.includes('/post/')) return '';
+            return `${parsed.origin}${parsed.pathname}`;
+        } catch (e) {
+            return '';
+        }
+    },
+
+    _extractTextFromContainer: (container) => {
+        if (!container) return '';
+        const blocks = Array.from(container.querySelectorAll('span[dir="auto"], div[dir="auto"]'))
+            .filter(el => !el.closest('[role="dialog"]'))
+            .map(el => (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim())
+            .filter(Boolean)
+            .filter(text => text.length >= 14)
+            .filter(text => !/^@[\w.]+$/.test(text))
+            .filter(text => !/^[0-9.,\s]+$/.test(text));
+        if (blocks.length === 0) return '';
+        const merged = blocks.join(' ').replace(/\s+/g, ' ').trim();
+        return merged.slice(0, 180);
+    },
+
+    // 從 DOM 抓取來源貼文的文字摘要（前 180 字）；優先鎖定 sourceUrl 對應貼文
+    getPostText: (sourceUrl = '') => {
+        const sourcePath = (() => {
+            const norm = Utils.normalizePostUrl(sourceUrl);
+            if (norm) {
+                try { return new URL(norm).pathname; } catch (e) {}
+            }
+            if (window.location.pathname.includes('/post/')) return window.location.pathname.split('?')[0];
+            return '';
+        })();
+
+        if (sourcePath) {
+            const anchors = Array.from(document.querySelectorAll('a[href*="/post/"]'))
+                .filter(a => !a.closest('[role="dialog"]'))
+                .filter(a => {
+                    try {
+                        const p = new URL(a.getAttribute('href') || '', window.location.origin).pathname;
+                        return p === sourcePath;
+                    } catch (e) {
+                        return false;
+                    }
+                });
+
+            for (const anchor of anchors) {
+                const container = anchor.closest('article, [data-pressable-container], [role="article"], div[data-pressable-container="true"]');
+                const text = Utils._extractTextFromContainer(container);
+                if (text.length > 0) return text;
+            }
+        }
+
+        const mainContainer = document.querySelector('main article, div[role="main"] article, [data-pressable-container]');
+        const mainText = Utils._extractTextFromContainer(mainContainer);
+        if (mainText.length > 0) return mainText;
+
+        const fallbackCandidates = document.querySelectorAll('[data-pressable-container] span[dir="auto"], article span[dir="auto"]');
+        for (const el of fallbackCandidates) {
             if (el.closest('[role="dialog"]')) continue;
-            const text = (el.innerText || '').trim();
-            if (text.length > 20) return text.substring(0, 100);
+            const text = (el.innerText || '').replace(/\s+/g, ' ').trim();
+            if (text.length > 20) return text.substring(0, 180);
         }
         return '';
     },
@@ -217,8 +276,40 @@ export const Utils = {
         return CONFIG.UNBLOCK_TEXTS.some(u => text.trim().includes(u));
     },
 
+    getSweepRuntimeState: () => {
+        const state = sessionStorage.getItem('hege_sweep_state') || '';
+        const standby = Storage.get('hege_sweep_worker_standby') === 'true';
+        const entries = Storage.postReservoir.getAll();
+        const hasSweeping = entries.some(p => p && p.status === 'sweeping');
+        const bgQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+        const bgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
+        const workerRunning = bgStatus.state === 'running' && (Date.now() - (bgStatus.lastUpdate || 0) < 30000);
+        const verifyPending = Storage.get(CONFIG.KEYS.VERIFY_PENDING);
+        const batchVerify = Storage.getJSON(CONFIG.KEYS.BATCH_VERIFY, []);
+        const flowActive = state === 'RELOADING' || state === 'SCANNING';
+        const waitForBgActive = state === 'WAIT_FOR_BG'
+            && (bgQueue.length > 0 || workerRunning || verifyPending !== null || batchVerify.length > 0 || hasSweeping);
+        const standbyActive = standby
+            && (bgQueue.length > 0 || workerRunning || verifyPending !== null || batchVerify.length > 0 || hasSweeping || flowActive);
+        const running = hasSweeping || flowActive || waitForBgActive || standbyActive;
+
+        return {
+            state,
+            standby,
+            bgQueueLen: bgQueue.length,
+            hasSweeping,
+            workerRunning,
+            flowActive,
+            waitForBgActive,
+            standbyActive,
+            running,
+        };
+    },
+
+    isSweepRunning: () => Utils.getSweepRuntimeState().running,
+
     openWorkerWindow: () => {
-        const workerUrl = `${window.location.origin}/?hege_bg=true`;
+        const workerUrl = `${window.location.origin}/?hege_bg=true&hege_popup=true`;
         const w = window.open(workerUrl, 'HegeBlockWorker', 'width=800,height=600');
         if (!w || w.closed) {
             console.warn('[HegeBlock] Worker popup blocked; caller should fall back to same-tab worker:', workerUrl);

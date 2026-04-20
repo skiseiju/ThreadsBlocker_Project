@@ -79,9 +79,22 @@ Object.assign(Core, {
         },
 
         isRunning() {
-            const state = sessionStorage.getItem(SWEEP_KEYS.STATE);
-            return Storage.get(SWEEP_KEYS.WORKER_STANDBY) === 'true'
-                || [SWEEP_STATE.RELOADING, SWEEP_STATE.SCANNING, SWEEP_STATE.WAIT_FOR_BG].includes(state);
+            const runtime = Utils.getSweepRuntimeState();
+            const state = runtime.state;
+            const standby = runtime.standby;
+            const running = runtime.running;
+
+            // 自動修復 stale 執行旗標：避免「待回訪」卻仍顯示執行中
+            if (!running) {
+                if (standby) Storage.remove(SWEEP_KEYS.WORKER_STANDBY);
+                if (state === SWEEP_STATE.WAIT_FOR_BG) {
+                    sessionStorage.removeItem(SWEEP_KEYS.STATE);
+                    sessionStorage.removeItem(SWEEP_KEYS.WAIT_STARTED_AT);
+                    sessionStorage.removeItem(SWEEP_KEYS.TARGET);
+                }
+            }
+
+            return running;
         },
 
         clearTransientState() {

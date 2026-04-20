@@ -156,6 +156,7 @@ export const Storage = {
             postOwner: ctx.postOwner || '',
             batch: Storage.get(CONFIG.KEYS.CURRENT_BATCH_ID) || ''
         });
+        Storage.evidence.captureFromBlockContext(username);
     },
     removeFromBlockDB: (username) => {
         let db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
@@ -294,5 +295,295 @@ export const Storage = {
             const queue = Storage.postReservoir.getAll();
             Storage.setJSON(CONFIG.KEYS.POST_QUEUE, queue.filter(p => !(p.status === 'done' && p.advanceOnComplete === true && p.longTermLoop !== true)));
         }
+    },
+
+    // ========================================================================
+    // Source Evidence (IndexedDB + localStorage index)
+    // 目標：保存來源貼文文字證據，避免刪文後完全失去可分析內容
+    // ========================================================================
+    evidence: {
+        DB_NAME: 'hege_source_evidence_db',
+        STORE_NAME: 'sourceEvidence',
+        DB_VERSION: 1,
+        MAX_INDEX_SIZE: 3000,
+        MAX_DB_ITEMS: 6000,
+        RETENTION_DAYS: 45,
+        PRUNE_INTERVAL_MS: 6 * 60 * 60 * 1000,
+        _openPromise: null,
+        _disabled: false,
+
+        _normalizeUrl: (url) => {
+            if (!url) return '';
+            try {
+                const parsed = new URL(url, window.location.origin);
+                return `${parsed.origin}${parsed.pathname}`;
+            } catch (e) {
+                return '';
+            }
+        },
+
+        _compactText: (text, max = 280) => String(text || '').replace(/\s+/g, ' ').trim().slice(0, max),
+
+        _hashText: (text) => {
+            const s = String(text || '');
+            let h = 5381;
+            for (let i = 0; i < s.length; i++) {
+                h = ((h << 5) + h) + s.charCodeAt(i);
+                h = h >>> 0;
+            }
+            return h.toString(16);
+        },
+
+        _safeArrayPushUnique: (arr, value, maxSize = 120) => {
+            const v = String(value || '').trim();
+            if (!v) return arr;
+            if (!arr.includes(v)) arr.push(v);
+            if (arr.length > maxSize) arr.splice(0, arr.length - maxSize);
+            return arr;
+        },
+
+        _getIndexMap: () => {
+            const raw = Storage.getJSON(CONFIG.KEYS.SOURCE_EVIDENCE_INDEX, {});
+            return (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
+        },
+
+        getIndexList: () => Object.entries(Storage.evidence._getIndexMap())
+            .map(([sourceUrl, item]) => ({ sourceUrl, ...(item || {}) }))
+            .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)),
+
+        _updateIndexMap: (record) => {
+            if (!record || !record.sourceUrl) return;
+            const map = Storage.evidence._getIndexMap();
+            map[record.sourceUrl] = {
+                updatedAt: record.updatedAt || Date.now(),
+                capturedAt: record.capturedAt || record.updatedAt || Date.now(),
+                captureCount: record.captureCount || 0,
+                sourceOwner: record.sourceOwner || '',
+                sourceChannel: record.sourceChannel || '',
+                lastEventType: record.lastEventType || '',
+                textHash: record.textHash || '',
+                snippet: record.snippet || '',
+            };
+            const entries = Object.entries(map).sort((a, b) => (b[1].updatedAt || 0) - (a[1].updatedAt || 0));
+            const trimmed = entries.slice(0, Storage.evidence.MAX_INDEX_SIZE);
+            Storage.setJSON(CONFIG.KEYS.SOURCE_EVIDENCE_INDEX, Object.fromEntries(trimmed));
+        },
+
+        _maybePrune: () => {
+            const now = Date.now();
+            const key = CONFIG.KEYS.SOURCE_EVIDENCE_PRUNE_AT || 'hege_source_evidence_prune_at';
+            const lastPruneAt = parseInt(Storage.get(key) || '0', 10);
+            if (lastPruneAt > 0 && (now - lastPruneAt) < Storage.evidence.PRUNE_INTERVAL_MS) return;
+            Storage.set(key, String(now));
+            Storage.evidence.prune().catch(() => {});
+        },
+
+        _openDB: () => {
+            if (Storage.evidence._disabled) return Promise.resolve(null);
+            if (Storage.evidence._openPromise) return Storage.evidence._openPromise;
+
+            if (typeof indexedDB === 'undefined') {
+                Storage.evidence._disabled = true;
+                return Promise.resolve(null);
+            }
+
+            Storage.evidence._openPromise = new Promise((resolve) => {
+                try {
+                    const request = indexedDB.open(Storage.evidence.DB_NAME, Storage.evidence.DB_VERSION);
+                    request.onupgradeneeded = (event) => {
+                        const db = event.target.result;
+                        if (!db.objectStoreNames.contains(Storage.evidence.STORE_NAME)) {
+                            db.createObjectStore(Storage.evidence.STORE_NAME, { keyPath: 'sourceUrl' });
+                        }
+                    };
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => {
+                        Storage.evidence._disabled = true;
+                        resolve(null);
+                    };
+                } catch (e) {
+                    Storage.evidence._disabled = true;
+                    resolve(null);
+                }
+            });
+
+            return Storage.evidence._openPromise;
+        },
+
+        _tx: async (mode = 'readonly') => {
+            const db = await Storage.evidence._openDB();
+            if (!db) return null;
+            try {
+                return db.transaction(Storage.evidence.STORE_NAME, mode).objectStore(Storage.evidence.STORE_NAME);
+            } catch (e) {
+                return null;
+            }
+        },
+
+        get: async (sourceUrl) => {
+            const norm = Storage.evidence._normalizeUrl(sourceUrl);
+            if (!norm) return null;
+            const store = await Storage.evidence._tx('readonly');
+            if (!store) return null;
+            return new Promise((resolve) => {
+                const req = store.get(norm);
+                req.onsuccess = () => resolve(req.result || null);
+                req.onerror = () => resolve(null);
+            });
+        },
+
+        upsert: async (payload = {}) => {
+            const sourceUrl = Storage.evidence._normalizeUrl(payload.sourceUrl || '');
+            if (!sourceUrl) return false;
+
+            const store = await Storage.evidence._tx('readwrite');
+            if (!store) return false;
+
+            const now = Date.now();
+            const sourceText = Storage.evidence._compactText(payload.sourceText || '', 5000);
+            const snippet = Storage.evidence._compactText(payload.sourceText || payload.snippet || '', 280);
+            const reportPath = Array.isArray(payload.reportPath) ? payload.reportPath.filter(Boolean) : [];
+
+            return new Promise((resolve) => {
+                const getReq = store.get(sourceUrl);
+                getReq.onerror = () => resolve(false);
+                getReq.onsuccess = () => {
+                    const prev = getReq.result || {
+                        sourceUrl,
+                        capturedAt: now,
+                        updatedAt: now,
+                        captureCount: 0,
+                        sourceOwner: '',
+                        sourceChannel: '',
+                        lastEventType: '',
+                        lastAccountId: '',
+                        textHash: '',
+                        snippet: '',
+                        fullText: '',
+                        sampleTexts: [],
+                        reportPaths: {},
+                        accountIds: [],
+                    };
+
+                    const next = { ...prev };
+                    next.updatedAt = now;
+                    next.captureCount = (prev.captureCount || 0) + 1;
+                    if (!next.capturedAt) next.capturedAt = now;
+                    if (payload.sourceOwner) next.sourceOwner = payload.sourceOwner;
+                    if (payload.sourceChannel) next.sourceChannel = payload.sourceChannel;
+                    if (payload.eventType) next.lastEventType = payload.eventType;
+                    if (payload.accountId) next.lastAccountId = payload.accountId;
+
+                    if (snippet) next.snippet = snippet;
+                    if (sourceText) {
+                        next.fullText = sourceText;
+                        next.textHash = Storage.evidence._hashText(sourceText);
+                    } else if (snippet && !next.textHash) {
+                        next.textHash = Storage.evidence._hashText(snippet);
+                    }
+
+                    next.sampleTexts = Array.isArray(next.sampleTexts) ? next.sampleTexts : [];
+                    if (snippet) Storage.evidence._safeArrayPushUnique(next.sampleTexts, snippet, 8);
+
+                    next.accountIds = Array.isArray(next.accountIds) ? next.accountIds : [];
+                    if (payload.accountId) Storage.evidence._safeArrayPushUnique(next.accountIds, payload.accountId, 180);
+
+                    next.reportPaths = (next.reportPaths && typeof next.reportPaths === 'object') ? next.reportPaths : {};
+                    if (reportPath.length > 0) {
+                        const pathKey = reportPath.join(' > ');
+                        next.reportPaths[pathKey] = (next.reportPaths[pathKey] || 0) + 1;
+                    }
+
+                    const putReq = store.put(next);
+                    putReq.onerror = () => resolve(false);
+                    putReq.onsuccess = () => {
+                        Storage.evidence._updateIndexMap(next);
+                        Storage.evidence._maybePrune();
+                        resolve(true);
+                    };
+                };
+            });
+        },
+
+        prune: async () => {
+            const now = Date.now();
+            const cutoff = now - (Storage.evidence.RETENTION_DAYS * 24 * 60 * 60 * 1000);
+            const map = Storage.evidence._getIndexMap();
+            const sorted = Object.entries(map).sort((a, b) => (b[1]?.updatedAt || 0) - (a[1]?.updatedAt || 0));
+
+            const keptEntries = sorted
+                .filter(([, item], idx) => {
+                    const updatedAt = item?.updatedAt || item?.capturedAt || 0;
+                    if (idx >= Storage.evidence.MAX_DB_ITEMS) return false;
+                    if (updatedAt > 0 && updatedAt < cutoff) return false;
+                    return true;
+                });
+            const keptMap = Object.fromEntries(keptEntries);
+            Storage.setJSON(CONFIG.KEYS.SOURCE_EVIDENCE_INDEX, keptMap);
+
+            const keepSet = new Set(Object.keys(keptMap));
+            const store = await Storage.evidence._tx('readwrite');
+            if (!store) return { removed: 0, kept: keepSet.size };
+
+            return new Promise((resolve) => {
+                let removed = 0;
+                const req = store.openCursor();
+                req.onerror = () => resolve({ removed, kept: keepSet.size });
+                req.onsuccess = (event) => {
+                    const cursor = event.target.result;
+                    if (!cursor) {
+                        resolve({ removed, kept: keepSet.size });
+                        return;
+                    }
+                    const key = String(cursor.key || '');
+                    if (!keepSet.has(key)) {
+                        cursor.delete();
+                        removed++;
+                    }
+                    cursor.continue();
+                };
+            });
+        },
+
+        captureFromBlockContext: (accountId) => {
+            try {
+                const ctx = JSON.parse(Storage.get(CONFIG.KEYS.BLOCK_CONTEXT) || '{}');
+                if (!ctx || !ctx.src) return;
+                Storage.evidence.upsert({
+                    sourceUrl: ctx.src,
+                    sourceText: ctx.postText || '',
+                    sourceOwner: ctx.postOwner || '',
+                    sourceChannel: ctx.reason || 'block',
+                    eventType: 'block',
+                    accountId: accountId || '',
+                }).catch(() => {});
+            } catch (e) {}
+        },
+
+        captureFromReportHistory: (entry = {}, context = {}) => {
+            const sourceUrl = entry.sourceUrl || context.sourceUrl || '';
+            if (!sourceUrl) return;
+            Storage.evidence.upsert({
+                sourceUrl,
+                sourceText: context.sourceText || '',
+                sourceOwner: context.sourceOwner || '',
+                sourceChannel: context.source || entry.source || 'report',
+                eventType: 'report',
+                accountId: entry.username || '',
+                reportPath: Array.isArray(entry.path) ? entry.path : [],
+            }).catch(() => {});
+        },
+
+        clearAll: async () => {
+            Storage.remove(CONFIG.KEYS.SOURCE_EVIDENCE_INDEX);
+            if (CONFIG.KEYS.SOURCE_EVIDENCE_PRUNE_AT) Storage.remove(CONFIG.KEYS.SOURCE_EVIDENCE_PRUNE_AT);
+            const store = await Storage.evidence._tx('readwrite');
+            if (!store) return false;
+            return new Promise((resolve) => {
+                const req = store.clear();
+                req.onsuccess = () => resolve(true);
+                req.onerror = () => resolve(false);
+            });
+        },
     }
 };

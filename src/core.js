@@ -546,7 +546,6 @@ export const Core = {
         newUsers.forEach(u => Core.pendingUsers.add(u));
         Core.markReportSelectable(newUsers);
         Storage.setSessionJSON(CONFIG.KEYS.PENDING, [...Core.pendingUsers]);
-
         const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
         const isRunning = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
 
@@ -669,11 +668,12 @@ export const Core = {
             const reason = CONFIG.LIKES_TEXTS.some(t => titleText.includes(t)) ? 'likes'
                 : CONFIG.QUOTES_TEXTS.some(t => titleText.includes(t)) ? 'quotes'
                 : CONFIG.REPOSTS_TEXTS.some(t => titleText.includes(t)) ? 'reposts' : 'manual';
+            const sourceUrl = Core.findSourcePostUrl(activeCtx) || window.location.href.split('?')[0];
             Storage.set(CONFIG.KEYS.BLOCK_CONTEXT, JSON.stringify({
-                src: window.location.href.split('?')[0],
+                src: sourceUrl,
                 reason,
-                postText: Utils.getPostText(),
-                postOwner: Utils.getPostOwner() || ''
+                postText: Utils.getPostText(sourceUrl),
+                postOwner: Utils.getPostOwner(sourceUrl) || ''
             }));
             Storage.set(CONFIG.KEYS.CURRENT_BATCH_ID, 'b_' + Date.now());
 
@@ -723,11 +723,14 @@ export const Core = {
             }
 
             let added = 0;
+            const sourceUrl = Core.findSourcePostUrl(activeCtx);
             rawUsers.forEach(u => {
                 Core.setReportContext(u, {
-                    sourceUrl: Core.findSourcePostUrl(activeCtx),
+                    sourceUrl,
                     source: 'dialog',
                     targetType: 'account',
+                    sourceText: Utils.getPostText(sourceUrl),
+                    sourceOwner: Utils.getPostOwner(sourceUrl) || '',
                 });
                 if (Storage.queueAddUnique(CONFIG.KEYS.REPORT_QUEUE, u)) added++;
             });
@@ -1262,7 +1265,13 @@ export const Core = {
                     if (btnElement) btnElement.dataset.username = u; // Ensure dataset exists safely
                     if (btnElement) Core.blockQueue.add(btnElement);
                     Core.pendingUsers.add(u);
-                    Core.setReportContext(u, { sourceUrl: Core.findSourcePostUrl(box), source: 'checkbox-reset' });
+                    const sourceUrl = Core.findSourcePostUrl(box);
+                    Core.setReportContext(u, {
+                        sourceUrl,
+                        source: 'checkbox-reset',
+                        sourceText: Utils.getPostText(sourceUrl),
+                        sourceOwner: Utils.getPostOwner(sourceUrl) || '',
+                    });
                 }
             } else if (targetAction === 'uncheck' && box.classList.contains('checked')) {
                 box.classList.remove('checked');
@@ -1284,7 +1293,13 @@ export const Core = {
                 if (btnElement) Core.blockQueue.add(btnElement);
                 if (u) {
                     Core.pendingUsers.add(u);
-                    Core.setReportContext(u, { sourceUrl: Core.findSourcePostUrl(box), source: 'checkbox' });
+                    const sourceUrl = Core.findSourcePostUrl(box);
+                    Core.setReportContext(u, {
+                        sourceUrl,
+                        source: 'checkbox',
+                        sourceText: Utils.getPostText(sourceUrl),
+                        sourceOwner: Utils.getPostOwner(sourceUrl) || '',
+                    });
                 }
             }
         });
@@ -1556,9 +1571,11 @@ export const Core = {
         // 貼文水庫 badge：顯示統一總數（含深層 + 定點絕）
         const reservoirEntries = Storage.postReservoir.getAll();
         const endlessQueueBadge = document.getElementById('hege-endless-queue-count');
+        const bgStatusLineEl = document.getElementById('hege-bg-status');
 
         const pendingEndlessCount = reservoirEntries.filter(p => p.advanceOnComplete && p.status !== 'done').length;
         const isEndlessRunning = Core.SweepDriver ? Core.SweepDriver.isRunning() : false;
+        let endlessStatusApplied = false;
 
         // Panel badge：有定點絕待跑時變紅，否則顯示總篇數
         if (endlessQueueBadge) {
@@ -1571,19 +1588,31 @@ export const Core = {
             }
         }
 
-        // 定點絕執行中：顯示「清單X 第N批」
+        // 定點絕執行中：僅在該貼文仍處於實際執行狀態時顯示「清單X 第N批」
         if (isEndlessRunning) {
             const targetUrl = sessionStorage.getItem('hege_sweep_target') || window.location.href.split('?')[0];
             const activePostIdx = reservoirEntries.findIndex(p => p.url.split('?')[0] === targetUrl.split('?')[0]);
             if (activePostIdx >= 0) {
                 const activePost = reservoirEntries[activePostIdx];
-                const listLabel = String.fromCharCode(65 + activePostIdx); // A, B, C...
-                const batchNum = activePost.batchCount || 0;
-                const statusEl = document.getElementById('hege-bg-status');
-                if (statusEl && !statusEl.textContent.includes('冷卻')) {
-                    statusEl.textContent = `🔄 清單${listLabel} 第${batchNum}批 定點絕執行中`;
+                const bgQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+                const isActivePostRunning = activePost.status === 'sweeping'
+                    || (activePost.status === 'pending' && bgQueue.length > 0);
+                if (isActivePostRunning) {
+                    const listLabel = String.fromCharCode(65 + activePostIdx); // A, B, C...
+                    const batchNum = activePost.batchCount || 0;
+                    if (bgStatusLineEl && !bgStatusLineEl.textContent.includes('冷卻')) {
+                        bgStatusLineEl.textContent = `🔄 清單${listLabel} 第${batchNum}批 定點絕執行中`;
+                        bgStatusLineEl.dataset.hegeSweepStatus = 'running';
+                        endlessStatusApplied = true;
+                    }
                 }
             }
+        }
+
+        // 定點絕收尾：僅清理由 sweep 狀態寫入的狀態列，避免字串比對造成耦合
+        if (!endlessStatusApplied && bgStatusLineEl && bgStatusLineEl.dataset.hegeSweepStatus === 'running') {
+            bgStatusLineEl.textContent = '執行狀態...';
+            delete bgStatusLineEl.dataset.hegeSweepStatus;
         }
 
         let badgeText = Core.pendingUsers.size > 0 ? `(${Core.pendingUsers.size})` : '';
