@@ -1,0 +1,889 @@
+const DEFAULT_ALLOWED_DRIFT = 300;
+const DEFAULT_RATE_WINDOW = 300;
+const PLATFORM_MAX_PAYLOAD_BYTES = 2 * 1024 * 1024;
+const PLATFORM_MAX_TOPICS = 200;
+const PLATFORM_MAX_SOURCES = 400;
+const PLATFORM_MAX_EVENTS = 120000;
+const PLATFORM_SCHEMA_STMTS = [
+  `CREATE TABLE IF NOT EXISTS platform_uploads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    schema TEXT NOT NULL,
+    source_app TEXT NOT NULL,
+    exporter_version TEXT,
+    timezone TEXT,
+    locale TEXT,
+    upload_source TEXT NOT NULL DEFAULT 'extension',
+    payload_hash TEXT NOT NULL UNIQUE,
+    block_event_count INTEGER NOT NULL DEFAULT 0,
+    report_event_count INTEGER NOT NULL DEFAULT 0,
+    total_event_count INTEGER NOT NULL DEFAULT 0,
+    source_post_count INTEGER NOT NULL DEFAULT 0,
+    topic_seed_count INTEGER NOT NULL DEFAULT 0,
+    source_coverage_pct INTEGER NOT NULL DEFAULT 0,
+    report_source_coverage_pct INTEGER NOT NULL DEFAULT 0,
+    note TEXT
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_platform_uploads_created_at ON platform_uploads(created_at DESC)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_uploads_events ON platform_uploads(total_event_count DESC)',
+  `CREATE TABLE IF NOT EXISTS platform_topic_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    upload_id INTEGER NOT NULL,
+    topic_label TEXT NOT NULL,
+    event_count INTEGER NOT NULL DEFAULT 0,
+    account_count INTEGER NOT NULL DEFAULT 0,
+    source_count INTEGER NOT NULL DEFAULT 0
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_platform_topic_upload ON platform_topic_metrics(upload_id)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_topic_event_count ON platform_topic_metrics(event_count DESC)',
+  `CREATE TABLE IF NOT EXISTS platform_source_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    upload_id INTEGER NOT NULL,
+    source_url TEXT NOT NULL,
+    source_owner TEXT,
+    source_text_sample TEXT,
+    block_event_count INTEGER NOT NULL DEFAULT 0,
+    report_event_count INTEGER NOT NULL DEFAULT 0,
+    total_event_count INTEGER NOT NULL DEFAULT 0,
+    unique_account_count INTEGER NOT NULL DEFAULT 0,
+    manipulation_signal_score INTEGER NOT NULL DEFAULT 0,
+    manipulation_risk_level TEXT,
+    top_topic_hints_json TEXT
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_platform_source_upload ON platform_source_metrics(upload_id)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_source_total ON platform_source_metrics(total_event_count DESC)',
+  `CREATE TABLE IF NOT EXISTS platform_daily_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    upload_id INTEGER NOT NULL,
+    day_key TEXT NOT NULL,
+    block_event_count INTEGER NOT NULL DEFAULT 0,
+    report_event_count INTEGER NOT NULL DEFAULT 0,
+    total_event_count INTEGER NOT NULL DEFAULT 0,
+    source_count INTEGER NOT NULL DEFAULT 0
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_platform_daily_upload ON platform_daily_metrics(upload_id)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_daily_day ON platform_daily_metrics(day_key DESC)'
+];
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+
+    if (request.method === 'OPTIONS') {
+      return withCors(new Response(null, { status: 204 }));
+    }
+
+    try {
+      if (url.pathname === '/' && request.method === 'GET') {
+        return withCors(json({
+          code: 200,
+          message: 'ThreadsBlocker API',
+          endpoints: {
+            health: '/api/v1/health',
+            bugIngest: 'POST /api/v1/reports/bug',
+            platformIngest: 'POST /api/v1/platform/ingest',
+            adminBugs: 'GET /api/v1/admin/bugs (Bearer token)',
+            adminStats: 'GET /api/v1/admin/stats (Bearer token)',
+            adminPlatformOverview: 'GET /api/v1/admin/platform/overview (Bearer token)'
+          }
+        }, 200));
+      }
+
+      if (url.pathname === '/api/v1/reports/bug' && request.method === 'POST') {
+        return withCors(await handleBugIngest(request, env));
+      }
+
+      if (url.pathname === '/api/v1/platform/ingest' && request.method === 'POST') {
+        return withCors(await handlePlatformIngest(request, env));
+      }
+      if (url.pathname === '/api/v1/platform/ingest' && request.method === 'GET') {
+        return withCors(json({ code: 405, message: 'Use POST with schema threadsblocker.platform_upload.v2 JSON payload' }, 405));
+      }
+      if (url.pathname === '/api/v1/platform/overview' && request.method === 'GET') {
+        return withCors(await handlePublicPlatformOverview(request, env));
+      }
+      if (url.pathname === '/api/v1/platform/topic/details' && request.method === 'GET') {
+        return withCors(await handlePublicTopicDetails(request, env));
+      }
+
+      if (url.pathname === '/api/v1/admin/bugs' && request.method === 'GET') {
+        return withCors(await handleAdminList(request, env));
+      }
+
+      if (url.pathname === '/api/v1/admin/stats' && request.method === 'GET') {
+        return withCors(await handleAdminStats(request, env));
+      }
+
+      if (url.pathname === '/api/v1/admin/platform/overview' && request.method === 'GET') {
+        return withCors(await handleAdminPlatformOverview(request, env));
+      }
+
+      if (url.pathname.startsWith('/api/v1/admin/bugs/') && request.method === 'PATCH') {
+        return withCors(await handleAdminUpdateStatus(request, env, url.pathname));
+      }
+
+      if (url.pathname === '/api/v1/health' && request.method === 'GET') {
+        return withCors(json({ code: 200, message: 'ok' }, 200));
+      }
+
+      return withCors(json({ code: 404, message: 'Not found' }, 404));
+    } catch (err) {
+      if (err instanceof Response) return withCors(err);
+      return withCors(json({ code: 500, message: err?.message || 'Internal error' }, 500));
+    }
+  }
+};
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8'
+    }
+  });
+}
+
+function withCors(response) {
+  const headers = new Headers(response.headers);
+  headers.set('Access-Control-Allow-Origin', '*');
+  headers.set('Access-Control-Allow-Methods', 'GET,POST,PATCH,OPTIONS');
+  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  return new Response(response.body, { status: response.status, headers });
+}
+
+function getAdminToken(request) {
+  const auth = request.headers.get('Authorization') || '';
+  const prefix = 'Bearer ';
+  if (!auth.startsWith(prefix)) return '';
+  return auth.slice(prefix.length).trim();
+}
+
+function assertAdmin(request, env) {
+  const adminToken = env.ADMIN_TOKEN || '';
+  const token = getAdminToken(request);
+  if (!adminToken || !token || token !== adminToken) {
+    throw new Response(JSON.stringify({ code: 401, message: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json; charset=utf-8' }
+    });
+  }
+}
+
+async function sha256Hex(input) {
+  const data = new TextEncoder().encode(input);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function handleBugIngest(request, env) {
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object') {
+    return json({ code: 400, message: 'Bad Request: invalid json' }, 400);
+  }
+
+  const requiredFields = ['timestamp', 'hwid', 'source_app', 'message', 'signature'];
+  for (const field of requiredFields) {
+    if (!body[field]) {
+      return json({ code: 400, message: `Bad Request: missing ${field}` }, 400);
+    }
+  }
+
+  const salt = env.BUG_REPORT_SALT || '';
+  if (!salt) {
+    return json({ code: 500, message: 'Server misconfigured: missing BUG_REPORT_SALT' }, 500);
+  }
+
+  const allowedDrift = Number(env.ALLOWED_TIME_DRIFT_SEC || DEFAULT_ALLOWED_DRIFT);
+  const rateWindow = Number(env.RATE_LIMIT_WINDOW_SEC || DEFAULT_RATE_WINDOW);
+
+  const now = Math.floor(Date.now() / 1000);
+  const ts = Number.parseInt(String(body.timestamp), 10);
+  if (!Number.isFinite(ts) || Math.abs(now - ts) > allowedDrift) {
+    return json({ code: 403, message: 'Request expired: time drift too large' }, 403);
+  }
+
+  const expectedSig = await sha256Hex(`${body.timestamp}${body.hwid}${salt}`);
+  if (expectedSig !== body.signature) {
+    return json({ code: 401, message: 'Unauthorized: invalid signature' }, 401);
+  }
+
+  const limitRow = await env.DB.prepare('SELECT last_report_unix FROM rate_limits WHERE hwid = ?').bind(body.hwid).first();
+  if (limitRow && (now - Number(limitRow.last_report_unix || 0) < rateWindow)) {
+    return json({ code: 429, message: 'Rate limit exceeded' }, 429);
+  }
+
+  await env.DB.prepare(
+    'INSERT INTO rate_limits(hwid, last_report_unix) VALUES (?, ?) ON CONFLICT(hwid) DO UPDATE SET last_report_unix = excluded.last_report_unix'
+  ).bind(body.hwid, now).run();
+
+  let metadataRaw = '';
+  let metadataObj = null;
+  if (typeof body.metadata === 'string') {
+    metadataRaw = body.metadata;
+    try {
+      metadataObj = JSON.parse(body.metadata);
+    } catch {
+      metadataObj = null;
+    }
+  } else if (body.metadata && typeof body.metadata === 'object') {
+    metadataObj = body.metadata;
+    metadataRaw = JSON.stringify(body.metadata);
+  }
+
+  const clientEnv = metadataObj && typeof metadataObj.clientEnv === 'object' ? metadataObj.clientEnv : {};
+
+  const ip = request.headers.get('CF-Connecting-IP') || '';
+  const ipHash = ip ? await sha256Hex(ip) : '';
+
+  const insert = await env.DB.prepare(
+    `INSERT INTO bug_reports (
+      source_app, version, hwid, level, message, error_code, metadata, signature, status,
+      ip_hash, user_agent, platform, script_manager, has_gm_xhr, online, endpoint, error_name, error_message, stack
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    String(body.source_app || ''),
+    String(body.version || ''),
+    String(body.hwid || ''),
+    String(body.level || 'ERROR'),
+    String(body.message || ''),
+    String(body.error_code || ''),
+    metadataRaw,
+    String(body.signature || ''),
+    ipHash,
+    request.headers.get('User-Agent') || '',
+    String(clientEnv.platform || ''),
+    String(clientEnv.scriptManager || ''),
+    boolAsInt(clientEnv.hasGMXHR),
+    boolAsInt(clientEnv.online),
+    String(clientEnv.endpoint || ''),
+    String(clientEnv.errorName || ''),
+    String(clientEnv.errorMessage || ''),
+    String(clientEnv.stack || '')
+  ).run();
+
+  return json({ code: 200, message: 'Success', id: insert.meta?.last_row_id || null }, 200);
+}
+
+async function handlePlatformIngest(request, env) {
+  await ensurePlatformTables(env);
+
+  const rawText = await request.text();
+  if (!rawText || rawText.trim().length === 0) {
+    return json({ code: 400, message: 'Bad Request: empty payload' }, 400);
+  }
+  if (rawText.length > PLATFORM_MAX_PAYLOAD_BYTES) {
+    return json({ code: 413, message: 'Payload too large' }, 413);
+  }
+
+  const body = safeParseJSON(rawText);
+  if (!body || typeof body !== 'object') {
+    return json({ code: 400, message: 'Bad Request: invalid json' }, 400);
+  }
+  if (safeString(body.schema, 80) !== 'threadsblocker.platform_upload.v2') {
+    return json({ code: 400, message: 'Bad Request: unsupported schema' }, 400);
+  }
+
+  const payloadHash = await sha256Hex(rawText);
+  const summary = asObject(body.summary);
+  const exporter = asObject(body.exporter);
+
+  const sourceApp = safeString(exporter.tool || body.source_app || 'ThreadsBlocker', 80);
+  const exporterVersion = safeString(exporter.version || '', 80);
+  const timezone = safeString(exporter.timezone || '', 64);
+  const locale = safeString(exporter.locale || '', 64);
+
+  const blockEventCount = safeCount(summary.blockEventCount);
+  const reportEventCount = safeCount(summary.reportEventCount);
+  const totalEventCount = safeCount(summary.totalEventCount);
+  const sourcePostCount = safeCount(summary.sourcePostCount);
+  const topicSeedCount = safeCount(summary.topTopicSeedCount);
+  const sourceCoveragePct = safePercent(summary.sourceCoveragePct);
+  const reportSourceCoveragePct = safePercent(summary.reportSourceCoveragePct);
+
+  let uploadId = 0;
+  try {
+    const insert = await env.DB.prepare(
+      `INSERT INTO platform_uploads (
+        schema, source_app, exporter_version, timezone, locale, upload_source, payload_hash,
+        block_event_count, report_event_count, total_event_count, source_post_count, topic_seed_count,
+        source_coverage_pct, report_source_coverage_pct
+      ) VALUES (?, ?, ?, ?, ?, 'extension', ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      'threadsblocker.platform_upload.v2',
+      sourceApp,
+      exporterVersion,
+      timezone,
+      locale,
+      payloadHash,
+      blockEventCount,
+      reportEventCount,
+      totalEventCount,
+      sourcePostCount,
+      topicSeedCount,
+      sourceCoveragePct,
+      reportSourceCoveragePct
+    ).run();
+    uploadId = Number(insert.meta?.last_row_id || 0);
+  } catch (err) {
+    const msg = String(err?.message || err || '');
+    if (msg.includes('UNIQUE constraint failed: platform_uploads.payload_hash')) {
+      const row = await env.DB.prepare(
+        'SELECT id, created_at FROM platform_uploads WHERE payload_hash = ?'
+      ).bind(payloadHash).first();
+      return json({
+        code: 200,
+        message: 'Duplicate payload skipped',
+        duplicate: true,
+        id: row?.id || null,
+        createdAt: row?.created_at || null
+      }, 200);
+    }
+    throw err;
+  }
+
+  if (!uploadId) {
+    return json({ code: 500, message: 'Failed to create upload record' }, 500);
+  }
+
+  const topicSeeds = asArray(asObject(body.analysisSeeds).topicSeeds).slice(0, PLATFORM_MAX_TOPICS);
+  const sources = asArray(body.sources).slice(0, PLATFORM_MAX_SOURCES);
+  const events = asArray(body.events).slice(0, PLATFORM_MAX_EVENTS);
+
+  let topicInserted = 0;
+  for (const item of topicSeeds) {
+    const topic = asObject(item);
+    const topicLabel = safeString(topic.topicLabel || topic.category, 140);
+    const eventCount = safeCount(topic.eventCount);
+    if (!topicLabel || eventCount <= 0) continue;
+    await env.DB.prepare(
+      `INSERT INTO platform_topic_metrics (upload_id, topic_label, event_count, account_count, source_count)
+       VALUES (?, ?, ?, ?, ?)`
+    ).bind(
+      uploadId,
+      topicLabel,
+      eventCount,
+      safeCount(topic.accountCount),
+      safeCount(topic.sourceCount)
+    ).run();
+    topicInserted++;
+  }
+
+  let sourceInserted = 0;
+  for (const item of sources) {
+    const source = asObject(item);
+    const sourceUrl = safeString(source.sourceUrl, 300);
+    if (!sourceUrl) continue;
+
+    const sourceOwners = asArray(source.sourceOwners).map(v => safeString(v, 80)).filter(Boolean);
+    const sourceTexts = asArray(source.sourceTextSamples).map(v => safeString(v, 320)).filter(Boolean);
+    const topTopicHints = asArray(source.topTopicHints).slice(0, 8).map((hint) => {
+      const h = asObject(hint);
+      return {
+        topicHint: safeString(h.topicHint, 120),
+        count: safeCount(h.count)
+      };
+    }).filter(h => h.topicHint);
+
+    await env.DB.prepare(
+      `INSERT INTO platform_source_metrics (
+        upload_id, source_url, source_owner, source_text_sample, block_event_count, report_event_count,
+        total_event_count, unique_account_count, manipulation_signal_score, manipulation_risk_level, top_topic_hints_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      uploadId,
+      sourceUrl,
+      sourceOwners[0] || '',
+      sourceTexts[0] || '',
+      safeCount(source.blockEventCount),
+      safeCount(source.reportEventCount),
+      safeCount(source.totalEventCount),
+      safeCount(source.uniqueAccountCount),
+      safeCount(source.manipulationSignalScore),
+      safeString(source.manipulationRiskLevel, 20),
+      JSON.stringify(topTopicHints)
+    ).run();
+    sourceInserted++;
+  }
+
+  const dailyAgg = {};
+  for (const item of events) {
+    const event = asObject(item);
+    const dayKey = toDayKey(event.eventAt);
+    if (!dayKey) continue;
+    if (!dailyAgg[dayKey]) {
+      dailyAgg[dayKey] = {
+        block: 0,
+        report: 0,
+        total: 0,
+        sourceSet: new Set()
+      };
+    }
+    const bucket = dailyAgg[dayKey];
+    const eventType = safeString(event.eventType, 20);
+    if (eventType === 'block') bucket.block++;
+    if (eventType === 'report') bucket.report++;
+    bucket.total++;
+    const sourceUrl = safeString(event.sourceUrl, 300);
+    if (sourceUrl) bucket.sourceSet.add(sourceUrl);
+  }
+
+  let dailyInserted = 0;
+  for (const [dayKey, bucket] of Object.entries(dailyAgg)) {
+    await env.DB.prepare(
+      `INSERT INTO platform_daily_metrics (
+        upload_id, day_key, block_event_count, report_event_count, total_event_count, source_count
+      ) VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(
+      uploadId,
+      dayKey,
+      bucket.block,
+      bucket.report,
+      bucket.total,
+      bucket.sourceSet.size
+    ).run();
+    dailyInserted++;
+  }
+
+  return json({
+    code: 200,
+    message: 'Platform payload ingested',
+    id: uploadId,
+    summary: {
+      topicRows: topicInserted,
+      sourceRows: sourceInserted,
+      dailyRows: dailyInserted
+    }
+  }, 200);
+}
+
+async function handleAdminList(request, env) {
+  assertAdmin(request, env);
+
+  const url = new URL(request.url);
+  const limit = clampInt(url.searchParams.get('limit'), 1, 200, 50);
+  const status = (url.searchParams.get('status') || '').trim();
+  const version = (url.searchParams.get('version') || '').trim();
+  const q = (url.searchParams.get('q') || '').trim();
+
+  const where = [];
+  const binds = [];
+
+  if (status) {
+    where.push('status = ?');
+    binds.push(status);
+  }
+  if (version) {
+    where.push('version = ?');
+    binds.push(version);
+  }
+  if (q) {
+    where.push('(message LIKE ? OR error_message LIKE ? OR hwid LIKE ?)');
+    const likeQ = `%${q}%`;
+    binds.push(likeQ, likeQ, likeQ);
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const sql = `
+    SELECT
+      id, created_at, source_app, version, hwid, level, status,
+      message, error_code, platform, script_manager,
+      endpoint, error_name, error_message
+    FROM bug_reports
+    ${whereSql}
+    ORDER BY id DESC
+    LIMIT ?
+  `;
+
+  const rows = await env.DB.prepare(sql).bind(...binds, limit).all();
+  return json({ code: 200, data: rows.results || [] }, 200);
+}
+
+async function handleAdminStats(request, env) {
+  assertAdmin(request, env);
+
+  const url = new URL(request.url);
+  const hours = clampInt(url.searchParams.get('hours'), 1, 24 * 30, 24);
+
+  const levelRows = await env.DB.prepare(
+    `SELECT level, COUNT(*) AS count
+     FROM bug_reports
+     WHERE datetime(created_at) >= datetime('now', ?)
+     GROUP BY level
+     ORDER BY count DESC`
+  ).bind(`-${hours} hours`).all();
+
+  const versionRows = await env.DB.prepare(
+    `SELECT version, COUNT(*) AS count
+     FROM bug_reports
+     WHERE datetime(created_at) >= datetime('now', ?)
+     GROUP BY version
+     ORDER BY count DESC
+     LIMIT 10`
+  ).bind(`-${hours} hours`).all();
+
+  const statusRows = await env.DB.prepare(
+    `SELECT status, COUNT(*) AS count
+     FROM bug_reports
+     WHERE datetime(created_at) >= datetime('now', ?)
+     GROUP BY status
+     ORDER BY count DESC`
+  ).bind(`-${hours} hours`).all();
+
+  return json({
+    code: 200,
+    data: {
+      hours,
+      byLevel: levelRows.results || [],
+      byVersion: versionRows.results || [],
+      byStatus: statusRows.results || []
+    }
+  }, 200);
+}
+
+async function handleAdminPlatformOverview(request, env) {
+  assertAdmin(request, env);
+  const url = new URL(request.url);
+  const days = clampInt(url.searchParams.get('days'), 1, 365, 30);
+  const top = clampInt(url.searchParams.get('top'), 5, 50, 15);
+  const data = await loadPlatformOverviewData(env, days, top);
+  return json({ code: 200, data }, 200);
+}
+
+async function handlePublicPlatformOverview(request, env) {
+  const url = new URL(request.url);
+  const days = clampInt(url.searchParams.get('days'), 1, 365, 30);
+  const top = clampInt(url.searchParams.get('top'), 5, 50, 15);
+  const data = await loadPlatformOverviewData(env, days, top);
+  return json({ code: 200, data }, 200);
+}
+
+async function handlePublicTopicDetails(request, env) {
+  const url = new URL(request.url);
+  const topic = safeString(url.searchParams.get('topic') || '', 140);
+  if (!topic) {
+    return json({ code: 400, message: 'Missing topic' }, 400);
+  }
+  const days = clampInt(url.searchParams.get('days'), 1, 365, 30);
+  const limit = clampInt(url.searchParams.get('limit'), 10, 50, 10);
+  const data = await loadTopicDetailsData(env, topic, days, limit);
+  return json({ code: 200, data }, 200);
+}
+
+async function loadPlatformOverviewData(env, days, top) {
+  await ensurePlatformTables(env);
+
+  const since = `-${days} days`;
+
+  const overviewRow = await env.DB.prepare(
+    `SELECT
+      COUNT(*) AS upload_count,
+      COALESCE(SUM(block_event_count), 0) AS block_event_count,
+      COALESCE(SUM(report_event_count), 0) AS report_event_count,
+      COALESCE(SUM(total_event_count), 0) AS total_event_count,
+      COALESCE(SUM(source_post_count), 0) AS source_post_count,
+      COALESCE(SUM(topic_seed_count), 0) AS topic_seed_count
+     FROM platform_uploads
+     WHERE datetime(created_at) >= datetime('now', ?)`
+  ).bind(since).first();
+
+  const recentUploadsRows = await env.DB.prepare(
+    `SELECT
+      id, created_at, source_app, exporter_version,
+      block_event_count, report_event_count, total_event_count, source_post_count, topic_seed_count
+     FROM platform_uploads
+     WHERE datetime(created_at) >= datetime('now', ?)
+     ORDER BY id DESC
+     LIMIT 30`
+  ).bind(since).all();
+
+  const dailyRows = await env.DB.prepare(
+    `SELECT
+      day_key,
+      SUM(block_event_count) AS block_event_count,
+      SUM(report_event_count) AS report_event_count,
+      SUM(total_event_count) AS total_event_count,
+      SUM(source_count) AS source_count
+     FROM platform_daily_metrics
+     WHERE upload_id IN (
+       SELECT id FROM platform_uploads
+       WHERE datetime(created_at) >= datetime('now', ?)
+     )
+     GROUP BY day_key
+     ORDER BY day_key DESC
+     LIMIT 60`
+  ).bind(since).all();
+
+  const topicRows = await env.DB.prepare(
+    `SELECT
+      topic_label,
+      SUM(event_count) AS event_count,
+      SUM(account_count) AS account_count,
+      SUM(source_count) AS source_count
+     FROM platform_topic_metrics
+     WHERE upload_id IN (
+       SELECT id FROM platform_uploads
+       WHERE datetime(created_at) >= datetime('now', ?)
+     )
+     GROUP BY topic_label
+     ORDER BY event_count DESC
+     LIMIT ?`
+  ).bind(since, top).all();
+
+  const narrativeRows = await env.DB.prepare(
+    `SELECT
+      source_url,
+      MAX(source_owner) AS source_owner,
+      MAX(source_text_sample) AS source_text_sample,
+      SUM(block_event_count) AS block_event_count,
+      SUM(report_event_count) AS report_event_count,
+      SUM(total_event_count) AS total_event_count,
+      SUM(unique_account_count) AS unique_account_count,
+      ROUND(AVG(manipulation_signal_score), 1) AS avg_signal_score
+     FROM platform_source_metrics
+     WHERE upload_id IN (
+       SELECT id FROM platform_uploads
+       WHERE datetime(created_at) >= datetime('now', ?)
+     )
+     GROUP BY source_url
+     ORDER BY total_event_count DESC
+     LIMIT ?`
+  ).bind(since, top).all();
+
+  return {
+    days,
+    overview: {
+      uploadCount: Number(overviewRow?.upload_count || 0),
+      blockEventCount: Number(overviewRow?.block_event_count || 0),
+      reportEventCount: Number(overviewRow?.report_event_count || 0),
+      totalEventCount: Number(overviewRow?.total_event_count || 0),
+      sourcePostCount: Number(overviewRow?.source_post_count || 0),
+      topicSeedCount: Number(overviewRow?.topic_seed_count || 0)
+    },
+    dailyTrend: (dailyRows.results || []).reverse(),
+    topTopics: topicRows.results || [],
+    topNarratives: narrativeRows.results || [],
+    recentUploads: recentUploadsRows.results || []
+  };
+}
+
+async function loadTopicDetailsData(env, topic, days, limit) {
+  await ensurePlatformTables(env);
+
+  const since = `-${days} days`;
+  const rows = await env.DB.prepare(
+    `SELECT
+      source_url,
+      source_owner,
+      source_text_sample,
+      total_event_count,
+      block_event_count,
+      report_event_count,
+      unique_account_count,
+      manipulation_signal_score,
+      manipulation_risk_level,
+      top_topic_hints_json
+     FROM platform_source_metrics
+     WHERE upload_id IN (
+       SELECT id FROM platform_uploads
+       WHERE datetime(created_at) >= datetime('now', ?)
+     )
+     ORDER BY total_event_count DESC
+     LIMIT 800`
+  ).bind(since).all();
+
+  const topicLC = topic.toLowerCase();
+  const candidates = (rows.results || []).map((row) => {
+    const hints = safeParseJSON(row.top_topic_hints_json || '[]');
+    const hintList = Array.isArray(hints) ? hints
+      .map((h) => safeString((h && h.topicHint) || '', 120))
+      .filter(Boolean) : [];
+    const matchedHints = hintList.filter((h) => {
+      const hc = h.toLowerCase();
+      return hc.includes(topicLC) || topicLC.includes(hc);
+    });
+    const text = safeString(row.source_text_sample || '', 500);
+    const textMatched = text.toLowerCase().includes(topicLC);
+    const score = safeCount(row.manipulation_signal_score);
+    const impact = safeCount(row.total_event_count);
+    const uniqueAccounts = safeCount(row.unique_account_count);
+    const repeatFactor = uniqueAccounts > 0 ? Math.round((impact / uniqueAccounts) * 20) : 0;
+    const clusteringScore = Math.max(0, Math.min(100, repeatFactor));
+    const spreadSpeedScore = Math.max(0, Math.min(100, Math.round(impact / 4)));
+    const templateScore = Math.max(0, Math.min(100, matchedHints.length * 25 + (textMatched ? 25 : 10)));
+    const signalScore = Math.max(0, Math.min(100, score));
+    const overallScore = Math.round((signalScore * 0.4) + (templateScore * 0.25) + (clusteringScore * 0.2) + (spreadSpeedScore * 0.15));
+    const confidenceScore = (matchedHints.length * 25) + (textMatched ? 15 : 0) + Math.min(40, Math.round(score / 3)) + Math.min(20, Math.round(impact / 30));
+
+    const reasonParts = [];
+    if (matchedHints.length > 0) reasonParts.push(`命中主題提示：${matchedHints.slice(0, 3).join(' / ')}`);
+    if (textMatched) reasonParts.push('貼文文字直接命中主題關鍵詞');
+    reasonParts.push(`影響規模：事件 ${safeCount(row.total_event_count)}、帳號 ${safeCount(row.unique_account_count)}`);
+    reasonParts.push(`操作訊號：${score} 分（${safeString(row.manipulation_risk_level || 'unknown', 20)}）`);
+    reasonParts.push(`口語解讀：像同一批人在推 ${clusteringScore}/100、像模板洗版 ${templateScore}/100、擴散速度 ${spreadSpeedScore}/100`);
+
+    return {
+      sourceUrl: safeString(row.source_url || '', 300),
+      sourceOwner: safeString(row.source_owner || '', 80),
+      title: text ? text.slice(0, 48) : '未命名來源文章',
+      reason: reasonParts.join('；'),
+      blockEventCount: safeCount(row.block_event_count),
+      reportEventCount: safeCount(row.report_event_count),
+      totalEventCount: impact,
+      matchedHints,
+      explain: {
+        overallScore,
+        signalScore,
+        templateScore,
+        clusteringScore,
+        spreadSpeedScore,
+        labels: {
+          overall: '綜合可疑程度',
+          signal: '像不像操作帳號',
+          template: '像不像模板洗版',
+          clustering: '像不像同一批人在推',
+          spreadSpeed: '擴散速度有多快'
+        }
+      },
+      confidenceScore
+    };
+  }).filter((item) => item.sourceUrl);
+
+  candidates.sort((a, b) => b.confidenceScore - a.confidenceScore || b.totalEventCount - a.totalEventCount);
+
+  const used = new Set();
+  const picked = [];
+  for (const item of candidates) {
+    if (picked.length >= limit) break;
+    if (used.has(item.sourceUrl)) continue;
+    if (item.confidenceScore < 10) continue;
+    used.add(item.sourceUrl);
+    picked.push(item);
+  }
+
+  if (picked.length < limit) {
+    for (const item of candidates) {
+      if (picked.length >= limit) break;
+      if (used.has(item.sourceUrl)) continue;
+      used.add(item.sourceUrl);
+      picked.push({
+        ...item,
+        reason: `${item.reason}；（關聯度較低，為補齊至少 ${limit} 篇）`
+      });
+    }
+  }
+
+  while (picked.length < limit) {
+    const idx = picked.length + 1;
+    picked.push({
+      sourceUrl: '',
+      sourceOwner: '',
+      title: `樣本不足補位 #${idx}`,
+      reason: `目前資料量不足，先保留占位。請持續上傳後會自動替換成真實文章。`,
+      blockEventCount: 0,
+      reportEventCount: 0,
+      totalEventCount: 0,
+      matchedHints: [],
+      confidenceScore: 0
+    });
+  }
+
+  return {
+    topic,
+    days,
+    limit,
+    totalCandidates: candidates.length,
+    items: picked.slice(0, limit)
+  };
+}
+
+let platformSchemaReady = false;
+async function ensurePlatformTables(env) {
+  if (platformSchemaReady) return;
+  for (const sql of PLATFORM_SCHEMA_STMTS) {
+    await env.DB.prepare(sql).run();
+  }
+  platformSchemaReady = true;
+}
+
+async function handleAdminUpdateStatus(request, env, pathname) {
+  assertAdmin(request, env);
+
+  const id = Number.parseInt(pathname.split('/').pop() || '', 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    return json({ code: 400, message: 'Invalid id' }, 400);
+  }
+
+  const body = await request.json().catch(() => null);
+  const status = (body?.status || '').trim();
+  const allowed = new Set(['PENDING', 'ACK', 'FIXED', 'IGNORED']);
+  if (!allowed.has(status)) {
+    return json({ code: 400, message: 'Invalid status' }, 400);
+  }
+
+  const updated = await env.DB.prepare('UPDATE bug_reports SET status = ? WHERE id = ?').bind(status, id).run();
+  if ((updated.meta?.changes || 0) === 0) {
+    return json({ code: 404, message: 'Not found' }, 404);
+  }
+
+  return json({ code: 200, message: 'Updated' }, 200);
+}
+
+function safeParseJSON(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function asObject(v) {
+  return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+}
+
+function asArray(v) {
+  return Array.isArray(v) ? v : [];
+}
+
+function safeString(v, max = 200) {
+  return String(v || '').trim().slice(0, max);
+}
+
+function safeCount(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.floor(Math.min(n, 1_000_000_000));
+}
+
+function safePercent(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function toDayKey(rawTs) {
+  const ts = normalizeEpochMs(rawTs);
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString().slice(0, 10);
+}
+
+function normalizeEpochMs(rawTs) {
+  const n = Number(rawTs);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return n < 1e11 ? Math.floor(n * 1000) : Math.floor(n);
+}
+
+function boolAsInt(v) {
+  if (v === true) return 1;
+  if (v === false) return 0;
+  return null;
+}
+
+function clampInt(raw, min, max, fallback) {
+  const n = Number.parseInt(String(raw || ''), 10);
+  if (!Number.isFinite(n)) return fallback;
+  if (n < min) return min;
+  if (n > max) return max;
+  return n;
+}

@@ -1,3 +1,10 @@
+https://threads-observe.skiseiju.com/ /platform/ 302
+https://app.skiseiju.com/ /apps/ 302
 /sitemap.xml /sitemap.xml 200
 /robots.txt /robots.txt 200
+/platform /platform/index.html 200
+/admin/ /platform/ 302
+/admin /platform/ 302
+/observe/ /platform/ 302
+/observe /platform/ 302
 /* /index.html 200
