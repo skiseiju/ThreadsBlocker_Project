@@ -1,14 +1,15 @@
 export const CONFIG = {
-    VERSION: '2.5.4-beta76', // Beta
+    VERSION: '2.6.0-beta37', // Beta
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/reports/bug',
     BUG_REPORT_FALLBACK_URLS: [
+        'https://app.skiseiju.com/api/v1/reports/bug',
         'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec'
     ],// 可填入 GAS 或其他備援端點
     BUG_REPORT_SALT: 'PGO_BETA_2026_SALT',
     PLATFORM_UPLOAD_URL: 'https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/platform/ingest',
-    PLATFORM_UPLOAD_FALLBACK_URLS: [],
+    PLATFORM_UPLOAD_FALLBACK_URLS: ['https://app.skiseiju.com/api/v1/platform/ingest'],
 
     DEBUG_MODE: false,
 
@@ -124,6 +125,7 @@ export const CONFIG = {
         // 封鎖 context metadata（worker 啟動前由 core 寫入）
         BLOCK_CONTEXT: 'hege_block_context',
         CURRENT_BATCH_ID: 'hege_current_batch_id',
+        BLOCK_CONTEXT_MAP: 'hege_block_context_map',
 
         // 定點絕 worker 待命旗標（'true' 字串）
         ENDLESS_WORKER_STANDBY: 'hege_endless_worker_standby',
@@ -145,6 +147,7 @@ export const CONFIG = {
         'hege_sweep_stopped',
         'hege_block_timestamps',   // DB_TIMESTAMPS
         'hege_block_timestamps_ring', // BLOCK_TIMESTAMPS_RING
+        'hege_block_context_map', // BLOCK_CONTEXT_MAP
         'hege_block_visual_debug', // BLOCK_VISUAL_DEBUG
         'hege_report_queue',        // REPORT_QUEUE
         'hege_report_batch_path',   // REPORT_BATCH_PATH

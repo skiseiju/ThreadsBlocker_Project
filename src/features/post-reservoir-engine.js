@@ -682,13 +682,15 @@ Object.assign(Core, {
             const activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
             Storage.setJSON(CONFIG.KEYS.BG_QUEUE, [...new Set([...activeQueue, ...batchUsers])]);
 
-            Storage.set(CONFIG.KEYS.BLOCK_CONTEXT, JSON.stringify({
-                src: Core.SweepDriver.cleanCurrentUrl(),
+            const sourceUrl = Core.SweepDriver.cleanCurrentUrl();
+            const batchId = `b_${Date.now()}`;
+            Core.setBlockContext(batchUsers, {
+                sourceUrl,
                 reason: 'likes',
-                postText: Utils.getPostText(),
-                postOwner: Utils.getPostOwner() || '',
-            }));
-            Storage.set(CONFIG.KEYS.CURRENT_BATCH_ID, 'b_' + Date.now());
+                postText: Utils.getPostText(sourceUrl),
+                postOwner: Utils.getPostOwner(sourceUrl) || '',
+                batch: batchId,
+            });
             Storage.set(CONFIG.KEYS.WORKER_MODE, 'block');
 
             Core.SweepDriver.updateEntry(entry.url, p => ({

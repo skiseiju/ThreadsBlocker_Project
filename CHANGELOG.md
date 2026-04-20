@@ -1,3 +1,12 @@
+## v2.6.0-beta1 — 版本校正（承接 2.5.2 後新功能）
+
+*   **版號校正**：原內部 beta 曾沿用 `2.5.4-betaXX`，因已加入跨模組新功能（非單純修補），版本軌調整為 `2.6.0-beta1`，後續依 `2.6.0-betaN` 遞增。
+*   **只檢舉模式升級為完整流程**：新增獨立的 report queue / context / history、`WORKER_MODE=report` 分流、檢舉路徑樹與多步確認，支援 panel 與 worker 一致化執行。
+*   **Bug 回報管道升級**：回報從單一 GAS 改為多端點 fallback（Worker 優先、GAS 備援），並附帶 client 環境診斷資訊（平台、script manager、hasGMXHR、online、endpoint）。
+*   **Admin 平台上線（Cloudflare Worker + D1）**：新增 bug 回報查詢、統計、狀態更新 API 與管理頁；支援平台上傳資料寫入與總覽查詢（`/api/v1/platform/ingest`、`/api/v1/admin/platform/overview`）。
+*   **平台分析資料層**：新增 `REPORT_HISTORY`、`SOURCE_EVIDENCE_INDEX` 等資料鍵，封鎖/檢舉來源與證據索引可做聚合分析，支援進階分析面板。
+*   **站點入口統一到 app 子網域**：網站 metadata、sitemap、robots 與 UI 說明連結改為 `app.skiseiju.com`；Userscript `@connect` 補齊 `app.skiseiju.com` / `*.workers.dev`。
+
 ## v2.5.2 — 封鎖分析、結構化紀錄、20 國語系
 
 *   **封鎖分析報告**：設定頁新增「封鎖分析」，可視化顯示封鎖原因分布、每日趨勢、來源貼文排行、最近封鎖紀錄。所有分析完全在本地運算，不上傳任何資料。

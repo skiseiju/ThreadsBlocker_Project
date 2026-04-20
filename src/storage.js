@@ -46,6 +46,69 @@ export const Storage = {
         localStorage.setItem(key, JSON.stringify(value));
     },
 
+    getBlockContextMap: () => {
+        const raw = Storage.getJSON(CONFIG.KEYS.BLOCK_CONTEXT_MAP, {});
+        return (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
+    },
+
+    setBlockContext: (usernames, context = {}, options = {}) => {
+        const targets = (Array.isArray(usernames) ? usernames : [usernames])
+            .map(u => String(u || '').trim())
+            .filter(Boolean);
+        if (targets.length === 0) return 0;
+
+        const map = Storage.getBlockContextMap();
+        const preserveExisting = options.preserveExisting !== false;
+        const base = {
+            src: String(context.src || context.sourceUrl || ''),
+            reason: String(context.reason || 'manual'),
+            postText: String(context.postText || context.sourceText || ''),
+            postOwner: String(context.postOwner || context.sourceOwner || ''),
+            batch: String(context.batch || ''),
+            updatedAt: Date.now(),
+        };
+
+        let changed = 0;
+        targets.forEach((username) => {
+            if (preserveExisting && map[username]) return;
+            map[username] = { ...base };
+            changed++;
+        });
+
+        if (changed > 0) Storage.setJSON(CONFIG.KEYS.BLOCK_CONTEXT_MAP, map);
+        return changed;
+    },
+
+    getBlockContext: (username = '') => {
+        if (!username) return {};
+        const map = Storage.getBlockContextMap();
+        const found = map[String(username).trim()];
+        return found && typeof found === 'object' ? { ...found } : {};
+    },
+
+    removeBlockContext: (usernames) => {
+        const targets = (Array.isArray(usernames) ? usernames : [usernames])
+            .map(u => String(u || '').trim())
+            .filter(Boolean);
+        if (targets.length === 0) return 0;
+
+        const map = Storage.getBlockContextMap();
+        let changed = 0;
+        targets.forEach((username) => {
+            if (!map[username]) return;
+            delete map[username];
+            changed++;
+        });
+
+        if (changed === 0) return 0;
+        if (Object.keys(map).length === 0) Storage.remove(CONFIG.KEYS.BLOCK_CONTEXT_MAP);
+        else Storage.setJSON(CONFIG.KEYS.BLOCK_CONTEXT_MAP, map);
+        return changed;
+    },
+
+    clearBlockContextMap: () => {
+        Storage.remove(CONFIG.KEYS.BLOCK_CONTEXT_MAP);
+    },
     isCooldownProtectionEnabled: () => Storage.get(CONFIG.KEYS.COOLDOWN_PROTECTION_ENABLED, 'true') !== 'false',
     setCooldownProtectionEnabled: (enabled) => Storage.set(CONFIG.KEYS.COOLDOWN_PROTECTION_ENABLED, enabled ? 'true' : 'false'),
     getDailyBlockLimit: () => {
@@ -148,17 +211,18 @@ export const Storage = {
         if (isNew) Storage.setJSON(CONFIG.KEYS.DB_KEY, [...db]);
         if (tsMissing) Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, ts);
     },
-    // worker 呼叫：從 BLOCK_CONTEXT + CURRENT_BATCH_ID 組 metadata 寫入 block DB
+    // worker 呼叫：從 per-user block context 組 metadata 寫入 block DB
     addToBlockDBFromContext: (username) => {
-        const ctx = JSON.parse(Storage.get(CONFIG.KEYS.BLOCK_CONTEXT) || '{}');
+        const ctx = Storage.getBlockContext(username);
         Storage.addToBlockDB(username, {
             src: ctx.src || '',
             reason: ctx.reason || 'manual',
             postText: ctx.postText || '',
             postOwner: ctx.postOwner || '',
-            batch: Storage.get(CONFIG.KEYS.CURRENT_BATCH_ID) || ''
+            batch: ctx.batch || ''
         });
-        Storage.evidence.captureFromBlockContext(username);
+        Storage.evidence.captureFromBlockContext(username, ctx);
+        Storage.removeBlockContext(username);
     },
     removeFromBlockDB: (username) => {
         let db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
@@ -547,9 +611,11 @@ export const Storage = {
             });
         },
 
-        captureFromBlockContext: (accountId) => {
+        captureFromBlockContext: (accountId, contextOverride = null) => {
             try {
-                const ctx = JSON.parse(Storage.get(CONFIG.KEYS.BLOCK_CONTEXT) || '{}');
+                const ctx = (contextOverride && typeof contextOverride === 'object')
+                    ? contextOverride
+                    : Storage.getBlockContext(accountId);
                 if (!ctx || !ctx.src) return;
                 Storage.evidence.upsert({
                     sourceUrl: ctx.src,

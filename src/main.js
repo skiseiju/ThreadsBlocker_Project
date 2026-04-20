@@ -481,6 +481,7 @@ import './features/cockroach.js';
                         Storage.setSessionJSON(CONFIG.KEYS.PENDING, []);
                         Storage.setJSON(CONFIG.KEYS.BG_QUEUE, []);
                         Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, []);
+                        Storage.clearBlockContextMap();
                         Storage.setJSON(CONFIG.KEYS.BG_STATUS, {});
                         Storage.setJSON(CONFIG.KEYS.REPORT_QUEUE, []);
                         Storage.setJSON(CONFIG.KEYS.REPORT_CONTEXT, {});
@@ -514,6 +515,7 @@ import './features/cockroach.js';
                             }),
                             onReport: () => Core.showReportDialog(),
                             onAnalytics: () => UI.showAnalyticsReport(),
+                            onPlatformUpload: () => UI.showAnalyticsReport({ focusUpload: true }),
                         });
                     };
                     openSettings();

@@ -288,6 +288,35 @@ export const Core = {
         }
     },
 
+    resolveBlockReasonFromTitle: (titleText = '') => {
+        const text = String(titleText || '');
+        if (CONFIG.LIKES_TEXTS.some(t => text.includes(t))) return 'likes';
+        if (CONFIG.QUOTES_TEXTS.some(t => text.includes(t))) return 'quotes';
+        if (CONFIG.REPOSTS_TEXTS.some(t => text.includes(t))) return 'reposts';
+        return 'manual';
+    },
+
+    resolveBlockReasonFromElement: (element) => {
+        const scope = (element && typeof element.closest === 'function' && element.closest('[role="dialog"]'))
+            || Core.getTopContext()
+            || document.body;
+        const text = (scope?.innerText || scope?.textContent || '').slice(0, 800);
+        return Core.resolveBlockReasonFromTitle(text);
+    },
+
+    setBlockContext: (usernames, context = {}, options = {}) => {
+        const sourceUrl = Core.normalizeSourceUrl(context.sourceUrl || context.src || '');
+        return Storage.setBlockContext(usernames, {
+            ...context,
+            src: sourceUrl,
+            sourceUrl,
+        }, options);
+    },
+
+    removeBlockContext: (usernames) => {
+        Storage.removeBlockContext(usernames);
+    },
+
     init: () => {
         Core.pendingUsers = new Set(Storage.getSessionJSON(CONFIG.KEYS.PENDING));
 
@@ -546,6 +575,16 @@ export const Core = {
         newUsers.forEach(u => Core.pendingUsers.add(u));
         Core.markReportSelectable(newUsers);
         Storage.setSessionJSON(CONFIG.KEYS.PENDING, [...Core.pendingUsers]);
+        const batchId = `b_${Date.now()}`;
+        const sourceUrl = Core.findSourcePostUrl(ctx) || window.location.href.split('?')[0];
+        const reason = Core.resolveBlockReasonFromTitle(titleText);
+        Core.setBlockContext(newUsers, {
+            sourceUrl,
+            reason,
+            postText: Utils.getPostText(sourceUrl),
+            postOwner: Utils.getPostOwner(sourceUrl) || '',
+            batch: batchId,
+        });
         const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
         const isRunning = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
 
@@ -664,18 +703,17 @@ export const Core = {
             Core.markReportSelectable(newUsers);
             Storage.setSessionJSON(CONFIG.KEYS.PENDING, [...Core.pendingUsers]);
 
-            // 記錄封鎖 context（來源貼文、原因類型、貼文摘要）供 Worker 寫入結構化 timestamp
-            const reason = CONFIG.LIKES_TEXTS.some(t => titleText.includes(t)) ? 'likes'
-                : CONFIG.QUOTES_TEXTS.some(t => titleText.includes(t)) ? 'quotes'
-                : CONFIG.REPOSTS_TEXTS.some(t => titleText.includes(t)) ? 'reposts' : 'manual';
+            // 記錄每個帳號自己的封鎖 provenance，避免 queue 追加時被全域 context 覆寫
+            const reason = Core.resolveBlockReasonFromTitle(titleText);
             const sourceUrl = Core.findSourcePostUrl(activeCtx) || window.location.href.split('?')[0];
-            Storage.set(CONFIG.KEYS.BLOCK_CONTEXT, JSON.stringify({
-                src: sourceUrl,
+            const batchId = `b_${Date.now()}`;
+            Core.setBlockContext(newUsers, {
+                sourceUrl,
                 reason,
                 postText: Utils.getPostText(sourceUrl),
-                postOwner: Utils.getPostOwner(sourceUrl) || ''
-            }));
-            Storage.set(CONFIG.KEYS.CURRENT_BATCH_ID, 'b_' + Date.now());
+                postOwner: Utils.getPostOwner(sourceUrl) || '',
+                batch: batchId,
+            });
 
             const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
             const isRunning = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
@@ -1252,6 +1290,7 @@ export const Core = {
         }
 
         const currentDB = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+        const actionBatchId = targetAction === 'uncheck' ? '' : `b_${Date.now()}`;
 
         targetBoxes.forEach(box => {
             const u = box.dataset.username;
@@ -1272,8 +1311,15 @@ export const Core = {
                         sourceText: Utils.getPostText(sourceUrl),
                         sourceOwner: Utils.getPostOwner(sourceUrl) || '',
                     });
-                }
-            } else if (targetAction === 'uncheck' && box.classList.contains('checked')) {
+                     Core.setBlockContext(u, {
+                         sourceUrl,
+                         reason: Core.resolveBlockReasonFromElement(box),
+                         postText: Utils.getPostText(sourceUrl),
+                         postOwner: Utils.getPostOwner(sourceUrl) || '',
+                         batch: actionBatchId,
+                     }, { preserveExisting: false });
+                 }
+             } else if (targetAction === 'uncheck' && box.classList.contains('checked')) {
                 box.classList.remove('checked');
                 // Remove from queue where username matches
                 Array.from(Core.blockQueue).forEach(b => {
@@ -1286,6 +1332,7 @@ export const Core = {
                     if (bg.includes(u)) Storage.setJSON(CONFIG.KEYS.BG_QUEUE, bg.filter(x => x !== u));
                     let cdq = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
                     if (cdq.includes(u)) Storage.setJSON(CONFIG.KEYS.COOLDOWN_QUEUE, cdq.filter(x => x !== u));
+                    Core.removeBlockContext(u);
                 }
             } else if (targetAction === 'check' && !box.classList.contains('checked') && !box.classList.contains('finished')) {
                 box.classList.add('checked');
@@ -1300,9 +1347,16 @@ export const Core = {
                         sourceText: Utils.getPostText(sourceUrl),
                         sourceOwner: Utils.getPostOwner(sourceUrl) || '',
                     });
-                }
-            }
-        });
+                     Core.setBlockContext(u, {
+                         sourceUrl,
+                         reason: Core.resolveBlockReasonFromElement(box),
+                         postText: Utils.getPostText(sourceUrl),
+                         postOwner: Utils.getPostOwner(sourceUrl) || '',
+                         batch: actionBatchId,
+                     });
+                 }
+             }
+         });
 
         Core.markReportSelectable(targetBoxes.map(box => box.dataset.username));
 
@@ -1350,6 +1404,10 @@ export const Core = {
         targets.forEach(u => {
             if (Core.pendingUsers.delete(u)) removed++;
         });
+        const bgq = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
+        const cdq = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
+        const removableContexts = Array.from(targets).filter(u => !bgq.has(u) && !cdq.has(u));
+        if (removableContexts.length > 0) Core.removeBlockContext(removableContexts);
         Storage.setSessionJSON(CONFIG.KEYS.PENDING, [...Core.pendingUsers]);
 
         document.querySelectorAll('.hege-checkbox-container.checked').forEach(cb => {

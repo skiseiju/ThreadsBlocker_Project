@@ -823,7 +823,7 @@ export const UI = {
                                     回報問題
                                 </span>
                             </div>
-                            <a href="https://threadsblocker.skiseiju.com" target="_blank" class="hege-menu-item" style="flex:1;border-bottom:none;text-decoration:none;color:#5ac8fa;">
+                            <a href="https://app.skiseiju.com" target="_blank" class="hege-menu-item" style="flex:1;border-bottom:none;text-decoration:none;color:#5ac8fa;">
                                 <span style="font-size:12px;">📋 說明</span>
                             </a>
                             <div class="hege-menu-item" id="hege-s-sponsor" style="flex:1;color:#ecc351;border-bottom:none;">
@@ -846,6 +846,12 @@ export const UI = {
                             <span style="display:flex; align-items:center; gap:6px;">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="12" width="4" height="9"/><rect x="10" y="7" width="4" height="14"/><rect x="17" y="3" width="4" height="18"/></svg>
                                 封鎖分析
+                            </span>
+                        </div>
+                        <div class="hege-menu-item" id="hege-s-platform-upload" style="color:#30d158;">
+                            <span style="display:flex; align-items:center; gap:6px;">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/></svg>
+                                一般使用者上傳
                             </span>
                         </div>
                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
@@ -998,6 +1004,7 @@ export const UI = {
         bind('hege-s-clear-db', callbacks.onClearDB);
         bind('hege-s-report', callbacks.onReport);
         bind('hege-s-analytics', callbacks.onAnalytics);
+        bind('hege-s-platform-upload', callbacks.onPlatformUpload);
         // 速度模式切換（設定 modal 中）
         const speedModes = ['smart', 'stable', 'standard', 'turbo'];
         const speedLabels = { smart: '🧠 智慧', stable: '🛡️ 穩定', standard: '⚡ 標準', turbo: '🚀 加速' };
@@ -1225,7 +1232,7 @@ export const UI = {
         }
     },
 
-    showAnalyticsReport: () => {
+    showAnalyticsReport: (options = {}) => {
         if (document.getElementById('hege-analytics-overlay')) return;
         const analyticsShowAdvanced = Storage.get(CONFIG.KEYS.ANALYTICS_SHOW_ADVANCED, 'false') === 'true';
 
@@ -2082,6 +2089,14 @@ export const UI = {
                     uploadBtn.style.opacity = '1';
                 }
             };
+        }
+        if (options.focusUpload && uploadCardEl) {
+            uploadCardEl.style.borderColor = '#30d158';
+            uploadCardEl.style.boxShadow = '0 0 0 1px rgba(48,209,88,0.45), 0 0 20px rgba(48,209,88,0.2)';
+            uploadCardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            if (uploadStatusEl && !uploadStatusEl.textContent) {
+                uploadStatusEl.textContent = '提示：按「一鍵上傳平台」即可提交一般使用者資料。';
+            }
         }
         const toggleAdvancedBtn = overlay.querySelector('#hege-analytics-toggle-advanced');
         if (toggleAdvancedBtn) {
