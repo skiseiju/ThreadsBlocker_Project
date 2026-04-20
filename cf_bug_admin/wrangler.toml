@@ -1,0 +1,13 @@
+name = "threadsblocker-bug-admin"
+main = "src/index.js"
+compatibility_date = "2026-04-19"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "threadsblocker_bug_admin"
+database_id = "28a80d0f-04fb-4ddc-a107-1d3e1de6cc99"
+
+[vars]
+ALLOWED_TIME_DRIFT_SEC = "300"
+RATE_LIMIT_WINDOW_SEC = "300"

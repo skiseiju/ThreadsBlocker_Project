@@ -7,9 +7,22 @@
     <meta name="keywords" content="Threads, 封鎖, 批次, Chrome 擴充功能, Firefox, Safari, 網軍">
     <meta property="og:title" content="留友封 - ThreadsBlocker | Threads 批次封鎖工具">
     <meta property="og:description" content="在 Threads 網頁版上批次勾選並封鎖帳號，支援 Chrome、Firefox、Safari。">
-    <meta property="og:url" content="https://threadsblocker.skiseiju.com">
+    <meta property="og:url" content="https://app.skiseiju.com">
     <meta property="og:type" content="website">
     <title>留友封 - ThreadsBlocker | Threads 批次封鎖工具</title>
+    <script>
+        (function () {
+            var host = (window.location.hostname || '').toLowerCase();
+            var path = window.location.pathname || '/';
+            if (host === 'app.skiseiju.com' && path === '/') {
+                window.location.replace('/apps/');
+                return;
+            }
+            if (host === 'threads-observe.skiseiju.com' && path === '/') {
+                window.location.replace('/platform/');
+            }
+        })();
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html { scroll-behavior: smooth; }
@@ -301,6 +314,7 @@
             <a href="#" class="logo">留友封</a>
             <ul class="links">
                 <li><a href="#features">功能</a></li>
+                <li><a href="/platform">公開資訊平台</a></li>
                 <li><a href="#install-safari">安裝教學</a></li>
                 <li><a href="#privacy">隱私政策</a></li>
                 <li><a href="https://github.com/skiseiju/ThreadsBlocker_Project" target="_blank">GitHub</a></li>
@@ -318,6 +332,7 @@
                 <a href="https://chromewebstore.google.com/detail/%E7%95%99%E5%8F%8B%E5%B0%81-threads-block-tool/goibhoemcnjojlejjlojpikfehmccbbj" target="_blank" class="btn btn-primary">Chrome 擴充功能</a>
                 <a href="https://addons.mozilla.org/en-US/firefox/addon/%E7%95%99%E5%8F%8B%E5%B0%81-threads-block-tool/" target="_blank" class="btn btn-outline">Firefox 擴充功能</a>
                 <a href="#install-safari" class="btn btn-outline">iOS / Safari 安裝</a>
+                <a href="/platform" class="btn btn-outline">公開資訊平台</a>
             </div>
         </div>
     </section>

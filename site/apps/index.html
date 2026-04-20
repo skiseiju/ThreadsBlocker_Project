@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Skiseiju Apps</title>
+  <meta name="description" content="Skiseiju App 列表入口，集中管理所有應用連結。">
+  <style>
+    :root {
+      --bg: #f6f1e9;
+      --panel: #fff9f0;
+      --line: #dccdb8;
+      --text: #3d2a18;
+      --muted: #78614b;
+      --accent: #8c5c28;
+      --accent-dark: #6f461d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+      color: var(--text);
+      background: radial-gradient(circle at top right, #fcebd4 0%, var(--bg) 46%);
+    }
+    .wrap {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 26px 16px 42px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 34px;
+      letter-spacing: 0.02em;
+    }
+    .sub {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .grid {
+      margin-top: 18px;
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: 0 10px 26px rgba(70, 40, 18, 0.07);
+    }
+    .title {
+      margin: 0 0 6px;
+      font-size: 18px;
+    }
+    .desc {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+      min-height: 42px;
+    }
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      text-decoration: none;
+      color: #fff;
+      background: var(--accent);
+      border: 1px solid var(--accent-dark);
+      border-radius: 10px;
+      padding: 7px 11px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .btn.alt {
+      background: #fff;
+      color: var(--accent-dark);
+    }
+    .hint {
+      margin-top: 16px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <h1>Skiseiju Apps</h1>
+    <p class="sub">集中入口：產品說明、公開觀測、管理後台與後續新應用。</p>
+
+    <section class="grid">
+      <article class="card">
+        <h2 class="title">ThreadsBlocker</h2>
+        <p class="desc">Threads 批次封鎖工具產品頁，包含安裝教學、功能與隱私政策。</p>
+        <div class="actions">
+          <a class="btn" href="https://threadsblocker.skiseiju.com/" target="_blank" rel="noopener">開啟說明頁</a>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2 class="title">留友封觀測平台</h2>
+        <p class="desc">匿名聚合資料上傳與即時趨勢可視化，用於公開觀測最新現況。以 `/platform/` 為唯一主入口。</p>
+        <div class="actions">
+          <a class="btn" href="https://threadsblocker.skiseiju.com/platform/" target="_blank" rel="noopener">開啟觀測平台</a>
+        </div>
+      </article>
+    </section>
+
+    <p class="hint">後續新增 App 會直接擴充在這個列表。</p>
+  </main>
+</body>
+</html>
