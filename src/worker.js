@@ -1071,27 +1071,28 @@ export const Worker = {
                 const hadWork = Worker.initialTotal > 0
                     || Worker.sessionQueue.length > 0
                     || (Worker.stats.success + Worker.stats.skipped + Worker.stats.failed + Worker.stats.vanished) > 0;
+                const isPopupWorker = new URLSearchParams(window.location.search).get('hege_popup') === 'true';
                 if (!hadWork) {
                     Storage.remove('hege_sweep_worker_standby');
                     Worker.updateStatus('idle', '定點絕 worker 無待處理佇列，已結束。', 0, 0);
                     if (window.hegeLog) window.hegeLog('[BG] 空 queue 啟動，清除貼文水庫待命旗標。');
-                    Worker.navigateBack();
+                    if (isPopupWorker) window.close();
+                    else Worker.navigateBack();
                     return;
                 }
 
                 Worker.updateStatus('idle', '✅ 本批定點絕完成，等待主視窗接續...', 0, Worker.initialTotal);
                 if (window.hegeLog) window.hegeLog('[BG] 本批佇列完成，等待主視窗接續下一批...');
 
-                // Same-tab fallback 會有 hege_return_url；獨立 popup 無 opener 時直接完成關閉。
-                const returnUrl = Storage.get('hege_return_url');
+                // Same-tab fallback 會有 hege_return_url；popup worker 一律直接關閉避免回錯頁
                 if (!window.opener || window.opener.closed) {
-                    if (returnUrl) {
+                    if (isPopupWorker) {
+                        if (window.hegeLog) window.hegeLog('[BG] Popup 無 opener，清除待命旗標並關閉 worker。');
+                        Storage.remove('hege_sweep_worker_standby');
+                        window.close();
+                    } else {
                         if (window.hegeLog) window.hegeLog('[BG] Same-tab 模式，返回主頁面讓 SweepDriver 處理下一批...');
                         Worker.navigateBack();
-                    } else {
-                        if (window.hegeLog) window.hegeLog('[BG] Popup 無 opener，交由主視窗輪詢 queue 狀態後接續。');
-                        Storage.remove('hege_sweep_worker_standby');
-                        setTimeout(Worker.runStep, 1000);
                     }
                     return;
                 }
@@ -1116,7 +1117,11 @@ export const Worker = {
                     } catch(err) {}
                 }
 
-                setTimeout(Worker.runStep, 1000);
+                // popup worker 不需要停在空佇列頁面，交回主視窗後直接結束
+                setTimeout(() => {
+                    if (isPopupWorker) window.close();
+                    else Worker.navigateBack();
+                }, 800);
                 return;
             }
 

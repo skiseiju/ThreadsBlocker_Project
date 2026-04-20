@@ -140,16 +140,49 @@ import './features/cockroach.js';
         localStorage.removeItem('hege_ios_active');
         localStorage.removeItem('hege_mac_mode');
 
-        // 重設貼文水庫所有 entry 狀態為 pending，避免升版時有卡住的 sweeping/cooldown/error
+        // 升版只修復異常狀態，避免把所有 entry 重設成 pending 而誤觸發定點絕
         try {
             const postQ = Storage.getJSON(CONFIG.KEYS.POST_QUEUE, []);
-            const resetQ = postQ.map(p => p && typeof p === 'object'
-                ? { ...p, status: 'pending', done: false }
-                : p);
+            const knownStatuses = new Set(['pending', 'sweeping', 'cooldown', 'done', 'error']);
+            let repaired = 0;
+            const resetQ = postQ.map(p => {
+                if (!p || typeof p !== 'object') return p;
+                const next = { ...p };
+                const rawStatus = typeof next.status === 'string' ? next.status : '';
+
+                if (!rawStatus) {
+                    next.status = next.done ? 'done' : 'pending';
+                    repaired++;
+                    return next;
+                }
+
+                if (!knownStatuses.has(rawStatus)) {
+                    next.status = 'pending';
+                    next.done = false;
+                    repaired++;
+                    return next;
+                }
+
+                // 只修復可能卡住的 sweeping；其餘（done/cooldown/error）保留原狀
+                if (rawStatus === 'sweeping') {
+                    next.status = 'pending';
+                    next.done = false;
+                    repaired++;
+                }
+
+                // 深層清理項目若已有 lastSweptAt，pending 多半是舊版升級時被重置；回正為 done 以避免升版後立刻誤觸發
+                if (next.longTermLoop === true && next.status === 'pending' && (next.lastSweptAt || 0) > 0) {
+                    next.status = 'done';
+                    next.done = true;
+                    repaired++;
+                }
+
+                return next;
+            });
             Storage.setJSON(CONFIG.KEYS.POST_QUEUE, resetQ);
-            console.log(`[留友封] POST_QUEUE 重設 ${resetQ.length} 個 entry 狀態為 pending`);
+            console.log(`[留友封] POST_QUEUE repair complete: ${repaired}/${resetQ.length} entries adjusted`);
         } catch (e) {
-            console.warn('[留友封] POST_QUEUE reset 失敗:', e);
+            console.warn('[留友封] POST_QUEUE repair 失敗:', e);
         }
 
         // 清掉 sweep session 殘留（hege_sweep_*）
@@ -166,6 +199,9 @@ import './features/cockroach.js';
         Object.keys(localStorage).filter(k => k.startsWith('hege_sweep_')).forEach(k => localStorage.removeItem(k));
         Object.keys(sessionStorage).filter(k => k.startsWith('hege_sweep_')).forEach(k => sessionStorage.removeItem(k));
         console.log('[留友封] Sweep session 殘留全數清除');
+
+        // 升版後只跳過第一次 auto tick，避免歷史殘留狀態在第一輪誤觸發
+        sessionStorage.setItem('hege_skip_sweep_tick_once', 'true');
 
         Storage.set(CONFIG.KEYS.VERSION_CHECK, CONFIG.VERSION);
         console.log(`[留友封] Updated to v${CONFIG.VERSION}. Cleared temporary queues and report queue/context. Migrated delayed queue: ${legacyDelayedQueue.length}`);
@@ -204,9 +240,54 @@ import './features/cockroach.js';
             const sweepTarget = sessionStorage.getItem('hege_sweep_target');
             const currentCleanUrl = window.location.href.split('?')[0];
             const targetCleanUrl = (sweepTarget || '').split('?')[0];
+            const sweepRuntime = Utils.getSweepRuntimeState ? Utils.getSweepRuntimeState() : { running: false };
+            const targetEntry = targetCleanUrl ? Storage.postReservoir.getByUrl(targetCleanUrl) : null;
+            const targetIsSweeping = !!targetEntry && targetEntry.status === 'sweeping';
+            const targetSweepingStale = targetIsSweeping && (Date.now() - (targetEntry.lastSweptAt || 0) > 5 * 60 * 1000);
             if (sweepState === 'WAIT_FOR_BG' && targetCleanUrl === currentCleanUrl) {
-                Core.SweepDriver.waitForWorkerDrain();
+                if (CONFIG.DEBUG_MODE) {
+                    console.log('[SweepDriver][RESUME-CHECK]', JSON.stringify({
+                        sweepState,
+                        currentCleanUrl,
+                        targetCleanUrl,
+                        targetStatus: targetEntry?.status || '(missing)',
+                        targetIsSweeping,
+                        targetSweepingStale,
+                        runtime: {
+                            running: !!sweepRuntime.running,
+                            standby: !!sweepRuntime.standby,
+                            bgQueueLen: sweepRuntime.bgQueueLen || 0,
+                            workerRunning: !!sweepRuntime.workerRunning,
+                            flowActive: !!sweepRuntime.flowActive,
+                            waitForBgActive: !!sweepRuntime.waitForBgActive,
+                        },
+                    }));
+                }
+                if (targetSweepingStale) {
+                    // stale sweeping 自救：避免手動 reload 被誤判為要繼續定點絕
+                    Core.SweepDriver.updateEntry(targetCleanUrl, p => ({ ...p, status: 'pending', done: false }));
+                    Core.SweepDriver.clearTransientState();
+                    console.log('[SweepDriver] Cleared stale WAIT_FOR_BG + sweeping state on startup');
+                } else {
+                    const canResume = targetIsSweeping && (
+                        !!sweepRuntime.standby
+                        || (sweepRuntime.bgQueueLen || 0) > 0
+                        || !!sweepRuntime.workerRunning
+                        || !!sweepRuntime.waitForBgActive
+                    );
+                    if (canResume) {
+                        if (CONFIG.DEBUG_MODE) console.log('[SweepDriver][RESUME-CHECK] resume waitForWorkerDrain');
+                        Core.SweepDriver.waitForWorkerDrain();
+                    } else {
+                        if (CONFIG.DEBUG_MODE) console.log('[SweepDriver][RESUME-CHECK] clear transient state (cannot resume)');
+                        Core.SweepDriver.clearTransientState();
+                    }
+                }
             } else if (sweepState && targetCleanUrl && targetCleanUrl !== currentCleanUrl) {
+                if (CONFIG.DEBUG_MODE) console.log('[SweepDriver][RESUME-CHECK] clear transient state (target mismatch)');
+                Core.SweepDriver.clearTransientState();
+            } else if (sweepState && !targetCleanUrl) {
+                if (CONFIG.DEBUG_MODE) console.log('[SweepDriver][RESUME-CHECK] clear transient state (missing target)');
                 Core.SweepDriver.clearTransientState();
             }
 
@@ -314,7 +395,13 @@ import './features/cockroach.js';
 
             const confirmClearDB = () => UI.showConfirm('確定清除所有歷史紀錄？', () => {
                 Storage.setJSON(CONFIG.KEYS.DB_KEY, []);
+                Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
+                Storage.setJSON(CONFIG.KEYS.REPORT_HISTORY, []);
+                Storage.remove(CONFIG.KEYS.SOURCE_EVIDENCE_INDEX);
+                Storage.remove(CONFIG.KEYS.SOURCE_EVIDENCE_PRUNE_AT);
+                Storage.evidence.clearAll().catch(() => {});
                 Core.updateControllerUI();
+                UI.showToast('封鎖/檢舉歷史與來源證據已清除');
             });
 
             const callbacks = {
@@ -351,10 +438,13 @@ import './features/cockroach.js';
                             Storage.set(CONFIG.KEYS.REPORT_BATCH_PATH, JSON.stringify(path));
                             let added = 0;
                             pending.forEach(u => {
+                                const sourceUrl = Storage.getJSON(CONFIG.KEYS.REPORT_CONTEXT, {})[u]?.sourceUrl || Core.findSourcePostUrl(document.body);
                                 Core.setReportContext(u, {
-                                    sourceUrl: Storage.getJSON(CONFIG.KEYS.REPORT_CONTEXT, {})[u]?.sourceUrl || Core.findSourcePostUrl(document.body),
+                                    sourceUrl,
                                     source: 'panel',
                                     targetType: 'account',
+                                    sourceText: Utils.getPostText(sourceUrl),
+                                    sourceOwner: Utils.getPostOwner(sourceUrl) || '',
                                 });
                                 if (Storage.queueAddUnique(CONFIG.KEYS.REPORT_QUEUE, u)) added++;
                             });
@@ -391,6 +481,7 @@ import './features/cockroach.js';
                         Storage.setSessionJSON(CONFIG.KEYS.PENDING, []);
                         Storage.setJSON(CONFIG.KEYS.BG_QUEUE, []);
                         Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, []);
+                        Storage.clearBlockContextMap();
                         Storage.setJSON(CONFIG.KEYS.BG_STATUS, {});
                         Storage.setJSON(CONFIG.KEYS.REPORT_QUEUE, []);
                         Storage.setJSON(CONFIG.KEYS.REPORT_CONTEXT, {});
@@ -424,6 +515,7 @@ import './features/cockroach.js';
                             }),
                             onReport: () => Core.showReportDialog(),
                             onAnalytics: () => UI.showAnalyticsReport(),
+                            onPlatformUpload: () => UI.showAnalyticsReport({ focusUpload: true }),
                         });
                     };
                     openSettings();
@@ -494,6 +586,11 @@ import './features/cockroach.js';
 
             // Task 1: 貼文深層收割 8hr 排程定期巡檢 (每 1 分鐘檢查一次)
             setInterval(() => {
+                if (sessionStorage.getItem('hege_skip_sweep_tick_once') === 'true') {
+                    sessionStorage.removeItem('hege_skip_sweep_tick_once');
+                    if (CONFIG.DEBUG_MODE) console.log('[SweepDriver] Skip first auto tick after version update');
+                    return;
+                }
                 Core.SweepDriver.tick();
             }, 60000);
 
@@ -514,8 +611,20 @@ import './features/cockroach.js';
 
             const params = new URLSearchParams(window.location.search);
             if (params.get('hege_sweep') === 'true' || params.get('hege_post_sweep') === 'true') {
-                Utils.pollUntil(() => document.querySelector('a[role="link"], span[role="link"], div[role="button"]'), 10000)
-                    .then(() => Core.SweepDriver.runCurrentPage());
+                const currentPostUrl = window.location.href.split('?')[0];
+                const runtime = Utils.getSweepRuntimeState ? Utils.getSweepRuntimeState() : { running: false };
+                const entry = Storage.postReservoir.getByUrl(currentPostUrl);
+                const shouldResumeSweepPage = !!runtime.running || (entry && entry.status === 'sweeping');
+                if (shouldResumeSweepPage) {
+                    Utils.pollUntil(() => document.querySelector('a[role="link"], span[role="link"], div[role="button"]'), 10000)
+                        .then(() => Core.SweepDriver.runCurrentPage());
+                } else {
+                    if (CONFIG.DEBUG_MODE) console.log('[SweepDriver] Ignore stale hege_sweep param without active runtime');
+                    const cleanUrl = new URL(window.location.href);
+                    cleanUrl.searchParams.delete('hege_sweep');
+                    cleanUrl.searchParams.delete('hege_post_sweep');
+                    history.replaceState(null, '', cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
+                }
             }
 
             // Log Sync

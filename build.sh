@@ -99,6 +99,9 @@ cat <<EOF > "$OUT_FILE"
 // @grant        GM_xmlhttpRequest
 // @connect      script.google.com
 // @connect      script.googleusercontent.com
+// @connect      *.workers.dev
+// @connect      threadsblocker.skiseiju.com
+// @connect      app.skiseiju.com
 // ==/UserScript==
 
 EOF

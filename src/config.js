@@ -1,9 +1,15 @@
 export const CONFIG = {
-    VERSION: '2.5.4-beta54', // Beta
+    VERSION: '2.6.0-beta8', // Beta
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
-    BUG_REPORT_URL: 'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec',
+    BUG_REPORT_URL: 'https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/reports/bug',
+    BUG_REPORT_FALLBACK_URLS: [
+        'https://app.skiseiju.com/api/v1/reports/bug',
+        'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec'
+    ],// 可填入 GAS 或其他備援端點
     BUG_REPORT_SALT: 'PGO_BETA_2026_SALT',
+    PLATFORM_UPLOAD_URL: 'https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/platform/ingest',
+    PLATFORM_UPLOAD_FALLBACK_URLS: ['https://app.skiseiju.com/api/v1/platform/ingest'],
 
     DEBUG_MODE: false,
 
@@ -83,6 +89,11 @@ export const CONFIG = {
         REPORT_VISUAL_DEBUG: 'hege_report_visual_debug',
         REPORT_BATCH_USERS: 'hege_report_batch_users',
         REPORT_COMPLETED_USERS: 'hege_report_completed_users',
+        REPORT_HISTORY: 'hege_report_history',
+        SOURCE_EVIDENCE_INDEX: 'hege_source_evidence_index',
+        SOURCE_EVIDENCE_PRUNE_AT: 'hege_source_evidence_prune_at',
+        ANALYTICS_SHOW_ADVANCED: 'hege_analytics_show_advanced',
+        PLATFORM_UPLOAD_URL_OVERRIDE: 'hege_platform_upload_url_override',
         REPORT_KEEP_BLOCK_SELECTION: 'hege_report_keep_block_selection',
         REPORT_RESTORE_PENDING: 'hege_report_restore_pending',
         
@@ -113,6 +124,7 @@ export const CONFIG = {
         // 封鎖 context metadata（worker 啟動前由 core 寫入）
         BLOCK_CONTEXT: 'hege_block_context',
         CURRENT_BATCH_ID: 'hege_current_batch_id',
+        BLOCK_CONTEXT_MAP: 'hege_block_context_map',
 
         // 定點絕 worker 待命旗標（'true' 字串）
         ENDLESS_WORKER_STANDBY: 'hege_endless_worker_standby',
@@ -134,6 +146,7 @@ export const CONFIG = {
         'hege_sweep_stopped',
         'hege_block_timestamps',   // DB_TIMESTAMPS
         'hege_block_timestamps_ring', // BLOCK_TIMESTAMPS_RING
+        'hege_block_context_map', // BLOCK_CONTEXT_MAP
         'hege_block_visual_debug', // BLOCK_VISUAL_DEBUG
         'hege_report_queue',        // REPORT_QUEUE
         'hege_report_batch_path',   // REPORT_BATCH_PATH
@@ -142,6 +155,9 @@ export const CONFIG = {
         'hege_report_visual_debug', // REPORT_VISUAL_DEBUG
         'hege_report_batch_users',   // REPORT_BATCH_USERS
         'hege_report_completed_users', // REPORT_COMPLETED_USERS
+        'hege_report_history', // REPORT_HISTORY
+        'hege_source_evidence_index', // SOURCE_EVIDENCE_INDEX
+        'hege_source_evidence_prune_at', // SOURCE_EVIDENCE_PRUNE_AT
         'hege_report_keep_block_selection', // REPORT_KEEP_BLOCK_SELECTION
         'hege_report_restore_pending', // REPORT_RESTORE_PENDING
     ],

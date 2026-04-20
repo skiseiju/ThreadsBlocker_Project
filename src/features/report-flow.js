@@ -439,6 +439,29 @@ Object.assign(Core, {
             Core.ReportDriver.clearBatchPathIfQueueEmpty();
         },
 
+        recordHistory(user, options = {}) {
+            if (!user) return;
+            const contextMap = Storage.getJSON(CONFIG.KEYS.REPORT_CONTEXT, {});
+            const context = contextMap[user] || options.reportContext || {};
+            const path = Core.ReportDriver.getPath();
+            const history = Storage.getJSON(CONFIG.KEYS.REPORT_HISTORY, []);
+            const entry = {
+                type: 'report',
+                username: user,
+                t: Date.now(),
+                sourceUrl: context.sourceUrl || '',
+                source: context.source || '',
+                sourceText: context.sourceText || '',
+                sourceOwner: context.sourceOwner || '',
+                targetType: context.targetType || 'account',
+                path,
+            };
+            history.push(entry);
+            if (history.length > 5000) history.splice(0, history.length - 5000);
+            Storage.setJSON(CONFIG.KEYS.REPORT_HISTORY, history);
+            Storage.evidence.captureFromReportHistory(entry, context);
+        },
+
         scheduleNext(options = {}) {
             const delay = 120 + Math.floor(Math.random() * 140);
             const next = options.continueWith || (() => Core.ReportDriver.processNext(options));
@@ -580,6 +603,7 @@ Object.assign(Core, {
                 Core.ReportDriver.logVisibleOptions('檢舉送出檢查後', { done: Core.ReportDriver.checkReportDone() });
 
                 Storage.recordReport();
+                Core.ReportDriver.recordHistory(user, options);
                 if (typeof options.onSuccess === 'function') {
                     options.onSuccess(user);
                 }

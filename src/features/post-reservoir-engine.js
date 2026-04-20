@@ -79,9 +79,22 @@ Object.assign(Core, {
         },
 
         isRunning() {
-            const state = sessionStorage.getItem(SWEEP_KEYS.STATE);
-            return Storage.get(SWEEP_KEYS.WORKER_STANDBY) === 'true'
-                || [SWEEP_STATE.RELOADING, SWEEP_STATE.SCANNING, SWEEP_STATE.WAIT_FOR_BG].includes(state);
+            const runtime = Utils.getSweepRuntimeState();
+            const state = runtime.state;
+            const standby = runtime.standby;
+            const running = runtime.running;
+
+            // 自動修復 stale 執行旗標：避免「待回訪」卻仍顯示執行中
+            if (!running) {
+                if (standby) Storage.remove(SWEEP_KEYS.WORKER_STANDBY);
+                if (state === SWEEP_STATE.WAIT_FOR_BG) {
+                    sessionStorage.removeItem(SWEEP_KEYS.STATE);
+                    sessionStorage.removeItem(SWEEP_KEYS.WAIT_STARTED_AT);
+                    sessionStorage.removeItem(SWEEP_KEYS.TARGET);
+                }
+            }
+
+            return running;
         },
 
         clearTransientState() {
@@ -669,13 +682,15 @@ Object.assign(Core, {
             const activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
             Storage.setJSON(CONFIG.KEYS.BG_QUEUE, [...new Set([...activeQueue, ...batchUsers])]);
 
-            Storage.set(CONFIG.KEYS.BLOCK_CONTEXT, JSON.stringify({
-                src: Core.SweepDriver.cleanCurrentUrl(),
+            const sourceUrl = Core.SweepDriver.cleanCurrentUrl();
+            const batchId = `b_${Date.now()}`;
+            Core.setBlockContext(batchUsers, {
+                sourceUrl,
                 reason: 'likes',
-                postText: Utils.getPostText(),
-                postOwner: Utils.getPostOwner() || '',
-            }));
-            Storage.set(CONFIG.KEYS.CURRENT_BATCH_ID, 'b_' + Date.now());
+                postText: Utils.getPostText(sourceUrl),
+                postOwner: Utils.getPostOwner(sourceUrl) || '',
+                batch: batchId,
+            });
             Storage.set(CONFIG.KEYS.WORKER_MODE, 'block');
 
             Core.SweepDriver.updateEntry(entry.url, p => ({
