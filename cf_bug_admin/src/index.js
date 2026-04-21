@@ -4,6 +4,11 @@ const PLATFORM_MAX_PAYLOAD_BYTES = 2 * 1024 * 1024;
 const PLATFORM_MAX_TOPICS = 200;
 const PLATFORM_MAX_SOURCES = 400;
 const PLATFORM_MAX_EVENTS = 120000;
+const PUBLIC_MIN_CATEGORY_EVENTS = 5;
+const PUBLIC_MIN_NARRATIVE_SOURCES = 2;
+const PUBLIC_MIN_NARRATIVE_EVENTS = 20;
+const PUBLIC_HIGH_SIGNAL_THRESHOLD = 65;
+const PUBLIC_MEDIUM_SIGNAL_THRESHOLD = 45;
 const PLATFORM_SCHEMA_STMTS = [
   `CREATE TABLE IF NOT EXISTS platform_uploads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,7 +67,34 @@ const PLATFORM_SCHEMA_STMTS = [
     source_count INTEGER NOT NULL DEFAULT 0
   )`,
   'CREATE INDEX IF NOT EXISTS idx_platform_daily_upload ON platform_daily_metrics(upload_id)',
-  'CREATE INDEX IF NOT EXISTS idx_platform_daily_day ON platform_daily_metrics(day_key DESC)'
+  'CREATE INDEX IF NOT EXISTS idx_platform_daily_day ON platform_daily_metrics(day_key DESC)',
+  `CREATE TABLE IF NOT EXISTS platform_topic_daily (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    day_key TEXT NOT NULL,
+    topic_label TEXT NOT NULL,
+    event_count INTEGER NOT NULL DEFAULT 0,
+    upload_count INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(day_key, topic_label)
+  )`,
+  `CREATE TABLE IF NOT EXISTS platform_category_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    upload_id INTEGER NOT NULL,
+    category_label TEXT NOT NULL,
+    event_count INTEGER NOT NULL DEFAULT 0,
+    account_count INTEGER NOT NULL DEFAULT 0,
+    source_count INTEGER NOT NULL DEFAULT 0
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_platform_category_upload ON platform_category_metrics(upload_id)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_category_event ON platform_category_metrics(event_count DESC)',
+  `CREATE TABLE IF NOT EXISTS political_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_date TEXT NOT NULL,
+    category TEXT NOT NULL,
+    title TEXT NOT NULL,
+    source_name TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_political_events_date ON political_events(event_date DESC)'
 ];
 
 export default {
@@ -104,6 +136,12 @@ export default {
       }
       if (url.pathname === '/api/v1/platform/topic/details' && request.method === 'GET') {
         return withCors(await handlePublicTopicDetails(request, env));
+      }
+      if (url.pathname === '/api/v1/admin/political-events/ingest' && request.method === 'POST') {
+        return withCors(await handleAdminPoliticalEventsIngest(request, env));
+      }
+      if (url.pathname === '/api/v1/platform/political-events' && request.method === 'GET') {
+        return withCors(await handlePublicPoliticalEvents(request, env));
       }
 
       if (url.pathname === '/api/v1/admin/bugs' && request.method === 'GET') {
@@ -299,6 +337,33 @@ async function handlePlatformIngest(request, env) {
   const topicSeedCount = safeCount(summary.topTopicSeedCount);
   const sourceCoveragePct = safePercent(summary.sourceCoveragePct);
   const reportSourceCoveragePct = safePercent(summary.reportSourceCoveragePct);
+  const sourcesArr = asArray(body.sources)
+    .slice()
+    .sort((a, b) => safeCount(asObject(b).totalEventCount) - safeCount(asObject(a).totalEventCount));
+  const top3EventCount = sourcesArr
+    .slice(0, 3)
+    .reduce((sum, src) => sum + safeCount(asObject(src).totalEventCount), 0);
+  const sourceConcentrationPct = totalEventCount > 0
+    ? Math.min(100, Math.round((top3EventCount / totalEventCount) * 1000) / 10)
+    : 0;
+
+  const analysisSeeds = asObject(body.analysisSeeds);
+  const narrativeSeeds = asArray(analysisSeeds.narrativeSeeds);
+  const narrativeEventCount = narrativeSeeds.reduce((sum, seed) => (
+    sum + safeCount(asObject(seed).eventCount)
+  ), 0);
+  const repeatedNarrativePct = totalEventCount > 0
+    ? Math.min(100, Math.round((narrativeEventCount / totalEventCount) * 1000) / 10)
+    : 0;
+
+  const campaignCandidates = asArray(analysisSeeds.campaignCandidates);
+  const campaignEventCount = campaignCandidates.reduce((sum, candidate) => {
+    const item = asObject(candidate);
+    return sum + safeCount(item.blockEventCount) + safeCount(item.reportEventCount);
+  }, 0);
+  const shortTermDiffusionPct = totalEventCount > 0
+    ? Math.min(100, Math.round((campaignEventCount / totalEventCount) * 1000) / 10)
+    : 0;
 
   let uploadId = 0;
   try {
@@ -306,8 +371,9 @@ async function handlePlatformIngest(request, env) {
       `INSERT INTO platform_uploads (
         schema, source_app, exporter_version, timezone, locale, upload_source, payload_hash,
         block_event_count, report_event_count, total_event_count, source_post_count, topic_seed_count,
-        source_coverage_pct, report_source_coverage_pct
-      ) VALUES (?, ?, ?, ?, ?, 'extension', ?, ?, ?, ?, ?, ?, ?, ?)`
+        source_coverage_pct, report_source_coverage_pct, source_concentration_pct,
+        repeated_narrative_pct, short_term_diffusion_pct
+      ) VALUES (?, ?, ?, ?, ?, 'extension', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       'threadsblocker.platform_upload.v2',
       sourceApp,
@@ -321,7 +387,10 @@ async function handlePlatformIngest(request, env) {
       sourcePostCount,
       topicSeedCount,
       sourceCoveragePct,
-      reportSourceCoveragePct
+      reportSourceCoveragePct,
+      sourceConcentrationPct,
+      repeatedNarrativePct,
+      shortTermDiffusionPct
     ).run();
     uploadId = Number(insert.meta?.last_row_id || 0);
   } catch (err) {
@@ -348,6 +417,8 @@ async function handlePlatformIngest(request, env) {
   const topicSeeds = asArray(asObject(body.analysisSeeds).topicSeeds).slice(0, PLATFORM_MAX_TOPICS);
   const sources = asArray(body.sources).slice(0, PLATFORM_MAX_SOURCES);
   const events = asArray(body.events).slice(0, PLATFORM_MAX_EVENTS);
+  const createdAt = safeString(body.exportedAt, 40) || new Date().toISOString();
+  const dayKey = new Date(createdAt).toISOString().slice(0, 10);
 
   let topicInserted = 0;
   for (const item of topicSeeds) {
@@ -366,6 +437,23 @@ async function handlePlatformIngest(request, env) {
       safeCount(topic.sourceCount)
     ).run();
     topicInserted++;
+  }
+  for (const item of topicSeeds) {
+    const topic = asObject(item);
+    const topicLabel = safeString(topic.topicLabel || topic.category, 140);
+    const eventCount = safeCount(topic.eventCount);
+    if (!topicLabel || eventCount <= 0) continue;
+    await env.DB.prepare(
+      `INSERT INTO platform_topic_daily (day_key, topic_label, event_count, upload_count)
+       VALUES (?, ?, ?, 1)
+       ON CONFLICT(day_key, topic_label) DO UPDATE SET
+         event_count = event_count + excluded.event_count,
+         upload_count = upload_count + 1`
+    ).bind(
+      dayKey,
+      topicLabel,
+      eventCount
+    ).run();
   }
 
   let sourceInserted = 0;
@@ -403,6 +491,49 @@ async function handlePlatformIngest(request, env) {
       JSON.stringify(topTopicHints)
     ).run();
     sourceInserted++;
+  }
+
+  const categoryMap = new Map();
+  for (const item of events) {
+    const event = asObject(item);
+    const categoryLabel = safeString(event.reportLeafCategory || event.reportPrimaryCategory, 140);
+    if (!categoryLabel) continue;
+
+    if (!categoryMap.has(categoryLabel)) {
+      categoryMap.set(categoryLabel, {
+        eventCount: 0,
+        accountIds: new Set(),
+        sourceUrls: new Set()
+      });
+    }
+
+    const bucket = categoryMap.get(categoryLabel);
+    bucket.eventCount += 1;
+
+    const accountId = safeString(event.accountId, 180);
+    if (accountId) bucket.accountIds.add(accountId);
+
+    const sourceUrl = safeString(event.sourceUrl, 300);
+    if (sourceUrl) bucket.sourceUrls.add(sourceUrl);
+  }
+
+  let categoryInserted = 0;
+  for (const [categoryLabel, bucket] of categoryMap.entries()) {
+    const eventCount = safeCount(bucket.eventCount);
+    if (!categoryLabel || eventCount <= 0) continue;
+
+    await env.DB.prepare(
+      `INSERT INTO platform_category_metrics (
+        upload_id, category_label, event_count, account_count, source_count
+      ) VALUES (?, ?, ?, ?, ?)`
+    ).bind(
+      uploadId,
+      categoryLabel,
+      eventCount,
+      safeCount(bucket.accountIds.size),
+      safeCount(bucket.sourceUrls.size)
+    ).run();
+    categoryInserted++;
   }
 
   const dailyAgg = {};
@@ -451,6 +582,7 @@ async function handlePlatformIngest(request, env) {
     summary: {
       topicRows: topicInserted,
       sourceRows: sourceInserted,
+      categoryRows: categoryInserted,
       dailyRows: dailyInserted
     }
   }, 200);
@@ -554,23 +686,83 @@ async function handlePublicPlatformOverview(request, env) {
   const days = clampInt(url.searchParams.get('days'), 1, 365, 30);
   const top = clampInt(url.searchParams.get('top'), 5, 50, 15);
   const data = await loadPlatformOverviewData(env, days, top);
-  return json({ code: 200, data }, 200);
+  return json({ code: 200, data: projectPublicPlatformOverview(data, top) }, 200);
 }
 
 async function handlePublicTopicDetails(request, env) {
-  const url = new URL(request.url);
-  const topic = safeString(url.searchParams.get('topic') || '', 140);
-  if (!topic) {
-    return json({ code: 400, message: 'Missing topic' }, 400);
+  return json({
+    code: 410,
+    message: 'Public topic drill-down is disabled. Use aggregate overview endpoints only.'
+  }, 410);
+}
+
+async function handleAdminPoliticalEventsIngest(request, env) {
+  await ensurePlatformTables(env);
+
+  const authHeader = request.headers.get('Authorization') || '';
+  if (!env.ADMIN_TOKEN || authHeader !== `Bearer ${env.ADMIN_TOKEN}`) {
+    return json({ code: 401, message: 'Unauthorized' }, 401);
   }
-  const days = clampInt(url.searchParams.get('days'), 1, 365, 30);
-  const limit = clampInt(url.searchParams.get('limit'), 10, 50, 10);
-  const data = await loadTopicDetailsData(env, topic, days, limit);
-  return json({ code: 200, data }, 200);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ code: 400, message: 'Bad Request: invalid JSON' }, 400);
+  }
+
+  const events = Array.isArray(body.events) ? body.events.slice(0, 50) : [];
+  if (events.length === 0) {
+    return json({ code: 400, message: 'Bad Request: events array required' }, 400);
+  }
+
+  let inserted = 0;
+  for (const ev of events) {
+    const eventDate = String(ev.event_date || '').slice(0, 10);
+    const category = String(ev.category || '').slice(0, 50);
+    const title = String(ev.title || '').slice(0, 200);
+    const sourceName = String(ev.source_name || '').slice(0, 100);
+    if (!eventDate || !category || !title) continue;
+
+    try {
+      await env.DB.prepare(
+        'INSERT OR IGNORE INTO political_events (event_date, category, title, source_name) VALUES (?, ?, ?, ?)'
+      ).bind(eventDate, category, title, sourceName).run();
+      inserted++;
+    } catch (_) {}
+  }
+
+  return json({ code: 200, message: 'ok', inserted });
+}
+
+async function handlePublicPoliticalEvents(request, env) {
+  await ensurePlatformTables(env);
+
+  const params = new URL(request.url).searchParams;
+  const days = Math.min(90, Math.max(1, parseInt(params.get('days') || '30', 10)));
+  const limit = Math.min(100, Math.max(1, parseInt(params.get('limit') || '60', 10)));
+  const rows = await env.DB.prepare(
+    `SELECT event_date, category, title, source_name FROM political_events
+     WHERE date(event_date) >= date("now", ?)
+     ORDER BY event_date DESC, id DESC LIMIT ?`
+  ).bind(`-${days} days`, limit).all();
+
+  return json({ code: 200, days, events: rows.results || [] });
 }
 
 async function loadPlatformOverviewData(env, days, top) {
   await ensurePlatformTables(env);
+
+  function detectSpikes(rows) {
+    const WINDOW = 7;
+    const THRESHOLD = 1.5;
+    return rows.map((row, i) => {
+      if (i < WINDOW) return { ...row, is_spike: false };
+      const window = rows.slice(i - WINDOW, i);
+      const avg = window.reduce((s, r) => s + (r.total_event_count || 0), 0) / WINDOW;
+      return { ...row, is_spike: avg > 0 && (row.total_event_count || 0) > avg * THRESHOLD };
+    });
+  }
 
   const since = `-${days} days`;
 
@@ -581,7 +773,12 @@ async function loadPlatformOverviewData(env, days, top) {
       COALESCE(SUM(report_event_count), 0) AS report_event_count,
       COALESCE(SUM(total_event_count), 0) AS total_event_count,
       COALESCE(SUM(source_post_count), 0) AS source_post_count,
-      COALESCE(SUM(topic_seed_count), 0) AS topic_seed_count
+      COALESCE(SUM(topic_seed_count), 0) AS topic_seed_count,
+      ROUND(AVG(source_coverage_pct), 1) AS avg_source_coverage_pct,
+      ROUND(AVG(report_source_coverage_pct), 1) AS avg_report_source_coverage_pct,
+      ROUND(AVG(source_concentration_pct), 1) AS avg_source_concentration_pct,
+      ROUND(AVG(repeated_narrative_pct), 1) AS avg_repeated_narrative_pct,
+      ROUND(AVG(short_term_diffusion_pct), 1) AS avg_short_term_diffusion_pct
      FROM platform_uploads
      WHERE datetime(created_at) >= datetime('now', ?)`
   ).bind(since).first();
@@ -613,6 +810,17 @@ async function loadPlatformOverviewData(env, days, top) {
      LIMIT 60`
   ).bind(since).all();
 
+  const topicTimeSeriesRows = await env.DB.prepare(
+    `SELECT
+      day_key,
+      topic_label,
+      SUM(event_count) as event_count
+     FROM platform_topic_daily
+     WHERE day_key >= date('now', ?)
+     GROUP BY day_key, topic_label
+     ORDER BY day_key ASC, event_count DESC`
+  ).bind(since).all();
+
   const topicRows = await env.DB.prepare(
     `SELECT
       topic_label,
@@ -628,6 +836,33 @@ async function loadPlatformOverviewData(env, days, top) {
      ORDER BY event_count DESC
      LIMIT ?`
   ).bind(since, top).all();
+
+  const dailyTrend = detectSpikes((dailyRows.results || []).reverse());
+
+  const topicByDay = {};
+  for (const row of topicTimeSeriesRows.results || []) {
+    if (!topicByDay[row.day_key]) topicByDay[row.day_key] = [];
+    if (topicByDay[row.day_key].length < 5) {
+      topicByDay[row.day_key].push({ label: row.topic_label, count: row.event_count });
+    }
+  }
+  const topicTimeSeries = Object.entries(topicByDay).map(([date, topics]) => ({ date, topics }));
+
+  const categoryRows = await env.DB.prepare(
+    `SELECT
+      category_label,
+      SUM(event_count) AS event_count,
+      SUM(account_count) AS account_count,
+      SUM(source_count) AS source_count
+     FROM platform_category_metrics
+     WHERE upload_id IN (
+       SELECT id FROM platform_uploads
+       WHERE datetime(created_at) >= datetime("now", ?)
+     )
+     GROUP BY category_label
+     ORDER BY event_count DESC
+     LIMIT 10`
+  ).bind(since).all();
 
   const narrativeRows = await env.DB.prepare(
     `SELECT
@@ -657,13 +892,247 @@ async function loadPlatformOverviewData(env, days, top) {
       reportEventCount: Number(overviewRow?.report_event_count || 0),
       totalEventCount: Number(overviewRow?.total_event_count || 0),
       sourcePostCount: Number(overviewRow?.source_post_count || 0),
-      topicSeedCount: Number(overviewRow?.topic_seed_count || 0)
+      topicSeedCount: Number(overviewRow?.topic_seed_count || 0),
+      sourceCoveragePct: Number(overviewRow?.avg_source_coverage_pct || 0),
+      reportSourceCoveragePct: Number(overviewRow?.avg_report_source_coverage_pct || 0),
+      avgSourceConcentrationPct: Number(overviewRow?.avg_source_concentration_pct || 0),
+      avgRepeatedNarrativePct: Number(overviewRow?.avg_repeated_narrative_pct || 0),
+      avgShortTermDiffusionPct: Number(overviewRow?.avg_short_term_diffusion_pct || 0)
     },
-    dailyTrend: (dailyRows.results || []).reverse(),
+    dailyTrend,
+    topicTimeSeries,
+    reportCategories: categoryRows.results || [],
     topTopics: topicRows.results || [],
     topNarratives: narrativeRows.results || [],
     recentUploads: recentUploadsRows.results || []
   };
+}
+
+function projectPublicPlatformOverview(raw, top = 15) {
+  const data = raw && typeof raw === 'object' ? raw : {};
+  const overview = data.overview && typeof data.overview === 'object' ? data.overview : {};
+  const dailyTrend = Array.isArray(data.dailyTrend) ? data.dailyTrend : [];
+  const topicTimeSeries = Array.isArray(data.topicTimeSeries) ? data.topicTimeSeries : [];
+  const reportCategories = Array.isArray(data.reportCategories) ? data.reportCategories : [];
+  const sourceRows = Array.isArray(data.topNarratives) ? data.topNarratives : [];
+  const recentUploads = Array.isArray(data.recentUploads) ? data.recentUploads : [];
+
+  const categories = buildPublicCategories(reportCategories, overview.totalEventCount);
+  const narratives = buildPublicNarratives(sourceRows, top);
+  const highSignalRows = sourceRows.filter((row) => safeCount(row.avg_signal_score) >= PUBLIC_HIGH_SIGNAL_THRESHOLD);
+  const coordinatedAccountEstimate = highSignalRows.reduce((sum, row) => sum + safeCount(row.unique_account_count), 0);
+  const coordinatedSourceCount = highSignalRows.length;
+
+  const dateRange = {
+    start: dailyTrend[0]?.day_key || '',
+    end: dailyTrend[dailyTrend.length - 1]?.day_key || '',
+    activeDays: dailyTrend.filter((row) => safeCount(row.total_event_count) > 0).length
+  };
+
+  return {
+    schema: 'threadsblocker.platform_public.v1',
+    generatedAt: new Date().toISOString(),
+    days: safeCount(data.days || 30),
+    overview: {
+      uploadCount: safeCount(overview.uploadCount),
+      blockEventCount: safeCount(overview.blockEventCount),
+      reportEventCount: safeCount(overview.reportEventCount),
+      totalEventCount: safeCount(overview.totalEventCount),
+      sourcePostCount: safeCount(overview.sourcePostCount),
+      topicSeedCount: safeCount(overview.topicSeedCount),
+      sourceCoveragePct: safePercent(overview.sourceCoveragePct),
+      reportSourceCoveragePct: safePercent(overview.reportSourceCoveragePct)
+    },
+    dateRange,
+    credibility: {
+      effectiveUploadCount: safeCount(overview.uploadCount),
+      activeObservationDays: safeCount(dateRange.activeDays),
+      sourceCoveragePct: safePercent(overview.sourceCoveragePct),
+      reportSourceCoveragePct: safePercent(overview.reportSourceCoveragePct)
+    },
+    thresholds: {
+      categoryMinEvents: PUBLIC_MIN_CATEGORY_EVENTS,
+      narrativeMinSources: PUBLIC_MIN_NARRATIVE_SOURCES,
+      narrativeMinEvents: PUBLIC_MIN_NARRATIVE_EVENTS,
+      highSignalScore: PUBLIC_HIGH_SIGNAL_THRESHOLD,
+      mediumSignalScore: PUBLIC_MEDIUM_SIGNAL_THRESHOLD
+    },
+    signals: {
+      sourceConcentrationPct: round1(overview.avgSourceConcentrationPct),
+      repeatedNarrativePct: round1(overview.avgRepeatedNarrativePct),
+      shortTermDiffusionPct: round1(overview.avgShortTermDiffusionPct),
+      coordinatedAccountEstimate,
+      coordinatedSourceCount
+    },
+    dailyTrend: dailyTrend.map((row) => ({
+      day_key: safeString(row.day_key, 20),
+      block_event_count: safeCount(row.block_event_count),
+      report_event_count: safeCount(row.report_event_count),
+      total_event_count: safeCount(row.total_event_count),
+      source_count: safeCount(row.source_count),
+      is_spike: Boolean(row.is_spike)
+    })),
+    topicTimeSeries,
+    reportCategories: categories,
+    topNarratives: narratives,
+    recentUploads: recentUploads.slice(0, 10).map((row) => ({
+      id: safeCount(row.id),
+      created_at: safeString(row.created_at, 40)
+    })),
+    methodology: {
+      scoreBands: {
+        low: '0-44',
+        medium: '45-64',
+        high: '65+'
+      },
+      principles: [
+        '公開頁只呈現匿名樣本中的統計模式與中性訊號。',
+        '高風險分級是統計標籤，不是對個人、貼文、動機或違法性的認定。',
+        '資料來自使用者自願上傳，並非平台全量資料。'
+      ]
+    }
+  };
+}
+
+function buildPublicCategories(rows, totalEventCount) {
+  const list = Array.isArray(rows) ? rows : [];
+  const total = safeCount(totalEventCount);
+  const filtered = list
+    .map((row) => ({
+      label: safeString(row.category_label || row.topic_label, 120),
+      eventCount: safeCount(row.event_count),
+      accountCount: safeCount(row.account_count),
+      sourceCount: safeCount(row.source_count)
+    }))
+    .filter((row) => row.label && row.eventCount > 0)
+    .sort((a, b) => b.eventCount - a.eventCount);
+
+  return filtered
+    .map((row) => ({
+      ...row,
+      sharePct: total > 0 ? round1((row.eventCount / total) * 100) : 0
+    }))
+    .filter((row) => row.sharePct >= 1);
+}
+
+function buildPublicNarratives(rows, top) {
+  const groups = new Map();
+
+  for (const item of Array.isArray(rows) ? rows : []) {
+    const row = item && typeof item === 'object' ? item : {};
+    const signalScore = safeCount(row.avg_signal_score);
+    const eventCount = safeCount(row.total_event_count);
+    const accountCount = safeCount(row.unique_account_count);
+    const hints = normalizeTopicHints(row.top_topic_hints_json);
+    const narrative = summarizeNarrativePattern(row.source_text_sample || '', hints);
+    const key = narrative.key;
+    if (!key) continue;
+
+    if (!groups.has(key)) {
+      groups.set(key, {
+        title: narrative.title,
+        summary: narrative.summary,
+        eventCount: 0,
+        sourceCount: 0,
+        accountCount: 0,
+        maxSignalScore: 0,
+        hintCounts: new Map()
+      });
+    }
+
+    const group = groups.get(key);
+    group.eventCount += eventCount;
+    group.sourceCount += 1;
+    group.accountCount += accountCount;
+    group.maxSignalScore = Math.max(group.maxSignalScore, signalScore);
+
+    for (const hint of hints) {
+      group.hintCounts.set(hint, (group.hintCounts.get(hint) || 0) + 1);
+    }
+  }
+
+  const sorted = Array.from(groups.values())
+    .filter((group) => group.sourceCount >= PUBLIC_MIN_NARRATIVE_SOURCES && group.eventCount >= PUBLIC_MIN_NARRATIVE_EVENTS)
+    .sort((a, b) => b.eventCount - a.eventCount)
+    .slice(0, Math.max(1, top))
+    .map((group) => ({
+      title: group.title,
+      summary: group.summary,
+      eventCount: group.eventCount,
+      sourceCount: group.sourceCount,
+      accountCount: group.accountCount,
+      signalBand: scoreToBand(group.maxSignalScore),
+      hintLabels: Array.from(group.hintCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([label]) => label)
+    }));
+
+  return sorted;
+}
+
+function normalizeTopicHints(rawJson) {
+  const raw = safeParseJSON(rawJson || '[]');
+  return (Array.isArray(raw) ? raw : [])
+    .map((item) => sanitizeHintLabel(asObject(item).topicHint || ''))
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
+function sanitizeHintLabel(raw) {
+  const text = safeString(raw, 120);
+  if (!text) return '';
+  if (text.startsWith('report_leaf:')) return safeString(text.slice('report_leaf:'.length), 100);
+  if (text.startsWith('report:')) return safeString(text.slice('report:'.length), 100);
+  if (text.startsWith('hashtag:')) return safeString(text.slice('hashtag:'.length), 100);
+  return text;
+}
+
+function summarizeNarrativePattern(text, hints = []) {
+  const raw = compactWhitespace(String(text || ''));
+  const hashtags = extractHashtags(raw);
+  const clauses = raw
+    .replace(/https?:\/\/\S+/g, '')
+    .split(/[。！？!?，,、；;:：\n]+/)
+    .map((part) => compactWhitespace(part))
+    .filter(Boolean);
+  const styleTags = [];
+  if (clauses.length >= 3) styleTags.push('多句短句');
+  if (/[!！]/.test(raw)) styleTags.push('感嘆語氣');
+  if (/[?？]/.test(raw)) styleTags.push('提問式語氣');
+  if (!styleTags.length) styleTags.push('相近措辭');
+
+  const anchors = [...hints, ...hashtags].filter(Boolean).slice(0, 2);
+  const anchorText = anchors.length ? anchors.join('、') : '單一議題框架';
+  const title = anchors.length
+    ? `以 ${anchorText} 為核心的重複敘事`
+    : '高相似文字敘事';
+  const summary = `近期樣本中，多個來源反覆使用 ${anchorText} 的相近表述，常見形式為 ${styleTags.join('、')}。`;
+  const key = [anchors.map((item) => item.toLowerCase()).join('|') || 'generic', styleTags.join('|')].join('::');
+
+  return { key, title, summary };
+}
+
+function extractHashtags(text) {
+  const matches = String(text || '').match(/#[^\s#.,，。!?！？:：;；、]+/g) || [];
+  return matches.map((tag) => safeString(tag, 40).toLowerCase()).slice(0, 3);
+}
+
+function compactWhitespace(text) {
+  return String(text || '').replace(/\s+/g, ' ').trim();
+}
+
+function scoreToBand(score) {
+  const n = safeCount(score);
+  if (n >= PUBLIC_HIGH_SIGNAL_THRESHOLD) return 'high';
+  if (n >= PUBLIC_MEDIUM_SIGNAL_THRESHOLD) return 'medium';
+  return 'low';
+}
+
+function round1(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 10) / 10;
 }
 
 async function loadTopicDetailsData(env, topic, days, limit) {
@@ -801,6 +1270,15 @@ async function ensurePlatformTables(env) {
   if (platformSchemaReady) return;
   for (const sql of PLATFORM_SCHEMA_STMTS) {
     await env.DB.prepare(sql).run();
+  }
+  for (const col of [
+    'ALTER TABLE platform_uploads ADD COLUMN source_concentration_pct REAL DEFAULT 0',
+    'ALTER TABLE platform_uploads ADD COLUMN repeated_narrative_pct REAL DEFAULT 0',
+    'ALTER TABLE platform_uploads ADD COLUMN short_term_diffusion_pct REAL DEFAULT 0'
+  ]) {
+    try {
+      await env.DB.exec(col);
+    } catch (_) {}
   }
   platformSchemaReady = true;
 }

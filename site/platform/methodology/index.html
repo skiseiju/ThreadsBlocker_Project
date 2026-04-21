@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ThreadsBlocker 公開方法論：四大指標、manipulationSignalScore 構成、公開門檻、樣本限制與法律邊界。">
+  <meta property="og:title" content="方法論 — 留友封觀測站">
+  <meta property="og:description" content="公開說明平台如何計算公開信號、哪些資料不會顯示，以及哪些結論不能從公開頁推出。">
+  <meta property="og:type" content="website">
+  <title>方法論 — 留友封觀測站</title>
+  <link rel="stylesheet" href="/platform/styles.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="top-nav" aria-label="主導覽">
+      <div class="top-nav__inner">
+        <a class="brand" href="/platform/">留友封觀測站</a>
+        <nav class="top-nav__links">
+          <a href="/platform/methodology/">方法論</a>
+          <a href="/platform/reports/">月報</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero hero--tinted">
+        <div class="section-inner hero__content">
+          <p class="section-kicker">Public Methodology / V1</p>
+          <h1 id="heroHeadline">方法論 — 留友封觀測站</h1>
+          <p class="hero__subtitle">公開怎麼算，也公開哪些不能算。</p>
+          <p>這一頁不是替任何人下判決，而是把平台公開頁能呈現的統計模式、分數構成、公開門檻與法律邊界一次講清楚。</p>
+          <p class="hero__meta">Observation Window：最近 30 日匿名聚合樣本的公開方法摘要。</p>
+          <p>本頁內容呈現匿名樣本中的統計模式與風險信號，不構成對任何個人、帳號、貼文內容、動機或法律責任之事實認定。</p>
+          <p>方法論頁只使用 public projection 已釋出的聚合資料。即使內部 schema 存在帳號或 URL 欄位，公開頁也不會把那些原值渲染出來。</p>
+          <p class="legal-note">依《個人資料保護法》，本站僅呈現匿名聚合統計與現象觀察，不公開使用者帳號 ID、原始貼文連結或其他可直接回推個人的欄位。</p>
+          <ul>
+            <li>公開頁只呈現匿名樣本中的統計模式與中性訊號。</li>
+            <li>高風險分級是統計標籤，不是對個人或貼文的認定。</li>
+            <li>資料來自使用者自願上傳，並非平台全量資料。</li>
+          </ul>
+        </div>
+      </section>
+
+      <section aria-labelledby="metricsTitle">
+        <div class="section-inner">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">Four Public Metrics</p>
+              <h2 id="metricsTitle" class="section-title">四大公開指標</h2>
+            </div>
+            <p class="section-copy">四個指標都是模式層訊號。它們能描述樣本中的集中、重複、增幅與聚集，但不能單獨推出個人身分、主觀動機或違法性。</p>
+          </div>
+          <div class="entry-grid">
+            <article class="entry-card">
+              <p class="entry-card__eyebrow">01</p>
+              <h3>來源集中度</h3>
+              <p>定義：觀察是否有少數來源在短期內占據過高事件比例。公開值：公開頁會顯示最高來源占可回推來源事件的比例。限制：高集中只代表集中，不代表惡意或身分判定。</p>
+            </article>
+            <article class="entry-card">
+              <p class="entry-card__eyebrow">02</p>
+              <h3>文字重複率</h3>
+              <p>定義：觀察跨來源相似文字樣本是否反覆出現。公開值：公開頁會顯示達公開門檻的重複敘事約占可回推來源事件的比例。限制：重複不等於協調，也可能來自引用、摘要或熱門轉述。</p>
+            </article>
+            <article class="entry-card">
+              <p class="entry-card__eyebrow">03</p>
+              <h3>短期擴散</h3>
+              <p>定義：比較最近 7 日與前 7 日的事件量變化。公開值：公開頁會顯示目前窗口變化。限制：高成長可能由重大新聞、事件節點或公眾討論放大。</p>
+            </article>
+            <article class="entry-card">
+              <p class="entry-card__eyebrow">04</p>
+              <h3>協調帳號數</h3>
+              <p>定義：觀察高信號來源所涉及的匿名帳號樣本規模。公開值：公開頁會顯示帳號樣本與來源組數。限制：只代表模式聚集，不代表真實協調關係已被證實。</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-alt" aria-labelledby="scoreTitle">
+        <div class="section-inner">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">Score Composition</p>
+              <h2 id="scoreTitle" class="section-title">`manipulationSignalScore` 的公開構成</h2>
+            </div>
+            <p class="section-copy">公開頁不揭露私有判分細節或個別來源分數，但會公開分數是由哪些模式訊號組成，以及這些訊號如何在公開頁可被重算與檢視。</p>
+          </div>
+          <div class="entry-grid">
+            <article class="entry-card">
+              <p class="entry-card__eyebrow">Composition</p>
+              <h3>來源集中</h3>
+              <p>分數會納入少數來源是否在短期內占據過高比例。公開頁可用來源集中度卡與時間窗口對照這個面向。</p>
+            </article>
+            <article class="entry-card">
+              <p class="entry-card__eyebrow">Composition</p>
+              <h3>文字重複</h3>
+              <p>分數會納入相似敘事是否跨來源重複出現。公開頁只顯示摘要化後的敘事，不貼原文全文。</p>
+            </article>
+            <article class="entry-card">
+              <p class="entry-card__eyebrow">Composition</p>
+              <h3>分類提示集中</h3>
+              <p>分數會參考分類提示與主題提示是否高度集中。公開頁只顯示聚合後的分類分佈與摘要，不顯示個別來源標籤。</p>
+            </article>
+            <article class="entry-card">
+              <p class="entry-card__eyebrow">Composition</p>
+              <h3>短時間累積</h3>
+              <p>分數也會看事件是否在短時間內快速累積。公開頁以短期擴散與 30 日趨勢圖提供可重算的對照。</p>
+            </article>
+          </div>
+          <div class="chart-card">
+            <p><strong>公開版結論：</strong> manipulationSignalScore 是一個把多種模式訊號壓縮成同一分數帶的來源層指標。公開頁不顯示個別來源分數與私有權重，但會公開組成面向、分數區間與最低顯示門檻，讓外部能理解這個分數究竟在描述什麼，也知道它不能拿來替任何個人定罪。</p>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="tiersTitle">
+        <div class="section-inner">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">Signal Tiers</p>
+              <h2 id="tiersTitle" class="section-title">Low / Medium / High 分數區間</h2>
+            </div>
+            <p class="section-copy">分數區間是統計標籤，用來把模式訊號放在同一個解讀框架裡，而不是對個人或貼文做結論。</p>
+          </div>
+          <div class="stats-row">
+            <article class="stat-card">
+              <p><span class="badge badge--low">Low Signal</span></p>
+              <p class="stat-card__value">0-44</p>
+              <p class="stat-card__label">低信號</p>
+              <p class="stat-card__sub">公開樣本中只有零星或單一面向訊號，通常不足以形成穩定的模式敘事。</p>
+            </article>
+            <article class="stat-card">
+              <p><span class="badge badge--medium">Medium Signal</span></p>
+              <p class="stat-card__value">45-64</p>
+              <p class="stat-card__label">中信號</p>
+              <p class="stat-card__sub">多個面向開始同時出現，但仍需搭配樣本基礎、趨勢與分類分佈一起看。</p>
+            </article>
+            <article class="stat-card">
+              <p><span class="badge badge--high">High Signal</span></p>
+              <p class="stat-card__value">65+</p>
+              <p class="stat-card__label">高信號</p>
+              <p class="stat-card__sub">多種模式訊號同時偏高，代表值得觀察的統計聚集，不代表已證實真實操作者或違法性。</p>
+            </article>
+          </div>
+          <p class="legal-note">高分只表示多種模式訊號同時出現且達到公開 banding 門檻，不代表平台已證實真實協調、惡意意圖或違法事實。</p>
+        </div>
+      </section>
+
+      <section class="section-alt" aria-labelledby="thresholdsTitle">
+        <div class="section-inner">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">Disclosure Thresholds</p>
+              <h2 id="thresholdsTitle" class="section-title">公開門檻</h2>
+            </div>
+            <p class="section-copy">為了避免低樣本誤導與個案回推，公開頁只在達門檻後才顯示分類、敘事與分數帶。</p>
+          </div>
+          <div class="chart-card">
+            <table>
+              <thead>
+                <tr>
+                  <th>項目</th>
+                  <th>門檻</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>分類分佈門檻</td>
+                  <td>單一分類至少需達 5 次事件，才會出現在公開分類卡。</td>
+                </tr>
+                <tr>
+                  <td>敘事框架門檻</td>
+                  <td>單一敘事至少需達 2 個來源、20 次事件，才會出現在公開敘事列表。</td>
+                </tr>
+                <tr>
+                  <td>分數帶門檻</td>
+                  <td>來源層 banding 以 45 / 65 作為 medium / high 的公開切點。</td>
+                </tr>
+                <tr>
+                  <td>低樣本處理</td>
+                  <td>低於門檻的統計桶會被省略、併入其他類別，或只保留聚合摘要，避免個案回推。</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="chart-detail"><strong>Why Thresholds Exist：</strong> 公開門檻不是在隱藏資料，而是在防止低樣本誤讀與可識別回推。當分類、敘事或來源樣本太少時，公開頁寧可不顯示，也不把個案放大成公共結論。</div>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="limitsTitle">
+        <div class="section-inner">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">Limitations</p>
+              <h2 id="limitsTitle" class="section-title">樣本限制</h2>
+            </div>
+            <p class="section-copy">公開頁的可信度來自方法透明，不是宣稱自己掌握平台全貌。因此限制需要跟指標一起公開，而不是藏在註腳裡。</p>
+          </div>
+          <div class="chart-card">
+            <ul>
+              <li>資料來自使用者自願上傳，不是 Threads 全量資料。</li>
+              <li>樣本有時間與人群偏差，只能解讀為最近 30 日窗口內可觀察到的模式。</li>
+              <li>來源覆蓋率不是 100%，因此所有圖表與指標都應視為匿名聚合樣本的可見部分。</li>
+              <li>重複敘事可能來自引用、轉述、共同討論或新聞摘要，不當然等於協調。</li>
+              <li>短期擴散可能受重大公共事件驅動，不能單靠增幅直接推論操弄。</li>
+              <li>高信號或高風險 banding 是統計標籤，不是對個人、貼文、動機或違法性的認定。</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-alt" aria-labelledby="exclusionsTitle">
+        <div class="section-inner">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">Exclusions</p>
+              <h2 id="exclusionsTitle" class="section-title">公開頁故意不做的事</h2>
+            </div>
+            <p class="section-copy">平台只公開模式，不公開可識別個人的細節，也不提供個人層級 drill-down。</p>
+          </div>
+          <div class="entry-grid">
+            <article class="entry-card">
+              <p class="entry-card__eyebrow">No Account Layer</p>
+              <h3>不顯示帳號或使用者名稱</h3>
+              <p>不公開 accountId、@username、profileUrl、sourceOwner 或任何可直接回推個人的欄位。</p>
+            </article>
+            <article class="entry-card">
+              <p class="entry-card__eyebrow">No Raw URLs</p>
+              <h3>不顯示原始貼文連結</h3>
+              <p>不輸出 sourceUrl、貼文 permalink 或可搜尋回單一來源的連結。</p>
+            </article>
+            <article class="entry-card">
+              <p class="entry-card__eyebrow">No Raw Text Dump</p>
+              <h3>不貼原文全文或原始摘錄</h3>
+              <p>公開頁只顯示摘要化、去識別化後的敘事框架，不做具名引用。</p>
+            </article>
+            <article class="entry-card">
+              <p class="entry-card__eyebrow">No Drill-Down</p>
+              <h3>不提供個人層級 drill-down</h3>
+              <p>不做帳號搜尋、來源排行、單一來源詳情頁，也不提供原始明細下載。</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="legalTitle">
+        <div class="section-inner">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">Legal Boundary</p>
+              <h2 id="legalTitle" class="section-title">法律邊界與免責聲明</h2>
+            </div>
+            <p class="section-copy">方法論透明的目的，是把公益觀測定位在統計模式層，而不是把公開頁做成具名指控或法律裁判工具。</p>
+          </div>
+          <div class="entry-grid">
+            <article class="entry-card">
+              <p class="entry-card__eyebrow">Legal Boundary</p>
+              <h3>本頁不是事實裁判書</h3>
+              <p>公開頁只呈現匿名樣本中的統計模式與風險信號，不構成對任何個人、帳號、貼文內容、動機或法律責任之事實認定。</p>
+              <p class="legal-note">Fixed Disclaimer：本頁資訊僅供研究、媒體觀察與公共討論參考，資料來源為使用者自願上傳，並非 Threads 平台全量資料。</p>
+            </article>
+            <article class="entry-card">
+              <p class="entry-card__eyebrow">Public Projection</p>
+              <h3>只公開匿名聚合層</h3>
+              <p>即使底層資料可能含有 <code>accountId</code>、<code>profileUrl</code>、<code>sourceUrl</code>、<code>sourceOwner</code> 等欄位，公開頁只讀取投影後的匿名聚合欄位，例如四大指標、分類分佈、敘事摘要與 banding 門檻。</p>
+              <ul>
+                <li>不公開帳號 ID、@username、原始貼文 URL、原文全文或具名風險標籤。</li>
+                <li>不提供帳號搜尋、來源排行、單一來源詳情頁或原始明細下載。</li>
+                <li>不把高分來源自動轉譯成對個人身分、動機或違法性的認定。</li>
+              </ul>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-alt" aria-labelledby="linksTitle">
+        <div class="section-inner">
+          <h2 id="linksTitle" class="section-title">延伸閱讀</h2>
+          <div class="entry-grid">
+            <a class="entry-card" href="/platform/">
+              <span class="entry-card__eyebrow">Public Platform</span>
+              <h3>回到平台首頁</h3>
+              <p>查看四大指標、30 日趨勢圖、檢舉分類分佈與匿名敘事框架，但不顯示任何個人層級資訊。</p>
+              <span class="entry-card__arrow" aria-hidden="true">→</span>
+            </a>
+            <a class="entry-card" href="/platform/reports/">
+              <span class="entry-card__eyebrow">Monthly Report</span>
+              <h3>閱讀每月透明度報告</h3>
+              <p>月報會沿用同一套法律邊界與公開門檻，整理月度摘要、政治事件時序與樣本限制。</p>
+              <span class="entry-card__arrow" aria-hidden="true">→</span>
+            </a>
+          </div>
+          <p class="legal-note">資料來源：留友封使用者自願上傳的匿名聚合資料。公開方法論的目的，是讓外部能理解平台如何看見模式，也理解平台刻意不做哪些個人層級呈現。</p>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

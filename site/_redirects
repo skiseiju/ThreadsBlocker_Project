@@ -1,5 +1,7 @@
 https://threads-observe.skiseiju.com/ /platform/ 302
 https://app.skiseiju.com/ /apps/ 302
+https://app.skiseiju.com/platform https://threadsblocker.skiseiju.com/platform/ 302
+https://app.skiseiju.com/platform/ https://threadsblocker.skiseiju.com/platform/ 302
 /sitemap.xml /sitemap.xml 200
 /robots.txt /robots.txt 200
 /platform /platform/index.html 200

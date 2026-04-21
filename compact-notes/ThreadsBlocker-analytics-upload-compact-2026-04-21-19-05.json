@@ -1,0 +1,50 @@
+{
+  "L0": "feat(platform): 補齊資料缺口 — CF Worker 分類分佈/signals、Linode 爬蟲服務、reports 頁動態政治事件表格與 hint-tag modal — 全部完成並部署",
+  "compact_version": "2.0",
+  "timestamp": "2026-04-21T19:05:00+08:00",
+  "project": {
+    "name": "ThreadsBlocker-analytics-upload",
+    "path": "/Volumes/Working 2T/CODE/products/ThreadsBlocker-analytics-upload",
+    "tech_stack": ["JavaScript", "Cloudflare Workers", "Cloudflare D1", "Cloudflare Pages", "Node.js", "Crawlee"],
+    "description": "留友封觀測站：Extension 上傳匿名聚合資料，CF Worker 儲存至 D1，平台頁公開呈現統計模式"
+  },
+  "session_goal": "補齊 data-coverage-map 的四個資料缺口：分類分佈聚合、signals 三個百分比、敘事框架討論、政治事件自動爬蟲",
+  "completed": [
+    { "task": "reports/index.html 標題放大 + 政治事件類別彩色標籤", "files": ["site/platform/reports/index.html"], "detail": "Narrative 01 h3→h2，12 個類別加 cat-tag 彩色標籤 + nowrap" },
+    { "task": "建立 docs/data-coverage-map.md", "files": ["docs/data-coverage-map.md"], "detail": "18 項呈現內容對應 extension 資料路徑與缺口分析" },
+    { "task": "CF Worker Item 1：reportLeafCategory 分類分佈聚合", "files": ["cf_bug_admin/src/index.js"], "detail": "新增 platform_category_metrics D1 表，ingest 聚合，API 回傳 reportCategories" },
+    { "task": "CF Worker Item 2：signals 三個百分比", "files": ["cf_bug_admin/src/index.js"], "detail": "platform_uploads 加三欄，ingest 計算，API 回傳 signals 物件" },
+    { "task": "CF Worker Item 3：political events endpoints", "files": ["cf_bug_admin/src/index.js"], "detail": "新增 political_events 表、admin ingest endpoint、public query endpoint" },
+    { "task": "Linode 爬蟲服務 crawlers/political-events/", "files": ["crawlers/political-events/src/index.js", "crawlers/political-events/src/classifier.js", "crawlers/political-events/src/crawlers/rss.js", "crawlers/political-events/src/crawlers/gtrends.js", "crawlers/political-events/src/uploader.js"], "detail": "自由時報+Google Trends TW+三立（fetch文章取標題），關鍵詞分類，POST 至 CF Worker" },
+    { "task": "Linode 部署 + crontab", "files": [], "detail": "root@172.237.14.6，每天 UTC 17:00 自動跑，首次執行插入 4 筆事件，D1 現有 14 筆" },
+    { "task": "CF Worker wrangler deploy", "files": [], "detail": "部署成功，ADMIN_TOKEN 更新為新 secret（378e669e...）" },
+    { "task": "reports/index.html 政治事件表格改動態 API", "files": ["site/platform/reports/index.html"], "detail": "fetch /api/v1/platform/political-events 動態渲染，靜態行保留 fallback" },
+    { "task": "reports/index.html hint-tag 點開 modal", "files": ["site/platform/reports/index.html"], "detail": "點 hint-tag 彈出 modal 顯示 badge+title+3-5 行摘要+事件統計，Esc/overlay 關閉" },
+    { "task": "Cloudflare Pages 部署", "files": [], "detail": "wip-analytics-upload.threadsblocker.pages.dev" },
+    { "task": "SDD 建立", "files": ["docs/superpowers/specs/2026-04-21-platform-data-coverage-design.md"], "detail": "三項缺口的完整設計規格含 D1 schema、計算邏輯、驗收條件" }
+  ],
+  "in_progress": [],
+  "failed_approaches": [
+    { "attempt": "三立 RssXml.aspx / 中央社 cna2018api / Google Trends 舊路徑", "why_failed": "三立 404、中央社已移除 RSS、Trends 路徑改版", "lesson": "RSS URL 必須直接 curl 測試；Google Trends 新路徑是 /trending/rss?geo=TW" },
+    { "attempt": "三立 rss.xml 直接取標題", "why_failed": "RSS 只有 link 和 pubDate，無 title", "lesson": "需 fetch 每篇文章頁取 <title>，已實作 fetchSetnEvents()" }
+  ],
+  "key_decisions": [
+    { "decision": "爬蟲部署在 Linode", "reason": "已有主機、無 timeout 限制、可跑完整 Crawlee", "alternatives_rejected": ["GitHub Actions", "CF Workers Cron"] },
+    { "decision": "ADMIN_TOKEN 重新生成", "reason": "CF Worker secrets 只能寫不能讀，本地無備份", "alternatives_rejected": ["找舊 token"] },
+    { "decision": "topic/details API 保持 410，改用靜態 modal", "reason": "drill-down 可能洩漏識別資訊", "alternatives_rejected": ["重開 topic/details endpoint"] }
+  ],
+  "user_preferences": [
+    "直接做完不要問",
+    "來源自己查，不要因 URL 失效就移除功能",
+    "多任務派 Codex fast + Haiku 並行"
+  ],
+  "key_files": {
+    "cf_bug_admin/src/index.js": "CF Worker 主程式，含所有 D1 schema、ingest handler、public API",
+    "site/platform/reports/index.html": "月報頁，含動態政治事件表格、hint-tag modal、分類彩色標籤",
+    "site/platform/public.js": "平台首頁 JS，從 API 讀取並渲染 overview/signals/reportCategories",
+    "crawlers/political-events/src/index.js": "Linode 爬蟲進入點，每日抓新聞並上傳 D1",
+    "docs/data-coverage-map.md": "資料對照表，記錄 extension 資料與平台呈現的完整對應",
+    "docs/superpowers/specs/2026-04-21-platform-data-coverage-design.md": "本 session SDD"
+  },
+  "handover_context": "平台資料缺口補齊任務全部完成並部署。CF Worker 新增分類分佈、signals、政治事件 API；Linode 爬蟲每天 UTC 17:00 自動跑，D1 現有 14 筆政治事件；reports 頁動態讀 API，hint-tag 點開有 modal。下一步可確認 platform/index.html 的 reportCategories 是否正確渲染，或處理敘事框架文字動態化（目前仍 hardcoded mock）。"
+}

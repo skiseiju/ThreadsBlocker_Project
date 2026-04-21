@@ -3,857 +3,203 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="ThreadsBlocker 公開資訊平台：上傳匿名聚合資料後即時查看最新議題趨勢。">
-  <meta property="og:title" content="ThreadsBlocker 公開資訊平台">
-  <meta property="og:description" content="上傳匿名聚合資料後即時查看最新議題趨勢。">
+  <meta name="description" content="留友封觀測站以匿名聚合資料呈現事件量趨勢與重要事件時序對照。">
+  <meta property="og:title" content="留友封觀測站">
+  <meta property="og:description" content="以匿名聚合資料觀察近 30 日的封鎖、檢舉與重要事件時序。">
   <meta property="og:type" content="website">
-  <title>ThreadsBlocker 公開資訊平台</title>
-  <style>
-    :root {
-      --bg: #faf9f7;
-      --surface: #ffffff;
-      --s2: #f5f2ed;
-      --border: #e7e2da;
-      --border2: #d1c8bc;
-      --text: #1c1917;
-      --muted: #78716c;
-      --muted2: #a8a29e;
-      --ai: #2563eb;
-      --political: #ea580c;
-      --misogynist: #dc2626;
-      --safe: #16a34a;
-      --purple: #7c3aed;
-      --fake-high: #b91c1c;
-      --fake-med: #c2410c;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
-    a { color: var(--ai); text-decoration: none; } a:hover { text-decoration: underline; }
-    .wrap { max-width: 960px; margin: 0 auto; padding: 0 20px 80px; }
-    .topnav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 20px; display: flex; align-items: center; height: 52px; gap: 12px; }
-    .nav-brand { font-size: 15px; font-weight: 800; color: var(--text); }
-    .nav-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--safe); margin-right: 6px; animation: blink 2s infinite; }
-    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
-    .nav-ts { font-size: 12px; color: var(--muted2); margin-left: auto; }
-    .hero { padding: 64px 0 48px; text-align: center; border-bottom: 1px solid var(--border); margin-bottom: 48px; }
-    .hero-eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--misogynist); margin-bottom: 16px; }
-    .hero-headline { font-size: clamp(26px, 4vw, 42px); font-weight: 900; line-height: 1.25; letter-spacing: -.5px; max-width: 620px; margin: 0 auto 20px; }
-    .hero-sub { font-size: 17px; color: var(--muted); max-width: 500px; margin: 0 auto 40px; line-height: 1.65; }
-    .hero-sub strong { color: var(--text); font-weight: 800; }
-    .hero-sub .cnt { font-size: 22px; font-weight: 900; color: var(--misogynist); }
-    .hero-stats { display: flex; justify-content: center; gap: 40px; flex-wrap: wrap; }
-    .hero-stat { text-align: center; }
-    .hero-stat-v { font-size: 44px; font-weight: 900; line-height: 1; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
-    .hero-stat-k { font-size: 13px; color: var(--muted); }
-    .section { margin-bottom: 48px; }
-    .section-head { margin-bottom: 20px; }
-    .section-head h2 { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
-    .section-head p { font-size: 14px; color: var(--muted); }
-    /* 5-card grid */
-    .five-card-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; margin-bottom: 40px; }
-    .five-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 22px 18px; cursor: pointer; transition: box-shadow .15s, transform .15s; user-select: none; }
-    .five-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,.09); transform: translateY(-2px); }
-    .five-card.ai { border-top: 3px solid var(--ai); grid-column: span 2; }
-    .five-card.political { border-top: 3px solid var(--political); grid-column: span 2; }
-    .five-card.misogynist { border-top: 3px solid var(--misogynist); grid-column: span 2; }
-    .five-card.fake { border-top: 3px solid var(--fake-high); grid-column: span 3; }
-    .five-card.hot { border-top: 3px solid var(--purple); grid-column: span 3; }
-    .fc-icon { font-size: 26px; margin-bottom: 10px; }
-    .fc-count { font-size: 48px; font-weight: 900; line-height: 1; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
-    .five-card.ai .fc-count { color: var(--ai); }
-    .five-card.political .fc-count { color: var(--political); }
-    .five-card.misogynist .fc-count { color: var(--misogynist); }
-    .five-card.fake .fc-count { color: var(--fake-high); }
-    .five-card.hot .fc-count { color: var(--purple); }
-    .fc-type { font-size: 15px; font-weight: 800; margin-bottom: 6px; }
-    .fc-desc { font-size: 12px; color: var(--muted); line-height: 1.55; }
-    .fc-cta { font-size: 11px; font-weight: 700; margin-top: 10px; color: var(--muted2); }
-    /* attacker modal */
-    .att-modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: flex-start; justify-content: center; padding: 40px 16px; z-index: 99999; overflow-y: auto; }
-    .att-modal-card { width: min(720px,96vw); background: var(--surface); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.15); }
-    .att-modal-head { display: flex; justify-content: space-between; align-items: center; padding: 18px 22px; border-bottom: 1px solid var(--border); }
-    .att-modal-title { font-size: 17px; font-weight: 800; }
-    .att-modal-close { background: var(--s2); border: 1px solid var(--border); color: var(--muted); padding: 5px 14px; border-radius: 8px; font-size: 13px; cursor: pointer; }
-    .att-disclaimer { margin: 12px 22px; padding: 8px 12px; background: #fef9c3; border: 1px solid #fde047; border-radius: 8px; font-size: 12px; color: #713f12; }
-    .att-modal-list { padding: 10px 22px 20px; display: flex; flex-direction: column; gap: 8px; max-height: 65vh; overflow-y: auto; }
-    .att-account { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; background: var(--s2); border: 1px solid var(--border); border-radius: 8px; }
-    .att-handle { font-size: 13px; font-weight: 700; color: var(--ai); font-family: "SF Mono","Consolas",monospace; min-width: 130px; padding-top: 1px; word-break: break-all; }
-    .att-signals { font-size: 12px; color: var(--muted); line-height: 1.5; flex: 1; }
-    .att-badges { display: flex; gap: 5px; flex-shrink: 0; flex-wrap: wrap; }
-    .att-badge { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 4px; }
-    .att-badge.block { background: #fef2f2; color: var(--misogynist); }
-    .att-badge.report { background: #f5f3ff; color: var(--purple); }
-    /* fake topic accordion */
-    .fake-list { display: flex; flex-direction: column; gap: 8px; }
-    .fake-item { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; border-left: 4px solid; }
-    .fake-item.critical { border-left-color: var(--fake-high); }
-    .fake-item.high { border-left-color: var(--political); }
-    .fake-item.medium { border-left-color: #d97706; }
-    .fake-item summary { padding: 14px 16px; cursor: pointer; display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; list-style: none; user-select: none; }
-    .fake-item summary:hover { background: var(--s2); }
-    .fa-left { display: flex; flex-direction: column; gap: 6px; }
-    .fa-label { font-size: 15px; font-weight: 700; line-height: 1.35; }
-    .fa-bar { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; max-width: 240px; }
-    .fa-bar-fill { height: 100%; border-radius: 2px; }
-    .fake-item.critical .fa-bar-fill { background: var(--fake-high); }
-    .fake-item.high .fa-bar-fill { background: var(--political); }
-    .fake-item.medium .fa-bar-fill { background: #d97706; }
-    .fa-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
-    .fa-score { font-size: 28px; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
-    .fake-item.critical .fa-score { color: var(--fake-high); }
-    .fake-item.high .fa-score { color: var(--political); }
-    .fake-item.medium .fa-score { color: #d97706; }
-    .fa-score-k { font-size: 10px; color: var(--muted2); }
-    .fa-chevron { font-size: 11px; color: var(--muted2); margin-top: 4px; transition: transform .2s; }
-    .fake-item[open] .fa-chevron { transform: rotate(180deg); }
-    .fa-detail { padding: 0 16px 14px; border-top: 1px solid var(--border); background: var(--s2); }
-    .fa-evidence { font-size: 13px; color: var(--muted); line-height: 1.6; padding: 10px 0 8px; }
-    .fa-link { font-size: 12px; }
-    /* upload section */
-    .upload-section { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 28px; margin-bottom: 48px; }
-    .upload-hero { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
-    .upload-count-badge { background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 12px; padding: 12px 20px; text-align: center; min-width: 100px; }
-    .upload-count-n { font-size: 36px; font-weight: 900; color: var(--safe); line-height: 1; font-variant-numeric: tabular-nums; }
-    .upload-count-k { font-size: 12px; color: #059669; margin-top: 2px; }
-    .upload-text h3 { font-size: 17px; font-weight: 800; margin-bottom: 4px; }
-    .upload-text p { font-size: 13px; color: var(--muted); line-height: 1.6; }
-    .upload-form { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 16px; border-top: 1px solid var(--border); }
-    .upload-form input[type="file"] { font: inherit; color: var(--muted); background: var(--s2); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font-size: 13px; flex: 1; min-width: 180px; }
-    .upload-form button { font: inherit; cursor: pointer; border-radius: 8px; padding: 8px 18px; font-size: 13px; font-weight: 700; background: var(--safe); border: none; color: #fff; white-space: nowrap; }
-    .upload-form button:hover { filter: brightness(1.08); }
-    .upload-status { font-size: 12px; color: var(--muted2); margin-top: 8px; }
-    .upload-status.err { color: var(--misogynist); }
-    /* chart */
-    .chart-section { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 24px; margin-bottom: 48px; }
-    .chart-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
-    .chart-head h2 { font-size: 17px; font-weight: 800; }
-    .chart-legend { display: flex; gap: 14px; font-size: 12px; }
-    .chart-legend-item { display: flex; align-items: center; gap: 5px; }
-    .chart-legend-dot { width: 10px; height: 10px; border-radius: 50%; }
-    .chart-note { font-size: 11px; color: var(--muted2); margin-top: 6px; }
-    .footer-note { text-align: center; font-size: 12px; color: var(--muted2); padding: 24px 0; border-top: 1px solid var(--border); margin-top: 48px; }
-    .topic-modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: flex-start; justify-content: center; padding: 40px 16px; z-index: 99999; overflow-y: auto; }
-    .topic-modal-card { width: min(780px,96vw); background: var(--surface); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.15); }
-    .topic-modal-head { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid var(--border); }
-    #topicModalTitle { font-size: 18px; font-weight: 800; }
-    .topic-modal-close { background: var(--s2); border: 1px solid var(--border); color: var(--muted); padding: 6px 14px; border-radius: 8px; font-size: 13px; cursor: pointer; }
-    #topicModalMeta { padding: 10px 24px; font-size: 12px; color: var(--muted2); border-bottom: 1px solid var(--border); background: var(--s2); }
-    .topic-modal-list { padding: 16px 24px; display: flex; flex-direction: column; gap: 12px; max-height: 65vh; overflow-y: auto; }
-    .topic-modal-list .item { background: var(--s2); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
-    .topic-modal-list .item .title { font-size: 14px; font-weight: 700; margin-bottom: 5px; }
-    .topic-modal-list .item .reason { font-size: 12px; color: var(--muted); line-height: 1.55; margin-top: 5px; }
-    .topic-modal-list .item .topic-rank { float: right; margin-left: 8px; font-size: 11px; font-weight: 800; color: var(--muted2); font-family: "SF Mono","Consolas","Courier New",monospace; }
-    .topic-explain { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
-    .topic-explain-item { font-size: 11px; padding: 2px 7px; border-radius: 4px; background: var(--surface); color: var(--muted); border: 1px solid var(--border); }
-    .url { color: var(--ai); word-break: break-all; }
-    .empty { padding: 20px; text-align: center; font-size: 13px; color: var(--muted2); }
-    @media(max-width: 640px) {
-      .five-card-grid { grid-template-columns: 1fr; }
-      .five-card.ai, .five-card.political, .five-card.misogynist, .five-card.fake, .five-card.hot { grid-column: span 1; }
-      .hero-stats { gap: 24px; }
-      .upload-hero { flex-direction: column; align-items: flex-start; }
-    }
-  </style>
+  <title>留友封觀測站</title>
+  <link rel="stylesheet" href="/platform/styles.css">
 </head>
 <body>
-<nav class="topnav">
-  <span class="nav-brand"><span class="nav-dot"></span>ThreadsBlocker 公開資訊平台</span>
-  <span class="nav-ts">更新：<span id="lastUpdated">-</span></span>
-</nav>
-<div class="wrap">
-  <section class="hero">
-    <div class="hero-eyebrow">⚠ 資訊環境警示</div>
-    <h1 class="hero-headline">你在 Threads 看到的，有一部分不是真實的民意</h1>
-    <p class="hero-sub">留友封用戶在過去 <strong id="heroDays">30</strong> 天內，偵測到 <span class="cnt" id="heroCount">-</span> 個帳號正在系統性地破壞 Threads 的討論環境</p>
-    <div class="hero-stats">
-      <div class="hero-stat"><div class="hero-stat-v" id="heroFakeCount" style="color:var(--fake-high)">-</div><div class="hero-stat-k">假議題</div></div>
-      <div class="hero-stat"><div class="hero-stat-v" id="heroBotCount" style="color:var(--political)">-</div><div class="hero-stat-k">帶風向帳號</div></div>
-      <div class="hero-stat"><div class="hero-stat-v" id="heroSourceCount" style="color:var(--ai)">-</div><div class="hero-stat-k">高影響來源</div></div>
-    </div>
-  </section>
-  <div class="section">
-    <div class="section-head"><h2>是誰在破壞？</h2><p>點選分類查看相關帳號與議題</p></div>
-    <div class="five-card-grid">
-      <div class="five-card ai" id="cardAi" onclick="openAttackerModal('ai')">
-        <div class="fc-icon">🤖</div>
-        <div class="fc-count" id="aiCount">-</div>
-        <div class="fc-type">AI 機器人</div>
-        <div class="fc-desc">自動化帳號，24 小時不停發文、複製模板內容，以數量壓制真實聲音。</div>
-        <div class="fc-cta">點選查看帳號 →</div>
+  <div class="page-shell">
+    <header class="top-nav" aria-label="主導覽">
+      <div class="top-nav__inner">
+        <a class="brand" href="/platform/">留友封觀測站</a>
+        <nav class="top-nav__links">
+          <a href="/platform/methodology/">方法論</a>
+          <a href="/platform/reports/">月報</a>
+        </nav>
       </div>
-      <div class="five-card political" id="cardPolitical" onclick="openAttackerModal('political')">
-        <div class="fc-icon">📢</div>
-        <div class="fc-count" id="politicalCount">-</div>
-        <div class="fc-type">政治狂熱者</div>
-        <div class="fc-desc">真人操作，不在乎事實、只求抹黑對方，用情緒性語言操控輿論走向。</div>
-        <div class="fc-cta">點選查看帳號 →</div>
-      </div>
-      <div class="five-card misogynist" id="cardMisogynist" onclick="openAttackerModal('misogynist')">
-        <div class="fc-icon">😤</div>
-        <div class="fc-count" id="misogynistCount">-</div>
-        <div class="fc-type">噁男</div>
-        <div class="fc-desc">針對特定群體進行仇恨騷擾，散播仇女、歧視性內容污染討論空間。</div>
-        <div class="fc-cta">點選查看帳號 →</div>
-      </div>
-      <div class="five-card fake" id="cardFake" onclick="openFakeModal()">
-        <div class="fc-icon">🚨</div>
-        <div class="fc-count" id="fakeCount">-</div>
-        <div class="fc-type">他們在散布什麼？</div>
-        <div class="fc-desc">偵測到的帶風向議題，分數越高代表越不像真實輿論。</div>
-        <div class="fc-cta">點選查看假議題 →</div>
-      </div>
-      <div class="five-card hot" id="cardHot" onclick="openHotModal()">
-        <div class="fc-icon">🔥</div>
-        <div class="fc-count" id="hotCount">-</div>
-        <div class="fc-type">熱門議題列表</div>
-        <div class="fc-desc">目前被大量封鎖或檢舉帳號涉及的熱門討論議題。</div>
-        <div class="fc-cta">點選查看議題 →</div>
-      </div>
-    </div>
-  </div>
-  <!-- chart -->
-  <div class="chart-section">
-    <div class="chart-head">
-      <h2>帶風向行為趨勢</h2>
-      <div class="chart-legend">
-        <div class="chart-legend-item"><div class="chart-legend-dot" style="background:#2563eb"></div>AI 機器人</div>
-        <div class="chart-legend-item"><div class="chart-legend-dot" style="background:#ea580c"></div>政治狂熱者</div>
-        <div class="chart-legend-item"><div class="chart-legend-dot" style="background:#dc2626"></div>噁男</div>
-      </div>
-    </div>
-    <div id="trendChart"></div>
-    <div class="chart-note">* 各分類數值依帳號比例從總事件數估算</div>
-  </div>
-  <!-- hidden compat: fake/hot topic cards for modals -->
-  <div style="display:none">
-    <div class="fake-list" id="fakeTopicCards"></div>
-    <table><tbody id="fakeTopicRows"></tbody></table>
-    <div class="topic-cards" id="platformTopicsCards"></div>
-    <table><tbody id="platformTopicsRows"></tbody></table>
-    <div id="platformNarrativeCards"></div>
-    <table><tbody id="platformNarrativeRows"></tbody></table>
-  </div>
-  <div class="section">
-    <div class="section-head"><h2>加入回報</h2><p>安裝留友封後，可以將你偵測到的資料匿名上傳，幫助我們追蹤更多帶風向帳號</p></div>
-    <div class="upload-section">
-      <div class="upload-hero">
-        <div class="upload-count-badge">
-          <div class="upload-count-n" id="uploadCountDisplay">-</div>
-          <div class="upload-count-k">次資料上傳</div>
+    </header>
+
+    <main>
+      <section class="hero hero--tinted">
+        <div class="section-inner hero__content">
+          <p class="section-kicker">Civic Signal Observatory</p>
+          <h1 id="heroHeadline">台灣是 Threads 全球流量最高的市場之一　你以為跟你對話的是真人嗎？</h1>
+          <p id="heroSubtitle" class="hero__subtitle">留友封觀測站試著用匿名聚合資料來回答這個問題</p>
+          <p class="legal-note">依《個人資料保護法》，本站僅呈現匿名聚合統計與現象觀察，不公開使用者帳號 ID 或個別貼文連結。</p>
+          <p id="heroDateRange" class="hero__meta">--</p>
         </div>
-        <div class="upload-text">
-          <h3>已有 <span id="uploadCountText">-</span> 批次的使用者資料貢獻</h3>
-          <p>每一筆上傳都是匿名的聚合資料，不含個人識別資訊。你的回報幫助整個社群看清楚誰在帶風向。</p>
+      </section>
+
+      <section class="key-numbers section-alt" aria-labelledby="numbersTitle">
+        <div class="section-inner">
+          <h2 id="numbersTitle" class="section-title">三個關鍵數字</h2>
+          <div class="stats-row">
+            <article class="stat-card">
+              <p id="statEvents" class="stat-card__value">0</p>
+              <p class="stat-card__label">總事件樣本</p>
+              <p class="stat-card__sub">近30日封鎖＋檢舉</p>
+            </article>
+            <article class="stat-card">
+              <p id="statCoordinated" class="stat-card__value">0</p>
+              <p class="stat-card__label">疑似協調帳號</p>
+              <p class="stat-card__sub">高信號來源牽涉的帳號樣本數</p>
+            </article>
+            <article class="stat-card">
+              <p id="statContributors" class="stat-card__value">0</p>
+              <p class="stat-card__label">位真人貢獻資料</p>
+              <p class="stat-card__sub">匿名上傳，不含個資</p>
+            </article>
+          </div>
         </div>
-      </div>
-      <div class="upload-form">
-        <input id="platformJsonFile" type="file" accept="application/json,.json">
-        <button id="uploadPlatformJson">上傳我的資料</button>
-      </div>
-      <div id="uploadStatus" class="upload-status"></div>
-    </div>
+      </section>
+
+      <section class="categories-section" aria-labelledby="categoriesTitle">
+        <div class="section-inner">
+          <div class="section-heading">
+            <h2 id="categoriesTitle" class="section-title">檢舉分類分佈</h2>
+            <p class="section-copy">使用者檢舉事件依 Threads 原生分類統計，呈現近 30 日匿名聚合樣本中各類型的佔比。</p>
+          </div>
+          <div id="categoriesList" class="categories-list">載入中。</div>
+        </div>
+      </section>
+
+      <section class="trend-section" aria-labelledby="trendTitle">
+        <div class="section-inner">
+          <div class="section-heading">
+            <h2 id="trendTitle" class="section-title">事件量趨勢 × 重要事件</h2>
+            <p class="section-copy">每次重大事件出現，封鎖/檢舉量就跟著爆增——這不是巧合。這些帳號不是隨機騷擾，而是在特定議題出現時被協調動員的。圖中標記為外部參考節點，不代表已證實因果關係。</p>
+          </div>
+          <div class="chart-card">
+            <div id="trendChart" class="chart-shell" aria-live="polite"></div>
+            <div id="trendEventDetail" class="chart-detail">載入中。</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="narratives-section section-alt" aria-labelledby="narrativesTitle">
+        <div class="section-inner">
+          <div class="section-heading">
+            <h2 id="narrativesTitle" class="section-title">近期熱門協調敘事</h2>
+            <p class="section-copy">近六個月匿名聚合樣本中重複出現的敘事框架，按事件量排序。高信號代表樣本中出現明顯的協調特徵。</p>
+          </div>
+          <div id="narrativesList" class="narratives-list">載入中。</div>
+        </div>
+      </section>
+
+      <section class="entry-section" aria-labelledby="entryTitle">
+        <div class="section-inner">
+          <h2 id="entryTitle" class="section-title">延伸閱讀</h2>
+          <div class="entry-grid">
+            <a class="entry-card" href="#narrativesTitle">
+              <span class="entry-card__eyebrow">資料入口</span>
+              <h3>完整資料分析</h3>
+              <p>四大指標、檢舉分類、熱門協調敘事框架</p>
+              <span class="entry-card__arrow" aria-hidden="true">→</span>
+            </a>
+            <a class="entry-card" href="/platform/methodology/">
+              <span class="entry-card__eyebrow">方法公開</span>
+              <h3>分析方法論</h3>
+              <p>信號計算方式、門檻定義、資料限制</p>
+              <span class="entry-card__arrow" aria-hidden="true">→</span>
+            </a>
+            <a class="entry-card" href="/platform/reports/">
+              <span class="entry-card__eyebrow">每月整理</span>
+              <h3>月報彙整</h3>
+              <p>每月公開摘要，適合媒體與研究者引用</p>
+              <span class="entry-card__arrow" aria-hidden="true">→</span>
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
   </div>
 
-  <div class="footer-note">
-    資料來源：留友封用戶自願上傳的匿名聚合資料 · <a href="https://threadsblocker.skiseiju.com/platform/">threadsblocker.skiseiju.com/platform/</a>
-  </div>
-  <div style="display:none">
-    <div id="platformStats"></div>
-    <div id="platformTrend"></div>
-    <div id="threatBanner"></div>
-    <div id="aiBotCards"></div>
-    <table><tbody id="aiBotRows"></tbody></table>
-    <div id="aiBotCommentCards"></div>
-    <table><tbody id="aiBotCommentRows"></tbody></table>
-    <div id="platformUploadCards"></div>
-    <table><tbody id="platformUploadRows"></tbody></table>
-    <button id="refreshAll"></button>
-    <button id="loadMockData"></button>
-    <select id="platformDays"><option value="30" selected>30</option></select>
-    <select id="platformTop"><option value="15" selected>15</option></select>
-  </div>
-</div>
-<div id="attModal" class="att-modal" onclick="if(event.target===this)closeAttModal()">
-  <div class="att-modal-card">
-    <div class="att-modal-head">
-      <span class="att-modal-title" id="attModalTitle"></span>
-      <button class="att-modal-close" onclick="closeAttModal()">關閉</button>
-    </div>
-    <div class="att-disclaimer">⚠ 以下帳號依行為特徵推斷，非確定性認定。</div>
-    <div class="att-modal-list" id="attModalList"></div>
-  </div>
-</div>
-<div id="fakeModal" class="att-modal" onclick="if(event.target===this)closeFakeModal()">
-  <div class="att-modal-card">
-    <div class="att-modal-head">
-      <span class="att-modal-title">他們在散布什麼？</span>
-      <button class="att-modal-close" onclick="closeFakeModal()">關閉</button>
-    </div>
-    <div class="att-modal-list" id="fakeModalList"></div>
-  </div>
-</div>
-<div id="hotModal" class="att-modal" onclick="if(event.target===this)closeHotModal()">
-  <div class="att-modal-card">
-    <div class="att-modal-head">
-      <span class="att-modal-title">熱門議題列表</span>
-      <button class="att-modal-close" onclick="closeHotModal()">關閉</button>
-    </div>
-    <div class="att-modal-list" id="hotModalList"></div>
-  </div>
-</div>
-<div id="topicModal" class="topic-modal">
-  <div class="topic-modal-card">
-    <div class="topic-modal-head">
-      <h2 id="topicModalTitle"></h2>
-      <button id="topicModalClose" class="topic-modal-close">關閉</button>
-    </div>
-    <div id="topicModalMeta"></div>
-    <div id="topicModalList" class="topic-modal-list"></div>
-  </div>
-</div>
-<script>
-  const $ = (id) => document.getElementById(id);
-  const API_BASE = 'https://threadsblocker-bug-admin.skiseiju.workers.dev';
-  const MOCK_SCALE = {
-    trendDays: 60,
-    trendChartDays: 30,
-    topicCount: 60,
-    fakeTopicCount: 60,
-    narrativeCount: 60,
-    uploadCount: 60,
-    botCount: 96,
-    commentCount: 84,
-    topicItemCount: 30,
-    attackerModalCount: 60,
-    fakeModalCount: 24,
-    hotModalCount: 24,
-    hotTopicDetailCount: 8
-  };
-  const MOCK_DATA = {
-    days: 30,
-    overview: { uploadCount: 286, totalEventCount: 148732, blockEventCount: 94108, reportEventCount: 54624, sourcePostCount: 6924, topicSeedCount: 438 },
-    dailyTrend: [
-      { day_key: '2026-03-31', total_event_count: 286, block_event_count: 182, report_event_count: 104, source_count: 17 },
-      { day_key: '2026-04-01', total_event_count: 314, block_event_count: 201, report_event_count: 113, source_count: 19 },
-      { day_key: '2026-04-02', total_event_count: 352, block_event_count: 224, report_event_count: 128, source_count: 21 },
-      { day_key: '2026-04-03', total_event_count: 401, block_event_count: 257, report_event_count: 144, source_count: 24 },
-      { day_key: '2026-04-04', total_event_count: 463, block_event_count: 298, report_event_count: 165, source_count: 26 },
-      { day_key: '2026-04-05', total_event_count: 521, block_event_count: 334, report_event_count: 187, source_count: 29 },
-      { day_key: '2026-04-06', total_event_count: 578, block_event_count: 377, report_event_count: 201, source_count: 31 },
-      { day_key: '2026-04-07', total_event_count: 612, block_event_count: 396, report_event_count: 216, source_count: 33 },
-      { day_key: '2026-04-08', total_event_count: 674, block_event_count: 438, report_event_count: 236, source_count: 35 },
-      { day_key: '2026-04-09', total_event_count: 731, block_event_count: 474, report_event_count: 257, source_count: 39 },
-      { day_key: '2026-04-10', total_event_count: 802, block_event_count: 519, report_event_count: 283, source_count: 42 },
-      { day_key: '2026-04-11', total_event_count: 846, block_event_count: 548, report_event_count: 298, source_count: 45 },
-      { day_key: '2026-04-12', total_event_count: 903, block_event_count: 584, report_event_count: 319, source_count: 47 },
-      { day_key: '2026-04-13', total_event_count: 962, block_event_count: 621, report_event_count: 341, source_count: 49 },
-      { day_key: '2026-04-14', total_event_count: 1018, block_event_count: 663, report_event_count: 355, source_count: 53 },
-      { day_key: '2026-04-15', total_event_count: 1094, block_event_count: 714, report_event_count: 380, source_count: 57 },
-      { day_key: '2026-04-16', total_event_count: 1158, block_event_count: 752, report_event_count: 406, source_count: 60 },
-      { day_key: '2026-04-17', total_event_count: 1233, block_event_count: 803, report_event_count: 430, source_count: 64 },
-      { day_key: '2026-04-18', total_event_count: 1312, block_event_count: 857, report_event_count: 455, source_count: 68 },
-      { day_key: '2026-04-19', total_event_count: 1398, block_event_count: 911, report_event_count: 487, source_count: 73 }
-    ],
-    topTopics: [
-      { topic_label: '政治操作 / 情緒動員', event_count: 1820, account_count: 923, source_count: 112 },
-      { topic_label: '假議題農場', event_count: 1474, account_count: 718, source_count: 97 },
-      { topic_label: '仇恨挑釁留言', event_count: 1302, account_count: 664, source_count: 82 },
-      { topic_label: '跨平台導流洗版', event_count: 1028, account_count: 503, source_count: 68 },
-      { topic_label: '機器帳號網絡', event_count: 996, account_count: 481, source_count: 55 },
-      { topic_label: '匿名爆料影射文', event_count: 884, account_count: 436, source_count: 51 },
-      { topic_label: '斷章截圖擴散', event_count: 811, account_count: 398, source_count: 48 },
-      { topic_label: '假數據懶人包', event_count: 756, account_count: 362, source_count: 43 },
-      { topic_label: '情色羞辱騷擾串', event_count: 689, account_count: 341, source_count: 39 },
-      { topic_label: '留言區接力標註', event_count: 642, account_count: 318, source_count: 36 }
-    ],
-    topicDetails: {
-      '政治操作 / 情緒動員': [
-        { title: '今晚八點統一口徑行動文', source_url: 'https://www.threads.com/@example_a/post/AAA111', reason: '同一句型在短時間由多帳號重複發布，互相標記放大情緒。' },
-        { title: '帶立場懶人包二創圖卡', source_url: 'https://www.threads.com/@topic_push/post/POL908', reason: '圖卡資訊來源無法驗證，留言導向集中同方向動員。' },
-        { title: '情緒動員直播預告串', source_url: 'https://www.threads.com/@mood_rush/post/POL321', reason: '多個帳號同時催促「立刻分享」，文字只改少數形容詞。' },
-        { title: '標記名單接力文', source_url: 'https://www.threads.com/@brigade_wave/post/POL411', reason: '留言區集中標記特定立場帳號，形成接力推送。' },
-        { title: '單一口號洗版截圖', source_url: 'https://www.threads.com/@signal_spread/post/POL554', reason: '畫面素材重複，主標與 hashtag 幾乎完全一致。' }
-      ],
-      '假議題農場': [
-        { title: '物價全面崩盤假消息彙整', source_url: 'https://www.threads.com/@example_b/post/BBB222', reason: '引用數據與原始資料不一致，標題刻意誇張。' },
-        { title: '超商缺貨陰謀論懶人包', source_url: 'https://www.threads.com/@farm_batch/post/FARM113', reason: '把單店照片包裝成全台現象，沒有原始採樣說明。' },
-        { title: '假民調速報圖卡', source_url: 'https://www.threads.com/@poll_farm/post/FARM204', reason: '圖卡格式一致，但未標示調查單位與樣本來源。' },
-        { title: '災情數字失真轉傳文', source_url: 'https://www.threads.com/@panic_push/post/FARM367', reason: '把不同時間點資料拼接成單一事件，造成誤導。' },
-        { title: '舊新聞新包裝帶節奏', source_url: 'https://www.threads.com/@context_drop/post/FARM498', reason: '拿過期新聞當成現況，留言再補情緒性解讀。' }
-      ],
-      '仇恨挑釁留言': [
-        { title: '針對族群的挑釁貼文串', source_url: 'https://www.threads.com/@rage_flow/post/HATE556', reason: '高頻侮辱關鍵詞 + 互動帳號群聚，疑似刻意煽動。' },
-        { title: '留言區接力羞辱文', source_url: 'https://www.threads.com/@mock_hate_ring/post/HATE611', reason: '同批帳號輪流嘲諷，集中針對特定個人與群體。' },
-        { title: '以玩笑包裝歧視的長串', source_url: 'https://www.threads.com/@bait_laugh/post/HATE732', reason: '表面說反串，實際反覆複製歧視字眼。' },
-        { title: '針對女性創作者的圍攻', source_url: 'https://www.threads.com/@mob_reply/post/HATE845', reason: '留言含大量性羞辱與人格貶低，且時間高度集中。' }
-      ],
-      '跨平台導流洗版': [
-        { title: '外站連結導流口號貼', source_url: 'https://www.threads.com/@cross_link/post/LINK431', reason: '多篇內容僅改少量字詞，主要目的導向站外群組。' },
-        { title: '群組口令式轉貼文', source_url: 'https://www.threads.com/@join_now/post/LINK552', reason: '出現相同 invite wording，導向同一批聊天社群。' },
-        { title: '影片留言帶外站 QR', source_url: 'https://www.threads.com/@short_clip/post/LINK608', reason: '影片主文很短，真正行動指令都放在留言與圖片裡。' },
-        { title: '貼文與連結描述不一致', source_url: 'https://www.threads.com/@redirect_pump/post/LINK774', reason: '標題談議題，連結實際導到外站名單或表單。' }
-      ],
-      '機器帳號網絡': [
-        { title: '自動化回覆模板示例', source_url: 'https://www.threads.com/@bot_mesh/post/BOT771', reason: '回覆間隔固定、句型相似度高、跨主題重複出現。' },
-        { title: '秒回覆口號串', source_url: 'https://www.threads.com/@reply_grid/post/BOT812', reason: '大量帳號在數十秒內貼出近似文案，像批次任務。' },
-        { title: '多帳號複寫摘要文', source_url: 'https://www.threads.com/@mirror_pack/post/BOT934', reason: '同一論點改寫 4-5 種版本，明顯為模板化變體。' },
-        { title: '跨語言洗版樣本', source_url: 'https://www.threads.com/@lang_shift/post/BOT995', reason: '短時間切換繁中、簡中、英文，但語意結構幾乎相同。' }
-      ],
-      '匿名爆料影射文': [
-        { title: '未署名爆料截圖串', source_url: 'https://www.threads.com/@anon_trace/post/ANON411', reason: '只給模糊對話截圖，沒有原始上下文與查證來源。' },
-        { title: '疑似內幕人士發言', source_url: 'https://www.threads.com/@inside_hint/post/ANON502', reason: '大量使用「聽說」「有人跟我說」這類不可驗證措辭。' },
-        { title: '影射對象不點名長文', source_url: 'https://www.threads.com/@shadow_drop/post/ANON628', reason: '靠暗示堆疊情緒，讓留言自行補完特定人名。' },
-        { title: '匿名投書輪流轉貼', source_url: 'https://www.threads.com/@relay_submit/post/ANON744', reason: '多帳號同步引用同一份匿名內容，來源鏈斷裂。' }
-      ],
-      '斷章截圖擴散': [
-        { title: '只截半句的對話圖', source_url: 'https://www.threads.com/@half_quote/post/CROP319', reason: '刻意裁掉前後文，只保留最容易引起情緒的部分。' },
-        { title: '舊留言新情境截圖', source_url: 'https://www.threads.com/@frame_switch/post/CROP462', reason: '用舊留言套到新事件，造成時序錯亂。' },
-        { title: '局部高亮誤導版面', source_url: 'https://www.threads.com/@crop_alert/post/CROP538', reason: '高亮處與原文意思相反，排版強化誤讀。' },
-        { title: '拼接兩張圖製造矛盾', source_url: 'https://www.threads.com/@merge_cut/post/CROP615', reason: '把不同時間的截圖放同一張圖，暗示虛假對立。' }
-      ],
-      '假數據懶人包': [
-        { title: '一圖看懂假統計', source_url: 'https://www.threads.com/@chart_spin/post/DATA211', reason: '使用缺乏基準線的圖表，刻意放大極端變化。' },
-        { title: '來源未註明的比率表', source_url: 'https://www.threads.com/@ratio_blur/post/DATA344', reason: '只給百分比不給樣本數，無法驗證代表性。' },
-        { title: '錯把單日數據當趨勢', source_url: 'https://www.threads.com/@trend_bend/post/DATA478', reason: '用單日高點包裝成長期趨勢，解讀失真。' },
-        { title: '統計名詞誤用圖卡', source_url: 'https://www.threads.com/@numbers_drift/post/DATA583', reason: '平均值、中位數與增幅概念混用，容易誤導受眾。' }
-      ],
-      '情色羞辱騷擾串': [
-        { title: '外貌羞辱接力留言', source_url: 'https://www.threads.com/@mock_creep/post/CREEP123', reason: '內容集中在身體與性暗示，具有持續騷擾性質。' },
-        { title: '偽玩笑性騷擾圖文', source_url: 'https://www.threads.com/@mock_creep/post/CREEP247', reason: '以玩笑包裝侵犯語句，留言區互相鼓勵複製。' },
-        { title: '女性帳號出征名單', source_url: 'https://www.threads.com/@mock_creep/post/CREEP388', reason: '集中標記女性創作者，並附帶羞辱式描述。' },
-        { title: '私訊截圖恐嚇串', source_url: 'https://www.threads.com/@mock_creep/post/CREEP415', reason: '公開貼出騷擾訊息並號召更多人加入圍攻。' }
-      ],
-      '留言區接力標註': [
-        { title: '大量 @ 標記推波文', source_url: 'https://www.threads.com/@chain_ping/post/PING104', reason: '留言區出現高密度標記，讓同一批帳號陸續進場。' },
-        { title: '指定名單接龍貼', source_url: 'https://www.threads.com/@chain_ping/post/PING229', reason: '明確列出要召喚的帳號清單，互動模式高度異常。' },
-        { title: '疑似分工式回覆串', source_url: 'https://www.threads.com/@chain_ping/post/PING344', reason: '不同帳號負責不同口徑，但時間點與節奏整齊。' },
-        { title: '洗版標註圖卡', source_url: 'https://www.threads.com/@chain_ping/post/PING488', reason: '圖卡內容簡短，真正目的是在留言串快速召人。' }
-      ]
-    },
-    fakeTopics: [
-      { topic_label: '「黑箱選務」傳言鏈', narrative_score: 94, evidence: '多來源同句型、24 小時內暴增、高重複 hashtag', source_url: 'https://www.threads.com/@example_a/post/AAA111' },
-      { topic_label: '「物價全面崩盤」假消息', narrative_score: 88, evidence: '截圖內容不一致、來源帳號群聚轉發', source_url: 'https://www.threads.com/@example_b/post/BBB222' },
-      { topic_label: '「外媒證實」偽引用', narrative_score: 83, evidence: '引用鏈斷裂、關鍵詞同步洗版', source_url: 'https://www.threads.com/@example_c/post/CCC333' },
-      { topic_label: '「災情全面失控」舊圖新傳', narrative_score: 91, evidence: '舊圖重製時間線，留言補充情緒號召', source_url: 'https://www.threads.com/@panic_push/post/FARM367' },
-      { topic_label: '「民調黃金交叉」無來源圖卡', narrative_score: 86, evidence: '圖卡版型一致但未標樣本與調查單位', source_url: 'https://www.threads.com/@poll_farm/post/FARM204' },
-      { topic_label: '「匿名內幕人士爆料」影射鏈', narrative_score: 84, evidence: '來源不可驗證，靠留言區自行拼湊對象', source_url: 'https://www.threads.com/@inside_hint/post/ANON502' },
-      { topic_label: '「一圖看懂真相」假統計包', narrative_score: 82, evidence: '只給百分比不給樣本數，圖表誤導', source_url: 'https://www.threads.com/@chart_spin/post/DATA211' },
-      { topic_label: '「對話截圖鐵證」斷章拼貼', narrative_score: 80, evidence: '前後文遭裁切，關鍵時序被移除', source_url: 'https://www.threads.com/@half_quote/post/CROP319' },
-      { topic_label: '「她自己也這樣講」羞辱引戰', narrative_score: 78, evidence: '以偽玩笑形式擴散羞辱內容，留言區接力', source_url: 'https://www.threads.com/@mock_creep/post/CREEP247' },
-      { topic_label: '「快來看這串」標註召喚包', narrative_score: 76, evidence: '主要互動不在主文，而在大量 @ 標記與接龍', source_url: 'https://www.threads.com/@chain_ping/post/PING104' }
-    ],
-    topNarratives: [
-      { source_url: 'https://www.threads.com/@example_a/post/AAA111', source_owner: 'example_a', source_text_sample: '今晚八點一起出征某議題，請大量轉發。', total_event_count: 326, block_event_count: 242, report_event_count: 84, avg_signal_score: 92 },
-      { source_url: 'https://www.threads.com/@example_b/post/BBB222', source_owner: 'example_b', source_text_sample: '同文案多帳號同步發送，帶特定關鍵詞。', total_event_count: 278, block_event_count: 186, report_event_count: 92, avg_signal_score: 88 },
-      { source_url: 'https://www.threads.com/@example_c/post/CCC333', source_owner: 'example_c', source_text_sample: '刻意誤導截圖，留言區集中推播。', total_event_count: 241, block_event_count: 151, report_event_count: 90, avg_signal_score: 84 },
-      { source_url: 'https://www.threads.com/@topic_push/post/POL908', source_owner: 'topic_push', source_text_sample: '圖卡先發，留言再補情緒標語與帶隊口號。', total_event_count: 228, block_event_count: 164, report_event_count: 64, avg_signal_score: 83 },
-      { source_url: 'https://www.threads.com/@poll_farm/post/FARM204', source_owner: 'poll_farm', source_text_sample: '民調圖卡沒來源，但多帳號同步貼同版面。', total_event_count: 216, block_event_count: 138, report_event_count: 78, avg_signal_score: 86 },
-      { source_url: 'https://www.threads.com/@mock_creep/post/CREEP123', source_owner: 'mock_creep', source_text_sample: '靠性羞辱與人身攻擊吸引圍觀留言。', total_event_count: 203, block_event_count: 149, report_event_count: 54, avg_signal_score: 81 },
-      { source_url: 'https://www.threads.com/@chain_ping/post/PING104', source_owner: 'chain_ping', source_text_sample: '主文很短，真正目標是叫一批帳號來接力標註。', total_event_count: 191, block_event_count: 126, report_event_count: 65, avg_signal_score: 79 },
-      { source_url: 'https://www.threads.com/@reply_grid/post/BOT812', source_owner: 'reply_grid', source_text_sample: '秒回覆模板大量灌進同一個議題串。', total_event_count: 178, block_event_count: 118, report_event_count: 60, avg_signal_score: 87 },
-      { source_url: 'https://www.threads.com/@inside_hint/post/ANON502', source_owner: 'inside_hint', source_text_sample: '匿名爆料沒有來源，但靠暗示句型帶出特定人名。', total_event_count: 167, block_event_count: 104, report_event_count: 63, avg_signal_score: 77 },
-      { source_url: 'https://www.threads.com/@chart_spin/post/DATA211', source_owner: 'chart_spin', source_text_sample: '錯用圖表比例製造劇烈變化感。', total_event_count: 153, block_event_count: 97, report_event_count: 56, avg_signal_score: 74 }
-    ],
-    recentUploads: [
-      { id: 28, created_at: '2026-04-19T11:15:03.120Z', exporter_version: '2.6.0-beta3', total_event_count: 967, source_post_count: 43, topic_seed_count: 12 },
-      { id: 27, created_at: '2026-04-19T09:32:47.018Z', exporter_version: '2.6.0-beta3', total_event_count: 891, source_post_count: 41, topic_seed_count: 11 },
-      { id: 26, created_at: '2026-04-18T22:20:11.554Z', exporter_version: '2.6.0-beta2', total_event_count: 819, source_post_count: 38, topic_seed_count: 10 },
-      { id: 25, created_at: '2026-04-18T18:44:19.000Z', exporter_version: '2.6.0-beta2', total_event_count: 774, source_post_count: 36, topic_seed_count: 10 },
-      { id: 24, created_at: '2026-04-18T15:16:03.000Z', exporter_version: '2.6.0-beta2', total_event_count: 741, source_post_count: 35, topic_seed_count: 9 },
-      { id: 23, created_at: '2026-04-18T12:01:41.000Z', exporter_version: '2.6.0-beta1', total_event_count: 698, source_post_count: 33, topic_seed_count: 9 },
-      { id: 22, created_at: '2026-04-18T08:29:12.000Z', exporter_version: '2.6.0-beta1', total_event_count: 663, source_post_count: 31, topic_seed_count: 8 },
-      { id: 21, created_at: '2026-04-17T23:57:54.000Z', exporter_version: '2.6.0-beta1', total_event_count: 614, source_post_count: 29, topic_seed_count: 8 },
-      { id: 20, created_at: '2026-04-17T20:31:28.000Z', exporter_version: '2.5.9-beta9', total_event_count: 587, source_post_count: 27, topic_seed_count: 7 },
-      { id: 19, created_at: '2026-04-17T17:04:38.000Z', exporter_version: '2.5.9-beta9', total_event_count: 544, source_post_count: 26, topic_seed_count: 7 },
-      { id: 18, created_at: '2026-04-17T12:43:11.000Z', exporter_version: '2.5.9-beta8', total_event_count: 511, source_post_count: 24, topic_seed_count: 6 }
-    ],
-    suspectedAiBots: [
-      { account_id: 'user_9x3a_bot', ai_probability: 0.97, block_event_count: 28, report_event_count: 11, signals: '貼文節奏固定、回覆模板重複、深夜高頻', source_url: 'https://www.threads.com/@user_9x3a_bot/post/AAA111' },
-      { account_id: 'tw_news_sync_77', ai_probability: 0.93, block_event_count: 22, report_event_count: 7, signals: '多語切換異常、跨主題秒回覆', source_url: 'https://www.threads.com/@tw_news_sync_77/post/BBB222' },
-      { account_id: 'trend_mirror_204', ai_probability: 0.89, block_event_count: 19, report_event_count: 6, signals: '相同語義改寫、連續貼文間隔一致', source_url: 'https://www.threads.com/@trend_mirror_204/post/CCC333' },
-      { account_id: 'reply_grid_880', ai_probability: 0.91, block_event_count: 18, report_event_count: 5, signals: '自動補留言、固定時間差、同關鍵詞改寫', source_url: 'https://www.threads.com/@reply_grid/post/BOT812' },
-      { account_id: 'lang_shift_44', ai_probability: 0.87, block_event_count: 16, report_event_count: 5, signals: '中英混雜切換異常、模板句反覆出現', source_url: 'https://www.threads.com/@lang_shift/post/BOT995' },
-      { account_id: 'mirror_pack_22', ai_probability: 0.84, block_event_count: 15, report_event_count: 4, signals: '模板變體複製、句型高度相似、連續發送', source_url: 'https://www.threads.com/@mirror_pack/post/BOT934' },
-      { account_id: 'tag_rush_205', ai_probability: 0.68, block_event_count: 14, report_event_count: 6, signals: '政治標籤洗版、情緒動員、不回應查證', source_url: 'https://www.threads.com/@brigade_wave/post/POL411' },
-      { account_id: 'storyframe_71', ai_probability: 0.61, block_event_count: 13, report_event_count: 5, signals: '抹黑敘事重複、情緒詞堆疊、帶風向口號', source_url: 'https://www.threads.com/@signal_spread/post/POL554' },
-      { account_id: 'pollflare_18', ai_probability: 0.58, block_event_count: 12, report_event_count: 5, signals: '政治口號接龍、假民調轉貼、選邊動員', source_url: 'https://www.threads.com/@poll_farm/post/FARM204' },
-      { account_id: 'panicqueue_90', ai_probability: 0.55, block_event_count: 11, report_event_count: 4, signals: '誇張標題重複、抹黑對手、留言區帶風向', source_url: 'https://www.threads.com/@panic_push/post/FARM367' },
-      { account_id: 'crophunter_33', ai_probability: 0.57, block_event_count: 10, report_event_count: 4, signals: '斷章截圖反覆貼、情緒引導、政治引戰', source_url: 'https://www.threads.com/@half_quote/post/CROP319' },
-      { account_id: 'creepwave_11', ai_probability: 0.36, block_event_count: 13, report_event_count: 7, signals: '仇女羞辱、性暗示騷擾、針對女性創作者', source_url: 'https://www.threads.com/@mock_creep/post/CREEP123' },
-      { account_id: 'dm_leak_73', ai_probability: 0.29, block_event_count: 12, report_event_count: 8, signals: '騷擾性恐嚇、羞辱字眼、群體圍攻', source_url: 'https://www.threads.com/@mock_creep/post/CREEP415' },
-      { account_id: 'baitlaugh_62', ai_probability: 0.31, block_event_count: 11, report_event_count: 7, signals: '以玩笑包裝歧視、仇女詞彙、持續騷擾', source_url: 'https://www.threads.com/@bait_laugh/post/HATE732' },
-      { account_id: 'mobreply_02', ai_probability: 0.33, block_event_count: 10, report_event_count: 6, signals: '性羞辱接龍、女性目標集中、騷擾留言', source_url: 'https://www.threads.com/@mob_reply/post/HATE845' },
-      { account_id: 'taglist_88', ai_probability: 0.49, block_event_count: 9, report_event_count: 4, signals: '留言標記召喚、分工式回覆、政治口徑重複', source_url: 'https://www.threads.com/@chain_ping/post/PING229' }
-    ],
-    aiBotComments: [
-      { source_url: 'https://www.threads.com/@example_a/post/AAA111', account_id: 'user_9x3a_bot', comment_text: '這議題早就被證實了，大家快轉傳讓更多人知道！', ai_confidence: 0.96 },
-      { source_url: 'https://www.threads.com/@example_b/post/BBB222', account_id: 'tw_news_sync_77', comment_text: '主流媒體都不敢報，這才是真相，請頂上去。', ai_confidence: 0.92 },
-      { source_url: 'https://www.threads.com/@example_c/post/CCC333', account_id: 'trend_mirror_204', comment_text: '重點整理：官方數據已經打臉，留言區補證據連結。', ai_confidence: 0.89 },
-      { source_url: 'https://www.threads.com/@reply_grid/post/BOT812', account_id: 'reply_grid_880', comment_text: '同意這篇，證據都很清楚，請大家現在就擴散。', ai_confidence: 0.88 },
-      { source_url: 'https://www.threads.com/@brigade_wave/post/POL411', account_id: 'tag_rush_205', comment_text: '先標起來，讓更多人知道對面又在洗地。', ai_confidence: 0.67 },
-      { source_url: 'https://www.threads.com/@signal_spread/post/POL554', account_id: 'storyframe_71', comment_text: '這麼明顯還有人看不懂？留言區自己看就知道。', ai_confidence: 0.64 },
-      { source_url: 'https://www.threads.com/@poll_farm/post/FARM204', account_id: 'pollflare_18', comment_text: '民調都出來了，還要裝沒看見嗎？趕快分享。', ai_confidence: 0.61 },
-      { source_url: 'https://www.threads.com/@panic_push/post/FARM367', account_id: 'panicqueue_90', comment_text: '現在不傳出去，等等就會被刪掉，快備份。', ai_confidence: 0.59 },
-      { source_url: 'https://www.threads.com/@mock_creep/post/CREEP123', account_id: 'creepwave_11', comment_text: '她不是很會講嗎，怎麼現在不敢回？', ai_confidence: 0.38 },
-      { source_url: 'https://www.threads.com/@mock_creep/post/CREEP415', account_id: 'dm_leak_73', comment_text: '這種人就該被大家一起看清楚，不要客氣。', ai_confidence: 0.36 },
-      { source_url: 'https://www.threads.com/@bait_laugh/post/HATE732', account_id: 'baitlaugh_62', comment_text: '開個玩笑而已也受不了？留言真的很玻璃。', ai_confidence: 0.34 },
-      { source_url: 'https://www.threads.com/@mob_reply/post/HATE845', account_id: 'mobreply_02', comment_text: '標一下朋友來看，這串真的太精彩了。', ai_confidence: 0.32 },
-      { source_url: 'https://www.threads.com/@chain_ping/post/PING229', account_id: 'taglist_88', comment_text: '@a @b @c 你們快來，這篇需要更多人補充。', ai_confidence: 0.52 }
-    ]
-  };
-  function escapeHtml(s) { return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;'); }
-  async function api(path, opts = {}) { const url = API_BASE.replace(/\/$/, '') + path; const res = await fetch(url, opts); const body = await res.json().catch(() => ({})); if (!res.ok) throw new Error(body.message || `HTTP ${res.status}`); return body; }
-  function classifyBots(bots) {
-    const list = Array.isArray(bots) ? bots : [];
-    const ai = [], political = [], misogynist = [];
-    list.forEach((b, i) => {
-      const sig = (b.signals || '').toLowerCase();
-      if (sig.includes('仇女') || sig.includes('羞辱') || sig.includes('騷擾') || sig.includes('性暗示') || sig.includes('歧視')) {
-        misogynist.push(b);
-      } else if (sig.includes('政治') || sig.includes('抹黑') || sig.includes('情緒') || sig.includes('帶風向') || sig.includes('動員') || sig.includes('口號')) {
-        political.push(b);
-      } else if (sig.includes('節奏') || sig.includes('模板') || sig.includes('固定') || sig.includes('自動') || sig.includes('間隔') || sig.includes('秒回') || sig.includes('改寫')) {
-        ai.push(b);
-      } else if (i % 3 === 1) {
-        political.push(b);
-      } else if (i % 3 === 2) {
-        misogynist.push(b);
-      } else {
-        ai.push(b);
+  <script src="/platform/public.js"></script>
+  <script>
+    (function () {
+      const heroHeadline = document.getElementById('heroHeadline');
+      const heroSubtitle = document.getElementById('heroSubtitle');
+      const heroDateRange = document.getElementById('heroDateRange');
+      const statEvents = document.getElementById('statEvents');
+      const statCoordinated = document.getElementById('statCoordinated');
+      const statContributors = document.getElementById('statContributors');
+      const trendChart = document.getElementById('trendChart');
+      const trendEventDetail = document.getElementById('trendEventDetail');
+      const rotatingHeadlines = [
+        '台灣是 Threads 全球流量最高的市場之一\n你以為跟你對話的是真人嗎？',
+        '你每天都在封鎖/檢舉的帳號\n到底為什麼處理不完？',
+        '每次爭議話題出現\n背後有多少帳號是在協調行動？',
+        '你封鎖一個帳號\n後面還有三個在等',
+        '不是每一次「輿論爆發」\n都真的來自真人',
+        '你以為是輿論\n也可能只是機器人大量複製出來的聲量',
+        '有些「網友」不會累、不會停\n因為它們根本不是人',
+      ];
+      heroHeadline.textContent = rotatingHeadlines[Math.floor(Math.random() * rotatingHeadlines.length)];
+
+      const defaultHeadline = null;
+      const defaultSubtitle = '留友封觀測站試著用匿名聚合資料來回答這個問題';
+
+      function safeValue(value, fallback) {
+        return value === undefined || value === null || value === '' ? fallback : value;
       }
-    });
-    const total = list.length;
-    if (ai.length === 0 && total > 0) ai.push(...list.slice(0, Math.ceil(total * 0.4)));
-    if (political.length === 0 && total > 0) political.push(...list.slice(Math.ceil(total * 0.4), Math.ceil(total * 0.75)));
-    if (misogynist.length === 0 && total > 0) misogynist.push(...list.slice(Math.ceil(total * 0.75)));
-    return { ai, political, misogynist };
-  }
-  // classified bots cache for modals
-  let _classified = { ai: [], political: [], misogynist: [] };
-  let _fakeTopicsCache = [];
-  let _hotTopicsCache = [];
-  let _topicDetailsCache = {};
 
-  function openAttackerModal(type) {
-    const labels = { ai: 'AI 機器人', political: '政治狂熱者', misogynist: '噁男' };
-    const accounts = _classified[type] || [];
-    $('attModalTitle').textContent = labels[type] + ` — 疑似帳號明細（前 ${MOCK_SCALE.attackerModalCount} 筆）`;
-    $('attModalList').innerHTML = accounts.slice(0, MOCK_SCALE.attackerModalCount).map(b =>
-      `<div class="att-account"><div class="att-handle">@${escapeHtml(b.account_id || b.source_owner || '未知')}</div><div class="att-signals">${escapeHtml(b.signals || b.source_text_sample || '無訊號資料')}</div>${b.source_url ? `<div style="margin-top:4px"><a href="${escapeHtml(b.source_url)}" target="_blank" style="font-size:11px;color:var(--ai)">${escapeHtml(b.source_url.replace('https://www.threads.com',''))}</a></div>` : ''}<div class="att-badges"><span class="att-badge block">封鎖 ${Number(b.block_event_count||0)}</span><span class="att-badge report">檢舉 ${Number(b.report_event_count||0)}</span></div></div>`
-    ).join('') || '<div class="empty">目前無帳號資料</div>';
-    $('attModal').style.display = 'flex';
-  }
-  function closeAttModal() { $('attModal').style.display = 'none'; }
-  function openFakeModal() {
-    const list = _fakeTopicsCache;
-    if (!list.length) { $('fakeModalList').innerHTML = '<div class="empty">目前沒有假議題資料</div>'; $('fakeModal').style.display = 'flex'; return; }
-    const sorted = [...list].sort((a, b) => Number(b.narrative_score||0) - Number(a.narrative_score||0));
-    const critical = sorted.filter(r => Number(r.narrative_score||0) >= 90);
-    const high = sorted.filter(r => { const s = Number(r.narrative_score||0); return s >= 80 && s < 90; });
-    const medium = sorted.filter(r => Number(r.narrative_score||0) < 80);
+      function resolveHeadline(data) {
+        return safeValue(data && data.summary && data.summary.headline, defaultHeadline);
+      }
 
-    // Chart 1: horizontal bar ranking
-    const barRows = sorted.slice(0, MOCK_SCALE.fakeModalCount).map(row => {
-      const score = Number(row.narrative_score||0);
-      const tier = score >= 90 ? '#b91c1c' : score >= 80 ? '#c2410c' : '#d97706';
-      const tierBg = score >= 90 ? '#fef2f2' : score >= 80 ? '#fff7ed' : '#fffbeb';
-      const label = escapeHtml((row.topic_label||'').slice(0, 22) + ((row.topic_label||'').length > 22 ? '…' : ''));
-      const pct = Math.max(2, score);
-      return `<div style="display:grid;grid-template-columns:160px 1fr 36px;align-items:center;gap:10px;margin-bottom:8px"><div style="font-size:12px;font-weight:700;color:#1c1917;line-height:1.3">${label}</div><div style="height:16px;background:#e7e2da;border-radius:4px;overflow:hidden"><div style="width:${pct}%;height:100%;background:${tier};border-radius:4px;transition:width .3s"></div></div><div style="font-size:13px;font-weight:900;color:${tier};text-align:right">${score}</div></div>`;
-    }).join('');
+      function resolveSubtitle(data) {
+        return safeValue(data && data.summary && data.summary.subtitle, defaultSubtitle);
+      }
 
-    // Chart 2: donut SVG
-    const total = list.length || 1;
-    const cCount = critical.length, hCount = high.length, mCount = medium.length;
-    const cDeg = cCount / total * 360, hDeg = hCount / total * 360, mDeg = mCount / total * 360;
-    function describeArc(cx, cy, r, startAngle, endAngle) {
-      if (endAngle - startAngle >= 360) endAngle = startAngle + 359.99;
-      const s = startAngle * Math.PI / 180, e = endAngle * Math.PI / 180;
-      const x1 = cx + r * Math.cos(s), y1 = cy + r * Math.sin(s);
-      const x2 = cx + r * Math.cos(e), y2 = cy + r * Math.sin(e);
-      const large = endAngle - startAngle > 180 ? 1 : 0;
-      return `M ${cx} ${cy} L ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z`;
-    }
-    let ang = -90;
-    const cPath = cCount ? `<path d="${describeArc(80,80,70,ang,ang+(ang+=cDeg,cDeg))}" fill="#b91c1c"/>` : ''; ang = -90 + cDeg;
-    const hPath = hCount ? `<path d="${describeArc(80,80,70,ang,ang+hDeg)}" fill="#c2410c"/>` : ''; ang += hDeg;
-    const mPath = mCount ? `<path d="${describeArc(80,80,70,ang,ang+mDeg)}" fill="#d97706"/>` : '';
-    const donutSvg = `<svg viewBox="0 0 160 160" style="width:140px;height:140px;flex-shrink:0"><circle cx="80" cy="80" r="70" fill="#e7e2da"/>${cPath}${hPath}${mPath}<circle cx="80" cy="80" r="44" fill="white"/><text x="80" y="76" text-anchor="middle" font-size="22" font-weight="900" fill="#1c1917">${total}</text><text x="80" y="93" text-anchor="middle" font-size="10" fill="#78716c">假議題</text></svg>`;
-    const donutLegend = `<div style="display:flex;flex-direction:column;gap:8px;justify-content:center"><div style="display:flex;align-items:center;gap:8px"><div style="width:12px;height:12px;border-radius:3px;background:#b91c1c;flex-shrink:0"></div><div><div style="font-size:20px;font-weight:900;color:#b91c1c;line-height:1">${cCount}</div><div style="font-size:11px;color:#78716c">極高風險 ≥90</div></div></div><div style="display:flex;align-items:center;gap:8px"><div style="width:12px;height:12px;border-radius:3px;background:#c2410c;flex-shrink:0"></div><div><div style="font-size:20px;font-weight:900;color:#c2410c;line-height:1">${hCount}</div><div style="font-size:11px;color:#78716c">高風險 80–89</div></div></div><div style="display:flex;align-items:center;gap:8px"><div style="width:12px;height:12px;border-radius:3px;background:#d97706;flex-shrink:0"></div><div><div style="font-size:20px;font-weight:900;color:#d97706;line-height:1">${mCount}</div><div style="font-size:11px;color:#78716c">中風險 &lt;80</div></div></div></div>`;
+      if (!window.PlatformPublic) {
+        trendEventDetail.textContent = '平台腳本未載入。';
+        return;
+      }
 
-    // Chart 3: evidence accordion (existing topics with text)
-    const evidenceList = sorted.slice(0, MOCK_SCALE.fakeModalCount).map(row => {
-      const score = Number(row.narrative_score||0);
-      const tier = score >= 90 ? 'critical' : score >= 80 ? 'high' : 'medium';
-      return `<details class="fake-item ${tier}" style="margin-bottom:6px"><summary><div class="fa-left"><div class="fa-label">${escapeHtml(row.topic_label||'')}</div><div class="fa-bar"><div class="fa-bar-fill" style="width:${score}%"></div></div></div><div class="fa-right"><div class="fa-score">${score}</div><div class="fa-score-k">風向分數</div><div class="fa-chevron">▼</div></div></summary><div class="fa-detail"><div class="fa-evidence">判定依據：${escapeHtml(row.evidence||'')}</div>${row.source_url ? `<a class="url fa-link" href="${escapeHtml(row.source_url)}" target="_blank">${escapeHtml(row.source_url.replace('https://www.threads.com',''))}</a>` : ''}</div></details>`;
-    }).join('');
+      window.PlatformPublic.init = async function init() {
+        const result = await window.PlatformPublic.fetchOverview();
+        const data = result && result.data ? result.data : {};
+        const eventsLoader = window.PlatformPublic.fetchPoliticalEvents || window.PlatformPublic.loadPoliticalEvents;
+        const politicalEvents = typeof eventsLoader === 'function' ? await eventsLoader() : [];
 
-    $('fakeModalList').innerHTML = `
-      <div style="margin-bottom:20px"><div style="font-size:13px;font-weight:800;color:#78716c;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">等級分佈</div><div style="display:flex;align-items:center;gap:20px">${donutSvg}${donutLegend}</div></div>
-      <div style="margin-bottom:20px;padding-top:16px;border-top:1px solid #e7e2da"><div style="font-size:13px;font-weight:800;color:#78716c;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">風向分數排行</div>${barRows}</div>
-      <div style="padding-top:16px;border-top:1px solid #e7e2da"><div style="font-size:13px;font-weight:800;color:#78716c;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">判定依據</div>${evidenceList}</div>`;
-    $('fakeModal').style.display = 'flex';
-  }
-  function closeFakeModal() { $('fakeModal').style.display = 'none'; }
-  function openHotModal() {
-    const list = _hotTopicsCache;
-    const detailMap = _topicDetailsCache;
-    $('hotModalList').innerHTML = list.slice(0, MOCK_SCALE.hotModalCount).map((row, i) => {
-      const ev = Number(row.event_count||0);
-      const label = row.topic_label || '';
-      const details = Array.isArray(detailMap[label]) ? detailMap[label] : [];
-      const detailHtml = details.slice(0, MOCK_SCALE.hotTopicDetailCount).map(item =>
-        `<div style="padding:8px 0;border-bottom:1px solid var(--border)"><div style="font-size:13px;font-weight:700;margin-bottom:3px">${escapeHtml(item.title||'')}</div><div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:4px">判定：${escapeHtml(item.reason||'')}</div>${item.source_url ? `<a href="${escapeHtml(item.source_url)}" target="_blank" style="font-size:11px;color:var(--ai)">${escapeHtml(item.source_url.replace('https://www.threads.com',''))}</a>` : ''}</div>`
-      ).join('') || '<div style="font-size:12px;color:var(--muted2);padding:6px 0">目前無文章明細</div>';
-      return `<details style="background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;overflow:hidden"><summary style="padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:10px;list-style:none;user-select:none"><span style="font-size:11px;font-weight:700;color:var(--muted2);min-width:24px">#${i+1}</span><span style="flex:1;font-size:14px;font-weight:700">${escapeHtml(label)}</span><span style="font-size:12px;color:var(--muted)">事件 ${ev.toLocaleString()}</span><span style="font-size:11px;color:var(--muted2);margin-left:6px">▼</span></summary><div style="padding:0 16px 12px;background:var(--s2)">${detailHtml}</div></details>`;
-    }).join('') || '<div class="empty">目前無議題資料</div>';
-    $('hotModal').style.display = 'flex';
-  }
-  function closeHotModal() { $('hotModal').style.display = 'none'; }
+        heroSubtitle.textContent = resolveSubtitle(data);
+        const endDate = safeValue(data && data.dateRange && data.dateRange.end, '--');
+        heroDateRange.textContent = `資料更新至 ${endDate}`;
 
-  function drawTrendChart(dailyTrend, classified) {
-    const el = $('trendChart');
-    if (!el) return;
-    const days = (Array.isArray(dailyTrend) ? dailyTrend : []).slice(-MOCK_SCALE.trendChartDays);
-    if (days.length < 2) { el.innerHTML = '<div class="empty">趨勢資料不足</div>'; return; }
-    const total = (classified.ai.length + classified.political.length + classified.misogynist.length) || 1;
-    const aiR = classified.ai.length / total;
-    const polR = classified.political.length / total;
-    const misoR = classified.misogynist.length / total;
-    const maxVal = Math.max(...days.map(d => Number(d.total_event_count||0)), 1);
-    const W = 760, H = 180, pL = 46, pR = 16, pT = 16, pB = 28;
-    const cW = W - pL - pR, cH = H - pT - pB;
-    const cx = i => pL + (i / (days.length - 1)) * cW;
-    const cy = v => pT + cH - (v / maxVal) * cH;
-    const polyline = (vals, color) => {
-      const pts = vals.map((v, i) => `${cx(i).toFixed(1)},${cy(v).toFixed(1)}`).join(' ');
-      return `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
-    };
-    const grid = [0.25,0.5,0.75,1].map(r => {
-      const yv = cy(maxVal * r);
-      return `<line x1="${pL}" y1="${yv.toFixed(1)}" x2="${W-pR}" y2="${yv.toFixed(1)}" stroke="#e7e2da" stroke-width="1"/><text x="${(pL-6).toFixed(1)}" y="${(yv+4).toFixed(1)}" text-anchor="end" font-size="10" fill="#a8a29e">${Math.round(maxVal*r)}</text>`;
-    }).join('');
-    const labelStep = days.length > 24 ? 3 : 2;
-    const xlabels = days.map((d, i) => {
-      if (i !== days.length - 1 && i % labelStep !== 0) return '';
-      const lbl = (d.day_key||'').slice(5);
-      return `<text x="${cx(i).toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="10" fill="#a8a29e">${lbl}</text>`;
-    }).join('');
-    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">${grid}${polyline(days.map(d=>Number(d.total_event_count||0)*aiR),'#2563eb')}${polyline(days.map(d=>Number(d.total_event_count||0)*polR),'#ea580c')}${polyline(days.map(d=>Number(d.total_event_count||0)*misoR),'#dc2626')}${xlabels}</svg>`;
-  }
-  function renderAttackerTypes(bots) { const cls = classifyBots(bots); _classified = cls; $('aiCount').textContent = cls.ai.length; $('politicalCount').textContent = cls.political.length; $('misogynistCount').textContent = cls.misogynist.length; }
-  function deriveTopicRowsFromNarratives(narratives, fakeTopics, minCount = 12) {
-    const narrativeList = Array.isArray(narratives) ? narratives : [];
-    const fakeList = Array.isArray(fakeTopics) ? fakeTopics : [];
-    const rows = [];
-    fakeList.slice(0, Math.min(6, minCount)).forEach((row, i) => {
-      rows.push({
-        topic_label: row.topic_label || `假議題線索 #${i + 1}`,
-        event_count: Math.max(24, 180 - i * 11),
-        account_count: Math.max(12, 96 - i * 5),
-        source_count: 1
-      });
-    });
-    narrativeList.forEach((row, i) => {
-      const sample = String(row.source_text_sample || '').replace(/\s+/g, ' ').trim();
-      const compact = sample.replace(/^#+/, '').slice(0, 28) || (row.source_owner ? `@${row.source_owner}` : `高影響來源 #${i + 1}`);
-      rows.push({
-        topic_label: compact,
-        event_count: Number(row.total_event_count || 0) || Math.max(18, 120 - i * 7),
-        account_count: Number(row.unique_account_count || row.block_event_count || 0) || Math.max(10, 72 - i * 4),
-        source_count: 1,
-        derived_source_url: row.source_url || '',
-        derived_reason: `來源貼文互動強度高，已累積 ${Number(row.total_event_count || 0)} 次事件。`
-      });
-    });
-    const deduped = [];
-    const seen = new Set();
-    rows.forEach((row) => {
-      const key = String(row.topic_label || '').trim();
-      if (!key || seen.has(key)) return;
-      seen.add(key);
-      deduped.push(row);
-    });
-    return deduped.slice(0, minCount);
-  }
-  function padTopicRows(rows, minCount = MOCK_SCALE.topicCount) { const list = Array.isArray(rows) ? rows.slice() : []; const seed = ['協同行為放大','假消息轉傳鏈','模板留言洗版','跨社群導流','情緒動員敘事','假帳號網絡','匿名爆料影射','截圖斷章誤導','留言區標註接龍','性羞辱圍攻','影像斷點拼貼','政治口號接力','假數據圖卡群','深夜秒回帳號鏈','煽動式問句模板','匿名爆料二創圖','仇恨留言圍攻','帶隊標記召喚','跨版複製文案','假民調二次擴散']; while (list.length < minCount) { const no = list.length + 1; list.push({ topic_label: seed[(no-1) % seed.length] + ` #${no}`, event_count: Math.max(180, 1760 - no * 23), account_count: Math.max(72, 880 - no * 11), source_count: Math.max(8, 126 - Math.floor(no * 1.5)) }); } return list.slice(0, minCount); }
-  function padFakeTopics(rows, minCount = MOCK_SCALE.fakeTopicCount) { const list = Array.isArray(rows) ? rows.slice() : []; const titleSeed = ['假議題候選','裁切截圖誤導包','假統計速食圖卡','匿名爆料接力鍊','跨站導流情緒包','仇恨羞辱擴散串','舊聞重包裝快報','標記召喚圍攻串','模板口號轉傳包','斷章對話鐵證包']; const evidenceSeed = ['多來源同句型大量重複', '截圖前後文遭裁切', '留言區出現異常標註召喚', '圖卡未附原始數據', '外站連結與主文內容不符', '關鍵 hashtag 在短時間同步爆量', '不同帳號只改少量詞彙就重新發文', '留言互推節奏過度整齊', '主文資訊來源鏈斷裂', '圖片時間軸與事件日期對不上']; while (list.length < minCount) { const no = list.length + 1; list.push({ topic_label: `${titleSeed[(no - 1) % titleSeed.length]} #${no}`, narrative_score: Math.max(55, 98 - Math.floor(no / 2)), evidence: `${evidenceSeed[(no - 1) % evidenceSeed.length]}（樣本 ${no}）`, source_url: `https://www.threads.com/@mock_fake_topic_${no}/post/FK${2000+no}` }); } return list.slice(0, minCount); }
-  function padNarratives(rows, minCount = MOCK_SCALE.narrativeCount) { const list = Array.isArray(rows) ? rows.slice() : []; const samples = ['同一口徑重複擴散與互推', '留言區集中召喚特定帳號', '靠情緒性標題強拉互動', '截圖與數據對不上卻被大量轉傳', '深夜集中洗版後白天再二次推播', '短句口號切成多帳號接力發布', '截圖先行再由留言補足情緒解讀', '匿名內容經過二創圖卡後快速放大']; while (list.length < minCount) { const no = list.length + 1; list.push({ source_url: `https://www.threads.com/@mock_narrative_${no}/post/NR${3000+no}`, source_owner: `mock_narrative_${no}`, source_text_sample: `議題敘事樣本 ${no}：${samples[(no - 1) % samples.length]}。`, total_event_count: Math.max(64, 820 - no * 11), block_event_count: Math.max(30, 488 - no * 7), report_event_count: Math.max(12, 212 - no * 3), avg_signal_score: Math.max(48, 95 - Math.floor(no * 1.2)) }); } return list.slice(0, minCount); }
-  function padUploads(rows, minCount = MOCK_SCALE.uploadCount) { const list = Array.isArray(rows) ? rows.slice() : []; while (list.length < minCount) { const no = list.length + 1; list.push({ id: 900 - no, created_at: new Date(Date.now() - no * 2700 * 1000).toISOString(), exporter_version: `2.6.0-beta${Math.max(1, 7 - Math.floor(no / 8))}`, total_event_count: Math.max(240, 1540 - no * 19), source_post_count: Math.max(10, 92 - Math.floor(no * 0.9)), topic_seed_count: Math.max(3, 28 - Math.floor(no / 3)) }); } return list.slice(0, minCount); }
-  function padAIBots(rows, minCount = MOCK_SCALE.botCount) { const list = Array.isArray(rows) ? rows.slice() : []; const signalSeed = ['回覆節奏固定 + 模板化語句 + 關鍵詞重複', '政治口號洗版 + 情緒動員 + 不回應查證', '仇女羞辱 + 性暗示騷擾 + 集中圍攻', '跨語言改寫 + 秒回補充 + 群聚互推', '留言標記召喚 + 口號接龍 + 帶隊動員', '斷章截圖反覆貼 + 情緒引導 + 重複標籤', '匿名爆料二創 + 模板改寫 + 短時間密集出現', '單句重複洗版 + 外站導流 + 固定發文間隔', '懶人包圖卡換殼 + 重複 hashtag + 批次回覆']; while (list.length < minCount) { const no = list.length + 1; list.push({ account_id: `mock_ai_bot_${no}`, ai_probability: Math.max(0.24, 0.98 - no * 0.008), block_event_count: Math.max(3, 58 - Math.floor(no * 0.5)), report_event_count: Math.max(1, 24 - Math.floor(no * 0.2)), signals: `${signalSeed[(no - 1) % signalSeed.length]}（樣本 ${no}）`, source_url: `https://www.threads.com/@mock_ai_bot_${no}/post/BOT${2000+no}` }); } return list.slice(0, minCount); }
-  function padAIComments(rows, minCount = MOCK_SCALE.commentCount) { const list = Array.isArray(rows) ? rows.slice() : []; const commentSeed = ['這個主題早有定論，請大家快點轉傳。', '留言區自己看就知道，這次真的藏不住了。', '先標記朋友進來，這串很重要。', '圖都整理好了，現在不擴散等什麼？', '這篇已經把重點講完了，直接轉出去。', '主流都不報，只能靠大家自己擴散。', '先把這串頂上去，晚點就會被洗掉。', '有人整理成懶人包了，照著傳就好。', '看完這篇還不轉的人真的太天真。', '關鍵內容都在留言，趕快叫朋友來看。']; while (list.length < minCount) { const no = list.length + 1; list.push({ source_url: `https://www.threads.com/@mock_comment_${no}/post/CM${4000+no}`, account_id: `mock_ai_bot_${((no - 1) % MOCK_SCALE.botCount) + 1}`, comment_text: `${commentSeed[(no - 1) % commentSeed.length]}（樣本 ${no}）`, ai_confidence: Math.max(0.28, 0.96 - no * 0.007) }); } return list.slice(0, minCount); }
-  function padDailyTrend(rows, minCount = MOCK_SCALE.trendDays) { const list = Array.isArray(rows) ? rows.slice() : []; if (list.length >= minCount) return list.slice(-minCount); const out = []; const now = Date.now(); for (let i = minCount - 1; i >= 0; i--) { const index = minCount - i; const d = new Date(now - i * 86400000).toISOString().slice(0, 10); const wave = Math.sin(index / 4) * 84 + Math.cos(index / 7) * 36; const base = 420 + index * 29 + Math.round(wave); const total = Math.max(220, base); const block = Math.round(total * 0.63); const report = total - block; out.push({ day_key: d, total_event_count: total, block_event_count: block, report_event_count: report, source_count: Math.max(18, 20 + Math.round(index * 1.4 + Math.sin(index / 5) * 6)) }); } return out; }
-  function normalizeDisplayData(raw) {
-    const data = raw && typeof raw === 'object' ? { ...raw } : {};
-    data.overview = data.overview && typeof data.overview === 'object' ? data.overview : { ...MOCK_DATA.overview };
-    data.dailyTrend = padDailyTrend(data.dailyTrend || MOCK_DATA.dailyTrend, MOCK_SCALE.trendDays);
-    data.fakeTopics = padFakeTopics(data.fakeTopics || MOCK_DATA.fakeTopics, MOCK_SCALE.fakeTopicCount);
-    data.topNarratives = padNarratives(data.topNarratives || MOCK_DATA.topNarratives, MOCK_SCALE.narrativeCount);
-    data.recentUploads = padUploads(data.recentUploads || MOCK_DATA.recentUploads, MOCK_SCALE.uploadCount);
-    data.suspectedAiBots = padAIBots(data.suspectedAiBots || MOCK_DATA.suspectedAiBots, MOCK_SCALE.botCount);
-    data.aiBotComments = padAIComments(data.aiBotComments || MOCK_DATA.aiBotComments, MOCK_SCALE.commentCount);
-    const derivedTopics = deriveTopicRowsFromNarratives(data.topNarratives, data.fakeTopics, 12);
-    const topicSeed = Array.isArray(data.topTopics) && data.topTopics.length ? data.topTopics : (derivedTopics.length ? derivedTopics : MOCK_DATA.topTopics);
-    data.topTopics = padTopicRows(topicSeed, MOCK_SCALE.topicCount);
-    data.topicDetails = data.topicDetails && typeof data.topicDetails === 'object' ? { ...data.topicDetails } : {};
-    derivedTopics.forEach((row, idx) => {
-      const label = row.topic_label || '';
-      if (!label || (Array.isArray(data.topicDetails[label]) && data.topicDetails[label].length)) return;
-      data.topicDetails[label] = [{
-        title: row.topic_label || `熱門議題 #${idx + 1}`,
-        source_url: row.derived_source_url || '',
-        reason: row.derived_reason || '由高影響來源互動事件反推的熱門議題。'
-      }];
-    });
-    data.topTopics.forEach((t) => { const label = t.topic_label || ''; const existing = Array.isArray(data.topicDetails[label]) ? data.topicDetails[label] : []; if (existing.length < MOCK_SCALE.topicItemCount) { const filled = buildMockTopicItems(label, MOCK_SCALE.topicItemCount).map(it => ({ title: it.title, source_url: it.sourceUrl, reason: it.reason, explain: it.explain })); data.topicDetails[label] = [...existing, ...filled].slice(0, MOCK_SCALE.topicItemCount); } });
-    return data;
-  }
-  function renderPlatformStats(data) {}
-  function renderFakeTopics(rows) {
-    const list = Array.isArray(rows) ? rows : [];
-    if (!list.length) { $('fakeTopicCards').innerHTML = '<div class="empty">目前沒有假議題候選資料</div>'; $('fakeTopicRows').innerHTML = ''; return; }
-    $('fakeTopicRows').innerHTML = list.map(row => `<tr><td>${escapeHtml(row.topic_label||'')}</td><td>${Number(row.narrative_score||0)}</td><td>${escapeHtml(row.evidence||'')}</td><td><a href="${escapeHtml(row.source_url||'')}" target="_blank">${escapeHtml((row.source_url||'').replace('https://www.threads.com',''))}</a></td></tr>`).join('');
-    $('fakeTopicCards').innerHTML = list.slice(0, 10).map(row => {
-      const score = Number(row.narrative_score || 0);
-      const tier = score >= 90 ? 'critical' : score >= 80 ? 'high' : 'medium';
-      return `<details class="fake-item ${tier}">
-        <summary>
-          <div class="fa-left">
-            <div class="fa-label">${escapeHtml(row.topic_label||'')}</div>
-            <div class="fa-bar"><div class="fa-bar-fill" style="width:${score}%"></div></div>
-          </div>
-          <div class="fa-right">
-            <div class="fa-score">${score}</div>
-            <div class="fa-score-k">風向分數</div>
-            <div class="fa-chevron">▼</div>
-          </div>
-        </summary>
-        <div class="fa-detail">
-          <div class="fa-evidence">判定依據：${escapeHtml(row.evidence||'')}</div>
-          ${row.source_url ? `<a class="url fa-link" href="${escapeHtml(row.source_url)}" target="_blank">${escapeHtml(row.source_url.replace('https://www.threads.com',''))}</a>` : ''}
-        </div>
-      </details>`;
-    }).join('');
-  }
-  function renderPlatformNarratives(rows) {
-    const list = Array.isArray(rows) ? rows : [];
-    if (!list.length) { $('platformNarrativeCards').innerHTML = '<div class="empty">目前沒有來源資料</div>'; $('platformNarrativeRows').innerHTML = ''; return; }
-    $('platformNarrativeRows').innerHTML = list.map(row => `<tr><td><a href="${escapeHtml(row.source_url||'')}" target="_blank">${escapeHtml((row.source_url||'').replace('https://www.threads.com',''))}</a></td><td>${escapeHtml(row.source_owner ? '@'+row.source_owner : '-')}</td><td>${Number(row.total_event_count||0)}</td><td>${Number(row.block_event_count||0)} / ${Number(row.report_event_count||0)}</td><td>${Number(row.avg_signal_score||0)}</td></tr>`).join('');
-    $('platformNarrativeCards').innerHTML = list.slice(0, 6).map(row => `<div class="nar-card"><div class="nar-author">@${escapeHtml(row.source_owner || '未知')}</div><div class="nar-sample">${escapeHtml(row.source_text_sample||'')}</div><div class="nar-stats"><span class="nar-stat block">封鎖 ${Number(row.block_event_count||0)}</span><span class="nar-stat report">檢舉 ${Number(row.report_event_count||0)}</span><span class="nar-stat signal">訊號 ${Number(row.avg_signal_score||0)}</span></div></div>`).join('');
-  }
-  function renderPlatformTopics(rows) {
-    const list = Array.isArray(rows) ? rows : [];
-    if (!list.length) { $('platformTopicsCards').innerHTML = '<div class="empty">目前沒有議題資料</div>'; $('platformTopicsRows').innerHTML = ''; return; }
-    $('platformTopicsRows').innerHTML = list.map((row, idx) => `<tr><td class="topic-row" data-topic="${escapeHtml(row.topic_label||'')}" data-topic-index="${idx}">${escapeHtml(row.topic_label||'')}</td><td>${Number(row.event_count||0)}</td><td>${Number(row.account_count||0)}</td><td>${Number(row.source_count||0)}</td></tr><tr id="topic-detail-${idx}" style="display:none"><td colspan="4"></td></tr>`).join('');
-    const maxEv = Math.max(...list.map(r => Number(r.event_count||0)), 1);
-    $('platformTopicsCards').innerHTML = list.slice(0, 10).map((row, i) => { const ev = Number(row.event_count||0); const ratio = Math.max(2, Math.round(ev / maxEv * 100)); return `<div class="topic-card topic-row" data-topic="${escapeHtml(row.topic_label||'')}"><div class="tc-rank">#${i+1}</div><div class="tc-label">${escapeHtml(row.topic_label||'')}</div><div class="tc-ev">事件 ${ev.toLocaleString()} · 帳號 ${Number(row.account_count||0).toLocaleString()}</div><div class="ebar"><div class="ebar-fill" style="width:${ratio}%"></div></div><div class="tc-cta">查看明細 →</div></div>`; }).join('');
-  }
-  function renderTopicDetails(topicRows, topicDetails) {
-    const list = Array.isArray(topicRows) ? topicRows : [];
-    const detailMap = topicDetails && typeof topicDetails === 'object' ? topicDetails : {};
-    list.forEach((row, idx) => { const key = row.topic_label || ''; const details = Array.isArray(detailMap[key]) ? detailMap[key] : []; const detailRow = document.getElementById(`topic-detail-${idx}`); if (!detailRow) return; if (!details.length) { detailRow.children[0].innerHTML = '<div class="empty">目前無該議題文章明細</div>'; return; } detailRow.children[0].innerHTML = details.map(item => `<div style="padding:6px 0;border-bottom:1px solid var(--border)"><strong style="font-size:13px">${escapeHtml(item.title||'')}</strong><div style="font-size:12px;color:var(--muted);margin-top:2px">${escapeHtml(item.reason||'')}</div></div>`).join(''); });
-  }
-  function buildMockTopicItems(topicLabel, minCount = MOCK_SCALE.topicItemCount) {
-    const topic = topicLabel || '議題樣本';
-    const seeds = (MOCK_DATA.topicDetails && Array.isArray(MOCK_DATA.topicDetails[topic])) ? MOCK_DATA.topicDetails[topic] : [];
-    const titleSeed = ['觀測樣本', '擴散節點', '二次轉傳', '留言帶隊', '圖卡重包裝', '斷章截圖', '匿名影射', '模板貼文'];
-    const reasonSeed = ['同主題關鍵詞在 6 小時內密集出現', '互動帳號群聚重複', '語句模板相似度偏高', '留言標記節奏異常整齊', '圖卡來源無法回溯', '轉傳路徑集中在少數帳號', '留言情緒詞密度異常偏高', '主文與外站連結內容不一致'];
-    const generated = Array.from({ length: Math.max(minCount, MOCK_SCALE.topicItemCount) }).map((_, i) => { const no = i + 1; return { title: `${topic}${titleSeed[(no - 1) % titleSeed.length]} #${no}`, source_url: `https://www.threads.com/@mock_${encodeURIComponent(topic).slice(0,10)}_${no}/post/MOCK${1000+no}`, reason: `${reasonSeed[(no - 1) % reasonSeed.length]}；${reasonSeed[no % reasonSeed.length]}（樣本 ${no}）。` }; });
-    const base = [...seeds, ...generated]; const unique = []; const seen = new Set();
-    for (const item of base) { const url = (item.source_url || '').trim(); if (url && seen.has(url)) continue; if (url) seen.add(url); unique.push({ title: item.title || topic, sourceUrl: url, reason: item.reason || '關聯訊號存在。', explain: item.explain || { overallScore: 72, signalScore: 74, templateScore: 70, clusteringScore: 68, spreadSpeedScore: 65, labels: { overall: '綜合可疑程度', signal: '像不像操作帳號', template: '像不像模板洗版', clustering: '像不像同一批人在推', spreadSpeed: '擴散速度有多快' } } }); if (unique.length >= minCount) break; }
-    return unique;
-  }
-  function ensureAtLeastItems(items, topicLabel, minCount = MOCK_SCALE.topicItemCount) {
-    const raw = Array.isArray(items) ? items.filter(Boolean) : [];
-    const isWeak = it => { const t = String(it?.title||''); const r = String(it?.reason||''); const u = String(it?.sourceUrl||''); return !u || t.includes('樣本不足補位') || r.includes('目前資料量不足'); };
-    const head = raw.filter(it => !isWeak(it));
-    if (head.length >= minCount) return head.slice(0, minCount);
-    const extras = buildMockTopicItems(topicLabel, minCount + 4); const out = [...head]; const seen = new Set(head.map(it => (it.sourceUrl||'').trim()).filter(Boolean));
-    for (const ex of extras) { const key = (ex.sourceUrl||'').trim(); if (key && seen.has(key)) continue; if (key) seen.add(key); out.push(ex); if (out.length >= minCount) break; }
-    return out.slice(0, minCount);
-  }
-  function renderTopicModal(topicLabel, items) {
-    const list = Array.isArray(items) ? items : [];
-    $('topicModalTitle').textContent = `${topicLabel}：文章明細`;
-    $('topicModalMeta').textContent = `顯示 ${list.length} 篇，含判定原因`;
-    $('topicModalList').innerHTML = list.map((it, i) => `<div class="item"><span class="topic-rank">#${i+1}</span><div class="title">${escapeHtml(it.title||'(未命名文章)')}</div>${it.sourceUrl ? `<a class="url" href="${escapeHtml(it.sourceUrl)}" target="_blank" style="font-size:12px">${escapeHtml(it.sourceUrl.replace('https://www.threads.com',''))}</a>` : '<span style="font-size:12px;color:var(--muted2)">（無連結）</span>'}<div class="reason">判定：${escapeHtml(it.reason||'無')}</div>${it.explain ? `<div class="topic-explain"><span class="topic-explain-item">${escapeHtml(it.explain.labels?.overall||'綜合可疑程度')}：${Number(it.explain.overallScore||0)}/100</span><span class="topic-explain-item">${escapeHtml(it.explain.labels?.signal||'操作帳號')}：${Number(it.explain.signalScore||0)}/100</span><span class="topic-explain-item">${escapeHtml(it.explain.labels?.template||'模板洗版')}：${Number(it.explain.templateScore||0)}/100</span><span class="topic-explain-item">${escapeHtml(it.explain.labels?.clustering||'群聚推波')}：${Number(it.explain.clusteringScore||0)}/100</span><span class="topic-explain-item">${escapeHtml(it.explain.labels?.spreadSpeed||'擴散速度')}：${Number(it.explain.spreadSpeedScore||0)}/100</span></div>` : ''}</div>`).join('');
-    $('topicModal').style.display = 'flex';
-  }
-  async function openTopicDetailsWindow(topicLabel) {
-    $('topicModalTitle').textContent = `${topicLabel}：文章明細`;
-    $('topicModalMeta').textContent = '讀取中...';
-    $('topicModalList').innerHTML = '';
-    $('topicModal').style.display = 'flex';
-    try { const days = $('platformDays').value || '30'; const out = await api(`/api/v1/platform/topic/details?topic=${encodeURIComponent(topicLabel)}&days=${encodeURIComponent(days)}&limit=${MOCK_SCALE.topicItemCount}`); const items = Array.isArray(out?.data?.items) ? out.data.items.map(it => ({ title: it.title||'未命名', sourceUrl: it.sourceUrl||'', reason: it.reason||'無判定理由', explain: it.explain||null })) : []; renderTopicModal(topicLabel, ensureAtLeastItems(items, topicLabel, MOCK_SCALE.topicItemCount)); }
-    catch (err) { renderTopicModal(topicLabel, ensureAtLeastItems([], topicLabel, MOCK_SCALE.topicItemCount)); }
-  }
-  function renderAIBots(rows) { const list = Array.isArray(rows) ? rows : []; $('aiBotRows').innerHTML = list.map(r => `<tr><td>${escapeHtml(r.account_id||'')}</td><td>${Math.round(Number(r.ai_probability||0)*100)}%</td><td>${Number(r.block_event_count||0)} / ${Number(r.report_event_count||0)}</td><td>${escapeHtml(r.signals||'')}</td></tr>`).join(''); $('aiBotCards').innerHTML = ''; }
-  function renderAIBotComments(rows) { const list = Array.isArray(rows) ? rows : []; $('aiBotCommentRows').innerHTML = list.map(r => `<tr><td>${escapeHtml(r.account_id||'')}</td><td>${escapeHtml(r.comment_text||'')}</td><td>${Math.round(Number(r.ai_confidence||0)*100)}%</td></tr>`).join(''); $('aiBotCommentCards').innerHTML = ''; }
-  function renderPlatformUploads(rows) { const list = Array.isArray(rows) ? rows : []; $('platformUploadRows').innerHTML = list.map(r => `<tr><td>${r.id}</td><td>${escapeHtml(r.created_at||'')}</td><td>${Number(r.total_event_count||0)}</td></tr>`).join(''); $('platformUploadCards').innerHTML = ''; }
-  function renderPlatformTrend() {}
-  async function loadPlatformOverview() { const days = $('platformDays').value; const top = $('platformTop').value; const out = await api(`/api/v1/platform/overview?days=${encodeURIComponent(days)}&top=${encodeURIComponent(top)}`); renderOverview(out.data || {}); }
-  function renderOverview(data) {
-    const full = normalizeDisplayData(data);
-    const bots = full.suspectedAiBots || [];
-    const fakes = full.fakeTopics || [];
-    const narratives = full.topNarratives || [];
-    const uploads = full.recentUploads || [];
-    const uploadCount = (full.overview && full.overview.uploadCount) ? full.overview.uploadCount : uploads.length;
-    // Hero counts
-    const totalAttackers = bots.length;
-    $('heroCount').textContent = totalAttackers;
-    $('heroFakeCount').textContent = fakes.length;
-    $('heroBotCount').textContent = totalAttackers;
-    $('heroSourceCount').textContent = narratives.length;
-    // Attacker types
-    renderAttackerTypes(bots);
-    // Upload count
-    $('uploadCountDisplay').textContent = uploadCount;
-    $('uploadCountText').textContent = uploadCount;
-    _fakeTopicsCache = fakes;
-    _hotTopicsCache = full.topTopics || [];
-    _topicDetailsCache = full.topicDetails || {};
-    if ($('fakeCount')) $('fakeCount').textContent = fakes.length;
-    if ($('hotCount')) $('hotCount').textContent = (full.topTopics||[]).length;
-    renderFakeTopics(fakes);
-    renderPlatformNarratives(narratives);
-    renderPlatformTopics(full.topTopics || []);
-    renderTopicDetails(full.topTopics || [], full.topicDetails || {});
-    renderAIBots(bots);
-    drawTrendChart(full.dailyTrend || [], _classified);
-    renderAIBotComments(full.aiBotComments || []);
-    renderPlatformUploads(full.recentUploads || []);
-    $('lastUpdated').textContent = new Date().toLocaleTimeString('zh-TW');
-  }
-  function loadMockData() { renderOverview(MOCK_DATA); }
-  async function uploadPlatformJson() {
-    const file = $('platformJsonFile').files?.[0];
-    if (!file) { showUploadStatus('請先選擇 JSON 檔案', false); return; }
-    try {
-      showUploadStatus('上傳中...', false);
-      const text = await file.text();
-      const out = await api('/api/v1/platform/ingest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: text });
-      showUploadStatus(out.duplicate ? `已存在相同批次（ID ${out.id||'-'}）` : `上傳成功，謝謝你的貢獻！（ID ${out.id||'-'}）`, false);
-      await refreshAll();
-    } catch (err) {
-      showUploadStatus(`上傳失敗：${err.message || err}`, true);
-    }
-  }
-  function showUploadStatus(msg, isErr) {
-    const el = $('uploadStatus');
-    el.textContent = msg;
-    el.className = 'upload-status' + (isErr ? ' err' : '');
-  }
-  async function refreshAll() { try { await loadPlatformOverview(); } catch (err) { loadMockData(); } }
-  function init() {
-    $('topicModalClose').addEventListener('click', () => { $('topicModal').style.display = 'none'; });
-    $('topicModal').addEventListener('click', (e) => { if (e.target === $('topicModal')) $('topicModal').style.display = 'none'; });
-    $('platformTopicsCards').addEventListener('click', (e) => { const card = e.target.closest('.topic-row'); if (!card) return; const label = card.getAttribute('data-topic') || ''; if (label) openTopicDetailsWindow(label); });
-    $('platformTopicsRows').addEventListener('click', (e) => { const cell = e.target.closest('.topic-row'); if (!cell) return; const label = cell.getAttribute('data-topic') || ''; if (label) openTopicDetailsWindow(label); });
-    if (new URLSearchParams(window.location.search).get('mock') === '1') { loadMockData(); return; }
-    refreshAll();
-  }
-  init();
-</script>
+        statEvents.textContent = window.PlatformPublic.formatNumber(
+          data && data.overview ? data.overview.totalEventCount : 0
+        );
+        statCoordinated.textContent = window.PlatformPublic.formatNumber(
+          data && data.signals ? data.signals.coordinatedAccountEstimate : 0
+        );
+        statContributors.textContent = safeValue(data && data.overview && data.overview.uploadCount, 0);
+
+        window.PlatformPublic.renderTrendChart(
+          trendChart,
+          trendEventDetail,
+          Array.isArray(data.dailyTrend) ? data.dailyTrend : [],
+          politicalEvents,
+          Array.isArray(data.topicTimeSeries) ? data.topicTimeSeries : []
+        );
+
+        window.PlatformPublic.renderNarratives(
+          document.getElementById('narrativesList'),
+          Array.isArray(data.topNarratives) ? data.topNarratives : []
+        );
+
+        window.PlatformPublic.renderReportCategories(
+          document.getElementById('categoriesList'),
+          Array.isArray(data.reportCategories) ? data.reportCategories : []
+        );
+
+        return data;
+      };
+
+      window.PlatformPublic.init();
+    })();
+  </script>
 </body>
 </html>

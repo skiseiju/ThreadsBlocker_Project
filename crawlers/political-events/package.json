@@ -1,0 +1,15 @@
+{
+  "name": "political-events-crawler",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Daily crawler for Taiwan political events — feeds ThreadsBlocker platform D1",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "crawlee": "^3.0.0",
+    "dotenv": "^16.0.0"
+  }
+}
