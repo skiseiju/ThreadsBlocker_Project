@@ -38,6 +38,21 @@ export const Reporter = {
         return [...new Set(endpoints)];
     },
 
+    getPlatformSourceId: () => Storage.getPlatformSourceId(),
+
+    getClientPlatform: () => {
+        const ua = (navigator.userAgent || '').toLowerCase();
+        const isFirefox = ua.includes('firefox');
+        const isIOS = /iphone|ipad|ipod/.test(ua);
+        const isUserscript = typeof GM_info !== 'undefined';
+        if (isIOS && isUserscript) return 'ios_userscript';
+        if (isFirefox && typeof browser !== 'undefined' && browser.runtime) return 'firefox_extension';
+        if (isFirefox) return 'firefox_userscript';
+        if (isUserscript) return 'userscript';
+        if (typeof chrome !== 'undefined' && chrome.runtime) return 'chrome_extension';
+        return 'web_unknown';
+    },
+
     collectClientEnv: (extra = {}) => ({
         platform: (navigator.platform || '').toString(),
         scriptManager: typeof GM_info !== 'undefined' ? (GM_info.scriptHandler || 'GM') : 'none',
@@ -163,12 +178,21 @@ export const Reporter = {
             return { code: 400, message: 'Invalid payload' };
         }
 
+        const existingMeta = payload.uploadMeta && typeof payload.uploadMeta === 'object' ? payload.uploadMeta : {};
+        const clientSourceId = String(payload.clientSourceId || Reporter.getPlatformSourceId() || '').trim();
+        const clientPlatform = Reporter.getClientPlatform();
+        const autoSyncEnabled = Storage.getPlatformSyncEnabled();
         const body = {
             ...payload,
+            clientSourceId,
             uploadMeta: {
+                ...existingMeta,
                 source: options.source || 'analytics',
                 uploadedAt: new Date().toISOString(),
-                toolVersion: CONFIG.VERSION
+                toolVersion: CONFIG.VERSION,
+                clientPlatform,
+                autoSyncEnabled,
+                uploadTrigger: options.trigger || 'manual'
             }
         };
 
@@ -180,6 +204,7 @@ export const Reporter = {
                     : await Reporter.sendViaFetch(endpoint, body);
 
                 if (result && Number(result.code) === 200) {
+                    Storage.setPlatformSyncLastAt(Date.now());
                     return result;
                 }
                 lastError = result || { code: 500, message: 'Unknown response' };

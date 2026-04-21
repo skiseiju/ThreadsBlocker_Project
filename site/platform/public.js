@@ -8,6 +8,8 @@
   const MOCK_DATA = {
     schema: 'threadsblocker.platform_public.v1',
     generatedAt: '2026-04-21T00:00:00Z',
+    taxonomyVersion: 'topic-taxonomy.v1',
+    sampleScope: 'trusted',
     days: 30,
     summary: {
       headline: 'Threads 台灣有 9,000 萬個帳號　你以為跟你對話的是真人嗎？',
@@ -145,6 +147,7 @@ topNarratives: [
       { id: 517, created_at: '2026-04-19T16:31:00Z' }
     ],
     methodology: {
+      trustPolicy: 'public-trusted-only',
       scoreBands: { low: '0-44', medium: '45-64', high: '65+' },
       principles: [
         '公開頁只呈現匿名樣本中的統計模式與中性訊號。',

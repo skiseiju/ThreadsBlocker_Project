@@ -1,6 +1,6 @@
 const DEFAULT_ALLOWED_DRIFT = 300;
 const DEFAULT_RATE_WINDOW = 300;
-const PLATFORM_MAX_PAYLOAD_BYTES = 2 * 1024 * 1024;
+const PLATFORM_MAX_PAYLOAD_BYTES = 1 * 1024 * 1024;
 const PLATFORM_MAX_TOPICS = 200;
 const PLATFORM_MAX_SOURCES = 400;
 const PLATFORM_MAX_EVENTS = 120000;
@@ -9,6 +9,9 @@ const PUBLIC_MIN_NARRATIVE_SOURCES = 2;
 const PUBLIC_MIN_NARRATIVE_EVENTS = 20;
 const PUBLIC_HIGH_SIGNAL_THRESHOLD = 65;
 const PUBLIC_MEDIUM_SIGNAL_THRESHOLD = 45;
+const CURRENT_TAXONOMY_VERSION = 'topic-taxonomy.v1';
+const PUBLIC_SAMPLE_SCOPE = 'trusted';
+const LEGACY_TRUST_TIER = 'trusted';
 const PLATFORM_SCHEMA_STMTS = [
   `CREATE TABLE IF NOT EXISTS platform_uploads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,10 +30,18 @@ const PLATFORM_SCHEMA_STMTS = [
     topic_seed_count INTEGER NOT NULL DEFAULT 0,
     source_coverage_pct INTEGER NOT NULL DEFAULT 0,
     report_source_coverage_pct INTEGER NOT NULL DEFAULT 0,
+    client_source_id TEXT,
+    client_platform TEXT,
+    taxonomy_version TEXT NOT NULL DEFAULT 'topic-taxonomy.v1',
+    trust_tier TEXT NOT NULL DEFAULT 'trusted',
+    risk_score_band TEXT NOT NULL DEFAULT 'low',
+    sync_enabled INTEGER,
+    upload_trigger TEXT,
     note TEXT
   )`,
   'CREATE INDEX IF NOT EXISTS idx_platform_uploads_created_at ON platform_uploads(created_at DESC)',
   'CREATE INDEX IF NOT EXISTS idx_platform_uploads_events ON platform_uploads(total_event_count DESC)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_uploads_trust_tier ON platform_uploads(trust_tier)',
   `CREATE TABLE IF NOT EXISTS platform_topic_metrics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     upload_id INTEGER NOT NULL,
@@ -76,6 +87,18 @@ const PLATFORM_SCHEMA_STMTS = [
     upload_count INTEGER NOT NULL DEFAULT 1,
     UNIQUE(day_key, topic_label)
   )`,
+  `CREATE TABLE IF NOT EXISTS platform_topic_daily_v2 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    day_key TEXT NOT NULL,
+    topic_label TEXT NOT NULL,
+    taxonomy_version TEXT NOT NULL,
+    sample_scope TEXT NOT NULL DEFAULT 'trusted',
+    event_count INTEGER NOT NULL DEFAULT 0,
+    upload_count INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(day_key, topic_label, taxonomy_version, sample_scope)
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_platform_topic_daily_v2_day ON platform_topic_daily_v2(day_key DESC)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_topic_daily_v2_scope ON platform_topic_daily_v2(sample_scope, taxonomy_version)',
   `CREATE TABLE IF NOT EXISTS platform_category_metrics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     upload_id INTEGER NOT NULL,
@@ -86,6 +109,20 @@ const PLATFORM_SCHEMA_STMTS = [
   )`,
   'CREATE INDEX IF NOT EXISTS idx_platform_category_upload ON platform_category_metrics(upload_id)',
   'CREATE INDEX IF NOT EXISTS idx_platform_category_event ON platform_category_metrics(event_count DESC)',
+  `CREATE TABLE IF NOT EXISTS platform_source_registry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_source_id TEXT NOT NULL UNIQUE,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    last_upload_day TEXT,
+    active_day_count INTEGER NOT NULL DEFAULT 0,
+    upload_count INTEGER NOT NULL DEFAULT 0,
+    client_platform TEXT,
+    last_exporter_version TEXT,
+    trust_tier TEXT NOT NULL DEFAULT 'probation',
+    risk_score_band TEXT NOT NULL DEFAULT 'low'
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_platform_source_registry_tier ON platform_source_registry(trust_tier)',
   `CREATE TABLE IF NOT EXISTS political_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_date TEXT NOT NULL,
@@ -329,6 +366,12 @@ async function handlePlatformIngest(request, env) {
   const exporterVersion = safeString(exporter.version || '', 80);
   const timezone = safeString(exporter.timezone || '', 64);
   const locale = safeString(exporter.locale || '', 64);
+  const uploadMeta = asObject(body.uploadMeta);
+  const clientSourceId = safeString(body.clientSourceId || uploadMeta.clientSourceId || '', 120);
+  const clientPlatform = safeString(uploadMeta.clientPlatform || body.clientPlatform || 'unknown', 40);
+  const syncEnabled = boolAsInt(asObject(body.syncPreferences).autoSyncEnabled);
+  const uploadTrigger = safeString(uploadMeta.uploadTrigger || 'manual', 24);
+  const taxonomyVersion = CURRENT_TAXONOMY_VERSION;
 
   const blockEventCount = safeCount(summary.blockEventCount);
   const reportEventCount = safeCount(summary.reportEventCount);
@@ -364,6 +407,7 @@ async function handlePlatformIngest(request, env) {
   const shortTermDiffusionPct = totalEventCount > 0
     ? Math.min(100, Math.round((campaignEventCount / totalEventCount) * 1000) / 10)
     : 0;
+  const trustMeta = await resolveTrustMeta(env, clientSourceId, clientPlatform, exporterVersion);
 
   let uploadId = 0;
   try {
@@ -372,8 +416,9 @@ async function handlePlatformIngest(request, env) {
         schema, source_app, exporter_version, timezone, locale, upload_source, payload_hash,
         block_event_count, report_event_count, total_event_count, source_post_count, topic_seed_count,
         source_coverage_pct, report_source_coverage_pct, source_concentration_pct,
-        repeated_narrative_pct, short_term_diffusion_pct
-      ) VALUES (?, ?, ?, ?, ?, 'extension', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        repeated_narrative_pct, short_term_diffusion_pct, client_source_id, client_platform,
+        taxonomy_version, trust_tier, risk_score_band, sync_enabled, upload_trigger
+      ) VALUES (?, ?, ?, ?, ?, 'extension', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       'threadsblocker.platform_upload.v2',
       sourceApp,
@@ -390,7 +435,14 @@ async function handlePlatformIngest(request, env) {
       reportSourceCoveragePct,
       sourceConcentrationPct,
       repeatedNarrativePct,
-      shortTermDiffusionPct
+      shortTermDiffusionPct,
+      clientSourceId,
+      clientPlatform,
+      taxonomyVersion,
+      trustMeta.trustTier,
+      trustMeta.riskScoreBand,
+      syncEnabled,
+      uploadTrigger
     ).run();
     uploadId = Number(insert.meta?.last_row_id || 0);
   } catch (err) {
@@ -417,8 +469,6 @@ async function handlePlatformIngest(request, env) {
   const topicSeeds = asArray(asObject(body.analysisSeeds).topicSeeds).slice(0, PLATFORM_MAX_TOPICS);
   const sources = asArray(body.sources).slice(0, PLATFORM_MAX_SOURCES);
   const events = asArray(body.events).slice(0, PLATFORM_MAX_EVENTS);
-  const createdAt = safeString(body.exportedAt, 40) || new Date().toISOString();
-  const dayKey = new Date(createdAt).toISOString().slice(0, 10);
 
   let topicInserted = 0;
   for (const item of topicSeeds) {
@@ -438,24 +488,6 @@ async function handlePlatformIngest(request, env) {
     ).run();
     topicInserted++;
   }
-  for (const item of topicSeeds) {
-    const topic = asObject(item);
-    const topicLabel = safeString(topic.topicLabel || topic.category, 140);
-    const eventCount = safeCount(topic.eventCount);
-    if (!topicLabel || eventCount <= 0) continue;
-    await env.DB.prepare(
-      `INSERT INTO platform_topic_daily (day_key, topic_label, event_count, upload_count)
-       VALUES (?, ?, ?, 1)
-       ON CONFLICT(day_key, topic_label) DO UPDATE SET
-         event_count = event_count + excluded.event_count,
-         upload_count = upload_count + 1`
-    ).bind(
-      dayKey,
-      topicLabel,
-      eventCount
-    ).run();
-  }
-
   let sourceInserted = 0;
   for (const item of sources) {
     const source = asObject(item);
@@ -575,15 +607,56 @@ async function handlePlatformIngest(request, env) {
     dailyInserted++;
   }
 
+  const topicDailyAgg = buildTopicDailyBuckets(events, sources, trustMeta.sampleScope, taxonomyVersion);
+  let topicDailyInserted = 0;
+  for (const bucket of topicDailyAgg.values()) {
+    await env.DB.prepare(
+      `INSERT INTO platform_topic_daily_v2 (
+        day_key, topic_label, taxonomy_version, sample_scope, event_count, upload_count
+      ) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(day_key, topic_label, taxonomy_version, sample_scope) DO UPDATE SET
+        event_count = event_count + excluded.event_count,
+        upload_count = upload_count + excluded.upload_count`
+    ).bind(
+      bucket.dayKey,
+      bucket.topicLabel,
+      taxonomyVersion,
+      trustMeta.sampleScope,
+      bucket.eventCount,
+      bucket.uploadCount
+    ).run();
+    topicDailyInserted++;
+  }
+
+  const storedInR2 = await storeEvidenceBundle(env, uploadId, {
+    schema: 'threadsblocker.platform_upload.bundle.v1',
+    uploadId,
+    taxonomyVersion,
+    clientSourceId,
+    clientPlatform,
+    trustTier: trustMeta.trustTier,
+    exportedAt: safeString(body.exportedAt, 40) || new Date().toISOString(),
+    events,
+    sources,
+    sourceEvidence: asArray(body.sourceEvidence)
+  });
+
   return json({
     code: 200,
     message: 'Platform payload ingested',
     id: uploadId,
+    trustTier: trustMeta.trustTier,
+    riskScoreBand: trustMeta.riskScoreBand,
+    taxonomyVersion,
+    sampleScope: trustMeta.sampleScope,
+    storedInR2,
+    reclassEligible: storedInR2,
     summary: {
       topicRows: topicInserted,
       sourceRows: sourceInserted,
       categoryRows: categoryInserted,
-      dailyRows: dailyInserted
+      dailyRows: dailyInserted,
+      topicDailyRows: topicDailyInserted
     }
   }, 200);
 }
@@ -776,22 +849,24 @@ async function loadPlatformOverviewData(env, days, top) {
       COALESCE(SUM(topic_seed_count), 0) AS topic_seed_count,
       ROUND(AVG(source_coverage_pct), 1) AS avg_source_coverage_pct,
       ROUND(AVG(report_source_coverage_pct), 1) AS avg_report_source_coverage_pct,
-      ROUND(AVG(source_concentration_pct), 1) AS avg_source_concentration_pct,
-      ROUND(AVG(repeated_narrative_pct), 1) AS avg_repeated_narrative_pct,
-      ROUND(AVG(short_term_diffusion_pct), 1) AS avg_short_term_diffusion_pct
+     ROUND(AVG(source_concentration_pct), 1) AS avg_source_concentration_pct,
+     ROUND(AVG(repeated_narrative_pct), 1) AS avg_repeated_narrative_pct,
+     ROUND(AVG(short_term_diffusion_pct), 1) AS avg_short_term_diffusion_pct
      FROM platform_uploads
-     WHERE datetime(created_at) >= datetime('now', ?)`
-  ).bind(since).first();
+     WHERE datetime(created_at) >= datetime('now', ?)
+       AND COALESCE(trust_tier, ?) = ?`
+  ).bind(since, LEGACY_TRUST_TIER, PUBLIC_SAMPLE_SCOPE).first();
 
   const recentUploadsRows = await env.DB.prepare(
     `SELECT
-      id, created_at, source_app, exporter_version,
-      block_event_count, report_event_count, total_event_count, source_post_count, topic_seed_count
+     id, created_at, source_app, exporter_version,
+     block_event_count, report_event_count, total_event_count, source_post_count, topic_seed_count
      FROM platform_uploads
      WHERE datetime(created_at) >= datetime('now', ?)
+       AND COALESCE(trust_tier, ?) = ?
      ORDER BY id DESC
      LIMIT 30`
-  ).bind(since).all();
+  ).bind(since, LEGACY_TRUST_TIER, PUBLIC_SAMPLE_SCOPE).all();
 
   const dailyRows = await env.DB.prepare(
     `SELECT
@@ -804,22 +879,25 @@ async function loadPlatformOverviewData(env, days, top) {
      WHERE upload_id IN (
        SELECT id FROM platform_uploads
        WHERE datetime(created_at) >= datetime('now', ?)
+         AND COALESCE(trust_tier, ?) = ?
      )
      GROUP BY day_key
      ORDER BY day_key DESC
      LIMIT 60`
-  ).bind(since).all();
+  ).bind(since, LEGACY_TRUST_TIER, PUBLIC_SAMPLE_SCOPE).all();
 
   const topicTimeSeriesRows = await env.DB.prepare(
     `SELECT
       day_key,
       topic_label,
       SUM(event_count) as event_count
-     FROM platform_topic_daily
+     FROM platform_topic_daily_v2
      WHERE day_key >= date('now', ?)
+       AND taxonomy_version = ?
+       AND sample_scope = ?
      GROUP BY day_key, topic_label
      ORDER BY day_key ASC, event_count DESC`
-  ).bind(since).all();
+  ).bind(since, CURRENT_TAXONOMY_VERSION, PUBLIC_SAMPLE_SCOPE).all();
 
   const topicRows = await env.DB.prepare(
     `SELECT
@@ -831,11 +909,12 @@ async function loadPlatformOverviewData(env, days, top) {
      WHERE upload_id IN (
        SELECT id FROM platform_uploads
        WHERE datetime(created_at) >= datetime('now', ?)
+         AND COALESCE(trust_tier, ?) = ?
      )
      GROUP BY topic_label
      ORDER BY event_count DESC
      LIMIT ?`
-  ).bind(since, top).all();
+  ).bind(since, LEGACY_TRUST_TIER, PUBLIC_SAMPLE_SCOPE, top).all();
 
   const dailyTrend = detectSpikes((dailyRows.results || []).reverse());
 
@@ -858,11 +937,12 @@ async function loadPlatformOverviewData(env, days, top) {
      WHERE upload_id IN (
        SELECT id FROM platform_uploads
        WHERE datetime(created_at) >= datetime("now", ?)
+         AND COALESCE(trust_tier, ?) = ?
      )
      GROUP BY category_label
      ORDER BY event_count DESC
      LIMIT 10`
-  ).bind(since).all();
+  ).bind(since, LEGACY_TRUST_TIER, PUBLIC_SAMPLE_SCOPE).all();
 
   const narrativeRows = await env.DB.prepare(
     `SELECT
@@ -878,11 +958,12 @@ async function loadPlatformOverviewData(env, days, top) {
      WHERE upload_id IN (
        SELECT id FROM platform_uploads
        WHERE datetime(created_at) >= datetime('now', ?)
+         AND COALESCE(trust_tier, ?) = ?
      )
      GROUP BY source_url
      ORDER BY total_event_count DESC
      LIMIT ?`
-  ).bind(since, top).all();
+  ).bind(since, LEGACY_TRUST_TIER, PUBLIC_SAMPLE_SCOPE, top).all();
 
   return {
     days,
@@ -899,6 +980,8 @@ async function loadPlatformOverviewData(env, days, top) {
       avgRepeatedNarrativePct: Number(overviewRow?.avg_repeated_narrative_pct || 0),
       avgShortTermDiffusionPct: Number(overviewRow?.avg_short_term_diffusion_pct || 0)
     },
+    taxonomyVersion: CURRENT_TAXONOMY_VERSION,
+    sampleScope: PUBLIC_SAMPLE_SCOPE,
     dailyTrend,
     topicTimeSeries,
     reportCategories: categoryRows.results || [],
@@ -933,6 +1016,8 @@ function projectPublicPlatformOverview(raw, top = 15) {
     schema: 'threadsblocker.platform_public.v1',
     generatedAt: new Date().toISOString(),
     days: safeCount(data.days || 30),
+    taxonomyVersion: safeString(data.taxonomyVersion || CURRENT_TAXONOMY_VERSION, 40),
+    sampleScope: safeString(data.sampleScope || PUBLIC_SAMPLE_SCOPE, 20),
     overview: {
       uploadCount: safeCount(overview.uploadCount),
       blockEventCount: safeCount(overview.blockEventCount),
@@ -980,6 +1065,7 @@ function projectPublicPlatformOverview(raw, top = 15) {
       created_at: safeString(row.created_at, 40)
     })),
     methodology: {
+      trustPolicy: 'public-trusted-only',
       scoreBands: {
         low: '0-44',
         medium: '45-64',
@@ -988,7 +1074,8 @@ function projectPublicPlatformOverview(raw, top = 15) {
       principles: [
         '公開頁只呈現匿名樣本中的統計模式與中性訊號。',
         '高風險分級是統計標籤，不是對個人、貼文、動機或違法性的認定。',
-        '資料來自使用者自願上傳，並非平台全量資料。'
+        '資料來自使用者自願上傳，並非平台全量資料。',
+        '公開頁預設只納入 trusted sample；相關不等於因果。'
       ]
     }
   };
@@ -1274,7 +1361,14 @@ async function ensurePlatformTables(env) {
   for (const col of [
     'ALTER TABLE platform_uploads ADD COLUMN source_concentration_pct REAL DEFAULT 0',
     'ALTER TABLE platform_uploads ADD COLUMN repeated_narrative_pct REAL DEFAULT 0',
-    'ALTER TABLE platform_uploads ADD COLUMN short_term_diffusion_pct REAL DEFAULT 0'
+    'ALTER TABLE platform_uploads ADD COLUMN short_term_diffusion_pct REAL DEFAULT 0',
+    `ALTER TABLE platform_uploads ADD COLUMN client_source_id TEXT`,
+    `ALTER TABLE platform_uploads ADD COLUMN client_platform TEXT`,
+    `ALTER TABLE platform_uploads ADD COLUMN taxonomy_version TEXT DEFAULT '${CURRENT_TAXONOMY_VERSION}'`,
+    `ALTER TABLE platform_uploads ADD COLUMN trust_tier TEXT DEFAULT '${LEGACY_TRUST_TIER}'`,
+    `ALTER TABLE platform_uploads ADD COLUMN risk_score_band TEXT DEFAULT 'low'`,
+    `ALTER TABLE platform_uploads ADD COLUMN sync_enabled INTEGER`,
+    `ALTER TABLE platform_uploads ADD COLUMN upload_trigger TEXT`
   ]) {
     try {
       await env.DB.exec(col);
@@ -1356,6 +1450,158 @@ function boolAsInt(v) {
   if (v === true) return 1;
   if (v === false) return 0;
   return null;
+}
+
+async function resolveTrustMeta(env, clientSourceId, clientPlatform, exporterVersion) {
+  const sourceId = safeString(clientSourceId, 120);
+  if (!sourceId) {
+    return { trustTier: LEGACY_TRUST_TIER, riskScoreBand: 'low', sampleScope: PUBLIC_SAMPLE_SCOPE };
+  }
+
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const todayKey = nowIso.slice(0, 10);
+  const existing = await env.DB.prepare(
+    `SELECT upload_count, active_day_count, last_upload_day
+     FROM platform_source_registry
+     WHERE client_source_id = ?`
+  ).bind(sourceId).first();
+  const recent = await env.DB.prepare(
+    `SELECT COUNT(*) AS upload_count
+     FROM platform_uploads
+     WHERE client_source_id = ?
+       AND datetime(created_at) >= datetime('now', '-1 day')`
+  ).bind(sourceId).first();
+
+  const previousUploads = safeCount(existing?.upload_count);
+  const recentUploads = safeCount(recent?.upload_count) + 1;
+  const nextUploads = previousUploads + 1;
+  let activeDayCount = safeCount(existing?.active_day_count);
+  if (safeString(existing?.last_upload_day, 20) !== todayKey) activeDayCount += 1;
+
+  let trustTier = 'probation';
+  let riskScoreBand = 'low';
+  if (recentUploads >= 8) {
+    trustTier = 'flagged';
+    riskScoreBand = 'high';
+  } else if (nextUploads >= 3 && activeDayCount >= 2) {
+    trustTier = 'trusted';
+  }
+
+  await env.DB.prepare(
+    `INSERT INTO platform_source_registry (
+      client_source_id, first_seen_at, last_seen_at, last_upload_day, active_day_count,
+      upload_count, client_platform, last_exporter_version, trust_tier, risk_score_band
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(client_source_id) DO UPDATE SET
+      last_seen_at = excluded.last_seen_at,
+      last_upload_day = excluded.last_upload_day,
+      active_day_count = excluded.active_day_count,
+      upload_count = excluded.upload_count,
+      client_platform = excluded.client_platform,
+      last_exporter_version = excluded.last_exporter_version,
+      trust_tier = excluded.trust_tier,
+      risk_score_band = excluded.risk_score_band`
+  ).bind(
+    sourceId,
+    nowIso,
+    nowIso,
+    todayKey,
+    activeDayCount,
+    nextUploads,
+    safeString(clientPlatform, 40),
+    safeString(exporterVersion, 80),
+    trustTier,
+    riskScoreBand
+  ).run();
+
+  return {
+    trustTier,
+    riskScoreBand,
+    sampleScope: trustTier === 'trusted' ? PUBLIC_SAMPLE_SCOPE : 'probation'
+  };
+}
+
+function buildTopicDailyBuckets(events, sources, sampleScope, taxonomyVersion) {
+  const sourceTopicMap = new Map();
+  for (const item of asArray(sources)) {
+    const source = asObject(item);
+    const sourceUrl = safeString(source.sourceUrl, 300);
+    if (!sourceUrl) continue;
+    const labels = [];
+    for (const hintItem of asArray(source.topTopicHints)) {
+      const hint = asObject(hintItem);
+      const normalized = normalizeTopicLabel(hint.topicHint || hint.topicLabel || '');
+      if (normalized && !labels.includes(normalized)) labels.push(normalized);
+      if (labels.length >= 3) break;
+    }
+    if (labels.length > 0) sourceTopicMap.set(sourceUrl, labels);
+  }
+
+  const buckets = new Map();
+  const uploadSeen = new Set();
+  for (const item of asArray(events)) {
+    const event = asObject(item);
+    const dayKey = toDayKey(event.eventAt);
+    if (!dayKey) continue;
+    const sourceUrl = safeString(event.sourceUrl, 300);
+    const labels = dedupeStrings([
+      ...(sourceTopicMap.get(sourceUrl) || []),
+      normalizeTopicLabel(event.reportLeafCategory),
+      normalizeTopicLabel(event.reportPrimaryCategory)
+    ]).slice(0, 3);
+    for (const topicLabel of labels) {
+      const bucketKey = `${dayKey}::${topicLabel}::${taxonomyVersion}::${sampleScope}`;
+      if (!buckets.has(bucketKey)) {
+        buckets.set(bucketKey, {
+          dayKey,
+          topicLabel,
+          eventCount: 0,
+          uploadCount: 0
+        });
+      }
+      const bucket = buckets.get(bucketKey);
+      bucket.eventCount += 1;
+      if (!uploadSeen.has(bucketKey)) {
+        bucket.uploadCount += 1;
+        uploadSeen.add(bucketKey);
+      }
+    }
+  }
+  return buckets;
+}
+
+function normalizeTopicLabel(raw) {
+  let value = safeString(raw, 140);
+  if (!value) return '';
+  value = value
+    .replace(/^hashtag:/i, '')
+    .replace(/^report_leaf:/i, '')
+    .replace(/^report:/i, '')
+    .replace(/^#/, '')
+    .trim();
+  if (!value) return '';
+  const blacklist = new Set(['likes', 'quotes', 'reposts', 'manual', 'unknown']);
+  return blacklist.has(value.toLowerCase()) ? '' : value;
+}
+
+function dedupeStrings(values) {
+  const seen = new Set();
+  const picked = [];
+  for (const value of values) {
+    const item = safeString(value, 140);
+    if (!item || seen.has(item)) continue;
+    seen.add(item);
+    picked.push(item);
+  }
+  return picked;
+}
+
+async function storeEvidenceBundle(env, uploadId, bundle) {
+  if (!env.EVIDENCE_BUCKET || typeof env.EVIDENCE_BUCKET.put !== 'function') return false;
+  const key = `platform-uploads/${String(uploadId).padStart(10, '0')}.json`;
+  await env.EVIDENCE_BUCKET.put(key, JSON.stringify(bundle));
+  return true;
 }
 
 function clampInt(raw, min, max, fallback) {

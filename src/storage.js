@@ -46,6 +46,21 @@ export const Storage = {
         localStorage.setItem(key, JSON.stringify(value));
     },
 
+    getPlatformSyncEnabled: () => Storage.get(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, 'false') === 'true',
+    setPlatformSyncEnabled: (enabled) => Storage.set(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, enabled ? 'true' : 'false'),
+    getPlatformSyncLastAt: () => parseInt(Storage.get(CONFIG.KEYS.PLATFORM_SYNC_LAST_AT, '0') || '0', 10) || 0,
+    setPlatformSyncLastAt: (ts = Date.now()) => Storage.set(CONFIG.KEYS.PLATFORM_SYNC_LAST_AT, String(ts)),
+    getPlatformSourceId: () => {
+        let sourceId = Storage.get(CONFIG.KEYS.PLATFORM_SOURCE_ID, '');
+        if (!sourceId) {
+            sourceId = typeof crypto !== 'undefined' && crypto.randomUUID
+                ? crypto.randomUUID()
+                : `src-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+            Storage.set(CONFIG.KEYS.PLATFORM_SOURCE_ID, sourceId);
+        }
+        return sourceId;
+    },
+
     getBlockContextMap: () => {
         const raw = Storage.getJSON(CONFIG.KEYS.BLOCK_CONTEXT_MAP, {});
         return (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};

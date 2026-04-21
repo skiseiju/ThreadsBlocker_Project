@@ -95,3 +95,34 @@
     - 欄位對應：event_date→date, title+shortLabel(前6字), source_name→note
     - API 失敗自動 fallback 靜態 JSON
     - Linode 爬蟲每日新增事件現在自動反映在主頁趨勢圖上
+
+12. **Sync / Trust Model SDD 與 Task 拆分**（docs/SDD_Platform_Sync_Trust_Model/）
+    - 新增總 SDD：定義 taxonomy 權威移到 Worker、trusted sample、公私 repo 邊界、R2 reclass、多平台能力分級
+    - 新增 Task 0~6：backup gate、client payload、Worker topic daily 重建、R2 buffer、trust tier、public API / methodology、cross-platform 驗證
+    - 明確寫入「先砍掉的野心」：不做母體真相推論、不做因果、不做單貼文對單事件硬配對
+
+13. **Client 端匿名來源識別與 sync 偏好骨架**（src/config.js、src/storage.js、src/reporter.js、src/ui.js）
+    - 新增 localStorage keys：`hege_platform_sync_enabled`、`hege_platform_sync_last_at`、`hege_platform_source_id`
+    - `Reporter.submitPlatformPayload` 現在會帶 `clientSourceId`、`clientPlatform`、`autoSyncEnabled`、`uploadTrigger`
+    - analytics overlay 新增「每日自動同步偏好」checkbox；目前先記錄偏好並隨 upload 送出
+    - 手動上傳成功後會更新 `lastSyncedAt`
+
+14. **CF Worker：topic daily v2 / trust metadata / public sample scope**（cf_bug_admin/src/index.js）
+    - `PLATFORM_MAX_PAYLOAD_BYTES` 先收斂到 1MB，維持輕量 payload 路徑
+    - `platform_uploads` 新增 `client_source_id`、`client_platform`、`taxonomy_version`、`trust_tier`、`risk_score_band`、`sync_enabled`、`upload_trigger`
+    - 新增 `platform_source_registry` 與 `platform_topic_daily_v2`
+    - ingest 新增 `resolveTrustMeta()`：新來源先從 probation 起步；短時間高頻 upload 直接 flagged；跨日穩定來源升 trusted
+    - `platform_topic_daily_v2` 改為依 `eventAt + inferredTopic` 聚合，不再用 upload day 寫時序
+    - 若 Worker 有綁 `EVIDENCE_BUCKET`，會把輕量 evidence bundle 存入 R2；沒綁時則安全略過
+
+15. **Public API metadata 擴充**（cf_bug_admin/src/index.js、site/platform/public.js）
+    - `/api/v1/platform/overview` 與 public projection 現在帶 `taxonomyVersion` 與 `sampleScope`
+    - public overview 預設只讀 trusted sample；legacy 舊資料以 trusted 視角相容
+    - methodology metadata 新增 `trustPolicy: public-trusted-only`
+
+16. **版本與建置驗證**
+    - 版本升至 `2.6.0-beta33`
+    - `node --check cf_bug_admin/src/index.js` 通過
+    - `node --check src/reporter.js` 通過
+    - `./build.sh --no-bump` 通過；Userscript / Chrome / Firefox 產物均已產出
+    - Safari iCloud Userscripts 複製步驟遭到 macOS 權限阻擋，repo 內建置不受影響
