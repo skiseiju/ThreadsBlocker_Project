@@ -1235,6 +1235,8 @@ export const UI = {
     showAnalyticsReport: (options = {}) => {
         if (document.getElementById('hege-analytics-overlay')) return;
         const analyticsShowAdvanced = Storage.get(CONFIG.KEYS.ANALYTICS_SHOW_ADVANCED, 'false') === 'true';
+        const platformSyncEnabled = Storage.getPlatformSyncEnabled();
+        const platformSyncLastAt = Storage.getPlatformSyncLastAt();
 
         const db = Storage.getJSON(CONFIG.KEYS.DB_KEY, []);
         const ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
@@ -1733,6 +1735,7 @@ export const UI = {
 
         const exportPayload = {
             schema: 'threadsblocker.platform_upload.v2',
+            clientSourceId: Storage.getPlatformSourceId(),
             exportedAt: new Date().toISOString(),
             exporter: {
                 tool: 'ThreadsBlocker',
@@ -1741,11 +1744,16 @@ export const UI = {
                 locale: (typeof navigator !== 'undefined' && navigator.language) ? navigator.language : '',
             },
             fieldSpec: {
+                root: ['clientSourceId', 'exportedAt', 'exporter', 'syncPreferences', 'fieldSpec', 'summary', 'accounts', 'events', 'sources', 'sourceEvidence', 'analysisSeeds'],
                 accounts: ['accountId', 'profileUrl', 'blockEventCount', 'reportEventCount', 'totalEventCount', 'firstSeenAt', 'lastSeenAt', 'sourceUrlCount', 'sourceUrls', 'sourceOwners', 'blockReasons', 'reportPrimaryCategories', 'reportLeafCategories', 'platformReview'],
                 events: ['eventId', 'eventType', 'accountId', 'profileUrl', 'eventAt', 'sourceUrl', 'sourceOwner', 'sourceText', 'sourceChannel', 'blockReasonCode', 'reportPath', 'reportPrimaryCategory', 'reportLeafCategory', 'reportTargetType', 'batchId'],
                 sources: ['sourceUrl', 'sourceOwners', 'sourceTextSamples', 'blockEventCount', 'reportEventCount', 'totalEventCount', 'uniqueAccountCount', 'accountIds', 'reportPathCounts', 'blockReasonCounts', 'topicHintCounts', 'topTopicHints', 'manipulationSignalScore', 'manipulationRiskLevel', 'platformReview'],
                 sourceEvidence: ['sourceUrl', 'capturedAt', 'updatedAt', 'captureCount', 'sourceOwner', 'sourceChannel', 'lastEventType', 'textHash', 'snippet'],
                 analysisSeeds: ['suspiciousAccounts', 'campaignCandidates', 'topicSeeds', 'narrativeSeeds'],
+            },
+            syncPreferences: {
+                autoSyncEnabled: platformSyncEnabled,
+                lastSyncedAt: platformSyncLastAt || 0,
             },
             summary: {
                 accountCount: accounts.length,
@@ -1951,7 +1959,13 @@ export const UI = {
 
                     <div style="font-size:11px;color:#666;font-weight:700;letter-spacing:1px;margin-bottom:8px;">匯出準備</div>
                     <div id="hege-analytics-upload-card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;background:#0f1720;border:1px solid #203040;border-radius:8px;padding:10px 12px;">
-                        <div style="font-size:12px;color:#cfe8ff;line-height:1.45;">會整理封鎖與檢舉對象來自哪篇貼文、哪個批次與哪條檢舉路徑；可匯出 JSON 供平台分析。</div>
+                        <div style="display:flex;flex-direction:column;gap:7px;min-width:0;flex:1;">
+                            <div style="font-size:12px;color:#cfe8ff;line-height:1.45;">會整理封鎖與檢舉對象來自哪篇貼文、哪個批次與哪條檢舉路徑；可匯出 JSON 供平台分析。</div>
+                            <label style="display:flex;align-items:flex-start;gap:8px;font-size:11px;color:#9fb9d1;line-height:1.45;">
+                                <input id="hege-analytics-auto-sync-toggle" type="checkbox" ${platformSyncEnabled ? 'checked' : ''} style="margin-top:2px;">
+                                <span>同意記錄「每日自動同步」偏好（Beta）。目前會把此偏好隨 upload 一起送出，供平台建立 trusted sync 與樣本分級；最近一次成功上傳：${platformSyncLastAt > 0 ? new Date(platformSyncLastAt).toLocaleString('zh-TW') : '尚未'}</span>
+                            </label>
+                        </div>
                         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
                             <button id="hege-analytics-export-provenance" class="hege-manager-btn" style="font-size:12px;padding:8px 10px;white-space:nowrap;background:#5ac8fa;color:#001018;border:none;border-radius:7px;font-weight:700;cursor:pointer;">匯出來源 JSON</button>
                             <button id="hege-analytics-upload-platform" class="hege-manager-btn" style="font-size:12px;padding:8px 10px;white-space:nowrap;background:#30d158;color:#00150a;border:none;border-radius:7px;font-weight:700;cursor:pointer;">一鍵上傳平台</button>
@@ -2058,6 +2072,17 @@ export const UI = {
         const uploadBtn = overlay.querySelector('#hege-analytics-upload-platform');
         const uploadStatusEl = overlay.querySelector('#hege-analytics-upload-status');
         const uploadCardEl = overlay.querySelector('#hege-analytics-upload-card');
+        const autoSyncToggle = overlay.querySelector('#hege-analytics-auto-sync-toggle');
+        if (autoSyncToggle) {
+            autoSyncToggle.onchange = () => {
+                Storage.setPlatformSyncEnabled(Boolean(autoSyncToggle.checked));
+                if (uploadStatusEl) {
+                    uploadStatusEl.textContent = autoSyncToggle.checked
+                        ? '已記錄自動同步偏好；後續 trusted sync 會沿用此設定。'
+                        : '已關閉自動同步偏好；目前只會在手動上傳時送出資料。';
+                }
+            };
+        }
         if (uploadBtn) {
             uploadBtn.onclick = async (e) => {
                 e.stopPropagation();
@@ -2066,13 +2091,15 @@ export const UI = {
                 if (uploadStatusEl) uploadStatusEl.textContent = '平台上傳中...';
 
                 try {
-                    const result = await Reporter.submitPlatformPayload(exportPayload, { source: 'analytics_overlay' });
+                    exportPayload.syncPreferences.autoSyncEnabled = Storage.getPlatformSyncEnabled();
+                    exportPayload.syncPreferences.lastSyncedAt = Storage.getPlatformSyncLastAt();
+                    const result = await Reporter.submitPlatformPayload(exportPayload, { source: 'analytics_overlay', trigger: 'manual' });
                     if (Number(result?.code) === 200) {
                         if (result?.duplicate) {
                             if (uploadStatusEl) uploadStatusEl.textContent = `已存在相同批次（ID ${result?.id || '-'}）`;
                             UI.showToast(`平台已存在同批資料（ID ${result?.id || '-'}）`);
                         } else {
-                            if (uploadStatusEl) uploadStatusEl.textContent = `上傳成功（批次 ID ${result?.id || '-'}）`;
+                            if (uploadStatusEl) uploadStatusEl.textContent = `上傳成功（批次 ID ${result?.id || '-'}；樣本層級 ${result?.trustTier || 'legacy'}）`;
                             UI.showToast(`平台上傳成功（ID ${result?.id || '-'}）`);
                         }
                     } else {

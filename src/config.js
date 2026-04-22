@@ -95,6 +95,9 @@ export const CONFIG = {
         SOURCE_EVIDENCE_PRUNE_AT: 'hege_source_evidence_prune_at',
         ANALYTICS_SHOW_ADVANCED: 'hege_analytics_show_advanced',
         PLATFORM_UPLOAD_URL_OVERRIDE: 'hege_platform_upload_url_override',
+        PLATFORM_SYNC_ENABLED: 'hege_platform_sync_enabled',
+        PLATFORM_SYNC_LAST_AT: 'hege_platform_sync_last_at',
+        PLATFORM_SOURCE_ID: 'hege_platform_source_id',
         REPORT_KEEP_BLOCK_SELECTION: 'hege_report_keep_block_selection',
         REPORT_RESTORE_PENDING: 'hege_report_restore_pending',
         
