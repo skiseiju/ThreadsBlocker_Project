@@ -106,6 +106,12 @@ Object.assign(Core, {
             }
         },
 
+        warnReportLimit(message) {
+            if (window.hegeLog) window.hegeLog(`[只檢舉][LIMIT] ${message}`);
+            UI.showToast(message, 4000);
+            return false;
+        },
+
         findClickableByText(text, { exact = true, root = document } = {}) {
             const nodes = root.querySelectorAll('div[role="menuitem"], div[role="button"], button, span[dir="auto"], a[role="link"]');
             for (const node of nodes) {
@@ -411,7 +417,16 @@ Object.assign(Core, {
                 await Core.ReportDriver.visualStep(options, user, `準備選擇「${kind === 'content' ? '檢舉貼文、訊息或留言' : '檢舉帳號'}」`, target, 650);
                 Utils.simClick(target);
                 await Utils.safeSleep(420);
-                Core.ReportDriver.logVisibleOptions('檢舉對象選擇後', { target: kind });
+                const chooserStillVisible = await Utils.pollUntil(() => {
+                    const visibleOptions = Core.ReportDriver.getVisibleReportOptionTexts();
+                    const hasTargetChooser = visibleOptions.some(t => t.includes('檢舉貼文') || t.includes('檢舉帳號') || t.includes('Report post') || t.includes('Report account'));
+                    return hasTargetChooser ? null : true;
+                }, 1200, 120);
+                Core.ReportDriver.logVisibleOptions('檢舉對象選擇後', { target: kind, advanced: !!chooserStillVisible });
+                if (!chooserStillVisible) {
+                    Core.ReportDriver.warnReportLimit(`只檢舉疑似觸發平台限制：@${user} 的檢舉入口暫時不可用`);
+                    return false;
+                }
                 return true;
             }
             Core.ReportDriver.logVisibleOptions('沒有出現檢舉對象選擇層', { target: kind });
@@ -443,7 +458,7 @@ Object.assign(Core, {
             if (!user) return;
             const contextMap = Storage.getJSON(CONFIG.KEYS.REPORT_CONTEXT, {});
             const context = contextMap[user] || options.reportContext || {};
-            const path = Core.ReportDriver.getPath();
+            const path = Core.ReportDriver.getReportPath();
             const history = Storage.getJSON(CONFIG.KEYS.REPORT_HISTORY, []);
             const entry = {
                 type: 'report',
@@ -482,18 +497,7 @@ Object.assign(Core, {
             if (!Storage.isUnderReportLimit()) {
                 const limit = Storage.getDailyReportLimit();
                 const done = Storage.getReportsLast24h();
-                Storage.setJSON(CONFIG.KEYS.BG_STATUS, {
-                    state: 'paused',
-                    current: `只檢舉上限保護中 ${done}/${limit}`,
-                    progress: 0,
-                    total: queue.length,
-                    lastUpdate: Date.now(),
-                });
-                UI.showToast(`只檢舉已達每日上限 ${done}/${limit}，1 小時後再試`, 5000);
-                if (Core.ReportDriver._cooldownTimer) clearTimeout(Core.ReportDriver._cooldownTimer);
-                const next = options.continueWith || (() => Core.ReportDriver.processNext(options));
-                Core.ReportDriver._cooldownTimer = setTimeout(next, 60 * 60 * 1000);
-                return true;
+                Core.ReportDriver.warnReportLimit(`只檢舉已超過每日提醒門檻 ${done}/${limit}`);
             }
 
             Core.ReportDriver._running = true;

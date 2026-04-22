@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.6.0-beta43',
+    VERSION: '2.6.0-beta46',
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/reports/bug',
@@ -23,8 +23,8 @@ export const CONFIG = {
     
     DAILY_LIMIT_DEFAULT: 200,
     DAILY_LIMIT_OPTIONS: [50, 100, 150, 200, 250, 300],
-    DAILY_REPORT_LIMIT_DEFAULT: 300,
-    DAILY_REPORT_LIMIT_OPTIONS: [100, 150, 200, 300, 500],
+    DAILY_REPORT_LIMIT_DEFAULT: 200,
+    DAILY_REPORT_LIMIT_OPTIONS: [50, 100, 150, 200, 250, 300],
     
     // 深層貼文收割常數 (Task 4)
     POST_SWEEP_BATCH_SIZE: 500,
