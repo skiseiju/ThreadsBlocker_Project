@@ -46,6 +46,8 @@ export const Storage = {
         localStorage.setItem(key, JSON.stringify(value));
     },
 
+    isCooldownProtectionEnabled: () => Storage.get(CONFIG.KEYS.COOLDOWN_PROTECTION_ENABLED, 'true') !== 'false',
+    setCooldownProtectionEnabled: (enabled) => Storage.set(CONFIG.KEYS.COOLDOWN_PROTECTION_ENABLED, enabled ? 'true' : 'false'),
     getDailyBlockLimit: () => {
         const limit = parseInt(Storage.get(CONFIG.KEYS.DAILY_BLOCK_LIMIT), 10);
         return CONFIG.DAILY_LIMIT_OPTIONS.includes(limit) ? limit : CONFIG.DAILY_LIMIT_DEFAULT;

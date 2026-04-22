@@ -85,6 +85,23 @@ export const Worker = {
         Worker.updateStatus('running', `只檢舉${label}: ${user}`, 0, Worker.initialTotal);
     },
 
+    markTargetFailedAndContinue: async (rawTarget, targetUser, currentTotal, logMessage = '', sleepMs = 3000) => {
+        if (logMessage && window.hegeLog) window.hegeLog(logMessage);
+        Worker.stats.failed++;
+        Worker.saveStats();
+
+        const queue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+        if (queue.length > 0 && queue[0] === rawTarget) {
+            queue.shift();
+            Storage.setJSON(CONFIG.KEYS.BG_QUEUE, queue);
+        }
+
+        Storage.queueAddUnique(CONFIG.KEYS.FAILED_QUEUE, targetUser);
+        Worker.updateStatus('running', targetUser, 0, currentTotal);
+        if (sleepMs > 0) await Utils.safeSleep(sleepMs);
+        setTimeout(Worker.runStep, 100);
+    },
+
     getReportDriverOptions: (reportUser, reportContext) => ({
         mode: 'profile',
         continueWith: Worker.runStep,
@@ -960,7 +977,17 @@ export const Worker = {
                         Worker.consecutiveFails++;
                         window.hegeLog(`[驗證] Level 2 連續失敗 ${Worker.consecutiveFails}/5`);
                         if (Worker.consecutiveFails >= 5) {
-                            await Worker.triggerCooldown();
+                            if (Storage.isCooldownProtectionEnabled()) {
+                                await Worker.triggerCooldown();
+                            } else {
+                                await Worker.markTargetFailedAndContinue(
+                                    verifyPending,
+                                    targetUser,
+                                    currentTotal,
+                                    `[冷卻保護] 驗證連續失敗達 ${Worker.consecutiveFails} 次，但自動冷卻保護已關閉；改記錄失敗並繼續`,
+                                    3000
+                                );
+                            }
                             return;
                         }
                     }
@@ -1148,15 +1175,19 @@ export const Worker = {
         }
 
         if (!Storage.isUnderLimit()) {
-            const cooldownUntil = Date.now() + 60 * 60 * 1000;
-            const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
-            Storage.setJSON(CONFIG.KEYS.COOLDOWN_QUEUE, [...new Set([...cooldownQueue, ...queue])]);
-            Storage.setJSON(CONFIG.KEYS.BG_QUEUE, []);
-            Storage.set(CONFIG.KEYS.COOLDOWN, cooldownUntil.toString());
-            Worker.updateStatus('error', 'Meta 上限保護中，已暫停');
-            const stopBtn = document.getElementById('hege-worker-stop');
-            if (stopBtn) stopBtn.style.display = 'none';
-            return;
+            if (!Storage.isCooldownProtectionEnabled()) {
+                if (window.hegeLog) window.hegeLog('[冷卻保護] 已關閉；超過 Meta 每日安全上限，繼續執行');
+            } else {
+                const cooldownUntil = Date.now() + 60 * 60 * 1000;
+                const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
+                Storage.setJSON(CONFIG.KEYS.COOLDOWN_QUEUE, [...new Set([...cooldownQueue, ...queue])]);
+                Storage.setJSON(CONFIG.KEYS.BG_QUEUE, []);
+                Storage.set(CONFIG.KEYS.COOLDOWN, cooldownUntil.toString());
+                Worker.updateStatus('error', 'Meta 上限保護中，已暫停');
+                const stopBtn = document.getElementById('hege-worker-stop');
+                if (stopBtn) stopBtn.style.display = 'none';
+                return;
+            }
         }
 
         // Record initial total on first run, and dynamically sync if queue grows
@@ -1276,9 +1307,18 @@ export const Worker = {
                 Worker.saveStats();
 
                 if (Worker.consecutiveRateLimits >= 3) {
-                    if (window.hegeLog) window.hegeLog(`[⚠️警告] 選單異常達 ${Worker.consecutiveRateLimits} 次，偵測到 Meta 限制操作，強制冷卻`);
-                    await Worker.triggerCooldown();
-                    Worker.clearStats();
+                    if (Storage.isCooldownProtectionEnabled()) {
+                        if (window.hegeLog) window.hegeLog(`[⚠️警告] 選單異常達 ${Worker.consecutiveRateLimits} 次，偵測到 Meta 限制操作，強制冷卻`);
+                        await Worker.triggerCooldown();
+                        Worker.clearStats();
+                        return;
+                    }
+                    await Worker.markTargetFailedAndContinue(
+                        rawTarget,
+                        targetUser,
+                        currentTotal,
+                        `[⚠️警告] 選單異常達 ${Worker.consecutiveRateLimits} 次，但自動冷卻保護已關閉；改記錄失敗並繼續`
+                    );
                     return;
                 } else {
                     if (window.hegeLog) window.hegeLog(`[⚠️警告] 選單異常 (第 ${Worker.consecutiveRateLimits}/3 次)，可能為網路延遲或初級限制，跳過並靜置...`);
@@ -1299,9 +1339,18 @@ export const Worker = {
                 }
                 return;
             } else if (result === 'cooldown') {
-                Worker.updateStatus('error', '⚠️ 頻率限制觸發，請稍後再試');
-                const stopBtn = document.getElementById('hege-worker-stop');
-                if (stopBtn) stopBtn.style.display = 'none';
+                if (Storage.isCooldownProtectionEnabled()) {
+                    await Worker.triggerCooldown();
+                    Worker.clearStats();
+                    return;
+                }
+                await Worker.markTargetFailedAndContinue(
+                    rawTarget,
+                    targetUser,
+                    currentTotal,
+                    '[冷卻保護] 偵測到頻率限制，但自動冷卻保護已關閉；改記錄失敗並繼續'
+                );
+                return;
             }
         }
         } finally {
