@@ -1145,6 +1145,7 @@ function buildPublicNarratives(rows, top) {
     .map((group) => ({
       title: group.title,
       summary: group.summary,
+      whyNote: buildNarrativeWhyNote(group),
       eventCount: group.eventCount,
       sourceCount: group.sourceCount,
       accountCount: group.accountCount,
@@ -1156,6 +1157,19 @@ function buildPublicNarratives(rows, top) {
     }));
 
   return sorted;
+}
+
+function buildNarrativeWhyNote(group) {
+  const hints = Array.from(group?.hintCounts?.entries?.() || [])
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([label]) => safeString(label, 60))
+    .filter(Boolean);
+  const hintText = hints.length ? hints.join('、') : '相近措辭';
+  const signalBand = scoreToBand(group?.maxSignalScore);
+  const signalText = signalBand === 'high' ? '高信號' : signalBand === 'medium' ? '中信號' : '低信號';
+  const thresholdText = `至少 ${PUBLIC_MIN_NARRATIVE_SOURCES} 個來源與 ${PUBLIC_MIN_NARRATIVE_EVENTS} 次事件`;
+  return `這組樣本目前累積 ${safeCount(group?.eventCount)} 次事件，分布在 ${safeCount(group?.sourceCount)} 個來源與約 ${safeCount(group?.accountCount)} 個帳號樣本；主題提示集中在 ${hintText}。它之所以會出現在公開頁，是因為同時達到 ${thresholdText} 與 ${signalText} 敘事門檻，代表這不是單一偶發留言，而是值得持續觀察的重複模式。`;
 }
 
 function normalizeTopicHints(rawJson) {

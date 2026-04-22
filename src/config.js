@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.6.0-beta36', // Beta
+    VERSION: '2.6.0-beta38', // Beta
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/reports/bug',
@@ -97,6 +97,7 @@ export const CONFIG = {
         PLATFORM_UPLOAD_URL_OVERRIDE: 'hege_platform_upload_url_override',
         PLATFORM_SYNC_ENABLED: 'hege_platform_sync_enabled',
         PLATFORM_SYNC_LAST_AT: 'hege_platform_sync_last_at',
+        PLATFORM_SYNC_LOCK: 'hege_platform_sync_lock',
         PLATFORM_SOURCE_ID: 'hege_platform_source_id',
         REPORT_KEEP_BLOCK_SELECTION: 'hege_report_keep_block_selection',
         REPORT_RESTORE_PENDING: 'hege_report_restore_pending',

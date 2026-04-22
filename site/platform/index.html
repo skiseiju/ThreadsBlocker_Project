@@ -30,6 +30,8 @@
           <p id="heroSubtitle" class="hero__subtitle">留友封觀測站試著用匿名聚合資料來回答這個問題</p>
           <p class="legal-note">依《個人資料保護法》，本站僅呈現匿名聚合統計與現象觀察，不公開使用者帳號 ID 或個別貼文連結。</p>
           <p id="heroDateRange" class="hero__meta">--</p>
+          <p id="heroMethodologyMeta" class="hero__meta">--</p>
+          <p id="heroStatusMessage" class="legal-note" hidden>--</p>
         </div>
       </section>
 
@@ -123,6 +125,8 @@
       const heroHeadline = document.getElementById('heroHeadline');
       const heroSubtitle = document.getElementById('heroSubtitle');
       const heroDateRange = document.getElementById('heroDateRange');
+      const heroMethodologyMeta = document.getElementById('heroMethodologyMeta');
+      const heroStatusMessage = document.getElementById('heroStatusMessage');
       const statEvents = document.getElementById('statEvents');
       const statCoordinated = document.getElementById('statCoordinated');
       const statContributors = document.getElementById('statContributors');
@@ -166,8 +170,21 @@
         const politicalEvents = typeof eventsLoader === 'function' ? await eventsLoader() : [];
 
         heroSubtitle.textContent = resolveSubtitle(data);
+        const startDate = safeValue(data && data.dateRange && data.dateRange.start, '--');
         const endDate = safeValue(data && data.dateRange && data.dateRange.end, '--');
-        heroDateRange.textContent = `資料更新至 ${endDate}`;
+        heroDateRange.textContent = startDate !== '--' && endDate !== '--'
+          ? `觀測區間 ${startDate} 至 ${endDate}`
+          : '觀測區間尚在累積中';
+        heroMethodologyMeta.textContent = `taxonomy ${safeValue(data && data.taxonomyVersion, 'topic-taxonomy.v1')} · sample ${safeValue(data && data.sampleScope, 'trusted')} · policy ${safeValue(data && data.methodology && data.methodology.trustPolicy, 'public-trusted-only')}`;
+        if (heroStatusMessage) {
+          if (result && result.message) {
+            heroStatusMessage.hidden = false;
+            heroStatusMessage.textContent = result.message;
+          } else {
+            heroStatusMessage.hidden = true;
+            heroStatusMessage.textContent = '';
+          }
+        }
 
         statEvents.textContent = window.PlatformPublic.formatNumber(
           data && data.overview ? data.overview.totalEventCount : 0

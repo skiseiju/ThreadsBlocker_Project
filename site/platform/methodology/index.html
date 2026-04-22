@@ -41,6 +41,36 @@
         </div>
       </section>
 
+      <section aria-labelledby="liveMetaTitle">
+        <div class="section-inner">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">Live Public Metadata</p>
+              <h2 id="liveMetaTitle" class="section-title">目前公開投影設定</h2>
+            </div>
+            <p class="section-copy">這些欄位直接來自 public overview API，用來揭露現在公開頁究竟是用哪一版 taxonomy、哪種 sample scope 與哪條 trust policy。</p>
+          </div>
+          <div class="stats-row">
+            <article class="stat-card">
+              <p id="metaTaxonomy" class="stat-card__value">--</p>
+              <p class="stat-card__label">taxonomyVersion</p>
+              <p class="stat-card__sub">公開話題分類版號</p>
+            </article>
+            <article class="stat-card">
+              <p id="metaSampleScope" class="stat-card__value">--</p>
+              <p class="stat-card__label">sampleScope</p>
+              <p class="stat-card__sub">目前公開頁採用的樣本範圍</p>
+            </article>
+            <article class="stat-card">
+              <p id="metaTrustPolicy" class="stat-card__value">--</p>
+              <p class="stat-card__label">trustPolicy</p>
+              <p class="stat-card__sub">目前公開頁的信任過濾原則</p>
+            </article>
+          </div>
+          <p id="metaUpdatedAt" class="legal-note">載入中。</p>
+        </div>
+      </section>
+
       <section aria-labelledby="metricsTitle">
         <div class="section-inner">
           <div class="section-heading">
@@ -294,5 +324,29 @@
       </section>
     </main>
   </div>
+  <script src="/platform/public.js"></script>
+  <script>
+    (function () {
+      if (!window.PlatformPublic) return;
+      const taxonomyEl = document.getElementById('metaTaxonomy');
+      const sampleScopeEl = document.getElementById('metaSampleScope');
+      const trustPolicyEl = document.getElementById('metaTrustPolicy');
+      const updatedAtEl = document.getElementById('metaUpdatedAt');
+
+      window.PlatformPublic.fetchOverview().then((result) => {
+        const data = result && result.data ? result.data : {};
+        taxonomyEl.textContent = data.taxonomyVersion || '--';
+        sampleScopeEl.textContent = data.sampleScope || '--';
+        trustPolicyEl.textContent = data.methodology && data.methodology.trustPolicy
+          ? data.methodology.trustPolicy
+          : '--';
+        updatedAtEl.textContent = result && result.message
+          ? `目前狀態：${result.message}`
+          : `公開投影更新時間：${data.generatedAt ? new Date(data.generatedAt).toLocaleString('zh-TW') : '未知'}`;
+      }).catch(() => {
+        updatedAtEl.textContent = '目前無法讀取 public overview metadata。';
+      });
+    })();
+  </script>
 </body>
 </html>

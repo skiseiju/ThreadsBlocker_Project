@@ -3,66 +3,64 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="2026 年 4 月留友封觀測站月報：最近 30 日匿名聚合樣本的摘要、事件趨勢、四大指標、主要敘事、政治事件對照與方法限制。">
-  <meta property="og:title" content="2026 年 4 月月報 — 留友封觀測站">
-  <meta property="og:description" content="固定格式公開月報，僅呈現匿名樣本中的統計模式、外部事件對照與方法限制。">
+  <meta name="description" content="留友封觀測站月報：最近 30 日匿名聚合樣本的 live 摘要、事件趨勢、主要敘事、分類分佈、政治事件對照與方法限制。">
+  <meta property="og:title" content="月報 — 留友封觀測站">
+  <meta property="og:description" content="以最近 30 日匿名聚合樣本自動生成的公開月報，僅呈現聚合統計與方法限制。">
   <meta property="og:type" content="website">
-  <title>2026 年 4 月月報 — 留友封觀測站</title>
+  <title>月報 — 留友封觀測站</title>
   <link rel="stylesheet" href="/platform/styles.css">
   <style>
-.entry-card h2 { margin: 0 0 10px; font-size: 1.6rem; line-height: 1.2; }
-.cat-tag {
-  display: inline-block;
-  padding: 2px 10px;
-  border-radius: 4px;
-  font-size: 0.78rem;
-  font-weight: 600;
-  white-space: nowrap;
-  color: #fff;
-}
-.cat-tag--recall       { background: #7c3aed; }
-.cat-tag--gender       { background: #db2777; }
-.cat-tag--entertainment{ background: #d97706; }
-.cat-tag--legislature  { background: #2563eb; }
-.cat-tag--discrimination{ background: #ea580c; }
-.cat-tag--social       { background: #0d9488; }
-.cat-tag--online       { background: #0891b2; }
-.cat-tag--party        { background: #4f46e5; }
-.cat-tag--livestream   { background: #dc2626; }
-.narrative-modal-overlay {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.55);
-  z-index: 1000;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-.narrative-modal-overlay.open { display: flex; }
-.narrative-modal {
-  background: var(--surface, #fff);
-  border-radius: 12px;
-  padding: 28px 28px 24px;
-  max-width: 520px;
-  width: 100%;
-  box-shadow: 0 24px 60px rgba(0,0,0,0.18);
-  position: relative;
-}
-.narrative-modal__close {
-  position: absolute;
-  top: 16px; right: 16px;
-  background: none; border: none;
-  font-size: 1.2rem; cursor: pointer;
-  color: var(--text-muted, #888);
-  line-height: 1;
-}
-.narrative-modal__eyebrow { font-size: 0.75rem; color: var(--text-muted, #888); margin: 0 0 6px; text-transform: uppercase; letter-spacing: .05em; }
-.narrative-modal__title { font-size: 1.2rem; font-weight: 700; margin: 0 0 14px; line-height: 1.35; }
-.narrative-modal__body { font-size: 0.9rem; line-height: 1.7; color: var(--text-secondary, #444); margin: 0 0 16px; }
-.narrative-modal__stats { font-size: 0.82rem; color: var(--text-muted, #888); border-top: 1px solid var(--border, #e5e7eb); padding-top: 12px; }
-.hint-tag { cursor: pointer; }
-.hint-tag:hover { opacity: 0.8; }
+    .report-inline-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .report-inline-badges span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .report-metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px;
+    }
+    .report-note-card {
+      background: var(--surface, #fff);
+      border: 1px solid var(--border, #e5e7eb);
+      border-radius: 18px;
+      padding: 18px;
+    }
+    .report-note-card h3 {
+      margin: 0 0 10px;
+      font-size: 1rem;
+    }
+    .report-table-wrap {
+      overflow-x: auto;
+    }
+    .report-table-wrap table {
+      width: 100%;
+      min-width: 720px;
+    }
+    .cat-tag {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      white-space: nowrap;
+      color: #fff;
+    }
+    .cat-tag--recall { background: #7c3aed; }
+    .cat-tag--gender { background: #db2777; }
+    .cat-tag--entertainment { background: #d97706; }
+    .cat-tag--legislature { background: #2563eb; }
+    .cat-tag--discrimination { background: #ea580c; }
+    .cat-tag--social { background: #0d9488; }
+    .cat-tag--online { background: #0891b2; }
+    .cat-tag--party { background: #4f46e5; }
+    .cat-tag--livestream { background: #dc2626; }
   </style>
 </head>
 <body>
@@ -81,20 +79,12 @@
       <section class="hero hero--tinted">
         <div class="section-inner hero__content">
           <p class="section-kicker">Public Monthly Transparency Report / Rolling 30 Days</p>
-          <h1 id="heroHeadline">2026 年 4 月月報 — 留友封觀測站</h1>
-          <p class="hero__subtitle">固定格式公開月報，使用最近 30 日滾動觀測窗，整理匿名樣本中的事件量、四大訊號、敘事框架與方法限制。</p>
-          <p class="hero__meta">資料期間 2026/03/23 至 2026/04/21。本期觀測窗累積 148,732 次匿名聚合事件、6,924 筆來源樣本與 286 個有效上傳批次；另有 12 則公共政治事件參考可用於時序對照。</p>
-          <p class="hero__meta">
-            <span class="badge badge--high">來源集中</span>
-            最高單一來源占可回推來源事件 24.6%
-            <span class="badge badge--high">敘事重複</span>
-            重複敘事事件占可回推來源事件 41.2%
-            <span class="badge badge--high">短期升高</span>
-            最近 7 日事件量較前 7 日增加 101.1%
-            <span class="badge badge--high">多帳號參與</span>
-            高信號來源目前牽涉約 928 個帳號樣本
-          </p>
-          <p class="legal-note">月報是公益觀測材料，不是個案判決書。政治事件標記僅提供時序參考，不代表與平台樣本之間存在已證實的因果關係。公開頁只呈現匿名聚合統計與現象觀察，不公開使用者帳號 ID 或個別貼文連結。</p>
+          <h1 id="heroHeadline">留友封觀測站月報</h1>
+          <p id="heroSubtitle" class="hero__subtitle">最近 30 日匿名聚合樣本的 live 摘要。</p>
+          <p id="heroMeta" class="hero__meta">載入中。</p>
+          <div id="heroSignals" class="report-inline-badges"></div>
+          <p id="heroMessage" class="legal-note" hidden>--</p>
+          <p class="legal-note">月報是公益觀測材料，不是個案判決書。政治事件標記只提供時序參考，不代表與平台樣本之間存在已證實的因果關係。</p>
         </div>
       </section>
 
@@ -102,34 +92,33 @@
         <div class="section-inner">
           <div class="section-heading">
             <h2 class="section-title">本期摘要</h2>
-            <p class="section-copy">固定格式月報優先回答四件事：這 30 天樣本量是否夠、事件量是升還是降、哪些主題最常出現、以及外部公共事件提供了什麼脈絡。</p>
+            <p class="section-copy">這份月報直接讀取 public overview API，只呈現匿名聚合統計、敘事摘要與方法限制。</p>
           </div>
-          <p>在 <strong>2026/03/23</strong> 到 <strong>2026/04/21</strong> 的固定觀測窗內，平台匿名樣本累積 <strong>148,732</strong> 次事件。最近 7 日事件量相較前 7 日為 <strong>+101.1%</strong>，整體樣本覆蓋則維持在封鎖來源覆蓋率 72% / 檢舉來源覆蓋率 64%。</p>
+          <p id="summaryLead">載入中。</p>
           <div class="stats-row">
             <article class="stat-card">
-              <p class="stat-card__value">148,732</p>
+              <p id="summaryEvents" class="stat-card__value">0</p>
               <p class="stat-card__label">本期事件量</p>
-              <p class="stat-card__sub">封鎖事件 94,108，檢舉事件 54,624。這些數值只到聚合層，不回推個人。</p>
+              <p id="summaryEventsSub" class="stat-card__sub">--</p>
             </article>
             <article class="stat-card">
-              <p class="stat-card__value">+101.1%</p>
+              <p id="summaryMomentum" class="stat-card__value">0%</p>
               <p class="stat-card__label">近 7 日相對前 7 日</p>
-              <p class="stat-card__sub">近 7 日合計 953 次事件，平均每日約 136 次。</p>
+              <p id="summaryMomentumSub" class="stat-card__sub">--</p>
             </article>
           </div>
           <div class="stats-row">
             <article class="stat-card">
-              <p class="stat-card__value">23.8%</p>
+              <p id="summaryTopCategory" class="stat-card__value">--</p>
               <p class="stat-card__label">主導分類占比</p>
-              <p class="stat-card__sub">本期公開分類事件中，垃圾訊息占比最高，累積 1,820 次事件。</p>
+              <p id="summaryTopCategorySub" class="stat-card__sub">--</p>
             </article>
             <article class="stat-card">
-              <p class="stat-card__value">2,341</p>
+              <p id="summaryTopNarrative" class="stat-card__value">--</p>
               <p class="stat-card__label">主要敘事事件量</p>
-              <p class="stat-card__sub">本期最主要的匿名敘事框架涉及 8 個來源與 714 個帳號樣本。</p>
+              <p id="summaryTopNarrativeSub" class="stat-card__sub">--</p>
             </article>
           </div>
-          <p>峰值出現在 2026/04/16，單日事件量 289。同一觀測窗內可對照 12 則公共政治事件。月報只做時序與模式層級描述，不對個人行為或事件因果做定論。</p>
         </div>
       </section>
 
@@ -137,11 +126,11 @@
         <div class="section-inner">
           <div class="section-heading">
             <h2 class="section-title">事件量與趨勢</h2>
-            <p class="section-copy">主圖原本顯示最近 30 日事件量、封鎖與檢舉分流，以及同一時間窗中的外部政治事件參考。這裡改以表格固定呈現同一批內容，仍不提供個人層級 drill-down。</p>
+            <p class="section-copy">下表直接讀取最近 30 日的 daily trend 聚合，不顯示個人層級 drill-down。</p>
           </div>
           <article class="chart-card">
-            <div class="chart-shell">
-              <p>最近 7 日事件量相對前 7 日為 <strong>+101.1%</strong>。本期總事件中，封鎖約占 <strong>63.3%</strong>，檢舉約占 <strong>36.7%</strong>。峰值日為 <strong>2026/04/16</strong>，單日累積 <strong>289</strong> 次事件與 <strong>14</strong> 筆來源樣本；觀測窗最後一天 <strong>2026/04/21</strong> 仍有 <strong>52</strong> 次事件。</p>
+            <p id="trendSummary">載入中。</p>
+            <div class="report-table-wrap">
               <table>
                 <thead>
                   <tr>
@@ -150,39 +139,11 @@
                     <th>封鎖事件</th>
                     <th>檢舉事件</th>
                     <th>來源樣本</th>
+                    <th>峰值</th>
                   </tr>
                 </thead>
-                <tbody>
-                  <tr><td>2026/03/23</td><td>42</td><td>27</td><td>15</td><td>2</td></tr>
-                  <tr><td>2026/03/24</td><td>38</td><td>25</td><td>13</td><td>2</td></tr>
-                  <tr><td>2026/03/25</td><td>97</td><td>61</td><td>36</td><td>5</td></tr>
-                  <tr><td>2026/03/26</td><td>44</td><td>29</td><td>15</td><td>2</td></tr>
-                  <tr><td>2026/03/27</td><td>47</td><td>31</td><td>16</td><td>2</td></tr>
-                  <tr><td>2026/03/28</td><td>114</td><td>72</td><td>42</td><td>6</td></tr>
-                  <tr><td>2026/03/29</td><td>36</td><td>23</td><td>13</td><td>2</td></tr>
-                  <tr><td>2026/03/30</td><td>55</td><td>36</td><td>19</td><td>3</td></tr>
-                  <tr><td>2026/03/31</td><td>218</td><td>142</td><td>76</td><td>11</td></tr>
-                  <tr><td>2026/04/01</td><td>167</td><td>109</td><td>58</td><td>8</td></tr>
-                  <tr><td>2026/04/02</td><td>89</td><td>58</td><td>31</td><td>4</td></tr>
-                  <tr><td>2026/04/03</td><td>89</td><td>56</td><td>33</td><td>4</td></tr>
-                  <tr><td>2026/04/04</td><td>48</td><td>31</td><td>17</td><td>2</td></tr>
-                  <tr><td>2026/04/05</td><td>46</td><td>30</td><td>16</td><td>2</td></tr>
-                  <tr><td>2026/04/06</td><td>213</td><td>138</td><td>75</td><td>11</td></tr>
-                  <tr><td>2026/04/07</td><td>149</td><td>97</td><td>52</td><td>7</td></tr>
-                  <tr><td>2026/04/08</td><td>71</td><td>46</td><td>25</td><td>3</td></tr>
-                  <tr><td>2026/04/09</td><td>106</td><td>67</td><td>39</td><td>5</td></tr>
-                  <tr><td>2026/04/10</td><td>54</td><td>35</td><td>19</td><td>3</td></tr>
-                  <tr><td>2026/04/11</td><td>43</td><td>28</td><td>15</td><td>2</td></tr>
-                  <tr><td>2026/04/12</td><td>49</td><td>32</td><td>17</td><td>2</td></tr>
-                  <tr><td>2026/04/13</td><td>93</td><td>59</td><td>34</td><td>5</td></tr>
-                  <tr><td>2026/04/14</td><td>58</td><td>38</td><td>20</td><td>3</td></tr>
-                  <tr><td>2026/04/15</td><td>247</td><td>161</td><td>86</td><td>12</td></tr>
-                  <tr><td>2026/04/16</td><td>289</td><td>188</td><td>101</td><td>14</td></tr>
-                  <tr><td>2026/04/17</td><td>157</td><td>102</td><td>55</td><td>8</td></tr>
-                  <tr><td>2026/04/18</td><td>73</td><td>47</td><td>26</td><td>4</td></tr>
-                  <tr><td>2026/04/19</td><td>88</td><td>55</td><td>33</td><td>4</td></tr>
-                  <tr><td>2026/04/20</td><td>47</td><td>31</td><td>16</td><td>2</td></tr>
-                  <tr><td>2026/04/21</td><td>52</td><td>34</td><td>18</td><td>3</td></tr>
+                <tbody id="trendTableBody">
+                  <tr><td colspan="6">載入中。</td></tr>
                 </tbody>
               </table>
             </div>
@@ -190,32 +151,6 @@
               <strong>事件量解讀</strong> 這些變化適合拿來描述節奏快慢，不適合直接推論動機。公共事件只提供時間脈絡，不能單獨拿來證成平台樣本的來源、意圖或責任歸屬。
             </div>
           </article>
-          <div class="entry-grid">
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">觀測 01</p>
-              <h3>最近 7 日事件量翻倍</h3>
-              <p>最近 7 日合計 953 次事件，較前 7 日的 474 次增加 101.1%。這個變化適合拿來描述節奏快慢，不適合直接推論動機。</p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">觀測 02</p>
-              <h3>封鎖仍是主要事件型態</h3>
-              <p>本期總事件中，封鎖約占 63.3%，檢舉約占 36.7%，顯示樣本主要由這兩類聚合行為構成。</p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">觀測 03</p>
-              <h3>峰值集中在 4 月中旬</h3>
-              <p>峰值日為 2026/04/16，單日累積 289 次事件與 14 筆來源樣本，緊接著 2026/04/15 也有 247 次事件。</p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">觀測 04</p>
-              <h3>觀測窗尾端沒有歸零</h3>
-              <p>觀測窗最後一天 2026/04/21 仍有 52 次事件，代表樣本不是單次尖峰後歸零，而是持續有事件累積。</p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-          </div>
         </div>
       </section>
 
@@ -225,35 +160,8 @@
             <h2 class="section-title">四大公開指標</h2>
             <p class="section-copy">高值代表樣本中的模式更值得持續觀察，不代表平台已對任何個人、帳號、動機或違法性做出法律或事實上的認定。</p>
           </div>
-          <div class="entry-grid">
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">01</p>
-              <h3>來源集中度</h3>
-              <p><span class="badge badge--medium">24.6%</span></p>
-              <p>最高單一來源約占可回推來源事件 24.6%。高集中只代表集中，不等於惡意或違規。</p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">02</p>
-              <h3>文字重複率</h3>
-              <p><span class="badge badge--high">41.2%</span></p>
-              <p>達公開門檻的重複敘事約占可回推來源事件 41.2%。重複可能來自引用、新聞摘要或熱門轉述。</p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">03</p>
-              <h3>短期擴散</h3>
-              <p><span class="badge badge--high">+37.8%</span></p>
-              <p>最近 7 日事件量相對前 7 日變化 +37.8%。高成長可能反映公共議題升溫，不是自動等於不當操作。</p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">04</p>
-              <h3>協調帳號數</h3>
-              <p><span class="badge badge--high">928</span></p>
-              <p>高信號來源目前涉及約 928 個帳號樣本與 17 組來源。這是模式聚集，不是對真實協調關係的證明。</p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
+          <div id="signalCards" class="report-metrics-grid">
+            <div class="report-note-card">載入中。</div>
           </div>
         </div>
       </section>
@@ -264,53 +172,7 @@
             <h2 class="section-title">本期主要敘事框架</h2>
             <p class="section-copy">月報只顯示摘要化、去識別化後的敘事框架，不附原文全文、不附帳號名單，也不附 Threads 原始連結。</p>
           </div>
-          <div class="narratives-list">
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">Narrative 01</p>
-              <h2>圍繞罷免案投票資格爭議的同質性回覆</h2>
-              <p>多個來源反覆轉發對罷免案投票門檻的質疑框架，使用相近句型與問句結構，集中出現在罷免案相關貼文下方。</p>
-              <p>罷免投票日前後，特定貼文下方出現大量使用相似問句的留言，質疑投票門檻的合法性。這些帳號的建立時間集中、互動模式雷同，且在短時間內從不同帳號發出結構相近的內容，符合協調傳播的觀察特徵。</p>
-              <p><span class="badge badge--high">高信號</span> <span class="hint-tag">罷免</span> <span class="hint-tag">投票資格</span></p>
-              <p>2,341 事件 / 714 帳號樣本 / 8 個來源</p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">Narrative 02</p>
-              <h3>批評特定媒體報導立場的重複框架</h3>
-              <p>樣本中多次出現針對特定媒體報導的格式化批評，常見句型為「OO媒體又在...」，由不同帳號在短時間內集中貼出。</p>
-              <p>少數幾篇批評特定媒體的貼文在數小時內被大量帳號複製轉發，句型幾乎相同。這類模式常見於有人刻意放大特定敘事框架的情況，原始來源很少，但擴散速度和帳號數量不成比例。</p>
-              <p><span class="badge badge--high">高信號</span> <span class="hint-tag">媒體批評</span> <span class="hint-tag">假新聞</span></p>
-              <p>1,876 事件 / 531 帳號樣本 / 6 個來源</p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">Narrative 03</p>
-              <h3>利用兩岸議題製造對立情緒的樣本群</h3>
-              <p>涉及兩岸關係的同質性貼文，使用煽動性標籤與固定句式，事件量在政治節點前後出現明顯峰值。</p>
-              <p>這批樣本使用的標籤與句式，與其他平台已記錄的跨平台協調模板高度吻合。事件量在政治敏感節點前後明顯上升，但帳號本身沒有其他互動紀錄，屬於典型的單一目的帳號特徵。</p>
-              <p><span class="badge badge--medium">中信號</span> <span class="hint-tag">兩岸</span> <span class="hint-tag">國際關係</span></p>
-              <p>1,423 事件 / 389 帳號樣本 / 5 個來源</p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">Narrative 04</p>
-              <h3>質疑政府政策執行效率的協調轉貼</h3>
-              <p>多個來源反覆轉貼對政府特定政策的負面評價，句型高度相似，源自少數幾篇高流量貼文。</p>
-              <p>源頭只有兩三篇貼文，但被數百個帳號在短時間內轉發，且評論句型高度一致。這種少來源、多傳播的結構，是協調放大敘事的常見模式，而非自然的輿論擴散。</p>
-              <p><span class="badge badge--medium">中信號</span> <span class="hint-tag">政府政策</span> <span class="hint-tag">行政效率</span></p>
-              <p>1,187 事件 / 302 帳號樣本 / 4 個來源</p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">Narrative 05</p>
-              <h3>對立法院委員會表決爭議的放大敘事</h3>
-              <p>圍繞立法院特定表決結果的重複評論群，帳號間協調特徵明顯，集中在事件發生後 72 小時內擴散。</p>
-              <p>表決結果公布後 72 小時內，相關貼文下方湧現大量結構相似的評論。這些帳號彼此間沒有互動歷史，但內容幾乎同步出現，符合統一時間點啟動的協調操作特徵。</p>
-              <p><span class="badge badge--medium">中信號</span> <span class="hint-tag">立法院</span> <span class="hint-tag">表決爭議</span></p>
-              <p>934 事件 / 248 帳號樣本 / 3 個來源</p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-          </div>
+          <div id="narrativesList" class="narratives-list">載入中。</div>
         </div>
       </section>
 
@@ -318,10 +180,10 @@
         <div class="section-inner">
           <div class="section-heading">
             <h2 class="section-title">政治事件參考</h2>
-            <p class="section-copy">這份清單來自手動維護的公共事件資料，目的是提供公共討論脈絡。這些事件不是平台樣本的因果判定，也不是任何政治立場的分類標籤。</p>
+            <p class="section-copy">這份清單來自公共事件資料，目的是提供公共討論脈絡。這些事件不是平台樣本的因果判定，也不是任何政治立場的分類標籤。</p>
           </div>
           <article class="chart-card">
-            <div class="chart-shell">
+            <div class="report-table-wrap">
               <table>
                 <thead>
                   <tr>
@@ -331,27 +193,16 @@
                     <th>來源</th>
                   </tr>
                 </thead>
-                <tbody id="political-events-tbody">
-                  <tr><td>2026/03/25</td><td><span class="cat-tag cat-tag--gender">性別爭議</span></td><td>知名 YouTuber 發表爭議性別言論，引發大量攻擊性留言</td><td>外部社會事件標記，僅作時序參考。</td></tr>
-                  <tr><td>2026/03/28</td><td><span class="cat-tag cat-tag--entertainment">娛樂八卦</span></td><td>藝人情感八卦事件爆發，各方粉絲集結跟風評論</td><td>外部社會事件標記，僅作時序參考。</td></tr>
-                  <tr><td>2026/03/31</td><td><span class="cat-tag cat-tag--legislature">國會事件</span></td><td>立法院院會國會改革相關條文表決爭議</td><td>外部公共節點，用來對照匿名樣本波動，不代表已證實因果關係。</td></tr>
-                  <tr><td>2026/04/03</td><td><span class="cat-tag cat-tag--discrimination">歧視爭議</span></td><td>網路名人發表族群歧視言論，引發大量同質性批評留言</td><td>外部社會事件標記，僅作時序參考。</td></tr>
-                  <tr><td>2026/04/04</td><td><span class="cat-tag cat-tag--social">社會事件</span></td><td>媒體揭露社群平台疑似協調帳號操控貼文能見度</td><td>外部社會事件標記，僅作時序參考，不代表與平台樣本具已證實因果關係。</td></tr>
-                  <tr><td>2026/04/06</td><td><span class="cat-tag cat-tag--recall">罷免案</span></td><td>多縣市罷免案連署資格審查結果公布</td><td>外部公共節點，不代表平台樣本與該事件具有已證實因果關係。</td></tr>
-                  <tr><td>2026/04/09</td><td><span class="cat-tag cat-tag--online">網路論戰</span></td><td>兩大網紅公開互相謾罵，各自粉絲集結攻擊對方帳號</td><td>外部社會事件標記，僅作時序參考。</td></tr>
-                  <tr><td>2026/04/10</td><td><span class="cat-tag cat-tag--party">政黨動態</span></td><td>主要政黨就罷免案發表公開聲明</td><td>公共事件標記僅作外部參考。</td></tr>
-                  <tr><td>2026/04/12</td><td><span class="cat-tag cat-tag--gender">性騷擾指控</span></td><td>#MeToo 相關指控事件引發協調性攻擊留言群</td><td>外部社會事件標記，僅作時序參考。</td></tr>
-                  <tr><td>2026/04/15</td><td><span class="cat-tag cat-tag--recall">罷免案</span></td><td>多縣市罷免投票日</td><td>公共政治節點，不是對平台樣本成因的法律或事實認定。</td></tr>
-                  <tr><td>2026/04/16</td><td><span class="cat-tag cat-tag--recall">罷免案</span></td><td>罷免結果公布，各方政治回應密集出現</td><td>外部公共節點，用來對照匿名樣本波動，不代表已證實因果關係。</td></tr>
-                  <tr><td>2026/04/19</td><td><span class="cat-tag cat-tag--livestream">直播爭議</span></td><td>直播主爭議言論引發跨社群大量攻擊行動</td><td>外部社會事件標記，僅作時序參考。</td></tr>
+                <tbody id="politicalEventsBody">
+                  <tr><td colspan="4">載入中。</td></tr>
                 </tbody>
               </table>
             </div>
             <div class="chart-detail">
-              <strong>如何使用這些事件</strong> 可以比較事件峰值是否與公共議程時序接近，並在報導中註明這是時間上的對照，而不是已證實的因果；不能把同時發生的事件量上升，直接寫成對特定人、特定陣營或特定行為模式的定罪式敘述。
+              <strong>如何使用這些事件</strong> 可以比較事件峰值是否與公共議程時序接近，並在報導中註明這是時間上的對照，而不是已證實的因果。
             </div>
           </article>
-          <p class="political-events-count">本期共對照 12 則公共事件，涵蓋 2026/03/23 至 2026/04/21。這些事件只代表公共議程背景，不構成任何因果或責任判定。</p>
+          <p id="politicalEventsCount" class="legal-note">載入中。</p>
         </div>
       </section>
 
@@ -359,53 +210,9 @@
         <div class="section-inner">
           <div class="section-heading">
             <h2 class="section-title">分類分佈摘要</h2>
-            <p class="section-copy">這些分類反映使用者在 Threads 原生檢舉流程中選擇的類型。月報只呈現達公開門檻的聚合結果，不呈現低樣本細項。</p>
+            <p class="section-copy">這些分類反映使用者在 Threads 原生檢舉流程中選擇的類型。月報只呈現達公開門檻的聚合結果。</p>
           </div>
-          <p>前 3 大分類合計約占 <strong>53.3%</strong> 的公開分類事件，其中 <strong>垃圾訊息</strong> 目前占比最高。這些分類只反映使用者在 Threads 原生檢舉流程中的所選類型。</p>
-          <div class="narratives-list">
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">Report Category</p>
-              <h3>垃圾訊息</h3>
-              <p>這個類別目前占公開分類事件 23.8%，月報只顯示達公開門檻的聚合統計。</p>
-              <p><span class="hint-tag">事件數 1,820</span> <span class="hint-tag">帳號數 923</span> <span class="hint-tag">來源數 112</span></p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">Report Category</p>
-              <h3>霸凌或騷擾</h3>
-              <p>這個類別目前占公開分類事件 16.3%，月報只顯示達公開門檻的聚合統計。</p>
-              <p><span class="hint-tag">事件數 1,244</span> <span class="hint-tag">帳號數 602</span> <span class="hint-tag">來源數 88</span></p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">Report Category</p>
-              <h3>不實資訊</h3>
-              <p>這個類別目前占公開分類事件 13.2%，月報只顯示達公開門檻的聚合統計。</p>
-              <p><span class="hint-tag">事件數 1,012</span> <span class="hint-tag">帳號數 511</span> <span class="hint-tag">來源數 72</span></p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">Report Category</p>
-              <h3>暴力、仇恨或剝削</h3>
-              <p>這個類別目前占公開分類事件 11.5%，月報只顯示達公開門檻的聚合統計。</p>
-              <p><span class="hint-tag">事件數 883</span> <span class="hint-tag">帳號數 418</span> <span class="hint-tag">來源數 60</span></p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">Report Category</p>
-              <h3>裸露或性行為</h3>
-              <p>這個類別目前占公開分類事件 8.4%，月報只顯示達公開門檻的聚合統計。</p>
-              <p><span class="hint-tag">事件數 642</span> <span class="hint-tag">帳號數 301</span> <span class="hint-tag">來源數 44</span></p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">Report Category</p>
-              <h3>生理或心理威脅</h3>
-              <p>這個類別目前占公開分類事件 6.5%，月報只顯示達公開門檻的聚合統計。</p>
-              <p><span class="hint-tag">事件數 498</span> <span class="hint-tag">帳號數 236</span> <span class="hint-tag">來源數 36</span></p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-          </div>
+          <div id="categoriesList" class="categories-list">載入中。</div>
         </div>
       </section>
 
@@ -413,46 +220,12 @@
         <div class="section-inner">
           <div class="section-heading">
             <h2 class="section-title">方法論與樣本限制</h2>
-            <p class="section-copy">月報除了列出指標，也必須同時說明資料是如何形成、哪些門檻決定了可否公開，以及有哪些不能從這批樣本直接推出的結論。</p>
+            <p class="section-copy">除了列出指標，也必須同時說明資料是如何形成、哪些門檻決定了可否公開，以及有哪些不能從這批樣本直接推出的結論。</p>
           </div>
-          <div class="narratives-list">
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">方法摘要</p>
-              <h3>公開月報只讀取 public projection</h3>
-              <p>公開月報僅讀取 public projection，所有指標都是聚合數值或去識別化摘要，不會回傳帳號、URL 或原文樣本。</p>
-              <p>公開頁只呈現匿名樣本中的統計模式與中性訊號。高風險分級是統計標籤，不是對個人、貼文、動機或違法性的認定。資料來自使用者自願上傳，並非平台全量資料。</p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">分級區間</p>
-              <h3>Low 0-44 / Medium 45-64 / High 65+</h3>
-              <p>高風險分級是統計標籤，不是事實認定。分類至少 5 次事件、敘事至少 2 個來源與 20 次事件才進入公開頁。</p>
-              <p><span class="badge badge--low">Low 0-44</span> <span class="badge badge--medium">Medium 45-64</span> <span class="badge badge--high">High 65+</span></p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">樣本限制</p>
-              <h3>樣本不是平台全量</h3>
-              <p>本期有效上傳批次 286，只能代表自願上傳的匿名樣本，不代表 Threads 全體內容生態。</p>
-              <p><span class="hint-tag">活躍觀測日 30</span> <span class="hint-tag">資料期間 2026/03/23 至 2026/04/21</span></p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">樣本限制</p>
-              <h3>來源覆蓋率有限</h3>
-              <p>封鎖來源覆蓋率約 72%，檢舉來源覆蓋率約 64%，仍有一部分事件無法回推來源。</p>
-              <p>這些限制跟數字同樣重要。若不一起讀，月報就會被誤解成對平台全量生態的直接描述。</p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
-            <article class="entry-card">
-              <p class="entry-card__eyebrow">樣本限制</p>
-              <h3>公開頁不保留個人層級資料</h3>
-              <p>公開頁只讀 public projection，不輸出帳號 ID、@username、原始 URL、原文全文或可回推個人的識別字串。</p>
-              <p>月報適合用來描述樣本中的模式、變化與公共議程時序，不適合用來指認個人、替特定內容定性，或推論平台全量流量分布。</p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </article>
+          <div id="methodologyCards" class="report-metrics-grid">
+            <div class="report-note-card">載入中。</div>
           </div>
-          <p><a href="/platform/methodology/">閱讀完整方法論</a> / <a href="/platform/">回到平台首頁</a></p>
+          <p class="legal-note"><a href="/platform/methodology/">閱讀完整方法論</a> / <a href="/platform/">回到平台首頁</a></p>
         </div>
       </section>
 
@@ -464,7 +237,7 @@
           </div>
           <article class="chart-card">
             <p>本頁內容呈現匿名樣本中的統計模式與風險信號，不構成對任何個人、帳號、貼文內容、動機或法律責任之事實認定。</p>
-            <p>資料來源為使用者自願上傳的匿名聚合樣本，並非 Threads 平台全量資料；因此任何數值都應解讀為「樣本中可觀察到的模式」，而不是對全體使用者行為的全面推論。</p>
+            <p>資料來源為使用者自願上傳的匿名聚合樣本，並非 Threads 平台全量資料；因此任何數值都應解讀為樣本中可觀察到的模式，而不是對全體使用者行為的全面推論。</p>
             <p>政治事件、分類分佈與敘事框架僅供研究、媒體觀察與公共討論參考，不應被拿來作為個人點名、政治貼標、法律認定或名譽評價的依據。</p>
           </article>
         </div>
@@ -478,102 +251,204 @@
       </section>
     </main>
   </div>
-<script>
-(function () {
-  // hint-tag modal
-  document.addEventListener('DOMContentLoaded', () => {
-    const overlay = document.getElementById('narrativeModalOverlay');
-    const closeBtn = document.getElementById('narrativeModalClose');
-    if (!overlay || !closeBtn) return;
 
-    function openModal(card) {
-      const eyebrow = card.querySelector('.entry-card__eyebrow')?.textContent || '';
-      const title = card.querySelector('h2,h3')?.textContent || '';
-      const badge = card.querySelector('.badge')?.outerHTML || '';
-      const paras = Array.from(card.querySelectorAll('p')).filter(p =>
-        !p.classList.contains('entry-card__eyebrow') &&
-        !p.querySelector('.badge') &&
-        !p.querySelector('.hint-tag') &&
-        !/^\d/.test(p.textContent.trim())
-      );
-      const stats = Array.from(card.querySelectorAll('p')).find(p => /^\d/.test(p.textContent.trim()))?.textContent || '';
-      const bodyHtml = paras.map(p => `<p>${p.innerHTML}</p>`).join('');
+  <script src="/platform/public.js"></script>
+  <script>
+    (function () {
+      if (!window.PlatformPublic) return;
 
-      document.getElementById('modalEyebrow').textContent = eyebrow;
-      document.getElementById('modalBadge').innerHTML = badge;
-      document.getElementById('modalTitle').textContent = title;
-      document.getElementById('modalBody').innerHTML = bodyHtml;
-      document.getElementById('modalStats').textContent = stats;
-      overlay.classList.add('open');
-      document.body.style.overflow = 'hidden';
-    }
+      const CAT_CLASS = {
+        '罷免案': 'cat-tag--recall',
+        '國會事件': 'cat-tag--legislature',
+        '政黨動態': 'cat-tag--party',
+        '性別爭議': 'cat-tag--gender',
+        '性騷擾指控': 'cat-tag--gender',
+        '娛樂八卦': 'cat-tag--entertainment',
+        '歧視爭議': 'cat-tag--discrimination',
+        '網路論戰': 'cat-tag--online',
+        '直播爭議': 'cat-tag--livestream',
+        '社會事件': 'cat-tag--social'
+      };
 
-    function closeModal() {
-      overlay.classList.remove('open');
-      document.body.style.overflow = '';
-    }
+      function safeNum(value) {
+        const num = Number(value);
+        return Number.isFinite(num) ? num : 0;
+      }
 
-    document.querySelectorAll('.hint-tag').forEach(tag => {
-      tag.addEventListener('click', () => {
-        const card = tag.closest('.entry-card');
-        if (card) openModal(card);
+      function safeText(value, fallback = '--') {
+        return value === undefined || value === null || value === '' ? fallback : value;
+      }
+
+      function esc(text) {
+        return window.PlatformPublic.escapeHtml(text || '');
+      }
+
+      function categoryTag(category) {
+        const cls = CAT_CLASS[category] || '';
+        return `<span class="cat-tag ${cls}">${esc(category || '其他')}</span>`;
+      }
+
+      function renderSignalCards(data) {
+        const items = [
+          {
+            title: '來源集中度',
+            value: window.PlatformPublic.formatPercent(data?.signals?.sourceConcentrationPct),
+            body: '最高單一來源占可回推來源事件的比例。高集中只代表集中，不等於惡意或違規。'
+          },
+          {
+            title: '文字重複率',
+            value: window.PlatformPublic.formatPercent(data?.signals?.repeatedNarrativePct),
+            body: '達公開門檻的重複敘事約占可回推來源事件的比例。重複可能來自引用、轉述或熱門摘要。'
+          },
+          {
+            title: '短期擴散',
+            value: window.PlatformPublic.formatPercent(data?.signals?.shortTermDiffusionPct, 1, true),
+            body: '比較最近 7 日與前 7 日的事件量變化。高成長可能反映公共議題升溫。'
+          },
+          {
+            title: '協調帳號數',
+            value: window.PlatformPublic.formatNumber(data?.signals?.coordinatedAccountEstimate),
+            body: '高信號來源目前涉及的匿名帳號樣本規模。這是模式聚集，不是對真實協調關係的證明。'
+          }
+        ];
+        document.getElementById('signalCards').innerHTML = items.map((item) => `
+          <article class="report-note-card">
+            <h3>${item.title}</h3>
+            <p class="stat-card__value">${item.value}</p>
+            <p>${item.body}</p>
+          </article>
+        `).join('');
+      }
+
+      function renderTrendTable(dailyTrend) {
+        const body = document.getElementById('trendTableBody');
+        const rows = Array.isArray(dailyTrend) ? dailyTrend : [];
+        if (!rows.length) {
+          body.innerHTML = '<tr><td colspan="6">目前沒有足夠的趨勢資料。</td></tr>';
+          return;
+        }
+        body.innerHTML = rows.map((row) => `
+          <tr>
+            <td>${esc(window.PlatformPublic.formatDateLabel(row.day_key))}</td>
+            <td>${window.PlatformPublic.formatNumber(row.total_event_count)}</td>
+            <td>${window.PlatformPublic.formatNumber(row.block_event_count)}</td>
+            <td>${window.PlatformPublic.formatNumber(row.report_event_count)}</td>
+            <td>${window.PlatformPublic.formatNumber(row.source_count)}</td>
+            <td>${row.is_spike ? '<span class="badge badge--high">峰值</span>' : '<span class="badge badge--low">一般</span>'}</td>
+          </tr>
+        `).join('');
+      }
+
+      function renderPoliticalEvents(events) {
+        const body = document.getElementById('politicalEventsBody');
+        const countEl = document.getElementById('politicalEventsCount');
+        const items = Array.isArray(events) ? events : [];
+        if (!items.length) {
+          body.innerHTML = '<tr><td colspan="4">目前沒有公共事件對照資料。</td></tr>';
+          countEl.textContent = '目前沒有可對照的公共事件。';
+          return;
+        }
+        body.innerHTML = items.map((event) => `
+          <tr>
+            <td>${esc(window.PlatformPublic.formatDateLabel(event.date || ''))}</td>
+            <td>${categoryTag(event.category || '')}</td>
+            <td>${esc(event.title || '')}</td>
+            <td>${esc(event.note || '')}</td>
+          </tr>
+        `).join('');
+        countEl.textContent = `本期共對照 ${items.length} 則公共事件，涵蓋最近 30 日。這些事件只代表公共議程背景，不構成任何因果或責任判定。`;
+      }
+
+      function renderMethodologyCards(data) {
+        const thresholds = data?.thresholds || {};
+        const methodology = data?.methodology || {};
+        const cards = [
+          {
+            title: '公開投影設定',
+            body: `taxonomy ${safeText(data?.taxonomyVersion)} / sample ${safeText(data?.sampleScope)} / trust ${safeText(methodology.trustPolicy)}`
+          },
+          {
+            title: '公開門檻',
+            body: `分類至少 ${safeNum(thresholds.categoryMinEvents)} 次事件；敘事至少 ${safeNum(thresholds.narrativeMinSources)} 個來源與 ${safeNum(thresholds.narrativeMinEvents)} 次事件。`
+          },
+          {
+            title: '樣本限制',
+            body: `有效上傳 ${window.PlatformPublic.formatNumber(data?.overview?.uploadCount)} 批，活躍觀測日 ${window.PlatformPublic.formatNumber(data?.dateRange?.activeDays)}，只代表自願上傳的匿名樣本。`
+          },
+          {
+            title: '覆蓋率',
+            body: `封鎖來源覆蓋率 ${window.PlatformPublic.formatPercent(data?.overview?.sourceCoveragePct, 0)} / 檢舉來源覆蓋率 ${window.PlatformPublic.formatPercent(data?.overview?.reportSourceCoveragePct, 0)}。`
+          }
+        ];
+        document.getElementById('methodologyCards').innerHTML = cards.map((card) => `
+          <article class="report-note-card">
+            <h3>${card.title}</h3>
+            <p>${card.body}</p>
+          </article>
+        `).join('');
+      }
+
+      async function init() {
+        const result = await window.PlatformPublic.fetchOverview();
+        const data = result && result.data ? result.data : {};
+        const events = await window.PlatformPublic.loadPoliticalEvents();
+        const metrics = window.PlatformPublic.computeWindowMetrics(data);
+        const topCategory = Array.isArray(data.reportCategories) && data.reportCategories.length ? data.reportCategories[0] : null;
+        const topNarrative = Array.isArray(data.topNarratives) && data.topNarratives.length ? data.topNarratives[0] : null;
+        const lastTrend = Array.isArray(data.dailyTrend) && data.dailyTrend.length ? data.dailyTrend[data.dailyTrend.length - 1] : null;
+        const peakTrend = Array.isArray(data.dailyTrend) && data.dailyTrend.length
+          ? [...data.dailyTrend].sort((a, b) => safeNum(b.total_event_count) - safeNum(a.total_event_count))[0]
+          : null;
+
+        document.getElementById('heroHeadline').textContent = `${safeText(window.PlatformPublic.formatMonthLabel(data?.dateRange?.end), '本期')}月報 — 留友封觀測站`;
+        document.getElementById('heroSubtitle').textContent = result && result.emptyState
+          ? '目前公開資料量仍在累積中，以下先顯示真實空狀態與方法資訊。'
+          : '固定格式公開月報，使用最近 30 日滾動觀測窗，整理匿名樣本中的事件量、四大訊號、敘事框架與方法限制。';
+        document.getElementById('heroMeta').textContent = `資料期間 ${safeText(data?.dateRange?.start)} 至 ${safeText(data?.dateRange?.end)}。本期觀測窗累積 ${window.PlatformPublic.formatNumber(data?.overview?.totalEventCount)} 次匿名聚合事件、${window.PlatformPublic.formatNumber(data?.overview?.sourcePostCount)} 筆來源樣本與 ${window.PlatformPublic.formatNumber(data?.overview?.uploadCount)} 個有效上傳批次。`;
+
+        const heroSignals = window.PlatformPublic.buildSignalBadges(data);
+        document.getElementById('heroSignals').innerHTML = heroSignals.map((item) => `
+          <span><span class="badge ${item.tone === 'warn' ? 'badge--high' : 'badge--low'}">${esc(item.label)}</span>${esc(item.detail)}</span>
+        `).join('');
+
+        const heroMessage = document.getElementById('heroMessage');
+        if (result && result.message) {
+          heroMessage.hidden = false;
+          heroMessage.textContent = result.message;
+        } else {
+          heroMessage.hidden = true;
+          heroMessage.textContent = '';
+        }
+
+        document.getElementById('summaryLead').innerHTML = `在 <strong>${esc(window.PlatformPublic.formatDateLabel(data?.dateRange?.start || ''))}</strong> 到 <strong>${esc(window.PlatformPublic.formatDateLabel(data?.dateRange?.end || ''))}</strong> 的固定觀測窗內，平台匿名樣本累積 <strong>${window.PlatformPublic.formatNumber(data?.overview?.totalEventCount)}</strong> 次事件。最近 7 日事件量相較前 7 日為 <strong>${window.PlatformPublic.formatPercent(data?.signals?.shortTermDiffusionPct, 1, true)}</strong>，整體樣本覆蓋則維持在 ${esc(window.PlatformPublic.summarizeSourceCoverage(data))}。`;
+        document.getElementById('summaryEvents').textContent = window.PlatformPublic.formatNumber(data?.overview?.totalEventCount);
+        document.getElementById('summaryEventsSub').textContent = `封鎖事件 ${window.PlatformPublic.formatNumber(data?.overview?.blockEventCount)}，檢舉事件 ${window.PlatformPublic.formatNumber(data?.overview?.reportEventCount)}。`;
+        document.getElementById('summaryMomentum').textContent = window.PlatformPublic.formatPercent(data?.signals?.shortTermDiffusionPct, 1, true);
+        document.getElementById('summaryMomentumSub').textContent = `最近 7 日合計 ${window.PlatformPublic.formatNumber(metrics.last7Total)} 次事件，平均每日約 ${window.PlatformPublic.formatNumber(metrics.avgDaily7)} 次。`;
+        document.getElementById('summaryTopCategory').textContent = topCategory ? window.PlatformPublic.formatPercent(topCategory.sharePct) : '--';
+        document.getElementById('summaryTopCategorySub').textContent = topCategory
+          ? `${topCategory.label} 目前占比最高，累積 ${window.PlatformPublic.formatNumber(topCategory.eventCount)} 次事件。`
+          : '目前沒有達到公開門檻的分類資料。';
+        document.getElementById('summaryTopNarrative').textContent = topNarrative ? window.PlatformPublic.formatNumber(topNarrative.eventCount) : '--';
+        document.getElementById('summaryTopNarrativeSub').textContent = topNarrative
+          ? `本期最主要的匿名敘事框架涉及 ${window.PlatformPublic.formatNumber(topNarrative.sourceCount)} 個來源與 ${window.PlatformPublic.formatNumber(topNarrative.accountCount)} 個帳號樣本。`
+          : '目前沒有達到公開門檻的敘事資料。';
+
+        document.getElementById('trendSummary').innerHTML = `最近 7 日事件量相對前 7 日為 <strong>${window.PlatformPublic.formatPercent(data?.signals?.shortTermDiffusionPct, 1, true)}</strong>。本期總事件中，封鎖約占 <strong>${window.PlatformPublic.formatPercent(data?.overview?.totalEventCount ? (safeNum(data?.overview?.blockEventCount) / safeNum(data?.overview?.totalEventCount)) * 100 : 0)}</strong>，檢舉約占 <strong>${window.PlatformPublic.formatPercent(data?.overview?.totalEventCount ? (safeNum(data?.overview?.reportEventCount) / safeNum(data?.overview?.totalEventCount)) * 100 : 0)}</strong>。峰值日為 <strong>${esc(window.PlatformPublic.formatDateLabel(peakTrend?.day_key || ''))}</strong>，單日累積 <strong>${window.PlatformPublic.formatNumber(peakTrend?.total_event_count)}</strong> 次事件；觀測窗最後一天 <strong>${esc(window.PlatformPublic.formatDateLabel(lastTrend?.day_key || ''))}</strong> 仍有 <strong>${window.PlatformPublic.formatNumber(lastTrend?.total_event_count)}</strong> 次事件。`;
+
+        renderTrendTable(data?.dailyTrend);
+        renderSignalCards(data);
+        renderPoliticalEvents(events);
+        renderMethodologyCards(data);
+        window.PlatformPublic.renderNarratives(document.getElementById('narrativesList'), data?.topNarratives || []);
+        window.PlatformPublic.renderReportCategories(document.getElementById('categoriesList'), data?.reportCategories || []);
+      }
+
+      init().catch((error) => {
+        document.getElementById('heroMessage').hidden = false;
+        document.getElementById('heroMessage').textContent = error && error.message ? error.message : '月報載入失敗。';
       });
-    });
-
-    closeBtn.addEventListener('click', closeModal);
-    overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
-  });
-
-  const API = 'https://threadsblocker-bug-admin.skiseiju.workers.dev';
-  const CAT_CLASS = {
-    '罷免案': 'cat-tag--recall',
-    '國會事件': 'cat-tag--legislature',
-    '政黨動態': 'cat-tag--party',
-    '性別爭議': 'cat-tag--gender',
-    '性騷擾指控': 'cat-tag--gender',
-    '娛樂八卦': 'cat-tag--entertainment',
-    '歧視爭議': 'cat-tag--discrimination',
-    '網路論戰': 'cat-tag--online',
-    '直播爭議': 'cat-tag--livestream',
-    '社會事件': 'cat-tag--social',
-  };
-
-  function escape(s) {
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
-  function catTag(category) {
-    const cls = CAT_CLASS[category] || '';
-    return `<span class="cat-tag ${cls}">${escape(category)}</span>`;
-  }
-
-  fetch(`${API}/api/v1/platform/political-events?days=30`)
-    .then(r => r.ok ? r.json() : null)
-    .then(data => {
-      if (!data || !Array.isArray(data.events) || data.events.length === 0) return;
-      const tbody = document.getElementById('political-events-tbody');
-      if (!tbody) return;
-      const rows = data.events.map(ev =>
-        `<tr><td>${escape(ev.event_date)}</td><td>${catTag(ev.category)}</td><td>${escape(ev.title)}</td><td>${escape(ev.source_name || '')}</td></tr>`
-      ).join('');
-      tbody.innerHTML = rows;
-      // 更新事件計數文字
-      const countEl = document.querySelector('.political-events-count');
-      if (countEl) countEl.textContent = `本期共對照 ${data.events.length} 則公共事件，涵蓋最近 30 日。`;
-    })
-    .catch(() => {});
-}());
+    })();
   </script>
-  <div class="narrative-modal-overlay" id="narrativeModalOverlay" role="dialog" aria-modal="true">
-    <div class="narrative-modal">
-      <button class="narrative-modal__close" id="narrativeModalClose" aria-label="關閉">✕</button>
-      <p class="narrative-modal__eyebrow" id="modalEyebrow"></p>
-      <div id="modalBadge" style="margin-bottom:10px"></div>
-      <h3 class="narrative-modal__title" id="modalTitle"></h3>
-      <div class="narrative-modal__body" id="modalBody"></div>
-      <div class="narrative-modal__stats" id="modalStats"></div>
-    </div>
-  </div>
 </body>
 </html>

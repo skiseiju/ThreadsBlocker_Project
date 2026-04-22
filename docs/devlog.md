@@ -126,3 +126,34 @@
     - `node --check src/reporter.js` 通過
     - `./build.sh --no-bump` 通過；Userscript / Chrome / Firefox 產物均已產出
     - Safari iCloud Userscripts 複製步驟遭到 macOS 權限阻擋，repo 內建置不受影響
+
+17. **build.sh：Safari 部署改為嚴格檢查 `cp` 成敗**（build.sh）
+    - Safari Userscripts 部署段維持直接用 `cp`
+    - 只有 `cp` 成功才印 `Safari Build deployed`
+    - 若 iCloud Userscripts 目錄因 macOS 權限被拒，現在會明確印出 `Safari deploy failed (cp)`，不再誤報成功
+    - 版本升至 `2.6.0-beta34`
+
+18. **新增「自動冷卻保護」單獨開關**（src/config.js、src/storage.js、src/ui.js、src/worker.js）
+    - 新增設定 key：`hege_cooldown_protection_enabled`
+    - 設定面板「封鎖設定」新增 checkbox：`自動冷卻保護`
+    - 預設開啟；開啟時維持原本行為：遇到 Meta 限制會自動進冷卻並備份名單
+    - 關閉後：
+      - 超過 Meta 每日安全上限時不自動停機
+      - 連續 rate-limited / cooldown 時不進 12 小時冷卻
+      - 改為把當前目標標記失敗、移入 `FAILED_QUEUE`，並繼續執行
+    - 版本升至 `2.6.0-beta35`
+
+19. **自動冷卻保護收尾：補齊驗證失敗分支並收斂失敗處理**（src/worker.js）
+    - 新增 `markTargetFailedAndContinue()` helper，統一「記錄失敗 → 移出 `BG_QUEUE` → 加入 `FAILED_QUEUE` → 稍候繼續」流程
+    - `rate_limited` 與 `cooldown` 兩條分支改用共用 helper，避免後續修邏輯時漏改
+    - 補齊驗證模式下 `Level 2` 連續失敗 5 次的分支：當「自動冷卻保護」關閉時，不再強制進 12 小時冷卻，改記錄失敗並繼續跑
+    - 保持原本預設行為不變：開關開啟時仍會自動冷卻並備份名單
+    - 版本升至 `2.6.0-beta36`
+
+20. **2.6 公開呈現補完：live 月報、方法論 metadata、空狀態首頁與每日 auto sync**（site/platform/*、cf_bug_admin/src/index.js、src/main.js、src/ui.js、src/config.js）
+    - `platform/reports/index.html` 改為直接讀取 public overview API 與 political events API，不再使用寫死月報數字
+    - `platform/methodology/index.html` 新增 live metadata 區塊，會顯示 `taxonomyVersion`、`sampleScope`、`trustPolicy`
+    - `platform/index.html` / `public.js` 改為資料不足時顯示真實 empty state，不再自動 fallback 到 mock；仍保留 `?mock=1` 供示意版型使用
+    - public API 的 `topNarratives` 新增 `whyNote`，首頁與月報都能顯示 live 敘事解釋，不再只靠前端 mock 文案
+    - extension 新增真正的每日 auto sync gate：僅限 Chrome / Firefox extension、每天最多一次、成功才更新 `lastSyncedAt`、iOS 維持手動上傳
+    - 版本升至 `2.6.0-beta38`

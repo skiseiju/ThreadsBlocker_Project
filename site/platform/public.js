@@ -207,6 +207,89 @@ topNarratives: [
     return JSON.parse(JSON.stringify(MOCK_DATA));
   }
 
+  function createEmptyOverview(days = DEFAULT_DAYS) {
+    return {
+      schema: 'threadsblocker.platform_public.v1',
+      generatedAt: new Date().toISOString(),
+      taxonomyVersion: 'topic-taxonomy.v1',
+      sampleScope: 'trusted',
+      days,
+      summary: {
+        headline: '',
+        subtitle: '目前公開資料量仍在累積中。'
+      },
+      overview: {
+        uploadCount: 0,
+        blockEventCount: 0,
+        reportEventCount: 0,
+        totalEventCount: 0,
+        sourcePostCount: 0,
+        topicSeedCount: 0,
+        sourceCoveragePct: 0,
+        reportSourceCoveragePct: 0
+      },
+      dateRange: {
+        start: '',
+        end: '',
+        activeDays: 0
+      },
+      credibility: {
+        effectiveUploadCount: 0,
+        activeObservationDays: 0,
+        sourceCoveragePct: 0,
+        reportSourceCoveragePct: 0
+      },
+      thresholds: {
+        categoryMinEvents: 5,
+        narrativeMinSources: 2,
+        narrativeMinEvents: 20,
+        highSignalScore: 65,
+        mediumSignalScore: 45
+      },
+      signals: {
+        sourceConcentrationPct: 0,
+        repeatedNarrativePct: 0,
+        shortTermDiffusionPct: 0,
+        coordinatedAccountEstimate: 0,
+        coordinatedSourceCount: 0
+      },
+      dailyTrend: [],
+      topicTimeSeries: [],
+      reportCategories: [],
+      topNarratives: [],
+      recentUploads: [],
+      methodology: {
+        trustPolicy: 'public-trusted-only',
+        scoreBands: { low: '0-44', medium: '45-64', high: '65+' },
+        principles: [
+          '公開頁只呈現匿名樣本中的統計模式與中性訊號。',
+          '高風險分級是統計標籤，不是對個人、貼文、動機或違法性的認定。',
+          '資料來自使用者自願上傳，並非平台全量資料。'
+        ]
+      }
+    };
+  }
+
+  function normalizeOverviewData(data) {
+    const empty = createEmptyOverview(safeNum(data?.days) || DEFAULT_DAYS);
+    return {
+      ...empty,
+      ...data,
+      summary: { ...empty.summary, ...(data?.summary || {}) },
+      overview: { ...empty.overview, ...(data?.overview || {}) },
+      dateRange: { ...empty.dateRange, ...(data?.dateRange || {}) },
+      credibility: { ...empty.credibility, ...(data?.credibility || {}) },
+      thresholds: { ...empty.thresholds, ...(data?.thresholds || {}) },
+      signals: { ...empty.signals, ...(data?.signals || {}) },
+      methodology: { ...empty.methodology, ...(data?.methodology || {}) },
+      dailyTrend: Array.isArray(data?.dailyTrend) ? data.dailyTrend : [],
+      topicTimeSeries: Array.isArray(data?.topicTimeSeries) ? data.topicTimeSeries : [],
+      reportCategories: Array.isArray(data?.reportCategories) ? data.reportCategories : [],
+      topNarratives: Array.isArray(data?.topNarratives) ? data.topNarratives : [],
+      recentUploads: Array.isArray(data?.recentUploads) ? data.recentUploads : []
+    };
+  }
+
   function summarizeSourceCoverage(data) {
     const coverage = safeNum(data.overview?.sourceCoveragePct);
     const reportCoverage = safeNum(data.overview?.reportSourceCoveragePct);
@@ -225,26 +308,29 @@ topNarratives: [
       return {
         data: cloneMockData(),
         mockMode: true,
+        emptyState: false,
         message: '目前固定顯示示意資料（Mock），只用來展示公開頁版型與匿名欄位。'
       };
     }
 
     try {
       const result = await api(`/api/v1/platform/overview?days=${DEFAULT_DAYS}&top=${DEFAULT_TOP}`);
-      const data = result.data || {};
+      const data = normalizeOverviewData(result.data || {});
       if (hasLiveData(data)) {
-        return { data, mockMode: false, message: '' };
+        return { data, mockMode: false, emptyState: false, message: '' };
       }
       return {
-        data: cloneMockData(),
-        mockMode: true,
-        message: '目前公開資料量不足，以下改顯示示意資料（Mock），不代表真實平台現況。'
+        data,
+        mockMode: false,
+        emptyState: true,
+        message: '目前公開資料量仍在累積中，以下先顯示真實空狀態與方法資訊，不再自動補示意資料。'
       };
     } catch (error) {
       return {
-        data: cloneMockData(),
-        mockMode: true,
-        message: `暫時無法讀取平台資料，以下改顯示示意資料（Mock）。`
+        data: createEmptyOverview(),
+        mockMode: false,
+        emptyState: true,
+        message: '暫時無法讀取平台資料，請稍後再試。'
       };
     }
   }
@@ -681,6 +767,7 @@ topNarratives: [
     bandLabel,
     summarizeSourceCoverage,
     fetchOverview,
+    hasLiveData,
     loadPoliticalEvents,
     fetchPoliticalEvents: loadPoliticalEvents,
     computeWindowMetrics,
