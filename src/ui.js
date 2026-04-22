@@ -1232,6 +1232,445 @@ export const UI = {
         }
     },
 
+    isSameLocalDay: (a, b = Date.now()) => {
+        const ta = parseInt(a || '0', 10) || 0;
+        const tb = parseInt(b || '0', 10) || 0;
+        if (ta <= 0 || tb <= 0) return false;
+        const da = new Date(ta);
+        const db = new Date(tb);
+        return da.getFullYear() === db.getFullYear()
+            && da.getMonth() === db.getMonth()
+            && da.getDate() === db.getDate();
+    },
+
+    supportsPlatformAutoSync: () => {
+        const clientPlatform = Reporter.getClientPlatform();
+        return clientPlatform === 'chrome_extension' || clientPlatform === 'firefox_extension';
+    },
+
+    buildPlatformExportPayload: (options = {}) => {
+        const platformSyncEnabled = Object.prototype.hasOwnProperty.call(options, 'platformSyncEnabled')
+            ? !!options.platformSyncEnabled
+            : Storage.getPlatformSyncEnabled();
+        const platformSyncLastAt = Object.prototype.hasOwnProperty.call(options, 'platformSyncLastAt')
+            ? (parseInt(options.platformSyncLastAt || '0', 10) || 0)
+            : Storage.getPlatformSyncLastAt();
+
+        const db = Storage.getJSON(CONFIG.KEYS.DB_KEY, []);
+        const ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
+        const reportHistory = Storage.getJSON(CONFIG.KEYS.REPORT_HISTORY, []);
+        const evidenceIndexRaw = Storage.getJSON(CONFIG.KEYS.SOURCE_EVIDENCE_INDEX, {});
+        const evidenceIndexMap = (evidenceIndexRaw && typeof evidenceIndexRaw === 'object' && !Array.isArray(evidenceIndexRaw))
+            ? evidenceIndexRaw
+            : {};
+        const sourceEvidenceList = Object.entries(evidenceIndexMap)
+            .map(([sourceUrl, item]) => ({ sourceUrl, ...(item || {}) }))
+            .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+        const getEntry = (u) => {
+            const e = ts[u];
+            return typeof e === 'object' && e !== null ? e : { t: e || 0 };
+        };
+
+        const blockEvents = db.map((u, idx) => {
+            const e = getEntry(u);
+            return {
+                eventId: `blk_${u || 'unknown'}_${e.t || 0}_${idx}`,
+                eventType: 'block',
+                accountId: u || '',
+                profileUrl: u ? `https://www.threads.com/@${u}` : '',
+                eventAt: e.t || 0,
+                sourceUrl: e.src || '',
+                sourceOwner: e.postOwner || '',
+                sourceText: e.postText || '',
+                sourceChannel: 'unknown',
+                blockReasonCode: e.reason || 'unknown',
+                reportPath: [],
+                reportPrimaryCategory: '',
+                reportLeafCategory: '',
+                reportTargetType: '',
+                batchId: e.batch || '',
+            };
+        });
+
+        const reportEvents = reportHistory.map((entry, idx) => {
+            const path = Array.isArray(entry.path) ? entry.path : [];
+            return {
+                eventId: `rpt_${entry.username || 'unknown'}_${entry.t || 0}_${idx}`,
+                eventType: 'report',
+                accountId: entry.username || '',
+                profileUrl: entry.username ? `https://www.threads.com/@${entry.username}` : '',
+                eventAt: entry.t || 0,
+                sourceUrl: entry.sourceUrl || '',
+                sourceOwner: '',
+                sourceText: '',
+                sourceChannel: entry.source || 'unknown',
+                blockReasonCode: '',
+                reportPath: path,
+                reportPrimaryCategory: path[0] || '',
+                reportLeafCategory: path[path.length - 1] || '',
+                reportTargetType: entry.targetType || '',
+                batchId: '',
+            };
+        });
+
+        const unifiedEvents = [...blockEvents, ...reportEvents].sort((a, b) => (b.eventAt || 0) - (a.eventAt || 0));
+
+        const accountAgg = {};
+        unifiedEvents.forEach((event) => {
+            const accountId = (event.accountId || '').trim();
+            if (!accountId) return;
+            if (!accountAgg[accountId]) {
+                accountAgg[accountId] = {
+                    accountId,
+                    profileUrl: `https://www.threads.com/@${accountId}`,
+                    blockEventCount: 0,
+                    reportEventCount: 0,
+                    totalEventCount: 0,
+                    firstSeenAt: 0,
+                    lastSeenAt: 0,
+                    sourceUrls: new Set(),
+                    sourceOwners: new Set(),
+                    blockReasons: new Set(),
+                    reportPrimaryCategories: new Set(),
+                    reportLeafCategories: new Set(),
+                };
+            }
+            const agg = accountAgg[accountId];
+            agg.totalEventCount++;
+            if (event.eventType === 'block') agg.blockEventCount++;
+            if (event.eventType === 'report') agg.reportEventCount++;
+            if (event.sourceUrl) agg.sourceUrls.add(event.sourceUrl);
+            if (event.sourceOwner) agg.sourceOwners.add(event.sourceOwner);
+            if (event.blockReasonCode) agg.blockReasons.add(event.blockReasonCode);
+            if (event.reportPrimaryCategory) agg.reportPrimaryCategories.add(event.reportPrimaryCategory);
+            if (event.reportLeafCategory) agg.reportLeafCategories.add(event.reportLeafCategory);
+            if (event.eventAt > 0) {
+                if (!agg.firstSeenAt || event.eventAt < agg.firstSeenAt) agg.firstSeenAt = event.eventAt;
+                if (!agg.lastSeenAt || event.eventAt > agg.lastSeenAt) agg.lastSeenAt = event.eventAt;
+            }
+        });
+
+        const accounts = Object.values(accountAgg).map((acc) => {
+            const suspicionScore = Math.min(100,
+                acc.blockEventCount * 8 +
+                acc.reportEventCount * 12 +
+                acc.sourceUrls.size * 6 +
+                acc.reportLeafCategories.size * 5 +
+                (acc.blockEventCount > 0 && acc.reportEventCount > 0 ? 10 : 0)
+            );
+            const riskLevel = suspicionScore >= 65 ? 'high' : (suspicionScore >= 35 ? 'medium' : 'low');
+            return {
+                accountId: acc.accountId,
+                profileUrl: acc.profileUrl,
+                blockEventCount: acc.blockEventCount,
+                reportEventCount: acc.reportEventCount,
+                totalEventCount: acc.totalEventCount,
+                firstSeenAt: acc.firstSeenAt || 0,
+                lastSeenAt: acc.lastSeenAt || 0,
+                sourceUrlCount: acc.sourceUrls.size,
+                sourceUrls: Array.from(acc.sourceUrls),
+                sourceOwners: Array.from(acc.sourceOwners),
+                blockReasons: Array.from(acc.blockReasons),
+                reportPrimaryCategories: Array.from(acc.reportPrimaryCategories),
+                reportLeafCategories: Array.from(acc.reportLeafCategories),
+                platformReview: {
+                    isLikelyBot: null,
+                    isLikelyFakeAccount: null,
+                    botConfidence: null,
+                    fakeConfidence: null,
+                    suspicionScore,
+                    riskLevel,
+                    reviewNote: '',
+                },
+            };
+        }).sort((a, b) => b.totalEventCount - a.totalEventCount);
+
+        const extractHashtags = (text) => {
+            const raw = String(text || '');
+            const matches = raw.match(/#[^\s#.,，。!?！？:：;；、]+/g) || [];
+            return matches.slice(0, 8).map(tag => tag.toLowerCase());
+        };
+
+        const sourceAgg = {};
+        unifiedEvents.forEach((event) => {
+            const url = event.sourceUrl || '';
+            if (!url) return;
+            if (!sourceAgg[url]) {
+                sourceAgg[url] = {
+                    sourceUrl: url,
+                    sourceOwners: new Set(),
+                    sourceTextSamples: new Set(),
+                    blockEventCount: 0,
+                    reportEventCount: 0,
+                    totalEventCount: 0,
+                    accountIds: new Set(),
+                    reportPathCounts: {},
+                    blockReasonCounts: {},
+                    topicHintCounts: {},
+                };
+            }
+            const src = sourceAgg[url];
+            src.totalEventCount++;
+            if (event.eventType === 'block') src.blockEventCount++;
+            if (event.eventType === 'report') src.reportEventCount++;
+            if (event.accountId) src.accountIds.add(event.accountId);
+            if (event.sourceOwner) src.sourceOwners.add(event.sourceOwner);
+            if (event.sourceText) src.sourceTextSamples.add(event.sourceText);
+            if (event.reportPath.length > 0) {
+                const key = event.reportPath.join(' > ');
+                src.reportPathCounts[key] = (src.reportPathCounts[key] || 0) + 1;
+            }
+            if (event.reportPrimaryCategory) {
+                const key = `report:${event.reportPrimaryCategory}`;
+                src.topicHintCounts[key] = (src.topicHintCounts[key] || 0) + 1;
+            }
+            if (event.reportLeafCategory) {
+                const key = `report_leaf:${event.reportLeafCategory}`;
+                src.topicHintCounts[key] = (src.topicHintCounts[key] || 0) + 1;
+            }
+            if (event.blockReasonCode) {
+                src.blockReasonCounts[event.blockReasonCode] = (src.blockReasonCounts[event.blockReasonCode] || 0) + 1;
+            }
+            extractHashtags(event.sourceText).forEach((tag) => {
+                const key = `hashtag:${tag}`;
+                src.topicHintCounts[key] = (src.topicHintCounts[key] || 0) + 1;
+            });
+        });
+
+        sourceEvidenceList.forEach((ev) => {
+            if (!ev.sourceUrl) return;
+            if (!sourceAgg[ev.sourceUrl]) {
+                sourceAgg[ev.sourceUrl] = {
+                    sourceUrl: ev.sourceUrl,
+                    sourceOwners: new Set(),
+                    sourceTextSamples: new Set(),
+                    blockEventCount: 0,
+                    reportEventCount: 0,
+                    totalEventCount: 0,
+                    accountIds: new Set(),
+                    reportPathCounts: {},
+                    blockReasonCounts: {},
+                    topicHintCounts: {},
+                };
+            }
+            if (ev.sourceOwner) sourceAgg[ev.sourceUrl].sourceOwners.add(ev.sourceOwner);
+            if (ev.snippet) sourceAgg[ev.sourceUrl].sourceTextSamples.add(ev.snippet);
+        });
+
+        const sources = Object.values(sourceAgg).map((src) => {
+            const evidence = evidenceIndexMap[src.sourceUrl] || {};
+            const reportPathVariety = Object.keys(src.reportPathCounts).length;
+            const topicHintVariety = Object.keys(src.topicHintCounts).length;
+            const manipulationSignalScore = Math.min(100,
+                src.reportEventCount * 10 +
+                src.accountIds.size * 4 +
+                reportPathVariety * 8 +
+                topicHintVariety * 3 +
+                (src.blockEventCount > 0 && src.reportEventCount > 0 ? 8 : 0)
+            );
+            const manipulationRiskLevel = manipulationSignalScore >= 65 ? 'high' : (manipulationSignalScore >= 45 ? 'medium' : 'low');
+            return {
+                sourceUrl: src.sourceUrl,
+                sourceOwners: Array.from(src.sourceOwners),
+                sourceTextSamples: Array.from(src.sourceTextSamples).slice(0, 3),
+                blockEventCount: src.blockEventCount,
+                reportEventCount: src.reportEventCount,
+                totalEventCount: src.totalEventCount,
+                uniqueAccountCount: src.accountIds.size,
+                accountIds: Array.from(src.accountIds),
+                reportPathCounts: src.reportPathCounts,
+                blockReasonCounts: src.blockReasonCounts,
+                topicHintCounts: src.topicHintCounts,
+                topTopicHints: Object.entries(src.topicHintCounts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([topicHint, count]) => ({ topicHint, count })),
+                manipulationSignalScore,
+                manipulationRiskLevel,
+                evidence: {
+                    capturedAt: evidence.capturedAt || 0,
+                    updatedAt: evidence.updatedAt || 0,
+                    captureCount: evidence.captureCount || 0,
+                    textHash: evidence.textHash || '',
+                    snippet: evidence.snippet || '',
+                    sourceOwner: evidence.sourceOwner || '',
+                    sourceChannel: evidence.sourceChannel || '',
+                },
+                platformReview: {
+                    isLikelyNarrativeManipulation: null,
+                    isLikelyFakeTopic: null,
+                    isLikelyAICampaign: null,
+                    confidence: null,
+                    reviewNote: '',
+                },
+            };
+        }).sort((a, b) => b.totalEventCount - a.totalEventCount);
+
+        const topicMap = {};
+        reportEvents.forEach((event) => {
+            const leaf = event.reportLeafCategory || '';
+            if (!leaf) return;
+            if (!topicMap[leaf]) topicMap[leaf] = { category: leaf, eventCount: 0, accountIds: new Set(), sourceUrls: new Set() };
+            topicMap[leaf].eventCount++;
+            if (event.accountId) topicMap[leaf].accountIds.add(event.accountId);
+            if (event.sourceUrl) topicMap[leaf].sourceUrls.add(event.sourceUrl);
+        });
+
+        const topicSeeds = Object.values(topicMap)
+            .map((topic) => ({
+                topicLabel: topic.category,
+                eventCount: topic.eventCount,
+                accountCount: topic.accountIds.size,
+                sourceCount: topic.sourceUrls.size,
+                sampleAccounts: Array.from(topic.accountIds).slice(0, 5),
+                sampleSources: Array.from(topic.sourceUrls).slice(0, 5),
+            }))
+            .sort((a, b) => b.eventCount - a.eventCount)
+            .slice(0, 20);
+
+        const narrativeSeeds = sources.slice(0, 20).map((src) => ({
+            sourceUrl: src.sourceUrl,
+            sourceOwners: src.sourceOwners,
+            sourceTextSamples: src.sourceTextSamples,
+            totalEventCount: src.totalEventCount,
+            blockEventCount: src.blockEventCount,
+            reportEventCount: src.reportEventCount,
+            uniqueAccountCount: src.uniqueAccountCount,
+            dominantReportPaths: Object.entries(src.reportPathCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([path, count]) => ({ path, count })),
+            dominantBlockReasons: Object.entries(src.blockReasonCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([reasonCode, count]) => ({ reasonCode, count })),
+            dominantTopicHints: src.topTopicHints.slice(0, 5),
+            manipulationSignalScore: src.manipulationSignalScore,
+            manipulationRiskLevel: src.manipulationRiskLevel,
+        }));
+
+        const campaignCandidates = sources
+            .filter(src => src.manipulationSignalScore >= 45)
+            .slice(0, 50)
+            .map((src) => ({
+                sourceUrl: src.sourceUrl,
+                sourceOwners: src.sourceOwners,
+                sourceTextSamples: src.sourceTextSamples,
+                manipulationSignalScore: src.manipulationSignalScore,
+                manipulationRiskLevel: src.manipulationRiskLevel,
+                blockEventCount: src.blockEventCount,
+                reportEventCount: src.reportEventCount,
+                uniqueAccountCount: src.uniqueAccountCount,
+                topTopicHints: src.topTopicHints.slice(0, 5),
+                dominantReportPaths: Object.entries(src.reportPathCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([path, count]) => ({ path, count })),
+            }));
+
+        const suspiciousAccountSeeds = accounts
+            .filter(acc => acc.platformReview.suspicionScore >= 35)
+            .slice(0, 50)
+            .map((acc) => ({
+                accountId: acc.accountId,
+                profileUrl: acc.profileUrl,
+                suspicionScore: acc.platformReview.suspicionScore,
+                riskLevel: acc.platformReview.riskLevel,
+                blockEventCount: acc.blockEventCount,
+                reportEventCount: acc.reportEventCount,
+                sourceUrlCount: acc.sourceUrlCount,
+                reportLeafCategoryCount: acc.reportLeafCategories.length,
+            }));
+
+        const sourceEvidenceWithSnippetCount = sourceEvidenceList.filter(item => !!item.snippet).length;
+        const sourcedBlockCount = blockEvents.filter(event => !!event.sourceUrl).length;
+        const sourcedReported = reportEvents.filter(event => !!event.sourceUrl).length;
+        const sourceCoveragePct = blockEvents.length > 0 ? Math.round(sourcedBlockCount / blockEvents.length * 100) : 0;
+        const reportSourceCoveragePct = reportEvents.length > 0 ? Math.round(sourcedReported / reportEvents.length * 100) : 0;
+        const sourceEvidenceCoveragePct = sources.length > 0 ? Math.min(100, Math.round(sourceEvidenceList.length / sources.length * 100)) : 0;
+        const sourceEvidenceSnippetCoveragePct = sourceEvidenceList.length > 0 ? Math.round(sourceEvidenceWithSnippetCount / sourceEvidenceList.length * 100) : 0;
+
+        return {
+            schema: 'threadsblocker.platform_upload.v2',
+            clientSourceId: Storage.getPlatformSourceId(),
+            exportedAt: new Date().toISOString(),
+            exporter: {
+                tool: 'ThreadsBlocker',
+                version: CONFIG.VERSION,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+                locale: (typeof navigator !== 'undefined' && navigator.language) ? navigator.language : '',
+            },
+            fieldSpec: {
+                root: ['clientSourceId', 'exportedAt', 'exporter', 'syncPreferences', 'fieldSpec', 'summary', 'accounts', 'events', 'sources', 'sourceEvidence', 'analysisSeeds'],
+                accounts: ['accountId', 'profileUrl', 'blockEventCount', 'reportEventCount', 'totalEventCount', 'firstSeenAt', 'lastSeenAt', 'sourceUrlCount', 'sourceUrls', 'sourceOwners', 'blockReasons', 'reportPrimaryCategories', 'reportLeafCategories', 'platformReview'],
+                events: ['eventId', 'eventType', 'accountId', 'profileUrl', 'eventAt', 'sourceUrl', 'sourceOwner', 'sourceText', 'sourceChannel', 'blockReasonCode', 'reportPath', 'reportPrimaryCategory', 'reportLeafCategory', 'reportTargetType', 'batchId'],
+                sources: ['sourceUrl', 'sourceOwners', 'sourceTextSamples', 'blockEventCount', 'reportEventCount', 'totalEventCount', 'uniqueAccountCount', 'accountIds', 'reportPathCounts', 'blockReasonCounts', 'topicHintCounts', 'topTopicHints', 'manipulationSignalScore', 'manipulationRiskLevel', 'platformReview'],
+                sourceEvidence: ['sourceUrl', 'capturedAt', 'updatedAt', 'captureCount', 'sourceOwner', 'sourceChannel', 'lastEventType', 'textHash', 'snippet'],
+                analysisSeeds: ['suspiciousAccounts', 'campaignCandidates', 'topicSeeds', 'narrativeSeeds'],
+            },
+            syncPreferences: {
+                autoSyncEnabled: platformSyncEnabled,
+                lastSyncedAt: platformSyncLastAt || 0,
+            },
+            summary: {
+                accountCount: accounts.length,
+                blockEventCount: blockEvents.length,
+                reportEventCount: reportEvents.length,
+                totalEventCount: unifiedEvents.length,
+                bothBlockedAndReportedAccountCount: accounts.filter(acc => acc.blockEventCount > 0 && acc.reportEventCount > 0).length,
+                sourcedBlocked: sourcedBlockCount,
+                sourcedReported,
+                sourceCoveragePct,
+                reportSourceCoveragePct,
+                sourcePostCount: sources.length,
+                sourceEvidenceCount: sourceEvidenceList.length,
+                sourceEvidenceCoveragePct,
+                sourceEvidenceSnippetCoveragePct,
+                suspiciousCandidateCount: suspiciousAccountSeeds.length,
+                campaignCandidateCount: campaignCandidates.length,
+                topTopicSeedCount: topicSeeds.length,
+            },
+            accounts,
+            events: unifiedEvents,
+            sources,
+            sourceEvidence: sourceEvidenceList,
+            analysisSeeds: {
+                suspiciousAccounts: suspiciousAccountSeeds,
+                campaignCandidates,
+                topicSeeds,
+                narrativeSeeds,
+            },
+        };
+    },
+
+    tryAutoSyncPlatformUpload: async (options = {}) => {
+        if (!Storage.getPlatformSyncEnabled()) return { code: 204, skipped: 'disabled' };
+        if (!UI.supportsPlatformAutoSync()) return { code: 204, skipped: 'unsupported_platform' };
+
+        const now = Date.now();
+        const lastSyncedAt = Storage.getPlatformSyncLastAt();
+        if (UI.isSameLocalDay(lastSyncedAt, now)) {
+            return { code: 204, skipped: 'already_synced_today', lastSyncedAt };
+        }
+
+        const lockTtlMs = 10 * 60 * 1000;
+        const existingLock = parseInt(Storage.get(CONFIG.KEYS.PLATFORM_SYNC_LOCK, '0') || '0', 10) || 0;
+        if (existingLock > 0 && now - existingLock < lockTtlMs) {
+            return { code: 204, skipped: 'sync_in_flight' };
+        }
+
+        Storage.set(CONFIG.KEYS.PLATFORM_SYNC_LOCK, String(now));
+        try {
+            const exportPayload = UI.buildPlatformExportPayload({
+                platformSyncEnabled: true,
+                platformSyncLastAt: lastSyncedAt,
+            });
+
+            if ((exportPayload.summary?.totalEventCount || 0) <= 0) {
+                return { code: 204, skipped: 'no_events' };
+            }
+
+            return await Reporter.submitPlatformPayload(exportPayload, {
+                source: options.source || 'auto_sync_boot',
+                trigger: options.trigger || 'auto_daily'
+            });
+        } finally {
+            const currentLock = parseInt(Storage.get(CONFIG.KEYS.PLATFORM_SYNC_LOCK, '0') || '0', 10) || 0;
+            if (currentLock === now) {
+                Storage.remove(CONFIG.KEYS.PLATFORM_SYNC_LOCK);
+            }
+        }
+    },
+
     showAnalyticsReport: (options = {}) => {
         if (document.getElementById('hege-analytics-overlay')) return;
         const analyticsShowAdvanced = Storage.get(CONFIG.KEYS.ANALYTICS_SHOW_ADVANCED, 'false') === 'true';
@@ -1963,7 +2402,7 @@ export const UI = {
                             <div style="font-size:12px;color:#cfe8ff;line-height:1.45;">會整理封鎖與檢舉對象來自哪篇貼文、哪個批次與哪條檢舉路徑；可匯出 JSON 供平台分析。</div>
                             <label style="display:flex;align-items:flex-start;gap:8px;font-size:11px;color:#9fb9d1;line-height:1.45;">
                                 <input id="hege-analytics-auto-sync-toggle" type="checkbox" ${platformSyncEnabled ? 'checked' : ''} style="margin-top:2px;">
-                                <span>同意記錄「每日自動同步」偏好（Beta）。目前會把此偏好隨 upload 一起送出，供平台建立 trusted sync 與樣本分級；最近一次成功上傳：${platformSyncLastAt > 0 ? new Date(platformSyncLastAt).toLocaleString('zh-TW') : '尚未'}</span>
+                                <span>開啟後，Chrome / Firefox extension 版會每天自動嘗試上傳一次；iOS 仍維持手動上傳。此偏好也會隨 upload 一起送出，供平台建立 trusted sync 與樣本分級；最近一次成功上傳：${platformSyncLastAt > 0 ? new Date(platformSyncLastAt).toLocaleString('zh-TW') : '尚未'}</span>
                             </label>
                         </div>
                         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
@@ -2078,8 +2517,8 @@ export const UI = {
                 Storage.setPlatformSyncEnabled(Boolean(autoSyncToggle.checked));
                 if (uploadStatusEl) {
                     uploadStatusEl.textContent = autoSyncToggle.checked
-                        ? '已記錄自動同步偏好；後續 trusted sync 會沿用此設定。'
-                        : '已關閉自動同步偏好；目前只會在手動上傳時送出資料。';
+                        ? '已開啟每日自動同步；Chrome / Firefox extension 會在新的一天自動嘗試一次。'
+                        : '已關閉每日自動同步；目前只會在手動上傳時送出資料。';
                 }
             };
         }

@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.6.0-beta37', // Beta
+    VERSION: '2.6.0-beta38', // Beta
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/reports/bug',
@@ -97,6 +97,7 @@ export const CONFIG = {
         PLATFORM_UPLOAD_URL_OVERRIDE: 'hege_platform_upload_url_override',
         PLATFORM_SYNC_ENABLED: 'hege_platform_sync_enabled',
         PLATFORM_SYNC_LAST_AT: 'hege_platform_sync_last_at',
+        PLATFORM_SYNC_LOCK: 'hege_platform_sync_lock',
         PLATFORM_SOURCE_ID: 'hege_platform_source_id',
         REPORT_KEEP_BLOCK_SELECTION: 'hege_report_keep_block_selection',
         REPORT_RESTORE_PENDING: 'hege_report_restore_pending',
@@ -105,9 +106,6 @@ export const CONFIG = {
         COCKROACH_DB: 'hege_cockroach_db_v1',
         AUTO_MARK_LEADER: 'hege_auto_mark_leader',
         
-        // Task 3: 進階同列全封
-        ADVANCED_SCROLL_ENABLED: 'hege_advanced_scroll_enabled',
-
         // GraphQL API 深度挖掘
         GRAPHQL_DOC_ID: 'hege_graphql_likers_doc_id',
 

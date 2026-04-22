@@ -609,6 +609,25 @@ import './features/cockroach.js';
 
             Core.init();
 
+            setTimeout(async () => {
+                try {
+                    const result = await UI.tryAutoSyncPlatformUpload({
+                        source: 'main_boot',
+                        trigger: 'auto_daily'
+                    });
+                    if (CONFIG.DEBUG_MODE && result?.skipped) {
+                        console.log('[留友封][PlatformSync] skipped:', result.skipped);
+                    }
+                    if (CONFIG.DEBUG_MODE && Number(result?.code) === 200) {
+                        console.log('[留友封][PlatformSync] upload success:', result?.id || '-');
+                    }
+                } catch (err) {
+                    if (CONFIG.DEBUG_MODE) {
+                        console.warn('[留友封][PlatformSync] auto sync failed:', err);
+                    }
+                }
+            }, 3500);
+
             const params = new URLSearchParams(window.location.search);
             if (params.get('hege_sweep') === 'true' || params.get('hege_post_sweep') === 'true') {
                 const currentPostUrl = window.location.href.split('?')[0];
