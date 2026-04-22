@@ -1,6 +1,7 @@
 # 留友封 (Threads Block Tool)
 
 **留友封** 是一個專為 Threads 設計的批量封鎖工具，旨在解決官方介面缺乏批量管理功能的痛點。本專案支援 **Userscript (Tampermonkey/Stay)** 與 **Chrome 擴充功能** 雙模式。
+目前正式版：`v2.6.0`
 
 ## ✨ 主要功能 (Features)
 
@@ -19,18 +20,25 @@
     *   一鍵同列全封：支援將互動名單（按讚/轉發對話框）一鍵全選。
     *   Shift-Click 連鎖選取：按住 `Shift` 鍵並點擊，一鍵選取/取消選取區間內的所有用戶。
     *   智慧排除自我帳號，防止誤鎖。
+*   **只檢舉與資料上傳**：
+    *   支援獨立 `REPORT_QUEUE`、預設檢舉路徑與 worker 分流，讓只檢舉模式可單獨執行。
+    *   擴充功能版支援一般使用者一鍵上傳平台統計資料，協助建立整體樣本分析。
 *   **跨平台支援**：
     *   Chrome / Edge / Brave (擴充功能 或 Tampermonkey)
     *   Safari (macOS / iOS Stay) 支援相測試中
 
 ## 🛠 安裝與使用 (Installation)
 
-### 1. Chrome 擴充功能 (開發者模式)
+### 1. Chrome 擴充功能 (正式版)
+1. 直接前往 [Chrome Web Store 安裝頁](https://chromewebstore.google.com/detail/%E7%95%99%E5%8F%8B%E5%B0%81-threads-block-tool/goibhoemcnjojlejjlojpikfehmccbbj)。
+2. 點擊「加到 Chrome」完成安裝。
+
+### 2. Chrome 擴充功能 (開發者模式)
 1. 下載專案並執行 `./build.sh`。
 2. 開啟 Chrome -> 管理擴充功能 -> 開啟「開發人員模式」。
 3. 點擊「載入未封裝項目」，選擇 `ThreadsBlocker_Project/dist/extension` 資料夾。
 
-### 2. Userscript (Tampermonkey / Stay)
+### 3. Userscript (Tampermonkey / Stay)
 1. 執行 `./build.sh`。
 2. 產生的檔案位於 `ThreadsBlocker_Project/dist/threads_block_tool.user.js`。
 3. 將檔案拖入瀏覽器或在 Tampermonkey 中建立新腳本並貼上內容。
