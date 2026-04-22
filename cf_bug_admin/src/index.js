@@ -4,6 +4,12 @@ const PLATFORM_MAX_PAYLOAD_BYTES = 1 * 1024 * 1024;
 const PLATFORM_MAX_TOPICS = 200;
 const PLATFORM_MAX_SOURCES = 400;
 const PLATFORM_MAX_EVENTS = 120000;
+const PLATFORM_SOURCE_RATE_WINDOW_MIN = 60;
+const PLATFORM_SOURCE_RATE_LIMIT = 6;
+const PLATFORM_IP_RATE_WINDOW_MIN = 15;
+const PLATFORM_IP_RATE_LIMIT = 12;
+const PLATFORM_TRUST_MIN_UPLOADS = 5;
+const PLATFORM_TRUST_MIN_ACTIVE_DAYS = 3;
 const PUBLIC_MIN_CATEGORY_EVENTS = 5;
 const PUBLIC_MIN_NARRATIVE_SOURCES = 2;
 const PUBLIC_MIN_NARRATIVE_EVENTS = 20;
@@ -32,6 +38,7 @@ const PLATFORM_SCHEMA_STMTS = [
     report_source_coverage_pct INTEGER NOT NULL DEFAULT 0,
     client_source_id TEXT,
     client_platform TEXT,
+    ip_hash TEXT,
     taxonomy_version TEXT NOT NULL DEFAULT 'topic-taxonomy.v1',
     trust_tier TEXT NOT NULL DEFAULT 'trusted',
     risk_score_band TEXT NOT NULL DEFAULT 'low',
@@ -42,6 +49,7 @@ const PLATFORM_SCHEMA_STMTS = [
   'CREATE INDEX IF NOT EXISTS idx_platform_uploads_created_at ON platform_uploads(created_at DESC)',
   'CREATE INDEX IF NOT EXISTS idx_platform_uploads_events ON platform_uploads(total_event_count DESC)',
   'CREATE INDEX IF NOT EXISTS idx_platform_uploads_trust_tier ON platform_uploads(trust_tier)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_uploads_ip_hash ON platform_uploads(ip_hash)',
   `CREATE TABLE IF NOT EXISTS platform_topic_metrics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     upload_id INTEGER NOT NULL,
@@ -361,6 +369,16 @@ async function handlePlatformIngest(request, env) {
   const payloadHash = await sha256Hex(rawText);
   const summary = asObject(body.summary);
   const exporter = asObject(body.exporter);
+  const analysisSeeds = asObject(body.analysisSeeds);
+  const clientSignals = asObject(body.clientSignals);
+  const derived = derivePlatformPayloadMetrics(body);
+  if (derived.errors.length > 0) {
+    return json({
+      code: 400,
+      message: 'Bad Request: payload consistency check failed',
+      reasons: derived.errors
+    }, 400);
+  }
 
   const sourceApp = safeString(exporter.tool || body.source_app || 'ThreadsBlocker', 80);
   const exporterVersion = safeString(exporter.version || '', 80);
@@ -372,25 +390,25 @@ async function handlePlatformIngest(request, env) {
   const syncEnabled = boolAsInt(asObject(body.syncPreferences).autoSyncEnabled);
   const uploadTrigger = safeString(uploadMeta.uploadTrigger || 'manual', 24);
   const taxonomyVersion = CURRENT_TAXONOMY_VERSION;
+  const ip = request.headers.get('CF-Connecting-IP') || '';
+  const ipHash = ip ? await sha256Hex(ip) : '';
+  const rateLimit = await checkPlatformIngestRateLimit(env, clientSourceId, ipHash);
+  if (!rateLimit.ok) {
+    return json({
+      code: 429,
+      message: rateLimit.message,
+      reason: rateLimit.reason
+    }, 429);
+  }
 
-  const blockEventCount = safeCount(summary.blockEventCount);
-  const reportEventCount = safeCount(summary.reportEventCount);
-  const totalEventCount = safeCount(summary.totalEventCount);
-  const sourcePostCount = safeCount(summary.sourcePostCount);
-  const topicSeedCount = safeCount(summary.topTopicSeedCount);
-  const sourceCoveragePct = safePercent(summary.sourceCoveragePct);
-  const reportSourceCoveragePct = safePercent(summary.reportSourceCoveragePct);
-  const sourcesArr = asArray(body.sources)
-    .slice()
-    .sort((a, b) => safeCount(asObject(b).totalEventCount) - safeCount(asObject(a).totalEventCount));
-  const top3EventCount = sourcesArr
-    .slice(0, 3)
-    .reduce((sum, src) => sum + safeCount(asObject(src).totalEventCount), 0);
-  const sourceConcentrationPct = totalEventCount > 0
-    ? Math.min(100, Math.round((top3EventCount / totalEventCount) * 1000) / 10)
-    : 0;
-
-  const analysisSeeds = asObject(body.analysisSeeds);
+  const blockEventCount = derived.blockEventCount;
+  const reportEventCount = derived.reportEventCount;
+  const totalEventCount = derived.totalEventCount;
+  const sourcePostCount = derived.sourcePostCount;
+  const topicSeedCount = derived.topicSeedCount;
+  const sourceCoveragePct = derived.sourceCoveragePct;
+  const reportSourceCoveragePct = derived.reportSourceCoveragePct;
+  const sourceConcentrationPct = derived.sourceConcentrationPct;
   const narrativeSeeds = asArray(analysisSeeds.narrativeSeeds);
   const narrativeEventCount = narrativeSeeds.reduce((sum, seed) => (
     sum + safeCount(asObject(seed).eventCount)
@@ -407,7 +425,17 @@ async function handlePlatformIngest(request, env) {
   const shortTermDiffusionPct = totalEventCount > 0
     ? Math.min(100, Math.round((campaignEventCount / totalEventCount) * 1000) / 10)
     : 0;
-  const trustMeta = await resolveTrustMeta(env, clientSourceId, clientPlatform, exporterVersion);
+  const trustMeta = await resolveTrustMeta(env, clientSourceId, clientPlatform, exporterVersion, {
+    hasValidationWarnings: derived.warnings.length > 0,
+    totalEventCount,
+    syncEnabled: syncEnabled === 1,
+    clientSignals
+  });
+  const ingestNote = JSON.stringify({
+    validationWarnings: derived.warnings,
+    trustReasons: trustMeta.reasons || [],
+    clientSignals: sanitizeClientSignals(clientSignals)
+  });
 
   let uploadId = 0;
   try {
@@ -416,9 +444,9 @@ async function handlePlatformIngest(request, env) {
         schema, source_app, exporter_version, timezone, locale, upload_source, payload_hash,
         block_event_count, report_event_count, total_event_count, source_post_count, topic_seed_count,
         source_coverage_pct, report_source_coverage_pct, source_concentration_pct,
-        repeated_narrative_pct, short_term_diffusion_pct, client_source_id, client_platform,
-        taxonomy_version, trust_tier, risk_score_band, sync_enabled, upload_trigger
-      ) VALUES (?, ?, ?, ?, ?, 'extension', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        repeated_narrative_pct, short_term_diffusion_pct, client_source_id, client_platform, ip_hash,
+        taxonomy_version, trust_tier, risk_score_band, sync_enabled, upload_trigger, note
+      ) VALUES (?, ?, ?, ?, ?, 'extension', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       'threadsblocker.platform_upload.v2',
       sourceApp,
@@ -438,11 +466,13 @@ async function handlePlatformIngest(request, env) {
       shortTermDiffusionPct,
       clientSourceId,
       clientPlatform,
+      ipHash,
       taxonomyVersion,
       trustMeta.trustTier,
       trustMeta.riskScoreBand,
       syncEnabled,
-      uploadTrigger
+      uploadTrigger,
+      ingestNote
     ).run();
     uploadId = Number(insert.meta?.last_row_id || 0);
   } catch (err) {
@@ -466,9 +496,9 @@ async function handlePlatformIngest(request, env) {
     return json({ code: 500, message: 'Failed to create upload record' }, 500);
   }
 
-  const topicSeeds = asArray(asObject(body.analysisSeeds).topicSeeds).slice(0, PLATFORM_MAX_TOPICS);
-  const sources = asArray(body.sources).slice(0, PLATFORM_MAX_SOURCES);
-  const events = asArray(body.events).slice(0, PLATFORM_MAX_EVENTS);
+  const topicSeeds = derived.topicSeeds;
+  const sources = derived.sources;
+  const events = derived.events;
 
   let topicInserted = 0;
   for (const item of topicSeeds) {
@@ -647,6 +677,8 @@ async function handlePlatformIngest(request, env) {
     id: uploadId,
     trustTier: trustMeta.trustTier,
     riskScoreBand: trustMeta.riskScoreBand,
+    trustReasons: trustMeta.reasons || [],
+    validationWarnings: derived.warnings,
     taxonomyVersion,
     sampleScope: trustMeta.sampleScope,
     storedInR2,
@@ -1378,6 +1410,7 @@ async function ensurePlatformTables(env) {
     'ALTER TABLE platform_uploads ADD COLUMN short_term_diffusion_pct REAL DEFAULT 0',
     `ALTER TABLE platform_uploads ADD COLUMN client_source_id TEXT`,
     `ALTER TABLE platform_uploads ADD COLUMN client_platform TEXT`,
+    `ALTER TABLE platform_uploads ADD COLUMN ip_hash TEXT`,
     `ALTER TABLE platform_uploads ADD COLUMN taxonomy_version TEXT DEFAULT '${CURRENT_TAXONOMY_VERSION}'`,
     `ALTER TABLE platform_uploads ADD COLUMN trust_tier TEXT DEFAULT '${LEGACY_TRUST_TIER}'`,
     `ALTER TABLE platform_uploads ADD COLUMN risk_score_band TEXT DEFAULT 'low'`,
@@ -1466,10 +1499,52 @@ function boolAsInt(v) {
   return null;
 }
 
-async function resolveTrustMeta(env, clientSourceId, clientPlatform, exporterVersion) {
+async function checkPlatformIngestRateLimit(env, clientSourceId, ipHash) {
+  const sourceId = safeString(clientSourceId, 120);
+  if (sourceId) {
+    const sourceRecent = await env.DB.prepare(
+      `SELECT COUNT(*) AS upload_count
+       FROM platform_uploads
+       WHERE client_source_id = ?
+         AND datetime(created_at) >= datetime('now', ?)`
+    ).bind(sourceId, `-${PLATFORM_SOURCE_RATE_WINDOW_MIN} minutes`).first();
+    if (safeCount(sourceRecent?.upload_count) >= PLATFORM_SOURCE_RATE_LIMIT) {
+      return {
+        ok: false,
+        reason: 'source_rate_limited',
+        message: 'Rate limit exceeded for client source'
+      };
+    }
+  }
+
+  if (ipHash) {
+    const ipRecent = await env.DB.prepare(
+      `SELECT COUNT(*) AS upload_count
+       FROM platform_uploads
+       WHERE ip_hash = ?
+         AND datetime(created_at) >= datetime('now', ?)`
+    ).bind(ipHash, `-${PLATFORM_IP_RATE_WINDOW_MIN} minutes`).first();
+    if (safeCount(ipRecent?.upload_count) >= PLATFORM_IP_RATE_LIMIT) {
+      return {
+        ok: false,
+        reason: 'ip_rate_limited',
+        message: 'Rate limit exceeded for origin'
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
+async function resolveTrustMeta(env, clientSourceId, clientPlatform, exporterVersion, options = {}) {
   const sourceId = safeString(clientSourceId, 120);
   if (!sourceId) {
-    return { trustTier: LEGACY_TRUST_TIER, riskScoreBand: 'low', sampleScope: PUBLIC_SAMPLE_SCOPE };
+    return {
+      trustTier: 'flagged',
+      riskScoreBand: 'high',
+      sampleScope: 'probation',
+      reasons: ['missing_client_source_id']
+    };
   }
 
   const now = new Date();
@@ -1495,11 +1570,52 @@ async function resolveTrustMeta(env, clientSourceId, clientPlatform, exporterVer
 
   let trustTier = 'probation';
   let riskScoreBand = 'low';
+  const reasons = [];
+  const clientSignals = sanitizeClientSignals(options.clientSignals);
+  const preferredPlatform = ['chrome_extension', 'firefox_extension', 'ios_userscript'].includes(safeString(clientPlatform, 40));
+  if (!preferredPlatform) {
+    reasons.push('unpreferred_client_platform');
+    riskScoreBand = 'medium';
+  }
+  if (!safeString(exporterVersion, 80)) {
+    reasons.push('missing_exporter_version');
+    riskScoreBand = 'medium';
+  }
+  if (options.hasValidationWarnings) {
+    reasons.push('validation_warning');
+    riskScoreBand = 'medium';
+  }
+  if (clientSignals.sourceCreatedAt <= 0 || !clientSignals.firstSeenVersion) {
+    reasons.push('missing_client_provenance');
+    riskScoreBand = 'medium';
+  }
+  if (clientSignals.successfulUploadCount > 0 && clientSignals.successfulUploadCount + 2 < previousUploads) {
+    reasons.push('local_history_gap');
+    riskScoreBand = 'medium';
+  }
+  if (
+    clientSignals.sourceAgeDays >= 3 &&
+    clientSignals.successfulUploadCount >= 3 &&
+    clientSignals.activeUploadDayCount >= 2
+  ) {
+    reasons.push('mature_local_installation');
+  }
+
   if (recentUploads >= 8) {
     trustTier = 'flagged';
     riskScoreBand = 'high';
-  } else if (nextUploads >= 3 && activeDayCount >= 2) {
+    reasons.push('high_recent_upload_velocity');
+  } else if (
+    preferredPlatform &&
+    nextUploads >= PLATFORM_TRUST_MIN_UPLOADS &&
+    activeDayCount >= PLATFORM_TRUST_MIN_ACTIVE_DAYS &&
+    !options.hasValidationWarnings
+  ) {
     trustTier = 'trusted';
+    riskScoreBand = 'low';
+    reasons.push('multi_day_consistent_source');
+  } else {
+    reasons.push('awaiting_more_history');
   }
 
   await env.DB.prepare(
@@ -1532,7 +1648,141 @@ async function resolveTrustMeta(env, clientSourceId, clientPlatform, exporterVer
   return {
     trustTier,
     riskScoreBand,
-    sampleScope: trustTier === 'trusted' ? PUBLIC_SAMPLE_SCOPE : 'probation'
+    sampleScope: trustTier === 'trusted' ? PUBLIC_SAMPLE_SCOPE : 'probation',
+    reasons
+  };
+}
+
+function sanitizeClientSignals(value) {
+  const signals = asObject(value);
+  return {
+    sourceCreatedAt: normalizeEpochMs(signals.sourceCreatedAt),
+    sourceAgeDays: safeCount(signals.sourceAgeDays),
+    firstSeenVersion: safeString(signals.firstSeenVersion, 40),
+    successfulUploadCount: safeCount(signals.successfulUploadCount),
+    manualUploadCount: safeCount(signals.manualUploadCount),
+    autoUploadCount: safeCount(signals.autoUploadCount),
+    activeUploadDayCount: safeCount(signals.activeUploadDayCount),
+    firstSuccessfulUploadAt: normalizeEpochMs(signals.firstSuccessfulUploadAt),
+    lastSuccessfulUploadAt: normalizeEpochMs(signals.lastSuccessfulUploadAt)
+  };
+}
+
+function derivePlatformPayloadMetrics(body) {
+  const summary = asObject(body.summary);
+  const analysisSeeds = asObject(body.analysisSeeds);
+  const rawEvents = asArray(body.events);
+  const rawSources = asArray(body.sources);
+  const rawTopicSeeds = asArray(analysisSeeds.topicSeeds);
+  const errors = [];
+  const warnings = [];
+
+  if (rawEvents.length === 0) errors.push('missing_events');
+  if (rawEvents.length > PLATFORM_MAX_EVENTS) errors.push('too_many_events');
+  if (rawSources.length > PLATFORM_MAX_SOURCES) errors.push('too_many_sources');
+  if (rawTopicSeeds.length > PLATFORM_MAX_TOPICS) errors.push('too_many_topic_seeds');
+  if (errors.length > 0) {
+    return {
+      errors,
+      warnings,
+      events: [],
+      sources: [],
+      topicSeeds: [],
+      blockEventCount: 0,
+      reportEventCount: 0,
+      totalEventCount: 0,
+      sourcePostCount: 0,
+      topicSeedCount: 0,
+      sourceCoveragePct: 0,
+      reportSourceCoveragePct: 0,
+      sourceConcentrationPct: 0
+    };
+  }
+
+  let invalidEventCount = 0;
+  let blockEventCount = 0;
+  let reportEventCount = 0;
+  let blockSourcedCount = 0;
+  let reportSourcedCount = 0;
+  const sourceEventCounts = new Map();
+  const events = rawEvents.filter((item) => {
+    const event = asObject(item);
+    const eventType = safeString(event.eventType, 20);
+    const accountId = safeString(event.accountId, 180);
+    const eventAt = normalizeEpochMs(event.eventAt);
+    if ((eventType !== 'block' && eventType !== 'report') || !accountId || !eventAt) {
+      invalidEventCount++;
+      return false;
+    }
+    const sourceUrl = safeString(event.sourceUrl, 300);
+    if (eventType === 'block') {
+      blockEventCount++;
+      if (sourceUrl) blockSourcedCount++;
+    } else if (eventType === 'report') {
+      reportEventCount++;
+      if (sourceUrl) reportSourcedCount++;
+    }
+    if (sourceUrl) {
+      sourceEventCounts.set(sourceUrl, (sourceEventCounts.get(sourceUrl) || 0) + 1);
+    }
+    return true;
+  });
+
+  const totalEventCount = events.length;
+  if (totalEventCount === 0) errors.push('no_valid_events');
+  if (invalidEventCount > 0) warnings.push('invalid_events_dropped');
+  if (invalidEventCount > Math.max(5, Math.floor(rawEvents.length * 0.1))) {
+    errors.push('too_many_invalid_events');
+  }
+
+  const sources = rawSources
+    .map((item) => asObject(item))
+    .filter((source) => !!safeString(source.sourceUrl, 300));
+  const sourceUrlSet = new Set(sources.map((source) => safeString(source.sourceUrl, 300)));
+  const sourcePostCount = sourceUrlSet.size;
+
+  const topicSeeds = rawTopicSeeds
+    .map((item) => asObject(item))
+    .filter((topic) => !!safeString(topic.topicLabel || topic.category, 140) && safeCount(topic.eventCount) > 0);
+  const topicSeedCount = topicSeeds.length;
+
+  const sourceCoveragePct = blockEventCount > 0
+    ? Math.max(0, Math.min(100, Math.round((blockSourcedCount / blockEventCount) * 100)))
+    : 0;
+  const reportSourceCoveragePct = reportEventCount > 0
+    ? Math.max(0, Math.min(100, Math.round((reportSourcedCount / reportEventCount) * 100)))
+    : 0;
+
+  const top3EventCount = Array.from(sourceEventCounts.values())
+    .sort((a, b) => b - a)
+    .slice(0, 3)
+    .reduce((sum, count) => sum + count, 0);
+  const sourceConcentrationPct = totalEventCount > 0
+    ? Math.min(100, Math.round((top3EventCount / totalEventCount) * 1000) / 10)
+    : 0;
+
+  if (safeCount(summary.blockEventCount) !== blockEventCount) errors.push('summary_block_count_mismatch');
+  if (safeCount(summary.reportEventCount) !== reportEventCount) errors.push('summary_report_count_mismatch');
+  if (safeCount(summary.totalEventCount) !== totalEventCount) errors.push('summary_total_count_mismatch');
+  if (safeCount(summary.sourcePostCount) !== sourcePostCount) errors.push('summary_source_count_mismatch');
+  if (safeCount(summary.topTopicSeedCount) !== topicSeedCount) errors.push('summary_topic_seed_count_mismatch');
+  if (safePercent(summary.sourceCoveragePct) !== sourceCoveragePct) warnings.push('summary_source_coverage_mismatch');
+  if (safePercent(summary.reportSourceCoveragePct) !== reportSourceCoveragePct) warnings.push('summary_report_source_coverage_mismatch');
+
+  return {
+    errors,
+    warnings,
+    events,
+    sources,
+    topicSeeds,
+    blockEventCount,
+    reportEventCount,
+    totalEventCount,
+    sourcePostCount,
+    topicSeedCount,
+    sourceCoveragePct,
+    reportSourceCoveragePct,
+    sourceConcentrationPct
   };
 }
 

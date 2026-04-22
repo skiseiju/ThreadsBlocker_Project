@@ -204,7 +204,9 @@ export const Reporter = {
                     : await Reporter.sendViaFetch(endpoint, body);
 
                 if (result && Number(result.code) === 200) {
-                    Storage.setPlatformSyncLastAt(Date.now());
+                    const syncedAt = Date.now();
+                    Storage.recordPlatformUploadSuccess(options.trigger || 'manual', syncedAt);
+                    Storage.setPlatformSyncLastAt(syncedAt);
                     return result;
                 }
                 lastError = result || { code: 500, message: 'Unknown response' };

@@ -12,7 +12,7 @@ mkdir -p "$DIST_DIR"
 # Build Temp Bundle (Logic Only)
 TEMP_BUNDLE="$DIST_DIR/temp_bundle.js"
 
-OLD_VERSION="$(grep -oE "VERSION:\s*'[^']+'" "$SRC_DIR/config.js" | cut -d "'" -f 2 | tr -d '\r')"
+OLD_VERSION="$(sed -n "s/^[[:space:]]*VERSION: '\([^']*\)'.*/\1/p" "$SRC_DIR/config.js" | head -n 1 | tr -d '\r')"
 
 if [[ "$1" == "--release" ]]; then
     # Drop beta tag if it exists (e.g., 2.0.6-beta1 -> 2.0.6)
@@ -44,6 +44,11 @@ if [[ "$APP_VERSION" != "$OLD_VERSION" ]]; then
     sed -i '' -E "s/VERSION: '$OLD_VERSION'/VERSION: '$APP_VERSION'/" "$SRC_DIR/config.js"
 else
     echo "Building current version: $APP_VERSION"
+fi
+
+STORE_VERSION="$APP_VERSION"
+if [[ "$APP_VERSION" == *"-beta"* ]]; then
+    STORE_VERSION=$(echo "$APP_VERSION" | sed -E 's/-beta/./g')
 fi
 
 echo "(function() {" > "$TEMP_BUNDLE"
@@ -118,7 +123,7 @@ cp "$TEMP_BUNDLE" "$EXT_DIR/content.js"
 
 if [ -f "$SRC_DIR/manifest.json" ]; then
     cp "$SRC_DIR/manifest.json" "$EXT_DIR/manifest.json"
-    sed -i '' -E "s/\"version\": \"[^\"]+\"/\"version\": \"$APP_VERSION\"/" "$EXT_DIR/manifest.json"
+    sed -i '' -E "s/\"version\": \"[^\"]+\"/\"version\": \"$STORE_VERSION\"/" "$EXT_DIR/manifest.json"
 fi
 
 # Copy Icon for Chrome
@@ -141,8 +146,7 @@ cp "$TEMP_BUNDLE" "$FF_DIR/content.js"
 
 if [ -f "$SRC_DIR/manifest.firefox.json" ]; then
     cp "$SRC_DIR/manifest.firefox.json" "$FF_DIR/manifest.json"
-    # Firefox version 不能有 -beta，轉換為 .NNN 格式
-    FF_VERSION=$(echo "$APP_VERSION" | sed -E 's/-beta/./g')
+    FF_VERSION="$STORE_VERSION"
     sed -i '' -E "s/\"version\": \"[^\"]+\"/\"version\": \"$FF_VERSION\"/" "$FF_DIR/manifest.json"
 fi
 

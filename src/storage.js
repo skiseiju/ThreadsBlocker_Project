@@ -50,6 +50,22 @@ export const Storage = {
     setPlatformSyncEnabled: (enabled) => Storage.set(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, enabled ? 'true' : 'false'),
     getPlatformSyncLastAt: () => parseInt(Storage.get(CONFIG.KEYS.PLATFORM_SYNC_LAST_AT, '0') || '0', 10) || 0,
     setPlatformSyncLastAt: (ts = Date.now()) => Storage.set(CONFIG.KEYS.PLATFORM_SYNC_LAST_AT, String(ts)),
+    getPlatformSourceCreatedAt: () => {
+        let createdAt = parseInt(Storage.get(CONFIG.KEYS.PLATFORM_SOURCE_CREATED_AT, '0') || '0', 10) || 0;
+        if (createdAt <= 0) {
+            createdAt = Date.now();
+            Storage.set(CONFIG.KEYS.PLATFORM_SOURCE_CREATED_AT, String(createdAt));
+        }
+        return createdAt;
+    },
+    getPlatformSourceFirstVersion: () => {
+        let version = String(Storage.get(CONFIG.KEYS.PLATFORM_SOURCE_FIRST_VERSION, '') || '').trim();
+        if (!version) {
+            version = CONFIG.VERSION;
+            Storage.set(CONFIG.KEYS.PLATFORM_SOURCE_FIRST_VERSION, version);
+        }
+        return version;
+    },
     getPlatformSourceId: () => {
         let sourceId = Storage.get(CONFIG.KEYS.PLATFORM_SOURCE_ID, '');
         if (!sourceId) {
@@ -57,8 +73,58 @@ export const Storage = {
                 ? crypto.randomUUID()
                 : `src-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
             Storage.set(CONFIG.KEYS.PLATFORM_SOURCE_ID, sourceId);
+            Storage.set(CONFIG.KEYS.PLATFORM_SOURCE_CREATED_AT, String(Date.now()));
+            Storage.set(CONFIG.KEYS.PLATFORM_SOURCE_FIRST_VERSION, CONFIG.VERSION);
         }
         return sourceId;
+    },
+    getPlatformUploadStats: () => {
+        const raw = Storage.getJSON(CONFIG.KEYS.PLATFORM_UPLOAD_STATS, {});
+        const stats = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
+        return {
+            firstSuccessfulUploadAt: parseInt(stats.firstSuccessfulUploadAt || '0', 10) || 0,
+            lastSuccessfulUploadAt: parseInt(stats.lastSuccessfulUploadAt || '0', 10) || 0,
+            totalSuccessfulUploads: parseInt(stats.totalSuccessfulUploads || '0', 10) || 0,
+            manualSuccessfulUploads: parseInt(stats.manualSuccessfulUploads || '0', 10) || 0,
+            autoSuccessfulUploads: parseInt(stats.autoSuccessfulUploads || '0', 10) || 0,
+            activeUploadDayCount: parseInt(stats.activeUploadDayCount || '0', 10) || 0,
+            lastUploadDayKey: String(stats.lastUploadDayKey || ''),
+        };
+    },
+    recordPlatformUploadSuccess: (trigger = 'manual', at = Date.now()) => {
+        const ts = parseInt(at || '0', 10) || Date.now();
+        const stats = Storage.getPlatformUploadStats();
+        const dayKey = new Date(ts).toISOString().slice(0, 10);
+        if (!stats.firstSuccessfulUploadAt) stats.firstSuccessfulUploadAt = ts;
+        stats.lastSuccessfulUploadAt = ts;
+        stats.totalSuccessfulUploads += 1;
+        if (trigger === 'auto') stats.autoSuccessfulUploads += 1;
+        else stats.manualSuccessfulUploads += 1;
+        if (stats.lastUploadDayKey !== dayKey) {
+            stats.lastUploadDayKey = dayKey;
+            stats.activeUploadDayCount += 1;
+        }
+        Storage.setJSON(CONFIG.KEYS.PLATFORM_UPLOAD_STATS, stats);
+        return { ...stats };
+    },
+    getPlatformClientSignals: () => {
+        const sourceCreatedAt = Storage.getPlatformSourceCreatedAt();
+        const firstSeenVersion = Storage.getPlatformSourceFirstVersion();
+        const uploadStats = Storage.getPlatformUploadStats();
+        const sourceAgeDays = sourceCreatedAt > 0
+            ? Math.max(0, Math.floor((Date.now() - sourceCreatedAt) / (24 * 3600 * 1000)))
+            : 0;
+        return {
+            sourceCreatedAt,
+            sourceAgeDays,
+            firstSeenVersion,
+            successfulUploadCount: uploadStats.totalSuccessfulUploads,
+            manualUploadCount: uploadStats.manualSuccessfulUploads,
+            autoUploadCount: uploadStats.autoSuccessfulUploads,
+            activeUploadDayCount: uploadStats.activeUploadDayCount,
+            firstSuccessfulUploadAt: uploadStats.firstSuccessfulUploadAt,
+            lastSuccessfulUploadAt: uploadStats.lastSuccessfulUploadAt,
+        };
     },
 
     getBlockContextMap: () => {

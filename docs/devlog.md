@@ -162,3 +162,56 @@
     - 清理名單已固定為完整收集，不再在設定面板顯示唯讀 checkbox
     - 封鎖設定摘要同步移除「完整收集」字樣，避免讓使用者以為仍可切換
     - 版本升至 `2.6.0-beta39`
+
+22. **平台反污染保護 v1：來源/IP 節流、payload 一致性驗證與更嚴格信任升級**（cf_bug_admin/src/index.js）
+    - `platform_uploads` 新增 `ip_hash` 與對應索引，ingest 會記錄來源 IP 的 SHA-256 摘要，用於 server 端節流，不保留原始 IP
+    - 平台 ingest 新增兩層 rate limit：
+      - 同一 `clientSourceId` 在 60 分鐘內最多 6 次 upload
+      - 同一 `ip_hash` 在 15 分鐘內最多 12 次 upload
+    - `resolveTrustMeta()` 不再把缺少 `clientSourceId` 的 payload 視為 legacy trusted，改為直接標成 `flagged`
+    - trusted 升級條件提高為：偏好平台來源、至少 5 次 upload、跨 3 天活躍、且 payload 無 validation warning
+    - ingest 不再信任 client summary 計數，改由 server 端從 `events / sources / topicSeeds` 重新推導：
+      - `blockEventCount`
+      - `reportEventCount`
+      - `totalEventCount`
+      - `sourcePostCount`
+      - `topTopicSeedCount`
+      - `sourceCoveragePct`
+      - `reportSourceCoveragePct`
+      - `sourceConcentrationPct`
+    - 若 summary 與實際 payload 不一致、事件過多、有效事件為 0、或無效事件比例異常，會直接拒收
+    - ingest response 與 upload note 會保留 `validationWarnings` / `trustReasons`，方便後續追查
+    - 版本升至 `2.6.0-beta40`
+
+23. **extension provenance 訊號補強：本機來源年齡、上傳歷史與 trust reason 串接**（src/storage.js、src/reporter.js、src/ui.js、cf_bug_admin/src/index.js）
+    - extension 新增 `clientSignals` 區塊，會隨平台 payload 一起送出：
+      - `sourceCreatedAt`
+      - `sourceAgeDays`
+      - `firstSeenVersion`
+      - `successfulUploadCount`
+      - `manualUploadCount`
+      - `autoUploadCount`
+      - `activeUploadDayCount`
+      - `firstSuccessfulUploadAt`
+      - `lastSuccessfulUploadAt`
+    - 平台來源 ID 建立時會一併記錄本機 `sourceCreatedAt` 與 `firstSeenVersion`
+    - 每次平台 upload 成功後，會在本機累積成功上傳統計與活躍天數
+    - ingest 會把 `clientSignals` 寫進 upload note，並納入 trust reason：
+      - 缺少本機 provenance → `missing_client_provenance`
+      - 本機成功上傳歷史明顯落後於 server registry → `local_history_gap`
+      - 本機來源已持續使用一段時間且有多日成功上傳 → `mature_local_installation`
+    - 這些訊號只作為軟性 provenance / risk signal，不作為單獨信任依據
+    - 版本升至 `2.6.0-beta41`
+
+24. **修正 build.sh 版號偵測被 platform key 誤匹配**（build.sh、src/config.js）
+    - `build.sh` 先前用寬鬆 `grep` 取 `config.js` 的 `VERSION`，在新增 `PLATFORM_SOURCE_FIRST_VERSION` 後會誤抓到 key 名字
+    - 這會讓 `APP_VERSION` 夾帶多餘內容，進而造成 manifest `sed` 取代失敗、產物仍停留舊版號
+    - 改為只匹配開頭的 `VERSION:` 設定列，避免被其他 key 干擾
+    - 重新 build 後，Chrome / Firefox manifest 版號會正確跟隨當前版本
+    - 版本升至 `2.6.0-beta42`
+
+25. **Chrome / Firefox manifest 版號改為 store-safe 數字格式**（build.sh、src/config.js）
+    - repo 內部版本仍維持 `2.6.0-betaN`，方便追蹤 beta 線進度
+    - build 產物的 manifest `version` 會自動轉成瀏覽器可接受的數字格式，例如 `2.6.0-beta43` → `2.6.0.43`
+    - 避免 Chrome / Firefox extension manifest 因為帶 `-beta` 被視為無效版本字串
+    - 版本升至 `2.6.0-beta43`

@@ -1242,6 +1242,7 @@ export const UI = {
         const platformSyncLastAt = Object.prototype.hasOwnProperty.call(options, 'platformSyncLastAt')
             ? (parseInt(options.platformSyncLastAt || '0', 10) || 0)
             : Storage.getPlatformSyncLastAt();
+        const clientSignals = Storage.getPlatformClientSignals();
 
         const db = Storage.getJSON(CONFIG.KEYS.DB_KEY, []);
         const ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
@@ -1577,13 +1578,15 @@ export const UI = {
                 locale: (typeof navigator !== 'undefined' && navigator.language) ? navigator.language : '',
             },
             fieldSpec: {
-                root: ['clientSourceId', 'exportedAt', 'exporter', 'syncPreferences', 'fieldSpec', 'summary', 'accounts', 'events', 'sources', 'sourceEvidence', 'analysisSeeds'],
+                root: ['clientSourceId', 'exportedAt', 'exporter', 'clientSignals', 'syncPreferences', 'fieldSpec', 'summary', 'accounts', 'events', 'sources', 'sourceEvidence', 'analysisSeeds'],
+                clientSignals: ['sourceCreatedAt', 'sourceAgeDays', 'firstSeenVersion', 'successfulUploadCount', 'manualUploadCount', 'autoUploadCount', 'activeUploadDayCount', 'firstSuccessfulUploadAt', 'lastSuccessfulUploadAt'],
                 accounts: ['accountId', 'profileUrl', 'blockEventCount', 'reportEventCount', 'totalEventCount', 'firstSeenAt', 'lastSeenAt', 'sourceUrlCount', 'sourceUrls', 'sourceOwners', 'blockReasons', 'reportPrimaryCategories', 'reportLeafCategories', 'platformReview'],
                 events: ['eventId', 'eventType', 'accountId', 'profileUrl', 'eventAt', 'sourceUrl', 'sourceOwner', 'sourceText', 'sourceChannel', 'blockReasonCode', 'reportPath', 'reportPrimaryCategory', 'reportLeafCategory', 'reportTargetType', 'batchId'],
                 sources: ['sourceUrl', 'sourceOwners', 'sourceTextSamples', 'blockEventCount', 'reportEventCount', 'totalEventCount', 'uniqueAccountCount', 'accountIds', 'reportPathCounts', 'blockReasonCounts', 'topicHintCounts', 'topTopicHints', 'manipulationSignalScore', 'manipulationRiskLevel', 'platformReview'],
                 sourceEvidence: ['sourceUrl', 'capturedAt', 'updatedAt', 'captureCount', 'sourceOwner', 'sourceChannel', 'lastEventType', 'textHash', 'snippet'],
                 analysisSeeds: ['suspiciousAccounts', 'campaignCandidates', 'topicSeeds', 'narrativeSeeds'],
             },
+            clientSignals,
             syncPreferences: {
                 autoSyncEnabled: platformSyncEnabled,
                 lastSyncedAt: platformSyncLastAt || 0,
@@ -2158,6 +2161,7 @@ export const UI = {
                 sourceUrlCount: acc.sourceUrlCount,
                 reportLeafCategoryCount: acc.reportLeafCategories.length,
             }));
+        const clientSignals = Storage.getPlatformClientSignals();
 
         const exportPayload = {
             schema: 'threadsblocker.platform_upload.v2',
@@ -2170,13 +2174,15 @@ export const UI = {
                 locale: (typeof navigator !== 'undefined' && navigator.language) ? navigator.language : '',
             },
             fieldSpec: {
-                root: ['clientSourceId', 'exportedAt', 'exporter', 'syncPreferences', 'fieldSpec', 'summary', 'accounts', 'events', 'sources', 'sourceEvidence', 'analysisSeeds'],
+                root: ['clientSourceId', 'exportedAt', 'exporter', 'clientSignals', 'syncPreferences', 'fieldSpec', 'summary', 'accounts', 'events', 'sources', 'sourceEvidence', 'analysisSeeds'],
+                clientSignals: ['sourceCreatedAt', 'sourceAgeDays', 'firstSeenVersion', 'successfulUploadCount', 'manualUploadCount', 'autoUploadCount', 'activeUploadDayCount', 'firstSuccessfulUploadAt', 'lastSuccessfulUploadAt'],
                 accounts: ['accountId', 'profileUrl', 'blockEventCount', 'reportEventCount', 'totalEventCount', 'firstSeenAt', 'lastSeenAt', 'sourceUrlCount', 'sourceUrls', 'sourceOwners', 'blockReasons', 'reportPrimaryCategories', 'reportLeafCategories', 'platformReview'],
                 events: ['eventId', 'eventType', 'accountId', 'profileUrl', 'eventAt', 'sourceUrl', 'sourceOwner', 'sourceText', 'sourceChannel', 'blockReasonCode', 'reportPath', 'reportPrimaryCategory', 'reportLeafCategory', 'reportTargetType', 'batchId'],
                 sources: ['sourceUrl', 'sourceOwners', 'sourceTextSamples', 'blockEventCount', 'reportEventCount', 'totalEventCount', 'uniqueAccountCount', 'accountIds', 'reportPathCounts', 'blockReasonCounts', 'topicHintCounts', 'topTopicHints', 'manipulationSignalScore', 'manipulationRiskLevel', 'platformReview'],
                 sourceEvidence: ['sourceUrl', 'capturedAt', 'updatedAt', 'captureCount', 'sourceOwner', 'sourceChannel', 'lastEventType', 'textHash', 'snippet'],
                 analysisSeeds: ['suspiciousAccounts', 'campaignCandidates', 'topicSeeds', 'narrativeSeeds'],
             },
+            clientSignals,
             syncPreferences: {
                 autoSyncEnabled: platformSyncEnabled,
                 lastSyncedAt: platformSyncLastAt || 0,
