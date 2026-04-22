@@ -807,7 +807,7 @@ export const UI = {
                             </div>
                             <div class="hege-menu-item" data-hege-settings-open="block" style="border:1px solid #2d2d2d; border-radius:8px; min-height:112px; align-items:flex-start; flex-direction:column; gap:7px;">
                                 <span style="font-size:14px;font-weight:700;">封鎖設定</span>
-                                <span style="font-size:11px;color:#888;line-height:1.4;">完整收集、速度、每日上限、緊急模式、定點絕設定</span>
+                                <span style="font-size:11px;color:#888;line-height:1.4;">速度、每日上限、緊急模式、定點絕設定</span>
                             </div>
                             <div class="hege-menu-item" data-hege-settings-open="report" style="border:1px solid #2d2d2d; border-radius:8px; min-height:112px; align-items:flex-start; flex-direction:column; gap:7px;">
                                 <span style="font-size:14px;font-weight:700;">檢舉設定</span>
@@ -880,13 +880,6 @@ export const UI = {
                             <span>← 返回設定</span>
                         </div>
                         <div style="font-size:11px;color:#666;font-weight:600;padding:2px 8px;letter-spacing:1px;">封鎖設定</div>
-                        <div style="display: flex; flex-direction: column; gap: 6px; padding: 10px; background: #111; border-radius: 8px; border: 1px solid #2a2a2a;">
-                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-                                <input type="checkbox" id="hege-s-advance-scroll-toggle" checked disabled style="width:16px; height:16px; opacity:0.65;">
-                                <span style="font-weight:600; font-size:13px;">完整互動名單收集</span>
-                            </label>
-                            <span style="font-size: 11px; color: #888; line-height: 1.4;">清理名單會固定捲完整個互動 dialog，抓完整串帳號。</span>
-                        </div>
                         <div class="hege-menu-item" id="hege-s-speed">
                             <span>速度模式</span>
                             <span class="status" id="hege-s-speed-status">🧠 智慧</span>
@@ -1224,12 +1217,6 @@ export const UI = {
             window.open('https://skiseiju.com?utm_source=extension&utm_medium=popup', '_blank');
         });
 
-        // 清理名單固定完整收集，保留唯讀狀態讓使用者知道目前行為。
-        const advanceToggle = overlay.querySelector('#hege-s-advance-scroll-toggle');
-        if (advanceToggle) {
-            advanceToggle.checked = true;
-            advanceToggle.disabled = true;
-        }
     },
 
     isSameLocalDay: (a, b = Date.now()) => {

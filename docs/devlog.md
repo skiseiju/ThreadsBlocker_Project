@@ -157,3 +157,8 @@
     - public API 的 `topNarratives` 新增 `whyNote`，首頁與月報都能顯示 live 敘事解釋，不再只靠前端 mock 文案
     - extension 新增真正的每日 auto sync gate：僅限 Chrome / Firefox extension、每天最多一次、成功才更新 `lastSyncedAt`、iOS 維持手動上傳
     - 版本升至 `2.6.0-beta38`
+
+21. **設定面板移除已固定化的「完整互動名單收集」提示項**（src/ui.js）
+    - 清理名單已固定為完整收集，不再在設定面板顯示唯讀 checkbox
+    - 封鎖設定摘要同步移除「完整收集」字樣，避免讓使用者以為仍可切換
+    - 版本升至 `2.6.0-beta39`
