@@ -907,6 +907,13 @@ export const UI = {
                             </label>
                             <span style="font-size:10px; color:#ff453a; line-height:1.3;">跳過上限保護，可能觸發 Meta 帳號限制，僅短時急用</span>
                         </div>
+                        <div class="hege-menu-item" id="hege-s-cooldown-protection-row" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
+                            <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
+                                <span>自動冷卻保護</span>
+                                <input type="checkbox" id="hege-s-cooldown-protection-toggle" style="width:16px; height:16px;">
+                            </label>
+                            <span style="font-size:10px; color:#888; line-height:1.3;">開啟時遇到 Meta 限制會自動進入冷卻並備份名單；關閉後只標記失敗並繼續跑</span>
+                        </div>
                         <div class="hege-menu-item" id="hege-s-auto-mark-leader-row" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
                             <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
                                 <span>定點絕時自動標頭目</span>
@@ -1053,6 +1060,18 @@ export const UI = {
             };
             const dailyReportLimitRow = overlay.querySelector('#hege-s-daily-report-limit');
             if (dailyReportLimitRow) dailyReportLimitRow.onclick = (e) => e.stopPropagation();
+        }
+
+        const cooldownProtectionToggle = overlay.querySelector('#hege-s-cooldown-protection-toggle');
+        if (cooldownProtectionToggle) {
+            cooldownProtectionToggle.checked = Storage.isCooldownProtectionEnabled();
+            cooldownProtectionToggle.onchange = (e) => {
+                const enabled = Boolean(e.target.checked);
+                Storage.setCooldownProtectionEnabled(enabled);
+                UI.showToast(enabled ? '已開啟自動冷卻保護' : '已關閉自動冷卻保護');
+            };
+            const row = overlay.querySelector('#hege-s-cooldown-protection-row');
+            if (row) row.onclick = (e) => e.stopPropagation();
         }
 
         const reportPathRow = overlay.querySelector('#hege-s-report-path');

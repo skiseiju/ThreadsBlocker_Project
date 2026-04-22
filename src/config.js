@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.6.0-beta33', // Beta
+    VERSION: '2.6.0-beta36', // Beta
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/reports/bug',
@@ -52,6 +52,7 @@ export const CONFIG = {
         BG_CMD: 'hege_bg_command',
         WORKER_MODE: 'hege_worker_mode',
         COOLDOWN: 'hege_rate_limit_until',
+        COOLDOWN_PROTECTION_ENABLED: 'hege_cooldown_protection_enabled',
         POST_FALLBACK: 'hege_post_fallback',
         WORKER_STATS: 'hege_worker_stats',
         CONSOLE_LOGS: 'hege_web_console_logs',
