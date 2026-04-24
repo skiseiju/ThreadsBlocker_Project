@@ -222,8 +222,7 @@ export const Storage = {
     },
 
     getDailyReportLimit: () => {
-        const limit = parseInt(Storage.get(CONFIG.KEYS.DAILY_REPORT_LIMIT), 10);
-        return CONFIG.DAILY_REPORT_LIMIT_OPTIONS.includes(limit) ? limit : CONFIG.DAILY_REPORT_LIMIT_DEFAULT;
+        return CONFIG.DAILY_REPORT_LIMIT_DEFAULT;
     },
 
     recordReport: () => {

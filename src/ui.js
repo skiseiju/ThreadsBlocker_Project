@@ -891,7 +891,7 @@ export const UI = {
                                     ${CONFIG.DAILY_LIMIT_OPTIONS.map(n => `<option value="${n}">${n}</option>`).join('')}
                                 </select>
                             </div>
-                            <span style="font-size:10px; color:#ff9f0a; line-height:1.3;">超過此數 worker 會自動進冷卻 1 小時，避免被 Meta 抓</span>
+                            <span style="font-size:10px; color:#ff9f0a; line-height:1.3;">超過此數仍會繼續執行，但會顯示醒目的上限提醒</span>
                         </div>
                         <div class="hege-menu-item" id="hege-s-emergency-mode" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
                             <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
@@ -899,13 +899,6 @@ export const UI = {
                                 <input type="checkbox" id="hege-s-emergency-toggle" style="width:16px; height:16px;">
                             </label>
                             <span style="font-size:10px; color:#ff453a; line-height:1.3;">跳過上限保護，可能觸發 Meta 帳號限制，僅短時急用</span>
-                        </div>
-                        <div class="hege-menu-item" id="hege-s-cooldown-protection-row" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
-                            <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
-                                <span>自動冷卻保護</span>
-                                <input type="checkbox" id="hege-s-cooldown-protection-toggle" style="width:16px; height:16px;">
-                            </label>
-                            <span style="font-size:10px; color:#888; line-height:1.3;">開啟時遇到 Meta 限制會自動進入冷卻並備份名單；關閉後只標記失敗並繼續跑</span>
                         </div>
                         <div class="hege-menu-item" id="hege-s-auto-mark-leader-row" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
                             <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
@@ -927,15 +920,6 @@ export const UI = {
                             <span>← 返回設定</span>
                         </div>
                         <div style="font-size:11px;color:#666;font-weight:600;padding:2px 8px;letter-spacing:1px;">檢舉設定</div>
-                        <div class="hege-menu-item" id="hege-s-daily-report-limit" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
-                            <div style="display:flex; align-items:center; justify-content:space-between;">
-                                <span>每日只檢舉上限</span>
-                                <select id="hege-s-daily-report-limit-select" style="background:#1a1a1a; border:1px solid #444; color:#f5f5f5; padding:2px 6px; border-radius:4px; font-size:11px;">
-                                    ${CONFIG.DAILY_REPORT_LIMIT_OPTIONS.map(n => `<option value="${n}">${n}</option>`).join('')}
-                                </select>
-                            </div>
-                            <span style="font-size:10px; color:#ff9f0a; line-height:1.3;">REPORT_QUEUE 使用獨立上限，預設 300</span>
-                        </div>
                         <div class="hege-menu-item" id="hege-s-report-path" style="display:flex; flex-direction:column; align-items:stretch; gap:6px;">
                             <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
                                 <span>檢舉預設路徑</span>
@@ -1038,32 +1022,6 @@ export const UI = {
             };
             const dailyLimitRow = overlay.querySelector('#hege-s-daily-limit');
             if (dailyLimitRow) dailyLimitRow.onclick = (e) => e.stopPropagation();
-        }
-
-        const dailyReportLimitSelect = overlay.querySelector('#hege-s-daily-report-limit-select');
-        if (dailyReportLimitSelect) {
-            dailyReportLimitSelect.value = String(Storage.getDailyReportLimit());
-            dailyReportLimitSelect.onchange = (e) => {
-                const val = parseInt(e.target.value);
-                if (!isNaN(val)) {
-                    Storage.set(CONFIG.KEYS.DAILY_REPORT_LIMIT, String(val));
-                    UI.showToast(`每日只檢舉上限已設為 ${val} 人`);
-                }
-            };
-            const dailyReportLimitRow = overlay.querySelector('#hege-s-daily-report-limit');
-            if (dailyReportLimitRow) dailyReportLimitRow.onclick = (e) => e.stopPropagation();
-        }
-
-        const cooldownProtectionToggle = overlay.querySelector('#hege-s-cooldown-protection-toggle');
-        if (cooldownProtectionToggle) {
-            cooldownProtectionToggle.checked = Storage.isCooldownProtectionEnabled();
-            cooldownProtectionToggle.onchange = (e) => {
-                const enabled = Boolean(e.target.checked);
-                Storage.setCooldownProtectionEnabled(enabled);
-                UI.showToast(enabled ? '已開啟自動冷卻保護' : '已關閉自動冷卻保護');
-            };
-            const row = overlay.querySelector('#hege-s-cooldown-protection-row');
-            if (row) row.onclick = (e) => e.stopPropagation();
         }
 
         const reportPathRow = overlay.querySelector('#hege-s-report-path');
@@ -2411,7 +2369,7 @@ export const UI = {
                         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
                             ${queueStat(cockroachCount, '大蟑螂名單', '#ff9f0a')}
                             ${queueStat(activeQueue.length, '待封鎖 queue', activeQueue.length > 0 ? '#ff453a' : '#777')}
-                            ${queueStat(failedQueue.length, '失敗可重試', failedQueue.length > 0 ? '#ff9f0a' : '#777')}
+                            ${queueStat(failedQueue.length + Storage.getJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, []).length, '失敗可重試', (failedQueue.length + Storage.getJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, []).length) > 0 ? '#ff9f0a' : '#777')}
                             ${queueStat(cooldownQueue.length, cooldownUntil > Date.now() ? '冷卻備份中' : '冷卻備份', cooldownQueue.length > 0 ? '#ff9f0a' : '#777')}
                         </div>
                     </div>

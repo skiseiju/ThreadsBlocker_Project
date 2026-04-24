@@ -393,6 +393,36 @@ Object.assign(Core, {
             return Core.ReportDriver.findAnyText(CONFIRM_TEXTS, { exact: false });
         },
 
+        isElementVisible(el) {
+            if (!el || !el.isConnected) return false;
+            const style = window.getComputedStyle(el);
+            if (!style || style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+            const rect = el.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+        },
+
+        getVisibleDialogs() {
+            return Array.from(document.querySelectorAll('div[role="dialog"]'))
+                .filter(dialog => Core.ReportDriver.isElementVisible(dialog));
+        },
+
+        getSubmitSuccessState(originDialog = null) {
+            if (Core.ReportDriver.checkReportDone()) {
+                return { confirmed: true, signal: 'done_text' };
+            }
+
+            if (originDialog && (!originDialog.isConnected || !Core.ReportDriver.isElementVisible(originDialog))) {
+                return { confirmed: true, signal: 'origin_dialog_closed' };
+            }
+
+            const dialogs = Core.ReportDriver.getVisibleDialogs();
+            if (originDialog && dialogs.length > 0 && !dialogs.includes(originDialog)) {
+                return { confirmed: true, signal: 'dialog_replaced' };
+            }
+
+            return null;
+        },
+
         findReportAccountTarget() {
             return Core.ReportDriver.findAnyText(REPORT_ACCOUNT_TEXTS, { exact: false });
         },
@@ -589,22 +619,35 @@ Object.assign(Core, {
                     Core.ReportDriver.logVisibleOptions(`選擇「${match.step}」後`, { nextPath: path.slice(pathIndex) });
                 }
 
+                let submitOriginDialog = null;
                 for (let i = 0; i < 3; i++) {
                     const confirmBtn = await Utils.pollUntil(() => {
                         return Core.ReportDriver.findConfirmationButton();
                     }, i === 0 ? 2200 : 1200, 120);
                     if (!confirmBtn) break;
+                    const originDialog = confirmBtn.closest('div[role="dialog"]');
+                    submitOriginDialog = originDialog || submitOriginDialog;
                     const confirmText = (confirmBtn.innerText || confirmBtn.textContent || '').replace(/\s+/g, ' ').trim();
                     if (window.hegeLog) window.hegeLog(`[只檢舉] 準備點確認按鈕「${confirmText || '提交/完成'}」 round=${i + 1}`);
                     await Core.ReportDriver.visualStep(options, user, `準備點「${confirmText || '提交/完成'}」`, confirmBtn, 650);
                     Utils.simClick(confirmBtn);
                     await Utils.safeSleep(700);
-                    Core.ReportDriver.logVisibleOptions(`點「${confirmText || '提交/完成'}」後`, { done: Core.ReportDriver.checkReportDone() });
-                    if (Core.ReportDriver.checkReportDone() && !Core.ReportDriver.findConfirmationButton()) break;
+                    const submitState = Core.ReportDriver.getSubmitSuccessState(originDialog);
+                    Core.ReportDriver.logVisibleOptions(`點「${confirmText || '提交/完成'}」後`, submitState || { done: false });
+                    if (submitState) break;
                 }
 
-                await Utils.pollUntil(() => Core.ReportDriver.checkReportDone() || !Core.ReportDriver.findConfirmationButton(), 3000, 150);
-                Core.ReportDriver.logVisibleOptions('檢舉送出檢查後', { done: Core.ReportDriver.checkReportDone() });
+                const finalSubmitState = await Utils.pollUntil(() => {
+                    return Core.ReportDriver.getSubmitSuccessState(submitOriginDialog);
+                }, 3000, 150);
+                Core.ReportDriver.logVisibleOptions('檢舉送出檢查後', finalSubmitState || { done: false });
+                if (!finalSubmitState) {
+                    return Core.ReportDriver.skipOrPauseForDebug(user, options, 'submit_not_confirmed', `@${user} 沒有拿到明確送出成功訊號`, {
+                        remainingPath: path.slice(pathIndex),
+                        visibleOptions: Core.ReportDriver.getVisibleReportOptionTexts(),
+                        hadConfirmDialog: !!submitOriginDialog,
+                    });
+                }
 
                 Storage.recordReport();
                 Core.ReportDriver.recordHistory(user, options);

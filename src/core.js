@@ -1595,15 +1595,18 @@ export const Core = {
         if (!panel) return;
 
         const failedQueue = Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []);
+        const reportFailedQueue = Storage.getJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, []);
         const retryItem = document.getElementById('hege-retry-failed-item');
-        const reportItem = document.getElementById('hege-report-item');
         if (retryItem) {
-            if (failedQueue.length > 0) {
+            const totalFailed = failedQueue.length + reportFailedQueue.length;
+            if (totalFailed > 0) {
                 retryItem.style.display = 'flex';
                 const countBadge = document.getElementById('hege-failed-count');
-                if (countBadge) countBadge.textContent = `${failedQueue.length} 筆`;
+                if (countBadge) countBadge.textContent = `${totalFailed} 筆`;
+                retryItem.title = `封鎖失敗 ${failedQueue.length} 筆，檢舉失敗 ${reportFailedQueue.length} 筆`;
             } else {
                 retryItem.style.display = 'none';
+                retryItem.title = '';
             }
         }
 
@@ -1832,24 +1835,31 @@ export const Core = {
 
     retryFailedQueue: () => {
         const failedUsers = Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []);
-        if (failedUsers.length === 0) {
+        const reportFailedUsers = Storage.getJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, []);
+        const totalFailed = failedUsers.length + reportFailedUsers.length;
+        if (totalFailed === 0) {
             UI.showToast('沒有失敗紀錄可重試');
             return;
         }
 
-        UI.showConfirm(`發現 ${failedUsers.length} 筆過去封鎖失敗或找不到人的帳號。\n確定要重新將他們加入排隊列重試嗎？`, () => {
+        UI.showConfirm(`發現封鎖失敗 ${failedUsers.length} 筆、檢舉失敗 ${reportFailedUsers.length} 筆。\n確定要重新加入佇列重試嗎？`, () => {
             let activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
             const combinedQueue = [...new Set([...activeQueue, ...failedUsers])];
             Storage.setJSON(CONFIG.KEYS.BG_QUEUE, combinedQueue);
             Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, []); // Clear it out
-            UI.showToast(`已將 ${failedUsers.length} 筆名單重送至背景排隊`);
+            const activeReportQueue = Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []);
+            const combinedReportQueue = [...new Set([...activeReportQueue, ...reportFailedUsers])];
+            Storage.setJSON(CONFIG.KEYS.REPORT_QUEUE, combinedReportQueue);
+            Storage.setJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, []);
+            UI.showToast(`已重送封鎖 ${failedUsers.length} 筆、檢舉 ${reportFailedUsers.length} 筆`);
 
             Core.updateControllerUI();
 
             const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
             const isRunning = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
             if (!isRunning) {
-                Storage.set(CONFIG.KEYS.WORKER_MODE, 'block');
+                const nextMode = combinedQueue.length > 0 ? 'block' : (combinedReportQueue.length > 0 ? 'report' : '');
+                if (nextMode) Storage.set(CONFIG.KEYS.WORKER_MODE, nextMode);
                 if (Utils.isMobile()) {
                     Core.runSameTabWorker();
                 } else {

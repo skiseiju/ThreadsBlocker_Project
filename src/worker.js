@@ -11,6 +11,7 @@ export const Worker = {
     verifyCount: 0,            // 自上次驗證以來的計數
     consecutiveRateLimits: 0,
     consecutiveFails: 0,       // Level 2 連續失敗計數
+    limitWarningMessage: '',
     _stepRunning: false,       // mutex: prevent concurrent runStep chains
     _workerVisualStorageListenerBound: false,
 
@@ -22,7 +23,8 @@ export const Worker = {
             verifyLevel: Worker.verifyLevel,
             verifyCount: Worker.verifyCount,
             consecutiveFails: Worker.consecutiveFails,
-            consecutiveRateLimits: Worker.consecutiveRateLimits
+            consecutiveRateLimits: Worker.consecutiveRateLimits,
+            limitWarningMessage: Worker.limitWarningMessage
         });
     },
 
@@ -36,6 +38,7 @@ export const Worker = {
             Worker.verifyCount = saved.verifyCount || 0;
             Worker.consecutiveFails = saved.consecutiveFails || 0;
             Worker.consecutiveRateLimits = saved.consecutiveRateLimits || 0;
+            Worker.limitWarningMessage = saved.limitWarningMessage || '';
         } else {
             Worker.stats = { success: 0, skipped: 0, failed: 0, vanished: 0, startTime: Date.now() };
             Worker.initialTotal = 0;
@@ -44,10 +47,12 @@ export const Worker = {
             Worker.verifyCount = 0;
             Worker.consecutiveFails = 0;
             Worker.consecutiveRateLimits = 0;
+            Worker.limitWarningMessage = '';
         }
     },
 
     clearStats: () => {
+        Worker.limitWarningMessage = '';
         Storage.remove(CONFIG.KEYS.WORKER_STATS);
     },
 
@@ -108,8 +113,16 @@ export const Worker = {
         keepWorkerOpenOnError: false,
         visualDebug: Worker.isReportVisualDebugEnabled,
         reportContext,
-        onSuccess: (user) => Worker.bumpReportStat('success', user || reportUser),
-        onSkipped: (user, reason) => Worker.bumpReportStat('skipped', user || reportUser, reason),
+        onSuccess: (user) => {
+            const target = user || reportUser;
+            Worker.bumpReportStat('success', target);
+            Storage.queueRemove(CONFIG.KEYS.REPORT_FAILED_QUEUE, target);
+        },
+        onSkipped: (user, reason) => {
+            const target = user || reportUser;
+            Worker.bumpReportStat('skipped', target, reason);
+            Storage.queueAddUnique(CONFIG.KEYS.REPORT_FAILED_QUEUE, target);
+        },
     }),
 
     init: async () => {
@@ -806,8 +819,14 @@ export const Worker = {
                 progressText.textContent = visualInfo.visualEnabled
                     ? '可視化開啟：逐步標示點擊目標'
                     : '可視化關閉：安靜執行，不標示點擊目標';
+                progressText.style.fontSize = '11px';
+                progressText.style.color = '#aaa';
+                progressText.style.fontWeight = '400';
             } else {
-                progressText.textContent = isVerifying ? `正在確認結果... (@${current})` : `${processed} / ${initTotal} 已處理`;
+                progressText.textContent = Worker.limitWarningMessage || (isVerifying ? `正在確認結果... (@${current})` : `${processed} / ${initTotal} 已處理`);
+                progressText.style.fontSize = Worker.limitWarningMessage ? '18px' : '13px';
+                progressText.style.color = Worker.limitWarningMessage ? '#ff9f0a' : '#888';
+                progressText.style.fontWeight = Worker.limitWarningMessage ? '800' : '400';
             }
         }
 
@@ -837,6 +856,13 @@ export const Worker = {
             }
         } else if (etaEl && state !== 'running') {
             etaEl.textContent = state === 'idle' ? '⏱️ 已完成' : `⏱️ ${state}`;
+        }
+    },
+
+    setLimitWarning: (message = '') => {
+        Worker.limitWarningMessage = message || '';
+        if (window.hegeLog && Worker.limitWarningMessage) {
+            window.hegeLog(`[上限提醒] ${Worker.limitWarningMessage}`);
         }
     },
 
@@ -1175,19 +1201,11 @@ export const Worker = {
         }
 
         if (!Storage.isUnderLimit()) {
-            if (!Storage.isCooldownProtectionEnabled()) {
-                if (window.hegeLog) window.hegeLog('[冷卻保護] 已關閉；超過 Meta 每日安全上限，繼續執行');
-            } else {
-                const cooldownUntil = Date.now() + 60 * 60 * 1000;
-                const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
-                Storage.setJSON(CONFIG.KEYS.COOLDOWN_QUEUE, [...new Set([...cooldownQueue, ...queue])]);
-                Storage.setJSON(CONFIG.KEYS.BG_QUEUE, []);
-                Storage.set(CONFIG.KEYS.COOLDOWN, cooldownUntil.toString());
-                Worker.updateStatus('error', 'Meta 上限保護中，已暫停');
-                const stopBtn = document.getElementById('hege-worker-stop');
-                if (stopBtn) stopBtn.style.display = 'none';
-                return;
-            }
+            const limit = Storage.getDailyBlockLimit();
+            const done = Storage.getBlocksLast24h();
+            Worker.setLimitWarning(`⚠️ Meta 上限提醒 ${done}/${limit}，仍繼續執行`);
+        } else if (Worker.limitWarningMessage.startsWith('⚠️ Meta 上限提醒')) {
+            Worker.setLimitWarning('');
         }
 
         // Record initial total on first run, and dynamically sync if queue grows
