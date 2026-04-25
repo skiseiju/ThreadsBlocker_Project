@@ -1,7 +1,7 @@
 # 留友封 (Threads Block Tool)
 
 **留友封** 是一個專為 Threads 設計的批量封鎖工具，旨在解決官方介面缺乏批量管理功能的痛點。本專案支援 **Userscript (Tampermonkey/Stay)** 與 **Chrome 擴充功能** 雙模式。
-目前正式版：`v2.6.2`
+目前正式版：`v2.6.0`
 
 ## ✨ 主要功能 (Features)
 
