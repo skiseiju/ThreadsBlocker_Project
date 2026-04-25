@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "留友封 (Threads Block Tool)",
   "version": "2.2.2",
-  "description": "Threads 批量封鎖工具 (Chrome Extension Build)",
+  "description": "Threads 批次封鎖、只檢舉與來源分析工具",
   "host_permissions": [
     "*://*.threads.net/*",
     "*://threads.net/*",

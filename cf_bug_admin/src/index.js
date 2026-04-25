@@ -1,8 +1,8 @@
 const DEFAULT_ALLOWED_DRIFT = 300;
 const DEFAULT_RATE_WINDOW = 300;
-const PLATFORM_MAX_PAYLOAD_BYTES = 1 * 1024 * 1024;
-const PLATFORM_MAX_TOPICS = 200;
-const PLATFORM_MAX_SOURCES = 400;
+const PLATFORM_MAX_PAYLOAD_BYTES = 5 * 1024 * 1024;
+const PLATFORM_MAX_TOPICS = 500;
+const PLATFORM_MAX_SOURCES = 5000;
 const PLATFORM_MAX_EVENTS = 120000;
 const PLATFORM_SOURCE_RATE_WINDOW_MIN = 60;
 const PLATFORM_SOURCE_RATE_LIMIT = 6;
@@ -17,8 +17,8 @@ const PUBLIC_HIGH_SIGNAL_THRESHOLD = 65;
 const PUBLIC_MEDIUM_SIGNAL_THRESHOLD = 45;
 const CURRENT_TAXONOMY_VERSION = 'topic-taxonomy.v1';
 const PUBLIC_SAMPLE_SCOPE = 'trusted';
-const LEGACY_TRUST_TIER = 'trusted';
-const PLATFORM_SCHEMA_STMTS = [
+const LEGACY_TRUST_TIER = 'probation';
+const PLATFORM_TABLE_STMTS = [
   `CREATE TABLE IF NOT EXISTS platform_uploads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -36,20 +36,19 @@ const PLATFORM_SCHEMA_STMTS = [
     topic_seed_count INTEGER NOT NULL DEFAULT 0,
     source_coverage_pct INTEGER NOT NULL DEFAULT 0,
     report_source_coverage_pct INTEGER NOT NULL DEFAULT 0,
+    source_concentration_pct REAL NOT NULL DEFAULT 0,
+    repeated_narrative_pct REAL NOT NULL DEFAULT 0,
+    short_term_diffusion_pct REAL NOT NULL DEFAULT 0,
     client_source_id TEXT,
     client_platform TEXT,
     ip_hash TEXT,
     taxonomy_version TEXT NOT NULL DEFAULT 'topic-taxonomy.v1',
-    trust_tier TEXT NOT NULL DEFAULT 'trusted',
+    trust_tier TEXT NOT NULL DEFAULT 'probation',
     risk_score_band TEXT NOT NULL DEFAULT 'low',
     sync_enabled INTEGER,
     upload_trigger TEXT,
     note TEXT
   )`,
-  'CREATE INDEX IF NOT EXISTS idx_platform_uploads_created_at ON platform_uploads(created_at DESC)',
-  'CREATE INDEX IF NOT EXISTS idx_platform_uploads_events ON platform_uploads(total_event_count DESC)',
-  'CREATE INDEX IF NOT EXISTS idx_platform_uploads_trust_tier ON platform_uploads(trust_tier)',
-  'CREATE INDEX IF NOT EXISTS idx_platform_uploads_ip_hash ON platform_uploads(ip_hash)',
   `CREATE TABLE IF NOT EXISTS platform_topic_metrics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     upload_id INTEGER NOT NULL,
@@ -58,8 +57,6 @@ const PLATFORM_SCHEMA_STMTS = [
     account_count INTEGER NOT NULL DEFAULT 0,
     source_count INTEGER NOT NULL DEFAULT 0
   )`,
-  'CREATE INDEX IF NOT EXISTS idx_platform_topic_upload ON platform_topic_metrics(upload_id)',
-  'CREATE INDEX IF NOT EXISTS idx_platform_topic_event_count ON platform_topic_metrics(event_count DESC)',
   `CREATE TABLE IF NOT EXISTS platform_source_metrics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     upload_id INTEGER NOT NULL,
@@ -74,8 +71,6 @@ const PLATFORM_SCHEMA_STMTS = [
     manipulation_risk_level TEXT,
     top_topic_hints_json TEXT
   )`,
-  'CREATE INDEX IF NOT EXISTS idx_platform_source_upload ON platform_source_metrics(upload_id)',
-  'CREATE INDEX IF NOT EXISTS idx_platform_source_total ON platform_source_metrics(total_event_count DESC)',
   `CREATE TABLE IF NOT EXISTS platform_daily_metrics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     upload_id INTEGER NOT NULL,
@@ -85,8 +80,6 @@ const PLATFORM_SCHEMA_STMTS = [
     total_event_count INTEGER NOT NULL DEFAULT 0,
     source_count INTEGER NOT NULL DEFAULT 0
   )`,
-  'CREATE INDEX IF NOT EXISTS idx_platform_daily_upload ON platform_daily_metrics(upload_id)',
-  'CREATE INDEX IF NOT EXISTS idx_platform_daily_day ON platform_daily_metrics(day_key DESC)',
   `CREATE TABLE IF NOT EXISTS platform_topic_daily (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     day_key TEXT NOT NULL,
@@ -105,8 +98,6 @@ const PLATFORM_SCHEMA_STMTS = [
     upload_count INTEGER NOT NULL DEFAULT 1,
     UNIQUE(day_key, topic_label, taxonomy_version, sample_scope)
   )`,
-  'CREATE INDEX IF NOT EXISTS idx_platform_topic_daily_v2_day ON platform_topic_daily_v2(day_key DESC)',
-  'CREATE INDEX IF NOT EXISTS idx_platform_topic_daily_v2_scope ON platform_topic_daily_v2(sample_scope, taxonomy_version)',
   `CREATE TABLE IF NOT EXISTS platform_category_metrics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     upload_id INTEGER NOT NULL,
@@ -115,8 +106,6 @@ const PLATFORM_SCHEMA_STMTS = [
     account_count INTEGER NOT NULL DEFAULT 0,
     source_count INTEGER NOT NULL DEFAULT 0
   )`,
-  'CREATE INDEX IF NOT EXISTS idx_platform_category_upload ON platform_category_metrics(upload_id)',
-  'CREATE INDEX IF NOT EXISTS idx_platform_category_event ON platform_category_metrics(event_count DESC)',
   `CREATE TABLE IF NOT EXISTS platform_source_registry (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     client_source_id TEXT NOT NULL UNIQUE,
@@ -130,7 +119,6 @@ const PLATFORM_SCHEMA_STMTS = [
     trust_tier TEXT NOT NULL DEFAULT 'probation',
     risk_score_band TEXT NOT NULL DEFAULT 'low'
   )`,
-  'CREATE INDEX IF NOT EXISTS idx_platform_source_registry_tier ON platform_source_registry(trust_tier)',
   `CREATE TABLE IF NOT EXISTS political_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_date TEXT NOT NULL,
@@ -138,7 +126,25 @@ const PLATFORM_SCHEMA_STMTS = [
     title TEXT NOT NULL,
     source_name TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-  )`,
+  )`
+];
+
+const PLATFORM_INDEX_STMTS = [
+  'CREATE INDEX IF NOT EXISTS idx_platform_uploads_created_at ON platform_uploads(created_at DESC)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_uploads_events ON platform_uploads(total_event_count DESC)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_uploads_trust_tier ON platform_uploads(trust_tier)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_uploads_ip_hash ON platform_uploads(ip_hash)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_topic_upload ON platform_topic_metrics(upload_id)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_topic_event_count ON platform_topic_metrics(event_count DESC)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_source_upload ON platform_source_metrics(upload_id)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_source_total ON platform_source_metrics(total_event_count DESC)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_daily_upload ON platform_daily_metrics(upload_id)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_daily_day ON platform_daily_metrics(day_key DESC)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_topic_daily_v2_day ON platform_topic_daily_v2(day_key DESC)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_topic_daily_v2_scope ON platform_topic_daily_v2(sample_scope, taxonomy_version)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_category_upload ON platform_category_metrics(upload_id)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_category_event ON platform_category_metrics(event_count DESC)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_source_registry_tier ON platform_source_registry(trust_tier)',
   'CREATE INDEX IF NOT EXISTS idx_political_events_date ON political_events(event_date DESC)'
 ];
 
@@ -355,7 +361,10 @@ async function handlePlatformIngest(request, env) {
     return json({ code: 400, message: 'Bad Request: empty payload' }, 400);
   }
   if (rawText.length > PLATFORM_MAX_PAYLOAD_BYTES) {
-    return json({ code: 413, message: 'Payload too large' }, 413);
+    return json({
+      code: 413,
+      message: `Payload too large (${rawText.length} bytes > ${PLATFORM_MAX_PAYLOAD_BYTES} bytes)`
+    }, 413);
   }
 
   const body = safeParseJSON(rawText);
@@ -373,9 +382,10 @@ async function handlePlatformIngest(request, env) {
   const clientSignals = asObject(body.clientSignals);
   const derived = derivePlatformPayloadMetrics(body);
   if (derived.errors.length > 0) {
+    const reasonText = derived.errors.join(', ');
     return json({
       code: 400,
-      message: 'Bad Request: payload consistency check failed',
+      message: `Bad Request: payload consistency check failed: ${reasonText}`,
       reasons: derived.errors
     }, 400);
   }
@@ -446,7 +456,7 @@ async function handlePlatformIngest(request, env) {
         source_coverage_pct, report_source_coverage_pct, source_concentration_pct,
         repeated_narrative_pct, short_term_diffusion_pct, client_source_id, client_platform, ip_hash,
         taxonomy_version, trust_tier, risk_score_band, sync_enabled, upload_trigger, note
-      ) VALUES (?, ?, ?, ?, ?, 'extension', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, 'extension', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       'threadsblocker.platform_upload.v2',
       sourceApp,
@@ -900,6 +910,26 @@ async function loadPlatformOverviewData(env, days, top) {
      LIMIT 30`
   ).bind(since, LEGACY_TRUST_TIER, PUBLIC_SAMPLE_SCOPE).all();
 
+  const intakeRows = await env.DB.prepare(
+    `SELECT
+       COALESCE(trust_tier, ?) AS trust_tier,
+       COUNT(*) AS upload_count,
+       COALESCE(SUM(total_event_count), 0) AS total_event_count,
+       MAX(created_at) AS latest_upload_at
+     FROM platform_uploads
+     WHERE datetime(created_at) >= datetime('now', ?)
+     GROUP BY COALESCE(trust_tier, ?)`
+  ).bind(LEGACY_TRUST_TIER, since, LEGACY_TRUST_TIER).all();
+
+  const latestAcceptedRow = await env.DB.prepare(
+    `SELECT
+       MAX(created_at) AS latest_upload_at,
+       COUNT(*) AS upload_count,
+       COALESCE(SUM(total_event_count), 0) AS total_event_count
+     FROM platform_uploads
+     WHERE datetime(created_at) >= datetime('now', ?)`
+  ).bind(since).first();
+
   const dailyRows = await env.DB.prepare(
     `SELECT
       day_key,
@@ -1019,7 +1049,13 @@ async function loadPlatformOverviewData(env, days, top) {
     reportCategories: categoryRows.results || [],
     topTopics: topicRows.results || [],
     topNarratives: narrativeRows.results || [],
-    recentUploads: recentUploadsRows.results || []
+    recentUploads: recentUploadsRows.results || [],
+    intake: {
+      rows: intakeRows.results || [],
+      latestAcceptedUploadAt: latestAcceptedRow?.latest_upload_at || '',
+      acceptedUploadCount: Number(latestAcceptedRow?.upload_count || 0),
+      acceptedEventCount: Number(latestAcceptedRow?.total_event_count || 0)
+    }
   };
 }
 
@@ -1031,6 +1067,19 @@ function projectPublicPlatformOverview(raw, top = 15) {
   const reportCategories = Array.isArray(data.reportCategories) ? data.reportCategories : [];
   const sourceRows = Array.isArray(data.topNarratives) ? data.topNarratives : [];
   const recentUploads = Array.isArray(data.recentUploads) ? data.recentUploads : [];
+  const intake = data.intake && typeof data.intake === 'object' ? data.intake : {};
+  const intakeRows = Array.isArray(intake.rows) ? intake.rows : [];
+  const intakeByTier = intakeRows.reduce((acc, row) => {
+    const tier = safeString(row.trust_tier || 'unknown', 20) || 'unknown';
+    acc[tier] = {
+      uploadCount: safeCount(row.upload_count),
+      eventCount: safeCount(row.total_event_count),
+      latestUploadAt: safeString(row.latest_upload_at, 40)
+    };
+    return acc;
+  }, {});
+  const probationIntake = intakeByTier.probation || {};
+  const flaggedIntake = intakeByTier.flagged || {};
 
   const categories = buildPublicCategories(reportCategories, overview.totalEventCount);
   const narratives = buildPublicNarratives(sourceRows, top);
@@ -1096,6 +1145,18 @@ function projectPublicPlatformOverview(raw, top = 15) {
       id: safeCount(row.id),
       created_at: safeString(row.created_at, 40)
     })),
+    intake: {
+      acceptedUploadCount: safeCount(intake.acceptedUploadCount),
+      acceptedEventCount: safeCount(intake.acceptedEventCount),
+      trustedUploadCount: safeCount(overview.uploadCount),
+      probationUploadCount: safeCount(probationIntake.uploadCount),
+      probationEventCount: safeCount(probationIntake.eventCount),
+      flaggedUploadCount: safeCount(flaggedIntake.uploadCount),
+      flaggedEventCount: safeCount(flaggedIntake.eventCount),
+      latestAcceptedUploadAt: safeString(intake.latestAcceptedUploadAt, 40),
+      latestProbationUploadAt: safeString(probationIntake.latestUploadAt, 40),
+      latestFlaggedUploadAt: safeString(flaggedIntake.latestUploadAt, 40)
+    },
     methodology: {
       trustPolicy: 'public-trusted-only',
       scoreBands: {
@@ -1401,10 +1462,11 @@ async function loadTopicDetailsData(env, topic, days, limit) {
 let platformSchemaReady = false;
 async function ensurePlatformTables(env) {
   if (platformSchemaReady) return;
-  for (const sql of PLATFORM_SCHEMA_STMTS) {
+  for (const sql of PLATFORM_TABLE_STMTS) {
     await env.DB.prepare(sql).run();
   }
   for (const col of [
+    `ALTER TABLE platform_uploads ADD COLUMN upload_source TEXT NOT NULL DEFAULT 'extension'`,
     'ALTER TABLE platform_uploads ADD COLUMN source_concentration_pct REAL DEFAULT 0',
     'ALTER TABLE platform_uploads ADD COLUMN repeated_narrative_pct REAL DEFAULT 0',
     'ALTER TABLE platform_uploads ADD COLUMN short_term_diffusion_pct REAL DEFAULT 0',
@@ -1415,11 +1477,15 @@ async function ensurePlatformTables(env) {
     `ALTER TABLE platform_uploads ADD COLUMN trust_tier TEXT DEFAULT '${LEGACY_TRUST_TIER}'`,
     `ALTER TABLE platform_uploads ADD COLUMN risk_score_band TEXT DEFAULT 'low'`,
     `ALTER TABLE platform_uploads ADD COLUMN sync_enabled INTEGER`,
-    `ALTER TABLE platform_uploads ADD COLUMN upload_trigger TEXT`
+    `ALTER TABLE platform_uploads ADD COLUMN upload_trigger TEXT`,
+    `ALTER TABLE platform_uploads ADD COLUMN note TEXT`
   ]) {
     try {
       await env.DB.exec(col);
     } catch (_) {}
+  }
+  for (const sql of PLATFORM_INDEX_STMTS) {
+    await env.DB.prepare(sql).run();
   }
   platformSchemaReady = true;
 }
@@ -1766,8 +1832,8 @@ function derivePlatformPayloadMetrics(body) {
   if (safeCount(summary.totalEventCount) !== totalEventCount) errors.push('summary_total_count_mismatch');
   if (safeCount(summary.sourcePostCount) !== sourcePostCount) errors.push('summary_source_count_mismatch');
   if (safeCount(summary.topTopicSeedCount) !== topicSeedCount) errors.push('summary_topic_seed_count_mismatch');
-  if (safePercent(summary.sourceCoveragePct) !== sourceCoveragePct) warnings.push('summary_source_coverage_mismatch');
-  if (safePercent(summary.reportSourceCoveragePct) !== reportSourceCoveragePct) warnings.push('summary_report_source_coverage_mismatch');
+  if (safePercent(summary.sourceCoveragePct) !== sourceCoveragePct) errors.push('summary_source_coverage_mismatch');
+  if (safePercent(summary.reportSourceCoveragePct) !== reportSourceCoveragePct) errors.push('summary_report_source_coverage_mismatch');
 
   return {
     errors,

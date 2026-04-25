@@ -46,7 +46,7 @@ export const Storage = {
         localStorage.setItem(key, JSON.stringify(value));
     },
 
-    getPlatformSyncEnabled: () => Storage.get(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, 'false') === 'true',
+    getPlatformSyncEnabled: () => Storage.get(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, 'true') === 'true',
     setPlatformSyncEnabled: (enabled) => Storage.set(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, enabled ? 'true' : 'false'),
     getPlatformSyncLastAt: () => parseInt(Storage.get(CONFIG.KEYS.PLATFORM_SYNC_LAST_AT, '0') || '0', 10) || 0,
     setPlatformSyncLastAt: (ts = Date.now()) => Storage.set(CONFIG.KEYS.PLATFORM_SYNC_LAST_AT, String(ts)),
@@ -217,12 +217,12 @@ export const Storage = {
     },
 
     isUnderLimit: () => {
-        if (Storage.get(CONFIG.KEYS.EMERGENCY_MODE) === 'true') return true;
         return Storage.getBlocksLast24h() < Storage.getDailyBlockLimit();
     },
 
     getDailyReportLimit: () => {
-        return CONFIG.DAILY_REPORT_LIMIT_DEFAULT;
+        const limit = parseInt(Storage.get(CONFIG.KEYS.DAILY_REPORT_LIMIT), 10);
+        return CONFIG.DAILY_REPORT_LIMIT_OPTIONS.includes(limit) ? limit : CONFIG.DAILY_REPORT_LIMIT_DEFAULT;
     },
 
     recordReport: () => {
@@ -245,7 +245,6 @@ export const Storage = {
     },
 
     isUnderReportLimit: () => {
-        if (Storage.get(CONFIG.KEYS.EMERGENCY_MODE) === 'true') return true;
         return Storage.getReportsLast24h() < Storage.getDailyReportLimit();
     },
 

@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="留友封 — Threads 批次封鎖工具。在 Threads 網頁版上批次勾選並封鎖帳號，支援 Chrome、Firefox、Safari。">
+    <meta name="description" content="留友封 — Threads 批次封鎖、只檢舉與來源分析工具。在 Threads 網頁版上整理互動名單、建立貼文水庫，並可選擇上傳觀測資料。">
     <meta name="keywords" content="Threads, 封鎖, 批次, Chrome 擴充功能, Firefox, Safari, 網軍">
     <meta property="og:title" content="留友封 - ThreadsBlocker | Threads 批次封鎖工具">
-    <meta property="og:description" content="在 Threads 網頁版上批次勾選並封鎖帳號，支援 Chrome、Firefox、Safari。">
+    <meta property="og:description" content="在 Threads 網頁版上批次封鎖、只檢舉、整理來源分析，支援 Chrome、Firefox、Safari。">
     <meta property="og:url" content="https://threadsblocker.skiseiju.com">
     <meta property="og:type" content="website">
     <title>留友封 - ThreadsBlocker | Threads 批次封鎖工具</title>
@@ -312,8 +312,8 @@
         <div class="container">
             <h1>留友封</h1>
             <span class="en-name">ThreadsBlocker</span>
-            <p class="tagline">Threads 批次封鎖工具</p>
-            <p>在 Threads 網頁版上批次勾選並封鎖帳號，支援 Chrome、Firefox、Safari。保護你的社群空間。</p>
+            <p class="tagline">Threads 批次封鎖、檢舉與來源分析工具</p>
+            <p>在 Threads 網頁版上批次整理互動名單，支援封鎖、只檢舉、貼文水庫與來源分析。Chrome、Firefox、Safari 皆可使用。</p>
             <div class="cta-buttons">
                 <a href="https://chromewebstore.google.com/detail/%E7%95%99%E5%8F%8B%E5%B0%81-threads-block-tool/goibhoemcnjojlejjlojpikfehmccbbj" target="_blank" class="btn btn-primary">Chrome 擴充功能</a>
                 <a href="https://addons.mozilla.org/en-US/firefox/addon/%E7%95%99%E5%8F%8B%E5%B0%81-threads-block-tool/" target="_blank" class="btn btn-outline">Firefox 擴充功能</a>
@@ -334,7 +334,7 @@
                 <div class="feature-card">
                     <div class="feature-icon">🎯</div>
                     <h3>定點絕</h3>
-                    <p>多貼文排程掃蕩，自動換頁繼續執行</p>
+                    <p>把多篇貼文加入水庫排程，自動換頁分批處理</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">⚡</div>
@@ -342,9 +342,9 @@
                     <p>智慧/穩定/標準/加速，靈活切換執行速度</p>
                 </div>
                 <div class="feature-card">
-                    <div class="feature-icon">⏱️</div>
-                    <h3>延時封鎖</h3>
-                    <p>水庫機制分批執行，避免觸發平台限制</p>
+                    <div class="feature-icon">🚩</div>
+                    <h3>只檢舉模式</h3>
+                    <p>不封鎖也能把互動名單加入檢舉佇列，並由 picker 明確選擇當次檢舉路徑</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">🪳</div>
@@ -358,8 +358,13 @@
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">📊</div>
-                    <h3>封鎖分析</h3>
-                    <p>本地資料可視化，追蹤封鎖來源與原因</p>
+                    <h3>來源分析報告</h3>
+                    <p>本地整理封鎖與檢舉來源、批次、路徑與主要貼文</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">☁️</div>
+                    <h3>觀測平台上傳</h3>
+                    <p>可手動上傳一般使用者資料；Chrome / Firefox 版也可開啟每日自動上傳</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">🌍</div>
@@ -423,7 +428,7 @@
                         <div class="mock-body" style="display:flex;align-items:center;justify-content:center;">
                             <div class="ios-dialog ios-float" style="width:100%;box-shadow:none;border:none;padding:10px;">
                                 <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:4px;">安裝腳本？</div>
-                                <div style="font-size:10px;color:var(--text-light);margin-bottom:10px;">「留友封 v2.5.2」</div>
+                                <div style="font-size:10px;color:var(--text-light);margin-bottom:10px;">「留友封 v2.6.0」</div>
                                 <div style="display:flex;gap:8px;">
                                     <div style="flex:1;text-align:center;font-size:10px;padding:6px;border-radius:8px;background:var(--surface);color:var(--text-light);">取消</div>
                                     <div style="flex:1;text-align:center;font-size:10px;padding:6px;border-radius:8px;background:var(--accent);color:#fff;font-weight:600;" class="ios-pulse">安裝</div>
@@ -492,26 +497,41 @@
                 <p>最後更新：2026 年 4 月</p>
 
                 <h3>核心原則</h3>
-                <p>留友封以本地運作為核心設計。所有資料僅存於你的瀏覽器，不會傳送至任何外部伺服器。</p>
+                <p>留友封以本地運作為核心設計。封鎖、檢舉與來源分析預設都在你的瀏覽器內完成；只有在你主動回報問題、上傳觀測資料，或在 Chrome / Firefox 版開啟每日自動上傳時，才會傳送必要資料。</p>
 
                 <h3>本地儲存</h3>
                 <ul>
-                    <li>所有封鎖紀錄僅存於瀏覽器的 localStorage</li>
+                    <li>所有封鎖、檢舉與來源分析紀錄預設僅存於瀏覽器的 localStorage / IndexedDB</li>
                     <li>所有設定偏好僅存於瀏覽器的 localStorage</li>
                 </ul>
 
-                <h3>封鎖分析功能</h3>
-                <p>「封鎖分析」功能完全在你的瀏覽器內運算，所有統計資料（封鎖來源、原因分布、時間趨勢等）僅供你個人檢視，不會離開你的裝置，也不會上傳至任何伺服器。</p>
+                <h3>來源分析與觀測上傳</h3>
+                <p>「來源分析報告」會在你的瀏覽器內整理封鎖與檢舉來源、批次、檢舉路徑與貼文線索。你可以選擇匯出 JSON 或一鍵上傳觀測平台；Chrome / Firefox extension 版可開啟每日自動上傳，iOS / Safari 仍維持手動上傳。</p>
+                <p>觀測資料用於聚合分析，不會要求你提供 Threads 密碼或平台登入憑證。是否上傳由使用者控制，並可在工具內查看最近一次成功上傳時間。</p>
+
+                <h3>資料使用與分享</h3>
+                <ul>
+                    <li>本機資料：封鎖名單、檢舉佇列、貼文水庫、來源分析、工具設定與執行紀錄，主要用於提供封鎖、檢舉、分析、回復與問題診斷功能。</li>
+                    <li>問題回報：只有在你送出問題回報時，才會上傳必要的診斷資訊，例如版本、瀏覽器環境、錯誤訊息、近期操作紀錄與相關設定狀態。</li>
+                    <li>觀測上傳：只有在你手動上傳，或在 Chrome / Firefox extension 版開啟每日自動上傳時，才會上傳來源分析與聚合觀測資料，用於平台統計與樣本分級。</li>
+                    <li>資料用途限制：上傳資料只用於提供或改善留友封的使用者可見功能、問題診斷、安全/濫用調查與整體統計，不用於廣告投放、再行銷或出售。</li>
+                </ul>
+
+                <h3>Chrome Extension 權限與限制</h3>
+                <p>Chrome 版只在 Threads 網域上執行 content script，manifest 權限限定於 <code>threads.net</code> 與 <code>threads.com</code>。目前不要求 cookies、history、tabs、webRequest、declarativeNetRequest、scripting 或其他可讀取更廣泛瀏覽資料的 Chrome API 權限。</p>
+                <p>Chrome extension package 內不載入遠端程式碼；上傳端點只接收資料，不會下發可執行邏輯。功能、權限、網站隱私政策與 Chrome Web Store Developer Dashboard 的資料揭露應保持一致。</p>
 
                 <h3>網路連線</h3>
-                <p>唯一的網路連線是「回報問題」功能，僅在你主動點選時觸發。所有其他操作完全離線進行。</p>
+                <p>可能發生的網路連線包括：使用者主動送出「回報問題」、手動上傳觀測平台、Chrome / Firefox 版在開啟自動同步時每日嘗試上傳一次，以及瀏覽器下載或更新擴充功能本身。封鎖與檢舉自動化仍在 Threads 網頁版上由你的瀏覽器執行。</p>
 
                 <h3>不使用的技術</h3>
                 <ul>
-                    <li>不使用 cookies</li>
-                    <li>不追蹤使用者行為</li>
-                    <li>不分析使用統計</li>
+                    <li>不使用廣告追蹤 cookies</li>
+                    <li>不要求或收集 Threads 密碼、雙因素驗證碼或登入憑證</li>
+                    <li>不在未開啟或未觸發上傳功能時傳送來源分析資料</li>
+                    <li>不使用 Chrome cookies、history、tabs 等高敏感 API 權限讀取跨站資料</li>
                     <li>不使用第三方分析或廣告工具</li>
+                    <li>不使用或轉移使用者資料投放個人化、再行銷或興趣導向廣告</li>
                 </ul>
 
                 <h3>開放原始碼</h3>
@@ -531,7 +551,7 @@
                 <a href="https://github.com/skiseiju/ThreadsBlocker_Project" target="_blank">GitHub</a>
                 <a href="https://skiseiju.com" target="_blank">skiseiju.com</a>
             </div>
-            <div class="footer-meta">v2.5.2 · © 2026 海哥</div>
+            <div class="footer-meta">v2.6.0 · © 2026 海哥</div>
         </div>
     </footer>
 </body>

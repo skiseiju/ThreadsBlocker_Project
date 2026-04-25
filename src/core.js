@@ -1812,6 +1812,7 @@ export const Core = {
         if (Storage.getJSON(CONFIG.KEYS.REPORT_BATCH_USERS, []).length === 0) {
             Storage.setJSON(CONFIG.KEYS.REPORT_BATCH_USERS, q);
         }
+        Core.startReportDebugBatch({ trigger: 'same_tab' });
         Storage.remove(CONFIG.KEYS.BG_CMD);
         Storage.set(CONFIG.KEYS.WORKER_MODE, 'report');
         Storage.remove('hege_worker_stats');
@@ -1824,6 +1825,235 @@ export const Core = {
         workerUrl.searchParams.set('hege_bg', 'true');
         history.replaceState(null, '', workerUrl.toString());
         location.reload();
+    },
+
+    startReportDebugBatch: (meta = {}) => {
+        const batchUsers = Storage.getJSON(CONFIG.KEYS.REPORT_BATCH_USERS, []);
+        const queuedUsers = Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []);
+        const users = [...new Set((batchUsers.length > 0 ? batchUsers : queuedUsers).filter(Boolean))];
+        const existing = Storage.getJSON(CONFIG.KEYS.REPORT_DEBUG_BATCH, null);
+        const existingUsers = Array.isArray(existing?.batchUsers) ? existing.batchUsers : [];
+        const sameUsers = users.length === existingUsers.length && users.every((user, idx) => user === existingUsers[idx]);
+        if (existing && existing.status === 'running' && sameUsers) {
+            return existing;
+        }
+
+        const now = Date.now();
+        const batch = {
+            status: 'running',
+            batchId: `report-${now}-${Math.random().toString(36).slice(2, 8)}`,
+            startedAt: now,
+            startedAtISO: new Date(now).toISOString(),
+            trigger: String(meta.trigger || 'manual'),
+            version: CONFIG.VERSION,
+            source: {
+                href: location.href,
+                pathname: location.pathname,
+                userAgent: navigator.userAgent,
+                platform: navigator.platform || '',
+            },
+            batchUsers: users,
+            traces: [],
+        };
+        Storage.setJSON(CONFIG.KEYS.REPORT_DEBUG_BATCH, batch);
+        Storage.remove(CONFIG.KEYS.REPORT_DEBUG_LAST_EXPORT);
+        return batch;
+    },
+
+    appendReportDebugTrace: (kind, payload = {}) => {
+        let batch = Storage.getJSON(CONFIG.KEYS.REPORT_DEBUG_BATCH, null);
+        if (!batch || typeof batch !== 'object' || batch.status !== 'running') {
+            batch = Core.startReportDebugBatch({ trigger: 'auto_trace' });
+        }
+        if (!batch || typeof batch !== 'object') return false;
+
+        const traces = Array.isArray(batch.traces) ? batch.traces : [];
+        const now = Date.now();
+        traces.push({
+            kind,
+            ts: now,
+            iso: new Date(now).toISOString(),
+            ...payload,
+        });
+        if (traces.length > 240) traces.splice(0, traces.length - 240);
+        batch.traces = traces;
+        Storage.setJSON(CONFIG.KEYS.REPORT_DEBUG_BATCH, batch);
+        return true;
+    },
+
+    buildReportDebugExport: (status = 'completed', extra = {}) => {
+        const batch = Storage.getJSON(CONFIG.KEYS.REPORT_DEBUG_BATCH, null);
+        if (!batch || typeof batch !== 'object') return null;
+
+        const batchUsers = Array.isArray(batch.batchUsers) ? batch.batchUsers.filter(Boolean) : [];
+        const batchStartedAt = parseInt(batch.startedAt || '0', 10) || 0;
+        const batchCompletedAt = parseInt(batch.completedAt || '0', 10) || 0;
+        const finalSnapshot = (batch.finalSnapshot && typeof batch.finalSnapshot === 'object') ? batch.finalSnapshot : {};
+        const finalExtra = (batch.finalExtra && typeof batch.finalExtra === 'object') ? batch.finalExtra : {};
+        const resolvedStatus = String(status || batch.status || 'completed');
+        const exportedAt = Date.now();
+        const traceTimes = Array.isArray(batch.traces)
+            ? batch.traces.map(trace => parseInt(trace?.ts || '0', 10) || 0).filter(Boolean)
+            : [];
+        const latestTraceAt = traceTimes.length > 0 ? Math.max(...traceTimes) : 0;
+        const completedAt = resolvedStatus === 'running'
+            ? exportedAt
+            : Math.max(batchCompletedAt, latestTraceAt, exportedAt);
+        const reportLogs = Storage.getJSON(CONFIG.KEYS.DEBUG_LOG, [])
+            .filter(line => typeof line === 'string' && line.includes('[只檢舉]'))
+            .slice(-160);
+        const liveBgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
+        const liveWorkerStats = Storage.getJSON(CONFIG.KEYS.WORKER_STATS, {});
+        const providedWorkerStats = extra.workerStats || finalExtra.workerStats || {};
+        const hasWorkerStats = (value) => {
+            if (!value || typeof value !== 'object') return false;
+            const stats = value.stats;
+            return !!(
+                value.initialTotal ||
+                value.limitWarningMessage ||
+                (stats && typeof stats === 'object' && Object.keys(stats).length > 0)
+            );
+        };
+        const pickWorkerStats = (...candidates) => candidates.find(hasWorkerStats) || {};
+        const bgStatus = resolvedStatus === 'running'
+            ? liveBgStatus
+            : (finalSnapshot.bgStatus || liveBgStatus);
+        const workerStats = resolvedStatus === 'running'
+            ? pickWorkerStats(liveWorkerStats, providedWorkerStats, finalSnapshot.workerStats)
+            : pickWorkerStats(finalSnapshot.workerStats, providedWorkerStats, liveWorkerStats);
+        const reportHistory = Storage.getJSON(CONFIG.KEYS.REPORT_HISTORY, [])
+            .filter((item) => {
+                if (!item || !batchUsers.includes(item.username)) return false;
+                if (batchStartedAt > 0 && (item.t || 0) < batchStartedAt - 5000) return false;
+                if (completedAt > 0 && (item.t || 0) > completedAt + 10000) return false;
+                return true;
+            })
+            .slice(-(batchUsers.length + 20));
+
+        return {
+            type: 'report_debug_export',
+            status: resolvedStatus,
+            exportedAt,
+            exportedAtISO: new Date(exportedAt).toISOString(),
+            version: batch.version || CONFIG.VERSION,
+            batch: {
+                batchId: batch.batchId,
+                startedAt: batchStartedAt,
+                startedAtISO: batch.startedAtISO || '',
+                completedAt,
+                completedAtISO: new Date(completedAt).toISOString(),
+                trigger: batch.trigger || 'manual',
+                batchUsers,
+                totalUsers: batchUsers.length,
+                source: batch.source || {},
+            },
+            summary: {
+                success: workerStats.stats?.success || 0,
+                skipped: workerStats.stats?.skipped || 0,
+                failed: workerStats.stats?.failed || 0,
+                vanished: workerStats.stats?.vanished || 0,
+                remainingReportQueue: Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []).length,
+                reportFailedQueue: Storage.getJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, []).length,
+                limitWarningMessage: workerStats.limitWarningMessage || finalExtra.limitWarningMessage || extra.limitWarningMessage || '',
+                bgStatus,
+            },
+            traces: Array.isArray(batch.traces) ? batch.traces : [],
+            logs: reportLogs,
+            reportHistory,
+            extra: {
+                ...finalExtra,
+                ...extra,
+            },
+        };
+    },
+
+    finalizeReportDebugBatch: (status = 'completed', extra = {}) => {
+        const payload = Core.buildReportDebugExport(status, extra);
+        if (!payload) return null;
+        const batch = Storage.getJSON(CONFIG.KEYS.REPORT_DEBUG_BATCH, null);
+        if (batch && typeof batch === 'object') {
+            batch.status = String(status || 'completed');
+            batch.completedAt = payload.batch?.completedAt || Date.now();
+            batch.completedAtISO = payload.batch?.completedAtISO || new Date(batch.completedAt).toISOString();
+            batch.finalExtra = { ...extra };
+            batch.finalSnapshot = {
+                workerStats: payload.extra?.workerStats || extra.workerStats || {},
+                bgStatus: payload.summary?.bgStatus || {},
+            };
+            Storage.setJSON(CONFIG.KEYS.REPORT_DEBUG_BATCH, batch);
+        }
+        Storage.setJSON(CONFIG.KEYS.REPORT_DEBUG_LAST_EXPORT, payload);
+        return payload;
+    },
+
+    downloadTextFile: (filename, text, mime = 'application/json;charset=utf-8') => {
+        try {
+            const blob = new Blob([text], { type: mime });
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = filename;
+            anchor.style.display = 'none';
+            document.body.appendChild(anchor);
+            anchor.click();
+            setTimeout(() => {
+                anchor.remove();
+                URL.revokeObjectURL(url);
+            }, 1500);
+            return true;
+        } catch (err) {
+            console.warn('[留友封] downloadTextFile failed:', err);
+            return false;
+        }
+    },
+
+    exportLastReportDebug: () => {
+        if (!Utils.isBetaBuild()) {
+            UI.showToast('正式版已停用檢舉診斷匯出');
+            return false;
+        }
+
+        Storage.invalidateMulti([
+            CONFIG.KEYS.REPORT_DEBUG_BATCH,
+            CONFIG.KEYS.REPORT_DEBUG_LAST_EXPORT,
+            CONFIG.KEYS.REPORT_HISTORY,
+            CONFIG.KEYS.REPORT_QUEUE,
+            CONFIG.KEYS.REPORT_FAILED_QUEUE,
+            CONFIG.KEYS.BG_STATUS,
+            CONFIG.KEYS.WORKER_STATS,
+        ]);
+
+        const batch = Storage.getJSON(CONFIG.KEYS.REPORT_DEBUG_BATCH, null);
+        let payload = null;
+        if (batch && typeof batch === 'object') {
+            const batchStatus = String(batch.status || 'completed');
+            const batchExtra = (batch.finalExtra && typeof batch.finalExtra === 'object') ? batch.finalExtra : {};
+            payload = Core.buildReportDebugExport(batchStatus, batchExtra);
+            if (payload) Storage.setJSON(CONFIG.KEYS.REPORT_DEBUG_LAST_EXPORT, payload);
+        }
+        if (!payload || typeof payload !== 'object') {
+            payload = Storage.getJSON(CONFIG.KEYS.REPORT_DEBUG_LAST_EXPORT, null);
+        }
+        if (!payload || typeof payload !== 'object') {
+            UI.showToast('目前沒有可匯出的檢舉診斷包');
+            return false;
+        }
+
+        const batchId = String(payload.batch?.batchId || `report-debug-${Date.now()}`);
+        const filename = `${batchId}.json`;
+        const text = JSON.stringify(payload, null, 2);
+        const downloaded = Core.downloadTextFile(filename, text);
+        if (downloaded) {
+            UI.showToast(`已匯出檢舉診斷：${filename}`);
+            return true;
+        }
+
+        navigator.clipboard.writeText(text).then(() => {
+            UI.showToast('檢舉診斷 JSON 已複製到剪貼簿');
+        }).catch(() => {
+            prompt('無法直接下載，請手動複製檢舉診斷 JSON：', text);
+        });
+        return true;
     },
 
     exportHistory: () => {
@@ -1921,6 +2151,10 @@ export const Core = {
     },
 
     collectDiagnostics: () => {
+        return Core.collectDiagnosticsSummaryText();
+    },
+
+    collectDomDiagnostics: () => {
         const _platform = navigator.userAgentData?.platform || navigator.platform || '';
         const isIPad = (_platform === 'macOS' || _platform === 'MacIntel') && navigator.maxTouchPoints > 1;
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || isIPad;
@@ -1970,6 +2204,33 @@ export const Core = {
         const cbChecked = Array.from(checkboxes).filter(el => el.classList.contains('checked')).length;
         const cbFinished = Array.from(checkboxes).filter(el => el.classList.contains('finished')).length;
 
+        return {
+            platform,
+            langDetected,
+            moreButtonCount: moreSvgs.length,
+            moreButtonSvgDetails: svgDetails.slice(0, 20),
+            ariaLabels: [...new Set(ariaLabels)].slice(0, 60),
+            menuTexts: menuTexts.slice(0, 30),
+            dialogTexts: dialogTexts.slice(0, 20),
+            checkboxStats: {
+                total: checkboxes.length,
+                checked: cbChecked,
+                finished: cbFinished,
+            },
+        };
+    },
+
+    collectDiagnosticsSummaryText: () => {
+        const dom = Core.collectDomDiagnostics();
+
+        // Queue states
+        const bgQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+        const failedQueue = Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []);
+        const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
+        const cooldownUntil = parseInt(Storage.get(CONFIG.KEYS.COOLDOWN) || '0');
+        const cooldownActive = cooldownUntil > Date.now();
+        const cooldownRemain = cooldownActive ? Math.ceil((cooldownUntil - Date.now()) / (1000 * 60 * 60)) + 'h' : 'N/A';
+
         // UserScript manager detection
         let injectionMethod = 'unknown';
         if (typeof GM_info !== 'undefined') injectionMethod = 'Tampermonkey/Userscripts';
@@ -1977,14 +2238,21 @@ export const Core = {
         else if (typeof browser !== 'undefined' && browser.runtime) injectionMethod = 'Firefox Extension';
         else if (typeof chrome !== 'undefined' && chrome.runtime) injectionMethod = 'Chrome Extension';
 
+        // Worker stats
+        const workerStats = Storage.getJSON(CONFIG.KEYS.WORKER_STATS, {});
+        const bgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
+
+        // Debug logs
+        const debugLogs = Storage.getJSON(CONFIG.KEYS.DEBUG_LOG, []);
+
         // Build report
         const lines = [
             `🛡️ 留友封 診斷報告`,
             `版本: ${CONFIG.VERSION}`,
-            `平台: ${platform} | ${navigator.platform} | TP:${navigator.maxTouchPoints}`,
+            `平台: ${dom.platform} | ${navigator.platform} | TP:${navigator.maxTouchPoints}`,
             `UA: ${navigator.userAgent}`,
             `注入: ${injectionMethod}`,
-            `語言: ${langDetected} (偵測自 aria-labels)`,
+            `語言: ${dom.langDetected} (偵測自 aria-labels)`,
             `URL: ${location.pathname}${location.search}`,
             ``,
             `── 佇列狀態 ──`,
@@ -1998,11 +2266,11 @@ export const Core = {
             `Session 名單: ${(workerStats.sessionQueue && workerStats.sessionQueue.length) || 'N/A'} | 初始 Total: ${workerStats.initialTotal || 'N/A'}`,
             ``,
             `── DOM 快照 ──`,
-            `更多按鈕 SVG(${moreSvgs.length}): ${svgDetails.length > 0 ? svgDetails.join(' | ') : '未找到'}`,
-            `頁面 aria-labels(${ariaLabels.length}): ${JSON.stringify([...new Set(ariaLabels)])}`,
-            `menuitem(${menuTexts.length}): ${menuTexts.length > 0 ? JSON.stringify(menuTexts) : '無'}`,
-            `dialogs(${dialogs.length}): ${dialogTexts.length > 0 ? JSON.stringify(dialogTexts) : '無'}`,
-            `checkbox: ${checkboxes.length}個 (✅${cbFinished} ☑️${cbChecked})`,
+            `更多按鈕 SVG(${dom.moreButtonCount}): ${dom.moreButtonSvgDetails.length > 0 ? dom.moreButtonSvgDetails.join(' | ') : '未找到'}`,
+            `頁面 aria-labels(${dom.ariaLabels.length}): ${JSON.stringify(dom.ariaLabels)}`,
+            `menuitem(${dom.menuTexts.length}): ${dom.menuTexts.length > 0 ? JSON.stringify(dom.menuTexts) : '無'}`,
+            `dialogs(${dom.dialogTexts.length}): ${dom.dialogTexts.length > 0 ? JSON.stringify(dom.dialogTexts) : '無'}`,
+            `checkbox: ${dom.checkboxStats.total}個 (✅${dom.checkboxStats.finished} ☑️${dom.checkboxStats.checked})`,
             ``,
             `── 失敗清單 ──`,
             failedQueue.length > 0 ? failedQueue.join(', ') : '(空)',
@@ -2017,12 +2285,162 @@ export const Core = {
         return lines.join('\n');
     },
 
-    showReportDialog: () => {
-        const reportData = Core.collectDiagnostics();
+    buildBlockDebugExport: () => {
+        const db = Storage.getJSON(CONFIG.KEYS.DB_KEY, []);
+        const timestamps = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
+        const blockContextMap = Storage.getJSON(CONFIG.KEYS.BLOCK_CONTEXT_MAP, {});
+        const bgQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+        const failedQueue = Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []);
+        const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
+        const cooldownUntil = parseInt(Storage.get(CONFIG.KEYS.COOLDOWN) || '0', 10) || 0;
+        const workerStats = Storage.getJSON(CONFIG.KEYS.WORKER_STATS, {});
+        const bgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
+        const debugLogs = Storage.getJSON(CONFIG.KEYS.DEBUG_LOG, []).slice(-160);
+        const consoleLogs = Utils.getRecentLogs().slice(-50);
+        const checkboxDiag = Utils.getDiagLogs().slice(-50);
+        const blockRing = Storage.getJSON(CONFIG.KEYS.BLOCK_TIMESTAMPS_RING, []).slice(-80);
+        const sourceEvidenceIndex = Storage.getJSON(CONFIG.KEYS.SOURCE_EVIDENCE_INDEX, {});
 
+        const blockHistory = db.map((username) => {
+            const raw = timestamps[username];
+            const entry = (raw && typeof raw === 'object') ? raw : { t: raw || 0 };
+            return {
+                username,
+                t: entry.t || 0,
+                iso: entry.t ? new Date(entry.t).toISOString() : '',
+                sourceUrl: entry.src || '',
+                reason: entry.reason || '',
+                postOwner: entry.postOwner || '',
+                postText: entry.postText || '',
+                batch: entry.batch || '',
+            };
+        }).sort((a, b) => (b.t || 0) - (a.t || 0)).slice(0, 120);
+
+        const pendingContexts = Object.entries(blockContextMap || {})
+            .map(([username, ctx]) => ({ username, ...(ctx || {}) }))
+            .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+            .slice(0, 80);
+
+        return {
+            type: 'block_debug_export',
+            exportedAt: Date.now(),
+            exportedAtISO: new Date().toISOString(),
+            version: CONFIG.VERSION,
+            summary: {
+                totalBlocked: db.length,
+                pendingQueue: bgQueue.length,
+                failedQueue: failedQueue.length,
+                cooldownQueue: cooldownQueue.length,
+                cooldownUntil,
+                cooldownUntilISO: cooldownUntil > 0 ? new Date(cooldownUntil).toISOString() : '',
+                blocksLast24h: Storage.getBlocksLast24h(),
+                dailyBlockLimit: Storage.getDailyBlockLimit(),
+                bgStatus,
+                workerStats,
+            },
+            queues: {
+                bgQueue: bgQueue.slice(0, 120),
+                failedQueue: failedQueue.slice(0, 120),
+                cooldownQueue: cooldownQueue.slice(0, 120),
+            },
+            blockHistory,
+            pendingContexts,
+            blockTimestampsRing: blockRing,
+            sourceEvidenceIndexPreview: Object.entries(sourceEvidenceIndex || {})
+                .slice(0, 40)
+                .map(([sourceUrl, info]) => ({ sourceUrl, ...(info || {}) })),
+            logs: debugLogs,
+            checkboxDiag,
+            consoleLogs,
+        };
+    },
+
+    collectDiagnosticsBundle: () => {
+        const _platform = navigator.userAgentData?.platform || navigator.platform || '';
+        const isIPad = (_platform === 'macOS' || _platform === 'MacIntel') && navigator.maxTouchPoints > 1;
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || isIPad;
+        const clientPlatform = isIOS ? 'iOS/iPad' : 'Desktop';
+        const dom = Core.collectDomDiagnostics();
+        const reportQueue = Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []);
+        const reportFailedQueue = Storage.getJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, []);
+        const reportBatchUsers = Storage.getJSON(CONFIG.KEYS.REPORT_BATCH_USERS, []);
+        const reportCompletedUsers = Storage.getJSON(CONFIG.KEYS.REPORT_COMPLETED_USERS, []);
+        const reportContext = Storage.getJSON(CONFIG.KEYS.REPORT_CONTEXT, {});
+        const reportDebugBatch = Storage.getJSON(CONFIG.KEYS.REPORT_DEBUG_BATCH, null);
+        const reportDebugExport = Core.buildReportDebugExport(
+            String(reportDebugBatch?.status || 'completed'),
+            (reportDebugBatch?.finalExtra && typeof reportDebugBatch.finalExtra === 'object') ? reportDebugBatch.finalExtra : {}
+        );
+
+        let injectionMethod = 'unknown';
+        if (typeof GM_info !== 'undefined') injectionMethod = 'Tampermonkey/Userscripts';
+        else if (document.querySelector('script[src*="content.js"]')) injectionMethod = 'Chrome Extension';
+        else if (typeof browser !== 'undefined' && browser.runtime) injectionMethod = 'Firefox Extension';
+        else if (typeof chrome !== 'undefined' && chrome.runtime) injectionMethod = 'Chrome Extension';
+
+        return {
+            type: 'bug_report_diagnostics_bundle',
+            collectedAt: Date.now(),
+            collectedAtISO: new Date().toISOString(),
+            version: CONFIG.VERSION,
+            page: {
+                href: location.href,
+                pathname: location.pathname,
+                search: location.search,
+                title: document.title,
+            },
+            env: {
+                clientPlatform,
+                navigatorPlatform: navigator.platform || '',
+                maxTouchPoints: navigator.maxTouchPoints || 0,
+                userAgent: navigator.userAgent || '',
+                language: navigator.language || '',
+                online: typeof navigator.onLine === 'boolean' ? navigator.onLine : null,
+                injectionMethod,
+                speedMode: Utils.getSpeedMode(),
+            },
+            dom,
+            state: {
+                bgStatus: Storage.getJSON(CONFIG.KEYS.BG_STATUS, {}),
+                workerStats: Storage.getJSON(CONFIG.KEYS.WORKER_STATS, {}),
+                sweepRuntime: Utils.getSweepRuntimeState(),
+                pendingUsers: Storage.getSessionJSON(CONFIG.KEYS.PENDING, []).slice(0, 120),
+                blockQueue: Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []).slice(0, 120),
+                blockFailedQueue: Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []).slice(0, 120),
+                cooldownQueue: Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []).slice(0, 120),
+                cooldownUntil: parseInt(Storage.get(CONFIG.KEYS.COOLDOWN) || '0', 10) || 0,
+                reportQueue: reportQueue.slice(0, 120),
+                reportFailedQueue: reportFailedQueue.slice(0, 120),
+                reportBatchUsers: reportBatchUsers.slice(0, 120),
+                reportCompletedUsers: reportCompletedUsers.slice(0, 120),
+                reportContextPreview: Object.entries(reportContext || {}).slice(0, 40).map(([username, ctx]) => ({ username, ...(ctx || {}) })),
+            },
+            diagnostics: {
+                summaryText: Core.collectDiagnosticsSummaryText(),
+                block: Core.buildBlockDebugExport(),
+                report: reportDebugExport,
+                reportDebugBatchMeta: reportDebugBatch ? {
+                    batchId: reportDebugBatch.batchId || '',
+                    status: reportDebugBatch.status || '',
+                    startedAt: reportDebugBatch.startedAt || 0,
+                    completedAt: reportDebugBatch.completedAt || 0,
+                    traceCount: Array.isArray(reportDebugBatch.traces) ? reportDebugBatch.traces.length : 0,
+                } : null,
+            },
+            logs: {
+                workerDebugLogs: Storage.getJSON(CONFIG.KEYS.DEBUG_LOG, []).slice(-160),
+                consoleLogs: Utils.getRecentLogs().slice(-50),
+                checkboxDiag: Utils.getDiagLogs().slice(-50),
+            },
+        };
+    },
+
+    showReportDialog: () => {
         UI.showBugReportModal(async (level, message) => {
+            const diagnosticsBundle = Core.collectDiagnosticsBundle();
             return await Reporter.submitReport(level, message, "UI_REPORT", {
-                diagnostics: reportData,
+                diagnostics: diagnosticsBundle.diagnostics.summaryText,
+                diagnosticsBundle,
                 speedMode: Utils.getSpeedMode(),
                 checkboxDiag: Utils.getDiagLogs()
             });

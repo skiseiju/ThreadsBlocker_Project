@@ -115,6 +115,14 @@ import './features/cockroach.js';
         const legacyDelayedQueue = Storage.getJSON(CONFIG.KEYS.DELAYED_QUEUE, []);
         const legacyBgQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
         const migratedBgQueue = [...new Set([...legacyBgQueue, ...legacyDelayedQueue])];
+        const preservedWorkerMode = Storage.get(CONFIG.KEYS.WORKER_MODE, '');
+        const preservedReportQueue = Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []);
+        const preservedReportContext = Storage.getJSON(CONFIG.KEYS.REPORT_CONTEXT, {});
+        const preservedReportBatchUsers = Storage.getJSON(CONFIG.KEYS.REPORT_BATCH_USERS, []);
+        const preservedReportCompletedUsers = Storage.getJSON(CONFIG.KEYS.REPORT_COMPLETED_USERS, []);
+        const shouldPreserveLiveReportState = preservedWorkerMode === 'report'
+            || preservedReportQueue.length > 0
+            || preservedReportBatchUsers.length > 0;
 
         // 清除暫存佇列；舊延時水庫併回背景佇列
         Storage.setSessionJSON(CONFIG.KEYS.PENDING, []);
@@ -122,16 +130,20 @@ import './features/cockroach.js';
         Storage.setJSON(CONFIG.KEYS.DELAYED_QUEUE, []);
         Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, []);
         Storage.setJSON(CONFIG.KEYS.BG_STATUS, {});
-        Storage.setJSON(CONFIG.KEYS.REPORT_QUEUE, []);
-        Storage.setJSON(CONFIG.KEYS.REPORT_CONTEXT, {});
-        Storage.setJSON(CONFIG.KEYS.REPORT_BATCH_USERS, []);
-        Storage.setJSON(CONFIG.KEYS.REPORT_COMPLETED_USERS, []);
+        Storage.setJSON(CONFIG.KEYS.REPORT_QUEUE, shouldPreserveLiveReportState ? preservedReportQueue : []);
+        Storage.setJSON(CONFIG.KEYS.REPORT_CONTEXT, shouldPreserveLiveReportState ? preservedReportContext : {});
+        Storage.setJSON(CONFIG.KEYS.REPORT_BATCH_USERS, shouldPreserveLiveReportState ? preservedReportBatchUsers : []);
+        Storage.setJSON(CONFIG.KEYS.REPORT_COMPLETED_USERS, shouldPreserveLiveReportState ? preservedReportCompletedUsers : []);
         Storage.remove(CONFIG.KEYS.REPORT_RESTORE_PENDING);
 
         Storage.remove(CONFIG.KEYS.COOLDOWN_QUEUE);
         Storage.remove(CONFIG.KEYS.COOLDOWN);
         Storage.remove(CONFIG.KEYS.WORKER_STATS);
-        Storage.remove(CONFIG.KEYS.WORKER_MODE);
+        if (shouldPreserveLiveReportState && preservedWorkerMode === 'report') {
+            Storage.set(CONFIG.KEYS.WORKER_MODE, preservedWorkerMode);
+        } else {
+            Storage.remove(CONFIG.KEYS.WORKER_MODE);
+        }
         Storage.remove(CONFIG.KEYS.REPORT_BATCH_PATH);
         Storage.remove(CONFIG.KEYS.REPORT_KEEP_BLOCK_SELECTION);
         Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
@@ -139,6 +151,8 @@ import './features/cockroach.js';
         // 清除歷史遺留 key
         localStorage.removeItem('hege_ios_active');
         localStorage.removeItem('hege_mac_mode');
+        localStorage.removeItem('hege_report_path');
+        localStorage.removeItem('hege_emergency_mode');
 
         // 升版只修復異常狀態，避免把所有 entry 重設成 pending 而誤觸發定點絕
         try {
@@ -204,7 +218,7 @@ import './features/cockroach.js';
         sessionStorage.setItem('hege_skip_sweep_tick_once', 'true');
 
         Storage.set(CONFIG.KEYS.VERSION_CHECK, CONFIG.VERSION);
-        console.log(`[留友封] Updated to v${CONFIG.VERSION}. Cleared temporary queues and report queue/context. Migrated delayed queue: ${legacyDelayedQueue.length}`);
+        console.log(`[留友封] Updated to v${CONFIG.VERSION}. Cleared temporary queues${shouldPreserveLiveReportState ? ' (preserved live report queue)' : ' and report queue/context'}. Migrated delayed queue: ${legacyDelayedQueue.length}`);
     }
 
     // Clear stale sweep standby flag from previous session
@@ -419,6 +433,7 @@ import './features/cockroach.js';
                         Storage.remove(CONFIG.KEYS.BG_CMD);
                         Storage.set(CONFIG.KEYS.WORKER_MODE, 'report');
                         Storage.remove(CONFIG.KEYS.WORKER_STATS);
+                        Core.startReportDebugBatch({ trigger: Utils.isMobile() ? 'same_tab' : 'popup_worker' });
                         if (Utils.isMobile()) {
                             Core.runSameTabReportWorker();
                         } else {
@@ -435,7 +450,7 @@ import './features/cockroach.js';
                             Storage.setJSON(CONFIG.KEYS.REPORT_COMPLETED_USERS, []);
                             Storage.remove(CONFIG.KEYS.REPORT_RESTORE_PENDING);
                             Storage.set(CONFIG.KEYS.REPORT_KEEP_BLOCK_SELECTION, keepBlockSelection ? 'true' : 'false');
-                            Storage.set(CONFIG.KEYS.REPORT_BATCH_PATH, JSON.stringify(path));
+                            Storage.setJSON(CONFIG.KEYS.REPORT_BATCH_PATH, path);
                             let added = 0;
                             pending.forEach(u => {
                                 const sourceUrl = Storage.getJSON(CONFIG.KEYS.REPORT_CONTEXT, {})[u]?.sourceUrl || Core.findSourcePostUrl(document.body);
@@ -503,19 +518,20 @@ import './features/cockroach.js';
                     onStart: () => Core.SweepDriver.startNow()
                 }),
                 onSettings: () => {
-                    const openSettings = () => {
+                    const openSettings = (initialView = 'home') => {
                         UI.showSettingsModal({
+                            initialView,
                             onManage: () => Core.openBlockManager(),
                             onImport: () => Core.importList(),
                             onExport: () => Core.exportHistory(),
+                            onExportReportDebug: Utils.isBetaBuild() ? (() => Core.exportLastReportDebug()) : null,
                             onClearDB: confirmClearDB,
                             onCockroach: () => Core.openCockroachManager(() => openSettings()),
                             onReservoir: () => UI.showPostReservoir({
                                 onStart: () => Core.SweepDriver.startNow()
                             }),
                             onReport: () => Core.showReportDialog(),
-                            onAnalytics: () => UI.showAnalyticsReport(),
-                            onPlatformUpload: () => UI.showAnalyticsReport({ focusUpload: true }),
+                            onAnalytics: () => UI.showAnalyticsReport({ onBack: () => openSettings('data') }),
                         });
                     };
                     openSettings();

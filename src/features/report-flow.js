@@ -4,6 +4,7 @@ import { Storage } from '../storage.js';
 import { UI } from '../ui.js';
 import { Utils } from '../utils.js';
 import { Core } from '../core.js';
+import { Worker } from '../worker.js';
 
 const ACCOUNT_CONTENT_REASON = '該帳號發佈的內容不應該顯示在 Threads 上。';
 const DEFAULT_REPORT_PATH = ['這是垃圾訊息'];
@@ -12,6 +13,15 @@ const REPORT_ACCOUNT_TEXTS = ['檢舉帳號', '檢舉賬號', '檢舉帐号', '�
 const REPORT_CONTENT_TEXTS = ['檢舉貼文、訊息或留言', '檢舉貼文', '檢舉留言', '檢舉訊息', '檢舉內容', 'Report post', 'Report comment', 'Report message', 'Report content'];
 const CONFIRM_TEXTS = ['下一步', '提交', '提交檢舉', '送出', '完成', 'Next', 'Done', 'Submit', 'Submit report'];
 const REPORT_DONE_TEXTS = ['檢舉已送出', '感謝', 'Thanks', 'Report submitted', '已提交'];
+const REPORT_THANK_YOU_TEXTS = [
+    '謝謝你檢舉這個帳號',
+    '謝謝你檢舉',
+    '收到檢舉',
+    '等待審查',
+    '做出處置',
+    'Thanks for reporting',
+    'Report received',
+];
 const REPORT_OPTION_ALIASES = {
     '霸凌或擾人的聯繫': ['霸凌或擾人的聯繫', '霸凌或騷擾', '霸凌', '騷擾', '不想要的聯繫', '不受歡迎的聯繫', '騷擾或霸凌'],
     '威脅分享裸照': ['威脅分享裸照', '威脅分享私密影像', '威脅分享私密照片', '威脅散布裸照'],
@@ -82,6 +92,9 @@ Object.assign(Core, {
 
         getReportPath() {
             const parsePath = (raw) => {
+                if (Array.isArray(raw)) {
+                    return raw.length > 0 ? raw : null;
+                }
                 try {
                     const parsed = raw ? JSON.parse(raw) : [];
                     return Array.isArray(parsed) && parsed.length > 0 ? parsed : null;
@@ -90,7 +103,6 @@ Object.assign(Core, {
                 }
             };
             return parsePath(Storage.get(CONFIG.KEYS.REPORT_BATCH_PATH))
-                || parsePath(Storage.get(CONFIG.KEYS.REPORT_PATH))
                 || DEFAULT_REPORT_PATH;
         },
 
@@ -108,17 +120,44 @@ Object.assign(Core, {
 
         warnReportLimit(message) {
             if (window.hegeLog) window.hegeLog(`[只檢舉][LIMIT] ${message}`);
+            Core.ReportDriver.recordDebugTrace('limit_warning', '', {}, { message }, false);
             UI.showToast(message, 4000);
             return false;
         },
 
-        findClickableByText(text, { exact = true, root = document } = {}) {
+        remindReportRateLimit(user = '', detail = '') {
+            const reminder = Worker.noteReportRateLimit({ user, detail });
+            if (reminder.changed) {
+                UI.showToast(reminder.toastMessage, 6500);
+            }
+            return reminder;
+        },
+
+        recordDebugTrace(kind, user = '', options = {}, extra = {}, includeSnapshot = false) {
+            const payload = {
+                user,
+                mode: options.mode || 'profile',
+                href: location.href,
+                pathname: location.pathname,
+                visibleOptions: Core.ReportDriver.getVisibleReportOptionTexts(),
+                dialogs: Core.ReportDriver.summarizeDialogsForDebug(),
+                extra,
+            };
+            if (includeSnapshot && user) {
+                payload.snapshot = Core.ReportDriver.getDebugSnapshot(user, options, kind, extra);
+            }
+            Core.appendReportDebugTrace(kind, payload);
+        },
+
+        findClickableByText(text, { exact = true, root = document, visibleOnly = false } = {}) {
             const nodes = root.querySelectorAll('div[role="menuitem"], div[role="button"], button, span[dir="auto"], a[role="link"]');
             for (const node of nodes) {
+                const target = node.closest('div[role="menuitem"], div[role="button"], button, a[role="link"]') || node;
+                if (visibleOnly && !Core.ReportDriver.isElementVisible(target)) continue;
                 const nodeText = (node.innerText || node.textContent || '').trim();
                 const matched = exact ? nodeText === text : nodeText.includes(text);
                 if (!matched) continue;
-                return node.closest('div[role="menuitem"], div[role="button"], button, a[role="link"]') || node;
+                return target;
             }
             return null;
         },
@@ -256,6 +295,12 @@ Object.assign(Core, {
             const queue = Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []);
             const snapshot = Core.ReportDriver.getDebugSnapshot(user, options, reason, extra);
             const current = `只檢舉診斷停住：${message}`;
+            Core.appendReportDebugTrace(`pause:${reason}`, {
+                user,
+                mode: options.mode || 'profile',
+                message,
+                snapshot,
+            });
             Storage.setJSON(CONFIG.KEYS.BG_STATUS, {
                 state: 'paused',
                 current,
@@ -273,6 +318,7 @@ Object.assign(Core, {
         },
 
         skipOrPauseForDebug(user, options = {}, reason, message, extra = {}) {
+            Core.ReportDriver.recordDebugTrace(`skip:${reason}`, user, options, { message, ...extra }, true);
             if (options.keepWorkerOpenOnError) {
                 return Core.ReportDriver.pauseForDebug(user, options, reason, message, extra);
             }
@@ -390,7 +436,15 @@ Object.assign(Core, {
         },
 
         findConfirmationButton() {
-            return Core.ReportDriver.findAnyText(CONFIRM_TEXTS, { exact: false });
+            const dialogRoots = Core.ReportDriver.getVisibleDialogs().reverse();
+            for (const root of dialogRoots) {
+                const button = Core.ReportDriver.findAnyText(CONFIRM_TEXTS, { exact: false, root, visibleOnly: true });
+                if (button) return button;
+            }
+            if (dialogRoots.length === 0) {
+                return Core.ReportDriver.findAnyText(CONFIRM_TEXTS, { exact: false, visibleOnly: true });
+            }
+            return null;
         },
 
         isElementVisible(el) {
@@ -406,8 +460,71 @@ Object.assign(Core, {
                 .filter(dialog => Core.ReportDriver.isElementVisible(dialog));
         },
 
+        summarizeDialogDebug(dialog, index = 0) {
+            return {
+                index,
+                visible: Core.ReportDriver.isElementVisible(dialog),
+                text: Core.ReportDriver.compactDebugText(dialog.innerText || dialog.textContent, 220),
+                buttons: Core.ReportDriver.getClickableTextNodes(dialog)
+                    .map(item => Core.ReportDriver.compactDebugText(item.text, 60))
+                    .filter(Boolean)
+                    .slice(0, 16),
+                userLinks: Array.from(dialog.querySelectorAll('a[href^="/@"]'))
+                    .map(a => a.getAttribute('href'))
+                    .filter(Boolean)
+                    .slice(0, 12),
+            };
+        },
+
+        getVisibleDialogDebugSummary() {
+            return Core.ReportDriver.getVisibleDialogs().map((dialog, index) =>
+                Core.ReportDriver.summarizeDialogDebug(dialog, index)
+            );
+        },
+
+        getBlankDialogState() {
+            const rawDialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
+            const dialogs = rawDialogs.map((dialog, index) => Core.ReportDriver.summarizeDialogDebug(dialog, index));
+            const blankDialogs = dialogs.filter(dialog =>
+                !dialog.text &&
+                dialog.buttons.length === 0 &&
+                dialog.userLinks.length === 0
+            );
+            if (dialogs.length === 0 || blankDialogs.length !== dialogs.length) return null;
+            const visibleOptions = Core.ReportDriver.getVisibleReportOptionTexts();
+            if (visibleOptions.length > 0) return null;
+            return {
+                dialogs,
+                blankCount: blankDialogs.length,
+            };
+        },
+
+        getThankYouSubmitState() {
+            const dialogs = Core.ReportDriver.getVisibleDialogs();
+            for (const dialog of dialogs) {
+                const text = dialog.innerText || dialog.textContent || '';
+                const buttons = Core.ReportDriver.getClickableTextNodes(dialog)
+                    .map(item => (item.text || '').replace(/\s+/g, ' ').trim())
+                    .filter(Boolean);
+                const hasThankYouText = REPORT_THANK_YOU_TEXTS.some(item => text.includes(item));
+                const hasDoneButton = buttons.some(item => ['完成', 'Done'].includes(item));
+                if (hasThankYouText && hasDoneButton) {
+                    return { confirmed: true, signal: 'thank_you_dialog' };
+                }
+            }
+            return null;
+        },
+
+        hasActionableReportUI() {
+            const visibleOptions = Core.ReportDriver.getVisibleReportOptionTexts();
+            return visibleOptions.some(text => !['返回', '關閉', 'Back', 'Close'].includes(text));
+        },
+
         getSubmitSuccessState(originDialog = null) {
-            if (Core.ReportDriver.checkReportDone()) {
+            const thankYouState = Core.ReportDriver.getThankYouSubmitState();
+            if (thankYouState) return thankYouState;
+
+            if (Core.ReportDriver.checkReportDone() && !Core.ReportDriver.hasActionableReportUI()) {
                 return { confirmed: true, signal: 'done_text' };
             }
 
@@ -416,11 +533,18 @@ Object.assign(Core, {
             }
 
             const dialogs = Core.ReportDriver.getVisibleDialogs();
-            if (originDialog && dialogs.length > 0 && !dialogs.includes(originDialog)) {
+            if (originDialog && dialogs.length > 0 && !dialogs.includes(originDialog) && !Core.ReportDriver.hasActionableReportUI()) {
                 return { confirmed: true, signal: 'dialog_replaced' };
             }
 
             return null;
+        },
+
+        didNavigateToUserPost(user = '') {
+            const pathname = location.pathname || '';
+            if (!pathname.includes('/post/')) return false;
+            if (!user) return true;
+            return pathname.startsWith(`/@${user}/post/`);
         },
 
         findReportAccountTarget() {
@@ -444,6 +568,7 @@ Object.assign(Core, {
             if (target) {
                 if (window.hegeLog) window.hegeLog(`[只檢舉] 偵測到檢舉對象選擇層，選擇「${kind === 'content' ? '檢舉貼文、訊息或留言' : '檢舉帳號'}」`);
                 Core.ReportDriver.logVisibleOptions('檢舉對象選擇前', { target: kind });
+                Core.ReportDriver.recordDebugTrace('target_chooser_shown', user, options, { target: kind }, false);
                 await Core.ReportDriver.visualStep(options, user, `準備選擇「${kind === 'content' ? '檢舉貼文、訊息或留言' : '檢舉帳號'}」`, target, 650);
                 Utils.simClick(target);
                 await Utils.safeSleep(420);
@@ -454,18 +579,25 @@ Object.assign(Core, {
                 }, 1200, 120);
                 Core.ReportDriver.logVisibleOptions('檢舉對象選擇後', { target: kind, advanced: !!chooserStillVisible });
                 if (!chooserStillVisible) {
-                    Core.ReportDriver.warnReportLimit(`只檢舉疑似觸發平台限制：@${user} 的檢舉入口暫時不可用`);
+                    Core.ReportDriver.recordDebugTrace('target_chooser_not_advanced', user, options, { target: kind }, true);
+                    Core.ReportDriver.remindReportRateLimit(user, 'target_chooser_not_advanced');
                     return false;
                 }
+                Core.ReportDriver.recordDebugTrace('target_chooser_advanced', user, options, { target: kind }, false);
                 return true;
             }
             Core.ReportDriver.logVisibleOptions('沒有出現檢舉對象選擇層', { target: kind });
+            Core.ReportDriver.recordDebugTrace('target_chooser_not_shown', user, options, { target: kind }, false);
             return false;
         },
 
         checkReportDone() {
-            const bodyText = document.body.innerText || document.body.textContent || '';
-            return REPORT_DONE_TEXTS.some(t => bodyText.includes(t));
+            const dialogs = Core.ReportDriver.getVisibleDialogs();
+            const sources = dialogs.length > 0 ? dialogs : [document.body];
+            return sources.some(source => {
+                const text = source.innerText || source.textContent || '';
+                return REPORT_DONE_TEXTS.some(t => text.includes(t));
+            });
         },
 
         removeCurrent(user) {
@@ -579,25 +711,86 @@ Object.assign(Core, {
 
                 await Core.ReportDriver.visualStep(options, user, '準備點「檢舉」', reportMenuItem, 600);
                 Utils.simClick(reportMenuItem);
+                const reportMenuClickAt = Date.now();
+                Core.ReportDriver.recordDebugTrace('report_menu_clicked', user, options, { mode }, false);
                 await Utils.safeSleep(220);
                 await Core.ReportDriver.selectReportTargetIfShown(mode === 'post' ? 'content' : 'account', options, user);
+                const blankDialogAfterMenu = Core.ReportDriver.getBlankDialogState();
+                if (blankDialogAfterMenu) {
+                    Core.ReportDriver.remindReportRateLimit(user, 'blank_report_dialog_after_menu');
+                    return Core.ReportDriver.skipOrPauseForDebug(user, options, 'blank_report_dialog_stuck', `@${user} 的檢舉視窗出現空白 dialog，內容沒有載入`, {
+                        blankDialogs: blankDialogAfterMenu.dialogs,
+                        blankCount: blankDialogAfterMenu.blankCount,
+                        elapsedSinceMenuClickMs: Date.now() - reportMenuClickAt,
+                    });
+                }
 
                 const path = Core.ReportDriver.getExecutionPath(mode);
                 if (window.hegeLog) window.hegeLog(`[只檢舉] 執行檢舉路徑=${JSON.stringify(path)}`);
                 Core.ReportDriver.logVisibleOptions('準備進入檢舉路徑', { mode, user });
                 let pathIndex = 0;
+                let loggedFirstPathResolution = false;
                 while (pathIndex < path.length) {
+                    const waitStartedAt = Date.now();
                     const match = await Utils.pollUntil(() => {
                         if (Core.ReportDriver.findConfirmationButton() || Core.ReportDriver.checkReportDone()) {
                             return { done: true };
                         }
                         return Core.ReportDriver.findNextReportOption(path, pathIndex);
                     }, 3500, 120);
+                    const waitElapsedMs = Date.now() - waitStartedAt;
+                    const sinceMenuClickMs = Date.now() - reportMenuClickAt;
+                    if (!loggedFirstPathResolution && pathIndex === 0) {
+                        if (!match) {
+                            Core.ReportDriver.recordDebugTrace('report_flow_timeout_after_menu_click', user, options, {
+                                mode,
+                                waitElapsedMs,
+                                sinceMenuClickMs,
+                                remainingPath: path.slice(pathIndex),
+                            }, true);
+                        } else if (match.done) {
+                            Core.ReportDriver.recordDebugTrace('report_flow_reached_confirm_without_path', user, options, {
+                                mode,
+                                waitElapsedMs,
+                                sinceMenuClickMs,
+                            }, true);
+                            loggedFirstPathResolution = true;
+                        } else {
+                            Core.ReportDriver.recordDebugTrace(
+                                sinceMenuClickMs >= 2500 ? 'slow_report_flow_start' : 'report_flow_started',
+                                user,
+                                options,
+                                {
+                                    mode,
+                                    waitElapsedMs,
+                                    sinceMenuClickMs,
+                                    firstStep: match.step,
+                                    offset: match.offset,
+                                },
+                                sinceMenuClickMs >= 2500
+                            );
+                            loggedFirstPathResolution = true;
+                        }
+                    }
                     if (!match) {
+                        const blankDialogState = Core.ReportDriver.getBlankDialogState();
+                        if (blankDialogState) {
+                            Core.ReportDriver.remindReportRateLimit(user, 'blank_report_dialog_mid_flow');
+                            return Core.ReportDriver.skipOrPauseForDebug(user, options, 'blank_report_dialog_stuck', `@${user} 的檢舉視窗出現空白 dialog，內容沒有載入`, {
+                                pathIndex,
+                                remainingPath: path.slice(pathIndex),
+                                blankDialogs: blankDialogState.dialogs,
+                                blankCount: blankDialogState.blankCount,
+                                elapsedSinceMenuClickMs: Date.now() - reportMenuClickAt,
+                            });
+                        }
                         const visibleOptions = Core.ReportDriver.getVisibleReportOptionTexts();
                         if (window.hegeLog) {
                             window.hegeLog(`[只檢舉] 找不到檢舉選項，期待剩餘 path=${JSON.stringify(path.slice(pathIndex))}`);
                             window.hegeLog(`[只檢舉] 目前可見選項=${JSON.stringify(visibleOptions)}`);
+                        }
+                        if (pathIndex === 0) {
+                            Core.ReportDriver.remindReportRateLimit(user, 'missing_first_report_option');
                         }
                         return Core.ReportDriver.skipOrPauseForDebug(user, options, 'missing_report_option', `找不到檢舉選項「${path[pathIndex]}」`, {
                             pathIndex,
@@ -642,12 +835,24 @@ Object.assign(Core, {
                 }, 3000, 150);
                 Core.ReportDriver.logVisibleOptions('檢舉送出檢查後', finalSubmitState || { done: false });
                 if (!finalSubmitState) {
+                    if (Core.ReportDriver.didNavigateToUserPost(user)) {
+                        return Core.ReportDriver.skipOrPauseForDebug(user, options, 'navigated_to_post_during_report_flow', `@${user} 的檢舉流程中途跳到了貼文頁`, {
+                            remainingPath: path.slice(pathIndex),
+                            visibleOptions: Core.ReportDriver.getVisibleReportOptionTexts(),
+                            hadConfirmDialog: !!submitOriginDialog,
+                            pathname: location.pathname,
+                        });
+                    }
                     return Core.ReportDriver.skipOrPauseForDebug(user, options, 'submit_not_confirmed', `@${user} 沒有拿到明確送出成功訊號`, {
                         remainingPath: path.slice(pathIndex),
                         visibleOptions: Core.ReportDriver.getVisibleReportOptionTexts(),
                         hadConfirmDialog: !!submitOriginDialog,
                     });
                 }
+                Core.ReportDriver.recordDebugTrace('report_success', user, options, {
+                    finalSignal: finalSubmitState.signal || 'unknown',
+                    totalElapsedMs: Date.now() - reportMenuClickAt,
+                }, false);
 
                 Storage.recordReport();
                 Core.ReportDriver.recordHistory(user, options);

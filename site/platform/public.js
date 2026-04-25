@@ -146,6 +146,18 @@ topNarratives: [
       { id: 518, created_at: '2026-04-19T17:04:00Z' },
       { id: 517, created_at: '2026-04-19T16:31:00Z' }
     ],
+    intake: {
+      acceptedUploadCount: 302,
+      acceptedEventCount: 151248,
+      trustedUploadCount: 286,
+      probationUploadCount: 16,
+      probationEventCount: 2516,
+      flaggedUploadCount: 0,
+      flaggedEventCount: 0,
+      latestAcceptedUploadAt: '2026-04-21T00:00:00Z',
+      latestProbationUploadAt: '2026-04-21T00:00:00Z',
+      latestFlaggedUploadAt: ''
+    },
     methodology: {
       trustPolicy: 'public-trusted-only',
       scoreBands: { low: '0-44', medium: '45-64', high: '65+' },
@@ -258,6 +270,18 @@ topNarratives: [
       reportCategories: [],
       topNarratives: [],
       recentUploads: [],
+      intake: {
+        acceptedUploadCount: 0,
+        acceptedEventCount: 0,
+        trustedUploadCount: 0,
+        probationUploadCount: 0,
+        probationEventCount: 0,
+        flaggedUploadCount: 0,
+        flaggedEventCount: 0,
+        latestAcceptedUploadAt: '',
+        latestProbationUploadAt: '',
+        latestFlaggedUploadAt: ''
+      },
       methodology: {
         trustPolicy: 'public-trusted-only',
         scoreBands: { low: '0-44', medium: '45-64', high: '65+' },
@@ -286,8 +310,62 @@ topNarratives: [
       topicTimeSeries: Array.isArray(data?.topicTimeSeries) ? data.topicTimeSeries : [],
       reportCategories: Array.isArray(data?.reportCategories) ? data.reportCategories : [],
       topNarratives: Array.isArray(data?.topNarratives) ? data.topNarratives : [],
-      recentUploads: Array.isArray(data?.recentUploads) ? data.recentUploads : []
+      recentUploads: Array.isArray(data?.recentUploads) ? data.recentUploads : [],
+      intake: { ...empty.intake, ...(data?.intake || {}) }
     };
+  }
+
+  function buildIntakeMessage(data) {
+    const intake = data && data.intake ? data.intake : {};
+    const pending = safeNum(intake.probationUploadCount);
+    const pendingEvents = safeNum(intake.probationEventCount);
+    const flagged = safeNum(intake.flaggedUploadCount);
+    const flaggedEvents = safeNum(intake.flaggedEventCount);
+    if (pending <= 0 && flagged <= 0) return '';
+    const latest = intake.latestProbationUploadAt
+      ? `，最新一批 ${String(intake.latestProbationUploadAt).replace('T', ' ').slice(0, 16)} UTC`
+      : '';
+    const parts = [];
+    if (pending > 0) {
+      parts.push(`${formatNumber(pending)} 批待觀察上傳、${formatNumber(pendingEvents)} 筆事件${latest}`);
+    }
+    if (flagged > 0) {
+      parts.push(`${formatNumber(flagged)} 批隔離上傳、${formatNumber(flaggedEvents)} 筆事件`);
+    }
+    return `已收到 ${parts.join('；')}。公開圖表目前只納入 trusted sample，待觀察與隔離資料不會影響公開統計。`;
+  }
+
+  function formatUploadTimestamp(value) {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    return text.replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC').replace(/Z$/, ' UTC').slice(0, 20);
+  }
+
+  function buildObservationWindowLabel(data) {
+    const dateRange = data && data.dateRange ? data.dateRange : {};
+    const intake = data && data.intake ? data.intake : {};
+    const start = dateRange.start || '';
+    const end = dateRange.end || '';
+    const latestAccepted = formatUploadTimestamp(intake.latestAcceptedUploadAt);
+    const acceptedCount = safeNum(intake.acceptedUploadCount);
+    const trustedCount = safeNum(intake.trustedUploadCount);
+    const probationCount = safeNum(intake.probationUploadCount);
+    const flaggedCount = safeNum(intake.flaggedUploadCount);
+    const parts = [];
+
+    if (latestAccepted) {
+      parts.push(`最新收到上傳：${latestAccepted}`);
+    }
+    if (acceptedCount > 0) {
+      parts.push(`已收 ${formatNumber(acceptedCount)} 批，其中 ${formatNumber(trustedCount)} 批公開統計、${formatNumber(probationCount)} 批待觀察、${formatNumber(flaggedCount)} 批隔離`);
+    }
+    if (start && end) {
+      parts.push(`公開統計區間：${start} 至 ${end}`);
+    } else {
+      parts.push('公開統計區間尚在累積中');
+    }
+
+    return parts.join('｜');
   }
 
   function summarizeSourceCoverage(data) {
@@ -316,14 +394,15 @@ topNarratives: [
     try {
       const result = await api(`/api/v1/platform/overview?days=${DEFAULT_DAYS}&top=${DEFAULT_TOP}`);
       const data = normalizeOverviewData(result.data || {});
+      const intakeMessage = buildIntakeMessage(data);
       if (hasLiveData(data)) {
-        return { data, mockMode: false, emptyState: false, message: '' };
+        return { data, mockMode: false, emptyState: false, message: intakeMessage };
       }
       return {
         data,
         mockMode: false,
         emptyState: true,
-        message: '目前公開資料量仍在累積中，以下先顯示真實空狀態與方法資訊，不再自動補示意資料。'
+        message: intakeMessage || '目前公開資料量仍在累積中，以下先顯示真實空狀態與方法資訊，不再自動補示意資料。'
       };
     } catch (error) {
       return {
@@ -766,6 +845,9 @@ topNarratives: [
     escapeHtml,
     bandLabel,
     summarizeSourceCoverage,
+    buildIntakeMessage,
+    buildObservationWindowLabel,
+    formatUploadTimestamp,
     fetchOverview,
     hasLiveData,
     loadPoliticalEvents,

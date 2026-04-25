@@ -2,7 +2,7 @@
   "manifest_version": 2,
   "name": "留友封 (Threads Block Tool)",
   "version": "2.2.2",
-  "description": "Threads 批量封鎖工具 (Firefox Extension Build)",
+  "description": "Threads 批次封鎖、只檢舉與來源分析工具",
   "browser_specific_settings": {
     "gecko": {
       "id": "threads-blocker@hege",

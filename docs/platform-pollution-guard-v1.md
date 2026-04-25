@@ -6,6 +6,7 @@
 
 1. **來源分級信任**
    - 缺少 `clientSourceId` 的 payload 不再視為 legacy trusted。
+   - 舊資料或缺少 `trust_tier` 的資料預設歸入 `probation`，不會自動進公開統計。
    - 新來源預設 `probation`，只有跨日穩定且無驗證警告的來源才會升 `trusted`。
    - `trusted` 目前要求：
      - 偏好平台 (`chrome_extension` / `firefox_extension` / `ios_userscript`)
@@ -29,10 +30,11 @@
      - `missing_events`
      - `no_valid_events`
      - `too_many_invalid_events`
+   - 少量 invalid events 會被丟棄並記錄 warning；warning 來源不會升級為 `trusted`。
 
 4. **Public sample 保守策略**
    - public overview 仍以 `trusted` sample 為主。
-   - 即使 ingestion 成功，未升級來源也不應直接影響公開頁主要統計。
+   - 即使 ingestion 成功，`probation` / `flagged` 來源也不會直接影響公開頁主要統計，只會出現在 intake / 待觀察提示。
 
 5. **Extension provenance signals**
    - extension 會額外送出本機來源年齡、首次版本、成功 upload 次數與多日活躍訊號。

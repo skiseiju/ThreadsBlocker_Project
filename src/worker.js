@@ -517,6 +517,7 @@ export const Worker = {
     completeReportRun: () => {
         const completedUsers = Storage.getJSON(CONFIG.KEYS.REPORT_BATCH_USERS, []);
         const keepBlockSelection = Storage.get(CONFIG.KEYS.REPORT_KEEP_BLOCK_SELECTION, 'true') !== 'false';
+        Worker.finalizeReportDebugExport('completed', { completedUsers });
 
         Storage.setJSON(CONFIG.KEYS.REPORT_QUEUE, []);
         Storage.setJSON(CONFIG.KEYS.REPORT_CONTEXT, {});
@@ -540,6 +541,7 @@ export const Worker = {
     interruptReportRun: () => {
         const batchUsers = Storage.getJSON(CONFIG.KEYS.REPORT_BATCH_USERS, []);
         const keepBlockSelection = Storage.get(CONFIG.KEYS.REPORT_KEEP_BLOCK_SELECTION, 'true') !== 'false';
+        Worker.finalizeReportDebugExport('stopped', { completedUsers: batchUsers });
         Storage.setJSON(CONFIG.KEYS.REPORT_BATCH_USERS, []);
         if (keepBlockSelection && batchUsers.length > 0) {
             Storage.setJSON(CONFIG.KEYS.REPORT_RESTORE_PENDING, { users: batchUsers, updatedAt: Date.now(), source: 'stop' });
@@ -548,6 +550,24 @@ export const Worker = {
         if (window.hegeLog) {
             window.hegeLog(`[只檢舉] 中斷回填 batch=${batchUsers.length} keepBlockSelection=${keepBlockSelection}`);
         }
+    },
+
+    finalizeReportDebugExport: (status = 'completed', extra = {}) => {
+        const payload = Core.finalizeReportDebugBatch(status, {
+            workerStats: { ...Worker.stats },
+            initialTotal: Worker.initialTotal,
+            verifyLevel: Worker.verifyLevel,
+            consecutiveFails: Worker.consecutiveFails,
+            limitWarningMessage: Worker.limitWarningMessage,
+            ...extra,
+        });
+        if (!payload) return null;
+
+        const filename = `${payload.batch?.batchId || `report-debug-${Date.now()}`}.json`;
+        if (window.hegeLog) {
+            window.hegeLog(`[只檢舉][DEBUG] 批次診斷包已保存 status=${status} file=${filename}`);
+        }
+        return payload;
     },
 
     refreshStatusUI: () => {
@@ -860,10 +880,40 @@ export const Worker = {
     },
 
     setLimitWarning: (message = '') => {
-        Worker.limitWarningMessage = message || '';
+        const nextMessage = message || '';
+        if (Worker.limitWarningMessage === nextMessage) return;
+
+        Worker.limitWarningMessage = nextMessage;
+        Worker.saveStats();
+
         if (window.hegeLog && Worker.limitWarningMessage) {
             window.hegeLog(`[上限提醒] ${Worker.limitWarningMessage}`);
         }
+
+        const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, null);
+        if (status && status.state) {
+            Worker.updateStatus(status.state, status.current || '', status.progress || 0, status.total || Worker.initialTotal);
+        }
+    },
+
+    noteReportRateLimit: ({ user = '', detail = '' } = {}) => {
+        const bannerMessage = '⚠️ 疑似碰到 Meta 檢舉限流，常見要等 24 小時左右；若想先停可按下方「停止」，是否現在停止由你決定。';
+        const changed = Worker.limitWarningMessage !== bannerMessage;
+        Worker.setLimitWarning(bannerMessage);
+
+        if (window.hegeLog) {
+            const detailSuffix = detail ? ` detail=${detail}` : '';
+            const userSuffix = user ? ` @${user}` : '';
+            window.hegeLog(`[只檢舉][LIMIT-REMINDER]${userSuffix}${detailSuffix}`);
+        }
+
+        return {
+            changed,
+            bannerMessage,
+            toastMessage: user
+                ? `偵測到 @${user} 疑似碰到 Meta 檢舉限流，常見要等 24 小時左右才會恢復。若你想先停，可以按下方「停止」；是否現在停止由你決定。`
+                : '疑似碰到 Meta 檢舉限流，常見要等 24 小時左右才會恢復。若你想先停，可以按下方「停止」；是否現在停止由你決定。'
+        };
     },
 
     // 批次驗證：reload 後繼續的入口

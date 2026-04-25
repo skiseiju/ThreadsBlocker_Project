@@ -1,15 +1,14 @@
 export const CONFIG = {
-    VERSION: '2.6.0-beta47',
+    VERSION: '2.6.0-beta86',
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/reports/bug',
     BUG_REPORT_FALLBACK_URLS: [
-        'https://app.skiseiju.com/api/v1/reports/bug',
         'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec'
     ],// 可填入 GAS 或其他備援端點
     BUG_REPORT_SALT: 'PGO_BETA_2026_SALT',
     PLATFORM_UPLOAD_URL: 'https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/platform/ingest',
-    PLATFORM_UPLOAD_FALLBACK_URLS: ['https://app.skiseiju.com/api/v1/platform/ingest'],
+    PLATFORM_UPLOAD_FALLBACK_URLS: [],
 
     DEBUG_MODE: false,
 
@@ -78,11 +77,10 @@ export const CONFIG = {
 
         // Meta 每日安全上限
         DAILY_BLOCK_LIMIT: 'hege_daily_block_limit',
-        EMERGENCY_MODE: 'hege_emergency_mode',
         BLOCK_VISUAL_DEBUG: 'hege_block_visual_debug',
         BLOCK_TIMESTAMPS_RING: 'hege_block_timestamps_ring',
         REPORT_QUEUE: 'hege_report_queue',
-        REPORT_PATH: 'hege_report_path',
+        REPORT_FAILED_QUEUE: 'hege_report_failed_queue',
         REPORT_BATCH_PATH: 'hege_report_batch_path',
         REPORT_CONTEXT: 'hege_report_context',
         DAILY_REPORT_LIMIT: 'hege_daily_report_limit',
@@ -104,6 +102,8 @@ export const CONFIG = {
         PLATFORM_UPLOAD_STATS: 'hege_platform_upload_stats',
         REPORT_KEEP_BLOCK_SELECTION: 'hege_report_keep_block_selection',
         REPORT_RESTORE_PENDING: 'hege_report_restore_pending',
+        REPORT_DEBUG_BATCH: 'hege_report_debug_batch',
+        REPORT_DEBUG_LAST_EXPORT: 'hege_report_debug_last_export',
         
         // Task 2: 大蟑螂
         COCKROACH_DB: 'hege_cockroach_db_v1',
@@ -154,6 +154,7 @@ export const CONFIG = {
         'hege_block_context_map', // BLOCK_CONTEXT_MAP
         'hege_block_visual_debug', // BLOCK_VISUAL_DEBUG
         'hege_report_queue',        // REPORT_QUEUE
+        'hege_report_failed_queue', // REPORT_FAILED_QUEUE
         'hege_report_batch_path',   // REPORT_BATCH_PATH
         'hege_report_context',      // REPORT_CONTEXT
         'hege_report_timestamps_ring', // REPORT_TIMESTAMPS_RING
@@ -161,6 +162,8 @@ export const CONFIG = {
         'hege_report_batch_users',   // REPORT_BATCH_USERS
         'hege_report_completed_users', // REPORT_COMPLETED_USERS
         'hege_report_history', // REPORT_HISTORY
+        'hege_report_debug_batch', // REPORT_DEBUG_BATCH
+        'hege_report_debug_last_export', // REPORT_DEBUG_LAST_EXPORT
         'hege_source_evidence_index', // SOURCE_EVIDENCE_INDEX
         'hege_source_evidence_prune_at', // SOURCE_EVIDENCE_PRUNE_AT
         'hege_report_keep_block_selection', // REPORT_KEEP_BLOCK_SELECTION

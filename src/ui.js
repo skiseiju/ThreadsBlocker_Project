@@ -4,6 +4,54 @@ import { Storage } from './storage.js';
 import { Reporter } from './reporter.js';
 
 export const UI = {
+    getDefaultReportPath: () => ['這是垃圾訊息'],
+
+    normalizeReportPath: (path) => {
+        const source = Array.isArray(path) && path.length > 0 ? path : UI.getDefaultReportPath();
+        const ageChoice = source.includes('是') ? '是' : '否';
+        const out = [];
+        let node = CONFIG.REPORT_MENU_TREE;
+
+        while (node && typeof node === 'object') {
+            if (node.ageQuestion === true) {
+                out.push(ageChoice);
+                break;
+            }
+            const options = Object.keys(node).filter(k => k !== 'ageQuestion');
+            if (options.length === 0) break;
+            const idx = out.length;
+            const selected = options.includes(source[idx]) ? source[idx] : options[0];
+            out.push(selected);
+            node = node[selected];
+        }
+
+        return out;
+    },
+
+    getHumanErrorMessage: (result, fallback = '未知錯誤') => {
+        if (!result) return fallback;
+        const primary = String(result.message || '').trim();
+        const reasons = Array.isArray(result.reasons)
+            ? result.reasons.map(v => String(v || '').trim()).filter(Boolean)
+            : [];
+        if (primary && reasons.length > 0 && !primary.includes(reasons[0])) return `${primary}: ${reasons.join(', ')}`;
+        if (primary) return primary;
+        const skipped = String(result.skipped || '').trim();
+        if (skipped) return skipped;
+        const statusText = String(result.statusText || '').trim();
+        const code = Number(result.code) || 0;
+        if (code > 0 && statusText) return `HTTP ${code} ${statusText}`;
+        if (code > 0) return `HTTP ${code}`;
+        return fallback;
+    },
+
+    isValidPlatformEvent: (event) => {
+        const eventType = String(event?.eventType || '').trim();
+        const accountId = String(event?.accountId || '').trim();
+        const eventAt = Number(event?.eventAt || 0);
+        return (eventType === 'block' || eventType === 'report') && !!accountId && Number.isFinite(eventAt) && eventAt > 0;
+    },
+
     injectStyles: () => {
         const style = document.createElement('style');
         style.textContent = `
@@ -562,7 +610,7 @@ export const UI = {
                     UI.showToast('感謝您的回報！已成功送出。');
                     close();
                 } else {
-                    statusSpan.textContent = `傳送失敗：${result.message || '未知錯誤'}`;
+                    statusSpan.textContent = `傳送失敗：${UI.getHumanErrorMessage(result)}`;
                     statusSpan.style.color = '#ff3b30';
                     submitBtn.disabled = false;
                     submitBtn.textContent = '重新傳送';
@@ -581,30 +629,7 @@ export const UI = {
         if (existing) existing.remove();
 
         const confirmLabel = Utils.escapeHTML(options.confirmLabel || '確定執行');
-        const defaultReportPath = ['這是垃圾訊息'];
-        const normalizeReportPath = (path) => {
-            const source = Array.isArray(path) && path.length > 0 ? path : defaultReportPath;
-            const ageChoice = source.includes('是') ? '是' : '否';
-            const out = [];
-            let node = CONFIG.REPORT_MENU_TREE;
-
-            while (node && typeof node === 'object') {
-                if (node.ageQuestion === true) {
-                    out.push(ageChoice);
-                    break;
-                }
-                const options = Object.keys(node).filter(k => k !== 'ageQuestion');
-                if (options.length === 0) break;
-                const idx = out.length;
-                const selected = options.includes(source[idx]) ? source[idx] : options[0];
-                out.push(selected);
-                node = node[selected];
-            }
-
-            return out;
-        };
-
-        let reportPath = normalizeReportPath(Storage.getJSON(CONFIG.KEYS.REPORT_PATH, defaultReportPath));
+        let reportPath = UI.normalizeReportPath(UI.getDefaultReportPath());
         const overlay = document.createElement('div');
         overlay.id = 'hege-report-picker-overlay';
         overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.72); z-index:2147483647; display:flex; align-items:center; justify-content:center; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
@@ -625,7 +650,7 @@ export const UI = {
         const controls = overlay.querySelector('#hege-report-picker-controls');
         const close = () => overlay.remove();
         const render = () => {
-            reportPath = normalizeReportPath(reportPath);
+            reportPath = UI.normalizeReportPath(reportPath);
             controls.innerHTML = '';
             let node = CONFIG.REPORT_MENU_TREE;
             let depth = 0;
@@ -649,7 +674,7 @@ export const UI = {
                     select.value = reportPath[depth] === '是' ? '是' : '否';
                     select.onchange = () => {
                         reportPath[depth] = select.value;
-                        reportPath = normalizeReportPath(reportPath);
+                        reportPath = UI.normalizeReportPath(reportPath);
                     };
                     label.appendChild(text);
                     label.appendChild(select);
@@ -672,7 +697,7 @@ export const UI = {
                     const level = parseInt(select.dataset.level, 10);
                     reportPath = reportPath.slice(0, level);
                     reportPath[level] = select.value;
-                    reportPath = normalizeReportPath(reportPath);
+                    reportPath = UI.normalizeReportPath(reportPath);
                     render();
                 };
                 label.appendChild(text);
@@ -687,7 +712,7 @@ export const UI = {
         overlay.querySelector('#hege-report-picker-close').onclick = close;
         overlay.querySelector('#hege-report-picker-cancel').onclick = close;
         overlay.querySelector('#hege-report-picker-confirm').onclick = () => {
-            const path = normalizeReportPath(reportPath);
+            const path = UI.normalizeReportPath(reportPath);
             close();
             if (typeof callback === 'function') callback(path);
         };
@@ -803,15 +828,11 @@ export const UI = {
                         <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px;">
                             <div class="hege-menu-item" data-hege-settings-open="data" style="border:1px solid #2d2d2d; border-radius:8px; min-height:112px; align-items:flex-start; flex-direction:column; gap:7px;">
                                 <span style="font-size:14px;font-weight:700;">資料與工具</span>
-                                <span style="font-size:11px;color:#888;line-height:1.4;">已封鎖、分析、匯入匯出、名單工具與貼文水庫</span>
+                                <span style="font-size:11px;color:#888;line-height:1.4;">觀測上傳、名單水庫、資料移轉與診斷</span>
                             </div>
                             <div class="hege-menu-item" data-hege-settings-open="block" style="border:1px solid #2d2d2d; border-radius:8px; min-height:112px; align-items:flex-start; flex-direction:column; gap:7px;">
-                                <span style="font-size:14px;font-weight:700;">封鎖設定</span>
-                                <span style="font-size:11px;color:#888;line-height:1.4;">速度、每日上限、緊急模式、定點絕設定</span>
-                            </div>
-                            <div class="hege-menu-item" data-hege-settings-open="report" style="border:1px solid #2d2d2d; border-radius:8px; min-height:112px; align-items:flex-start; flex-direction:column; gap:7px;">
-                                <span style="font-size:14px;font-weight:700;">檢舉設定</span>
-                                <span style="font-size:11px;color:#888;line-height:1.4;">每日上限、預設路徑、流程可視化</span>
+                                <span style="font-size:14px;font-weight:700;">通用設定</span>
+                                <span style="font-size:11px;color:#888;line-height:1.4;">速度、每日提醒門檻、封鎖/檢舉流程可視化</span>
                             </div>
                         </div>
 
@@ -823,7 +844,7 @@ export const UI = {
                                     回報問題
                                 </span>
                             </div>
-                            <a href="https://app.skiseiju.com" target="_blank" class="hege-menu-item" style="flex:1;border-bottom:none;text-decoration:none;color:#5ac8fa;">
+                            <a href="https://threadsblocker.skiseiju.com" target="_blank" class="hege-menu-item" style="flex:1;border-bottom:none;text-decoration:none;color:#5ac8fa;">
                                 <span style="font-size:12px;">📋 說明</span>
                             </a>
                             <div class="hege-menu-item" id="hege-s-sponsor" style="flex:1;color:#ecc351;border-bottom:none;">
@@ -835,32 +856,12 @@ export const UI = {
 
                     <div data-hege-settings-view-panel="data" style="display:none; flex-direction:column; gap:10px;">
                         <div class="hege-menu-item" data-hege-settings-back style="border-bottom:none;color:#aaa;">
-                            <span>← 返回設定</span>
+                            <span>← 返回</span>
                         </div>
-                        <div style="font-size:11px;color:#666;font-weight:600;padding:2px 8px;letter-spacing:1px;">資料與工具</div>
+                        <div style="font-size:11px;color:#666;font-weight:600;padding:2px 8px;letter-spacing:1px;">名單與水庫</div>
                         <div class="hege-menu-item" id="hege-s-manage">
                             <span>管理已封鎖</span>
                             <span class="status">${db.length}</span>
-                        </div>
-                        <div class="hege-menu-item" id="hege-s-analytics" style="color: #5ac8fa;">
-                            <span style="display:flex; align-items:center; gap:6px;">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="12" width="4" height="9"/><rect x="10" y="7" width="4" height="14"/><rect x="17" y="3" width="4" height="18"/></svg>
-                                封鎖分析
-                            </span>
-                        </div>
-                        <div class="hege-menu-item" id="hege-s-platform-upload" style="color:#30d158;">
-                            <span style="display:flex; align-items:center; gap:6px;">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/></svg>
-                                一般使用者上傳
-                            </span>
-                        </div>
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-                            <div class="hege-menu-item" id="hege-s-import" style="border-bottom:none;">
-                                <span>匯入名單</span>
-                            </div>
-                            <div class="hege-menu-item" id="hege-s-export" style="border-bottom:none;">
-                                <span>匯出紀錄</span>
-                            </div>
                         </div>
                         <div class="hege-menu-item" id="hege-s-cockroach">
                             <span>大蟑螂名單</span>
@@ -870,6 +871,29 @@ export const UI = {
                             <span>貼文水庫</span>
                             <span class="status">${Storage.postReservoir.getAll().length}</span>
                         </div>
+                        <div style="font-size:11px;color:#666;font-weight:600;padding:6px 8px 0;letter-spacing:1px;">資料移轉</div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+                            <div class="hege-menu-item" id="hege-s-import" style="border-bottom:none;">
+                                <span>匯入名單</span>
+                            </div>
+                            <div class="hege-menu-item" id="hege-s-export" style="border-bottom:none;">
+                                <span>匯出紀錄</span>
+                            </div>
+                        </div>
+                        <div style="font-size:11px;color:#666;font-weight:600;padding:6px 8px 0;letter-spacing:1px;">觀測與上傳</div>
+                        <div class="hege-menu-item" id="hege-s-analytics" style="color: #5ac8fa;">
+                            <span style="display:flex; align-items:center; gap:6px;">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="12" width="4" height="9"/><rect x="10" y="7" width="4" height="14"/><rect x="17" y="3" width="4" height="18"/></svg>
+                                來源分析報告
+                            </span>
+                        </div>
+                        ${callbacks.onExportReportDebug ? `
+                        <div style="font-size:11px;color:#666;font-weight:600;padding:6px 8px 0;letter-spacing:1px;">診斷</div>
+                        <div class="hege-menu-item" id="hege-s-export-report-debug">
+                            <span>匯出檢舉診斷</span>
+                        </div>
+                        ` : ''}
+                        <div style="font-size:11px;color:#666;font-weight:600;padding:6px 8px 0;letter-spacing:1px;">危險操作</div>
                         <div class="hege-menu-item danger" id="hege-s-clear-db" style="border-bottom: none;">
                             <span>清除所有歷史</span>
                         </div>
@@ -877,28 +901,30 @@ export const UI = {
 
                     <div data-hege-settings-view-panel="block" style="display:none; flex-direction:column; gap:10px;">
                         <div class="hege-menu-item" data-hege-settings-back style="border-bottom:none;color:#aaa;">
-                            <span>← 返回設定</span>
+                            <span>← 返回</span>
                         </div>
-                        <div style="font-size:11px;color:#666;font-weight:600;padding:2px 8px;letter-spacing:1px;">封鎖設定</div>
+                        <div style="font-size:11px;color:#666;font-weight:600;padding:2px 8px;letter-spacing:1px;">通用設定</div>
                         <div class="hege-menu-item" id="hege-s-speed">
                             <span>速度模式</span>
                             <span class="status" id="hege-s-speed-status">🧠 智慧</span>
                         </div>
                         <div class="hege-menu-item" id="hege-s-daily-limit" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
                             <div style="display:flex; align-items:center; justify-content:space-between;">
-                                <span>Meta 每日安全上限</span>
+                                <span>封鎖每日提醒門檻</span>
                                 <select id="hege-s-daily-limit-select" style="background:#1a1a1a; border:1px solid #444; color:#f5f5f5; padding:2px 6px; border-radius:4px; font-size:11px;">
                                     ${CONFIG.DAILY_LIMIT_OPTIONS.map(n => `<option value="${n}">${n}</option>`).join('')}
                                 </select>
                             </div>
                             <span style="font-size:10px; color:#ff9f0a; line-height:1.3;">超過此數仍會繼續執行，但會顯示醒目的上限提醒</span>
                         </div>
-                        <div class="hege-menu-item" id="hege-s-emergency-mode" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
-                            <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
-                                <span>緊急模式</span>
-                                <input type="checkbox" id="hege-s-emergency-toggle" style="width:16px; height:16px;">
-                            </label>
-                            <span style="font-size:10px; color:#ff453a; line-height:1.3;">跳過上限保護，可能觸發 Meta 帳號限制，僅短時急用</span>
+                        <div class="hege-menu-item" id="hege-s-daily-report-limit" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
+                            <div style="display:flex; align-items:center; justify-content:space-between;">
+                                <span>檢舉每日提醒門檻</span>
+                                <select id="hege-s-daily-report-limit-select" style="background:#1a1a1a; border:1px solid #444; color:#f5f5f5; padding:2px 6px; border-radius:4px; font-size:11px;">
+                                    ${CONFIG.DAILY_REPORT_LIMIT_OPTIONS.map(n => `<option value="${n}">${n}</option>`).join('')}
+                                </select>
+                            </div>
+                            <span style="font-size:10px; color:#ff9f0a; line-height:1.3;">超過此數仍會繼續執行，但會顯示醒目的上限提醒</span>
                         </div>
                         <div class="hege-menu-item" id="hege-s-auto-mark-leader-row" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
                             <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
@@ -912,20 +938,6 @@ export const UI = {
                                 <span>封鎖流程可視化</span>
                                 <input type="checkbox" id="hege-s-block-visual-debug-toggle" style="width:16px; height:16px;">
                             </label>
-                        </div>
-                    </div>
-
-                    <div data-hege-settings-view-panel="report" style="display:none; flex-direction:column; gap:10px;">
-                        <div class="hege-menu-item" data-hege-settings-back style="border-bottom:none;color:#aaa;">
-                            <span>← 返回設定</span>
-                        </div>
-                        <div style="font-size:11px;color:#666;font-weight:600;padding:2px 8px;letter-spacing:1px;">檢舉設定</div>
-                        <div class="hege-menu-item" id="hege-s-report-path" style="display:flex; flex-direction:column; align-items:stretch; gap:6px;">
-                            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-                                <span>檢舉預設路徑</span>
-                            </div>
-                            <div id="hege-s-report-path-controls" style="display:flex; flex-direction:column; gap:6px;"></div>
-                            <span style="font-size:10px; color:#888; line-height:1.3;">與「開始檢舉」picker 使用同一套路徑</span>
                         </div>
                         <div class="hege-menu-item" id="hege-s-report-visual-debug-row" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
                             <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
@@ -943,7 +955,7 @@ export const UI = {
         overlay.querySelector('.hege-manager-close').onclick = close;
 
         const titleText = overlay.querySelector('#hege-settings-title-text');
-        const settingViewLabels = { home: '設定', data: '資料與工具', block: '封鎖設定', report: '檢舉設定' };
+        const settingViewLabels = { home: '設定', data: '資料與工具', block: '通用設定' };
         const showSettingsView = (view) => {
             overlay.querySelectorAll('[data-hege-settings-view-panel]').forEach(panel => {
                 const isActive = panel.dataset.hegeSettingsViewPanel === view;
@@ -951,6 +963,7 @@ export const UI = {
             });
             if (titleText) titleText.textContent = settingViewLabels[view] || '設定';
         };
+        showSettingsView(callbacks.initialView || 'home');
         overlay.querySelectorAll('[data-hege-settings-open]').forEach(card => {
             card.onclick = (e) => {
                 e.stopPropagation();
@@ -978,10 +991,10 @@ export const UI = {
         bind('hege-s-reservoir', callbacks.onReservoir);
         bind('hege-s-import', callbacks.onImport);
         bind('hege-s-export', callbacks.onExport);
+        bind('hege-s-export-report-debug', callbacks.onExportReportDebug);
         bind('hege-s-clear-db', callbacks.onClearDB);
         bind('hege-s-report', callbacks.onReport);
         bind('hege-s-analytics', callbacks.onAnalytics);
-        bind('hege-s-platform-upload', callbacks.onPlatformUpload);
         // 速度模式切換（設定 modal 中）
         const speedModes = ['smart', 'stable', 'standard', 'turbo'];
         const speedLabels = { smart: '🧠 智慧', stable: '🛡️ 穩定', standard: '⚡ 標準', turbo: '🚀 加速' };
@@ -1017,113 +1030,25 @@ export const UI = {
                 const val = parseInt(e.target.value);
                 if (!isNaN(val)) {
                     Storage.set(CONFIG.KEYS.DAILY_BLOCK_LIMIT, String(val));
-                    UI.showToast(`Meta 每日安全上限已設為 ${val} 人`);
+                    UI.showToast(`封鎖每日提醒門檻已設為 ${val} 人`);
                 }
             };
             const dailyLimitRow = overlay.querySelector('#hege-s-daily-limit');
             if (dailyLimitRow) dailyLimitRow.onclick = (e) => e.stopPropagation();
         }
 
-        const reportPathRow = overlay.querySelector('#hege-s-report-path');
-        const reportPathControls = overlay.querySelector('#hege-s-report-path-controls');
-        const defaultReportPath = ['這是垃圾訊息'];
-        const normalizeReportPath = (path) => {
-            const source = Array.isArray(path) && path.length > 0 ? path : defaultReportPath;
-            const ageChoice = source.includes('是') ? '是' : '否';
-            const out = [];
-            let node = CONFIG.REPORT_MENU_TREE;
-
-            while (node && typeof node === 'object') {
-                if (node.ageQuestion === true) {
-                    out.push(ageChoice);
-                    break;
+        const dailyReportLimitSelect = overlay.querySelector('#hege-s-daily-report-limit-select');
+        if (dailyReportLimitSelect) {
+            dailyReportLimitSelect.value = String(Storage.getDailyReportLimit());
+            dailyReportLimitSelect.onchange = (e) => {
+                const val = parseInt(e.target.value);
+                if (!isNaN(val)) {
+                    Storage.set(CONFIG.KEYS.DAILY_REPORT_LIMIT, String(val));
+                    UI.showToast(`檢舉每日提醒門檻已設為 ${val} 人`);
                 }
-                const options = Object.keys(node).filter(k => k !== 'ageQuestion');
-                if (options.length === 0) break;
-                const idx = out.length;
-                const selected = options.includes(source[idx]) ? source[idx] : options[0];
-                out.push(selected);
-                node = node[selected];
-            }
-
-            return out;
-        };
-        if (reportPathRow) reportPathRow.onclick = (e) => e.stopPropagation();
-        if (reportPathControls) {
-            let reportPath = normalizeReportPath(Storage.getJSON(CONFIG.KEYS.REPORT_PATH, defaultReportPath));
-            const saveReportPath = () => {
-                Storage.setJSON(CONFIG.KEYS.REPORT_PATH, reportPath);
-                UI.showToast('檢舉預設路徑已更新', 1200);
             };
-            const renderReportPathControls = () => {
-                reportPath = normalizeReportPath(reportPath);
-                reportPathControls.innerHTML = '';
-                let node = CONFIG.REPORT_MENU_TREE;
-                let depth = 0;
-
-                while (node && typeof node === 'object') {
-                    if (node.ageQuestion === true) {
-                        const label = document.createElement('label');
-                        label.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:11px; color:#ccc;';
-                        const text = document.createElement('span');
-                        text.textContent = '未滿 18';
-                        const select = document.createElement('select');
-                        select.dataset.level = String(depth);
-                        select.style.cssText = 'background:#1a1a1a; border:1px solid #444; color:#f5f5f5; padding:4px 6px; border-radius:4px; font-size:11px; max-width:150px;';
-                        ['否', '是'].forEach(v => {
-                            const option = document.createElement('option');
-                            option.value = v;
-                            option.textContent = v;
-                            select.appendChild(option);
-                        });
-                        select.value = reportPath[depth] === '是' ? '是' : '否';
-                        select.onchange = () => {
-                            reportPath[depth] = select.value;
-                            reportPath = normalizeReportPath(reportPath);
-                            saveReportPath();
-                        };
-                        label.appendChild(text);
-                        label.appendChild(select);
-                        reportPathControls.appendChild(label);
-                        break;
-                    }
-
-                    const options = Object.keys(node).filter(k => k !== 'ageQuestion');
-                    if (options.length === 0) break;
-
-                    const label = document.createElement('label');
-                    label.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:11px; color:#ccc;';
-                    const text = document.createElement('span');
-                    text.textContent = depth === 0 ? '大類' : `第 ${depth + 1} 層`;
-                    const select = document.createElement('select');
-                    select.dataset.level = String(depth);
-                    select.style.cssText = 'background:#1a1a1a; border:1px solid #444; color:#f5f5f5; padding:4px 6px; border-radius:4px; font-size:11px; max-width:170px;';
-                    options.forEach(v => {
-                        const option = document.createElement('option');
-                        option.value = v;
-                        option.textContent = v;
-                        select.appendChild(option);
-                    });
-                    select.value = options.includes(reportPath[depth]) ? reportPath[depth] : options[0];
-                    select.onchange = () => {
-                        const level = parseInt(select.dataset.level, 10);
-                        reportPath = reportPath.slice(0, level);
-                        reportPath[level] = select.value;
-                        reportPath = normalizeReportPath(reportPath);
-                        saveReportPath();
-                        renderReportPathControls();
-                    };
-                    label.appendChild(text);
-                    label.appendChild(select);
-                    reportPathControls.appendChild(label);
-
-                    node = node[select.value];
-                    depth++;
-                }
-
-                Storage.setJSON(CONFIG.KEYS.REPORT_PATH, reportPath);
-            };
-            renderReportPathControls();
+            const dailyReportLimitRow = overlay.querySelector('#hege-s-daily-report-limit');
+            if (dailyReportLimitRow) dailyReportLimitRow.onclick = (e) => e.stopPropagation();
         }
 
         const reportVisualDebugToggle = overlay.querySelector('#hege-s-report-visual-debug-toggle');
@@ -1146,17 +1071,6 @@ export const UI = {
             };
             const blockVisualDebugRow = overlay.querySelector('#hege-s-block-visual-debug-row');
             if (blockVisualDebugRow) blockVisualDebugRow.onclick = (e) => e.stopPropagation();
-        }
-
-        const emergencyToggle = overlay.querySelector('#hege-s-emergency-toggle');
-        if (emergencyToggle) {
-            emergencyToggle.checked = Storage.get(CONFIG.KEYS.EMERGENCY_MODE) === 'true';
-            emergencyToggle.onchange = (e) => {
-                Storage.set(CONFIG.KEYS.EMERGENCY_MODE, e.target.checked ? 'true' : 'false');
-                UI.showToast(e.target.checked ? '緊急模式已開啟' : '緊急模式已關閉');
-            };
-            const emergencyRow = overlay.querySelector('#hege-s-emergency-mode');
-            if (emergencyRow) emergencyRow.onclick = (e) => e.stopPropagation();
         }
 
         const autoMarkLeaderToggle = overlay.querySelector('#hege-s-auto-mark-leader');
@@ -1260,7 +1174,9 @@ export const UI = {
             };
         });
 
-        const unifiedEvents = [...blockEvents, ...reportEvents].sort((a, b) => (b.eventAt || 0) - (a.eventAt || 0));
+        const unifiedEvents = [...blockEvents, ...reportEvents]
+            .filter(UI.isValidPlatformEvent)
+            .sort((a, b) => (b.eventAt || 0) - (a.eventAt || 0));
 
         const accountAgg = {};
         unifiedEvents.forEach((event) => {
@@ -1868,7 +1784,9 @@ export const UI = {
                 batchId: '',
             };
         });
-        const unifiedEvents = [...blockEvents, ...reportEvents].sort((a, b) => (b.eventAt || 0) - (a.eventAt || 0));
+        const unifiedEvents = [...blockEvents, ...reportEvents]
+            .filter(UI.isValidPlatformEvent)
+            .sort((a, b) => (b.eventAt || 0) - (a.eventAt || 0));
 
         const accountAgg = {};
         unifiedEvents.forEach((event) => {
@@ -2198,6 +2116,11 @@ export const UI = {
                     </span>
                 </div>
                 <div style="padding:16px;overflow-y:auto;max-height:calc(85vh - 60px);">
+                    ${typeof options.onBack === 'function' ? `
+                    <div class="hege-menu-item" id="hege-analytics-back" style="border-bottom:none;color:#aaa;margin-bottom:10px;">
+                        <span>← 返回</span>
+                    </div>
+                    ` : ''}
                     <div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:10px;">
                         <button id="hege-analytics-toggle-advanced" class="hege-manager-btn secondary" style="font-size:12px;padding:6px 10px;white-space:nowrap;">${analyticsShowAdvanced ? '隱藏進階分析' : '顯示進階分析'}</button>
                     </div>
@@ -2216,35 +2139,77 @@ export const UI = {
                     </div>
 
                     <div style="font-size:11px;color:#666;font-weight:700;letter-spacing:1px;margin-bottom:8px;">來源分析</div>
-                    <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;margin-bottom:12px;">
-                        <div style="font-weight:600;font-size:13px;margin-bottom:8px;">來源資料概況</div>
-                        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;">
-                            ${queueStat(`${sourcedBlockCount}/${totalBlocked}`, '有來源的封鎖', '#5ac8fa')}
-                            ${queueStat(`${sourcedReportCount}/${reportHistory.length || 0}`, '有來源的檢舉', '#bf5af2')}
-                            ${queueStat(`${sourceCoveragePct}%`, '封鎖來源覆蓋率', '#4cd964')}
-                            ${queueStat(`${reportSourceCoveragePct}%`, '檢舉來源覆蓋率', '#bf5af2')}
+                    <div style="background:#111;border-radius:10px;padding:12px;border:1px solid #2a2a2a;margin-bottom:12px;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
+                            <div>
+                                <div style="font-weight:700;font-size:14px;color:#f5f5f5;">這批資料能說明什麼？</div>
+                                <div style="font-size:11px;color:#888;line-height:1.45;">預設只顯示可行動摘要；hash、schema、逐筆證據放在進階分析。</div>
+                            </div>
+                            <span style="font-size:11px;color:${sourceCoveragePct >= 70 ? '#30d158' : sourceCoveragePct >= 45 ? '#ffd60a' : '#ff9f0a'};background:#1a1a1a;border:1px solid #2f2f2f;border-radius:999px;padding:5px 9px;white-space:nowrap;">
+                                ${sourceCoveragePct >= 70 ? '來源品質良好' : sourceCoveragePct >= 45 ? '來源可用' : '來源仍在累積'}
+                            </span>
                         </div>
                         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
-                            ${queueStat(uniqueSources, '封鎖來源文章', '#ffd60a')}
-                            ${queueStat(Object.keys(reportSourceMap).length, '檢舉來源文章', '#bf5af2')}
-                            ${queueStat(allProvenanceSources.length, '交叉來源文章', '#5ac8fa')}
-                            ${queueStat(legacyCount, '舊封鎖資料', legacyCount > 0 ? '#ff9f0a' : '#777')}
-                        </div>
-                        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px;">
-                            ${queueStat(sourceEvidenceList.length, '來源證據筆數', '#5ac8fa')}
-                            ${queueStat(`${sourceEvidenceCoveragePct}%`, '證據覆蓋率', '#4cd964')}
-                            ${queueStat(`${sourceEvidenceSnippetCoveragePct}%`, '含文字快照率', '#bf5af2')}
-                            ${queueStat(sourceEvidenceRecent7dCount, '7 天內更新', '#ffd60a')}
+                            ${queueStat(`${sourceCoveragePct}%`, '封鎖可回推來源', sourceCoveragePct >= 70 ? '#30d158' : '#ffd60a')}
+                            ${queueStat(`${reportSourceCoveragePct}%`, '檢舉可回推來源', reportSourceCoveragePct >= 70 ? '#30d158' : '#bf5af2')}
+                            ${queueStat(allProvenanceSources.length, '來源文章', '#5ac8fa')}
+                            ${queueStat(`${topSourceShare}%`, '最大來源占比', topSourceShare >= 35 ? '#ff9f0a' : '#4cd964')}
                         </div>
                     </div>
 
-                    <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;margin-bottom:12px;">
-                        <div style="font-weight:600;font-size:13px;margin-bottom:8px;">判讀摘要</div>
+                    <div style="background:#111;border-radius:10px;padding:12px;border:1px solid #2a2a2a;margin-bottom:12px;">
+                        <div style="font-weight:600;font-size:13px;margin-bottom:8px;">重點判讀</div>
                         <div style="display:flex;flex-direction:column;gap:6px;">
-                            ${insightRows.map(line => `<div style="font-size:12px;color:#ccc;line-height:1.45;background:#1a1a1a;border-radius:6px;padding:7px 8px;">${Utils.escapeHTML(line)}</div>`).join('')}
+                            ${insightRows.slice(0, 4).map(line => `<div style="font-size:12px;color:#ccc;line-height:1.5;background:#1a1a1a;border-radius:7px;padding:8px 9px;">${Utils.escapeHTML(line)}</div>`).join('')}
                         </div>
                     </div>
 
+                    ${topProvenanceSources.length > 0 ? `
+                    <div style="background:#111;border-radius:10px;padding:12px;border:1px solid #2a2a2a;margin-bottom:12px;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+                            <div style="font-weight:600;font-size:13px;">主要來源 TOP ${Math.min(topProvenanceSources.length, 5)}</div>
+                            <div style="font-size:10px;color:#777;">封鎖＋檢舉合併排序</div>
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:6px;">
+                            ${topProvenanceSources.slice(0, 5).map(([url, info], i) => {
+                                const total = (info.blocked || 0) + (info.reported || 0);
+                                return `
+                                <div style="display:flex;align-items:flex-start;gap:8px;padding:8px;background:#1a1a1a;border-radius:7px;">
+                                    <span style="font-size:16px;font-weight:800;color:#555;min-width:20px;">${i + 1}</span>
+                                    <div style="flex:1;min-width:0;">
+                                        <div style="font-size:12px;color:#ddd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${info.postText ? Utils.escapeHTML(info.postText) : (info.postOwner ? '@' + Utils.escapeHTML(info.postOwner) : '未知來源貼文')}</div>
+                                        <div style="font-size:10px;color:#777;margin-top:2px;">${info.postOwner ? `作者 @${Utils.escapeHTML(info.postOwner)} · ` : ''}${total} 次動作</div>
+                                        <a href="${Utils.escapeHTML(url)}" target="_blank" style="font-size:10px;color:#5ac8fa;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;">${Utils.escapeHTML(url.replace('https://www.threads.net', '').replace('https://www.threads.com', ''))}</a>
+                                    </div>
+                                    <div style="display:flex;flex-direction:column;gap:3px;min-width:64px;text-align:right;">
+                                        <span style="font-size:12px;font-weight:700;color:#ff453a;">封 ${info.blocked}</span>
+                                        <span style="font-size:12px;font-weight:700;color:#bf5af2;">檢 ${info.reported}</span>
+                                    </div>
+                                </div>`;
+                            }).join('')}
+                        </div>
+                    </div>` : `
+                    <div style="background:#111;border-radius:10px;padding:16px;border:1px solid #2a2a2a;margin-bottom:12px;text-align:center;color:#666;font-size:12px;">
+                        目前還沒有可呈現的來源文章；後續封鎖或檢舉會自動累積。
+                    </div>`}
+
+                    <div style="font-size:11px;color:#666;font-weight:700;letter-spacing:1px;margin-bottom:8px;">匯出準備</div>
+                    <div id="hege-analytics-upload-card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;background:#0f1720;border:1px solid #203040;border-radius:8px;padding:10px 12px;">
+                        <div style="display:flex;flex-direction:column;gap:7px;min-width:0;flex:1;">
+                            <div style="font-size:12px;color:#cfe8ff;line-height:1.45;">會整理封鎖與檢舉對象來自哪篇貼文、哪個批次與哪條檢舉路徑；可匯出 JSON 供平台分析。</div>
+                            <label style="display:flex;align-items:flex-start;gap:8px;font-size:11px;color:#9fb9d1;line-height:1.45;">
+                                <input id="hege-analytics-auto-sync-toggle" type="checkbox" ${platformSyncEnabled ? 'checked' : ''} style="margin-top:2px;">
+                                <span>開啟後，Chrome / Firefox extension 版會每天自動嘗試上傳一次；iOS 仍維持手動上傳。此偏好也會隨 upload 一起送出，供平台建立 trusted sync 與樣本分級；最近一次成功上傳：${platformSyncLastAt > 0 ? new Date(platformSyncLastAt).toLocaleString('zh-TW') : '尚未'}</span>
+                            </label>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+                            <button id="hege-analytics-export-provenance" class="hege-manager-btn" style="font-size:12px;padding:8px 10px;white-space:nowrap;background:#5ac8fa;color:#001018;border:none;border-radius:7px;font-weight:700;cursor:pointer;">匯出來源 JSON</button>
+                            <button id="hege-analytics-upload-platform" class="hege-manager-btn" style="font-size:12px;padding:8px 10px;white-space:nowrap;background:#30d158;color:#00150a;border:none;border-radius:7px;font-weight:700;cursor:pointer;">一鍵上傳平台</button>
+                        </div>
+                    </div>
+                    <div id="hege-analytics-upload-status" style="font-size:11px;color:#888;margin-top:-8px;margin-bottom:12px;"></div>
+                    ${analyticsShowAdvanced ? `
+                    <div style="font-size:11px;color:#666;font-weight:700;letter-spacing:1px;margin-bottom:8px;">進階分析</div>
                     ${sourceEvidencePreview.length > 0 ? `
                     <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;margin-bottom:12px;">
                         <div style="font-weight:600;font-size:13px;margin-bottom:8px;">來源證據快照（最近 ${sourceEvidencePreview.length} 筆）</div>
@@ -2325,45 +2290,6 @@ export const UI = {
                         </div>
                     </div>` : ''}
 
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
-                        <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;">
-                            <div style="font-weight:600;font-size:13px;margin-bottom:8px;">批次分析</div>
-                            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
-                                ${queueStat(batchTotal, '批次數', '#5ac8fa')}
-                                ${queueStat(avgBatchSize, '平均批量', '#4cd964')}
-                                ${queueStat(maxBatchSize, '最大批量', '#ff9f0a')}
-                            </div>
-                        </div>
-                        <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;">
-                            <div style="font-weight:600;font-size:13px;margin-bottom:8px;">發文者來源 TOP ${topOwners.length}</div>
-                            ${topOwners.length > 0 ? `<div style="display:flex;flex-direction:column;gap:5px;">
-                                ${topOwners.map(([owner, info]) => `
-                                    <div style="display:flex;align-items:center;gap:8px;font-size:12px;background:#1a1a1a;border-radius:6px;padding:6px;">
-                                        <span style="color:#5ac8fa;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">@${Utils.escapeHTML(owner)}</span>
-                                        <span style="color:#888;">${info.sources.size} 篇</span>
-                                        <span style="color:#ff453a;font-weight:700;min-width:44px;text-align:right;">${info.count} 人</span>
-                                    </div>`).join('')}
-                            </div>` : `<div style="font-size:12px;color:#666;">沒有可分析的發文者資料</div>`}
-                        </div>
-                    </div>
-
-                    <div style="font-size:11px;color:#666;font-weight:700;letter-spacing:1px;margin-bottom:8px;">匯出準備</div>
-                    <div id="hege-analytics-upload-card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;background:#0f1720;border:1px solid #203040;border-radius:8px;padding:10px 12px;">
-                        <div style="display:flex;flex-direction:column;gap:7px;min-width:0;flex:1;">
-                            <div style="font-size:12px;color:#cfe8ff;line-height:1.45;">會整理封鎖與檢舉對象來自哪篇貼文、哪個批次與哪條檢舉路徑；可匯出 JSON 供平台分析。</div>
-                            <label style="display:flex;align-items:flex-start;gap:8px;font-size:11px;color:#9fb9d1;line-height:1.45;">
-                                <input id="hege-analytics-auto-sync-toggle" type="checkbox" ${platformSyncEnabled ? 'checked' : ''} style="margin-top:2px;">
-                                <span>開啟後，Chrome / Firefox extension 版會每天自動嘗試上傳一次；iOS 仍維持手動上傳。此偏好也會隨 upload 一起送出，供平台建立 trusted sync 與樣本分級；最近一次成功上傳：${platformSyncLastAt > 0 ? new Date(platformSyncLastAt).toLocaleString('zh-TW') : '尚未'}</span>
-                            </label>
-                        </div>
-                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
-                            <button id="hege-analytics-export-provenance" class="hege-manager-btn" style="font-size:12px;padding:8px 10px;white-space:nowrap;background:#5ac8fa;color:#001018;border:none;border-radius:7px;font-weight:700;cursor:pointer;">匯出來源 JSON</button>
-                            <button id="hege-analytics-upload-platform" class="hege-manager-btn" style="font-size:12px;padding:8px 10px;white-space:nowrap;background:#30d158;color:#00150a;border:none;border-radius:7px;font-weight:700;cursor:pointer;">一鍵上傳平台</button>
-                        </div>
-                    </div>
-                    <div id="hege-analytics-upload-status" style="font-size:11px;color:#888;margin-top:-8px;margin-bottom:12px;"></div>
-                    ${analyticsShowAdvanced ? `
-                    <div style="font-size:11px;color:#666;font-weight:700;letter-spacing:1px;margin-bottom:8px;">進階分析</div>
                     <div style="background:#111;border-radius:8px;padding:12px;border:1px solid #2a2a2a;margin-bottom:12px;">
                         <div style="font-weight:600;font-size:13px;margin-bottom:8px;">自動化背景</div>
                         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
@@ -2445,6 +2371,13 @@ export const UI = {
         document.body.appendChild(overlay);
 
         overlay.querySelector('.hege-manager-close').onclick = () => overlay.remove();
+        const backBtn = overlay.querySelector('#hege-analytics-back');
+        if (backBtn) {
+            backBtn.onclick = () => {
+                overlay.remove();
+                try { options.onBack(); } catch (e) { console.error('[hege] analytics back failed', e); }
+            };
+        }
         overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
         const exportBtn = overlay.querySelector('#hege-analytics-export-provenance');
         if (exportBtn) {
@@ -2493,7 +2426,7 @@ export const UI = {
                             UI.showToast(`平台上傳成功（ID ${result?.id || '-'}）`);
                         }
                     } else {
-                        const msg = result?.message || '未知錯誤';
+                        const msg = UI.getHumanErrorMessage(result);
                         if (uploadStatusEl) uploadStatusEl.textContent = `上傳失敗：${msg}`;
                         UI.showToast(`平台上傳失敗：${msg}`);
                     }

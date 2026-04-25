@@ -106,7 +106,6 @@ cat <<EOF > "$OUT_FILE"
 // @connect      script.googleusercontent.com
 // @connect      *.workers.dev
 // @connect      threadsblocker.skiseiju.com
-// @connect      app.skiseiju.com
 // ==/UserScript==
 
 EOF
@@ -117,6 +116,7 @@ echo "UserScript Build complete: $OUT_FILE"
 
 # 2. Chrome Extension Build (MV3)
 EXT_DIR="$DIST_DIR/extension"
+rm -rf "$EXT_DIR"
 mkdir -p "$EXT_DIR"
 
 cp "$TEMP_BUNDLE" "$EXT_DIR/content.js"
@@ -140,6 +140,7 @@ echo "Chrome Extension Build complete: $EXT_DIR"
 
 # 3. Firefox Extension Build (MV2)
 FF_DIR="$DIST_DIR/firefox"
+rm -rf "$FF_DIR"
 mkdir -p "$FF_DIR"
 
 cp "$TEMP_BUNDLE" "$FF_DIR/content.js"
@@ -160,6 +161,7 @@ else
 fi
 
 # Package Firefox .xpi (zip)
+rm -f "$DIST_DIR/threads_blocker_firefox.xpi"
 (cd "$FF_DIR" && zip -qr "$DIST_DIR/threads_blocker_firefox.xpi" .)
 echo "Firefox Extension Build complete: $FF_DIR"
 echo "Firefox XPI: $DIST_DIR/threads_blocker_firefox.xpi"

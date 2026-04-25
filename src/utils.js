@@ -246,6 +246,8 @@ export const Utils = {
         return Utils._logBuffer || [];
     },
 
+    isBetaBuild: () => /\-beta/i.test(String(CONFIG.VERSION || '')),
+
     // Checkbox 注入診斷記錄
     _diagBuffer: [],
     diagLog: (msg) => {

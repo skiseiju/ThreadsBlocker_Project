@@ -51,8 +51,13 @@
             </article>
             <article class="stat-card">
               <p id="statContributors" class="stat-card__value">0</p>
-              <p class="stat-card__label">位真人貢獻資料</p>
-              <p class="stat-card__sub">匿名上傳，不含個資</p>
+              <p class="stat-card__label">批 trusted 上傳</p>
+              <p class="stat-card__sub">納入公開圖表的匿名樣本</p>
+            </article>
+            <article class="stat-card">
+              <p id="statPendingUploads" class="stat-card__value">0</p>
+              <p class="stat-card__label">批待觀察上傳</p>
+              <p class="stat-card__sub">已收到，尚未混入公開統計</p>
             </article>
           </div>
         </div>
@@ -130,6 +135,7 @@
       const statEvents = document.getElementById('statEvents');
       const statCoordinated = document.getElementById('statCoordinated');
       const statContributors = document.getElementById('statContributors');
+      const statPendingUploads = document.getElementById('statPendingUploads');
       const trendChart = document.getElementById('trendChart');
       const trendEventDetail = document.getElementById('trendEventDetail');
       const rotatingHeadlines = [
@@ -170,10 +176,8 @@
         const politicalEvents = typeof eventsLoader === 'function' ? await eventsLoader() : [];
 
         heroSubtitle.textContent = resolveSubtitle(data);
-        const startDate = safeValue(data && data.dateRange && data.dateRange.start, '--');
-        const endDate = safeValue(data && data.dateRange && data.dateRange.end, '--');
-        heroDateRange.textContent = startDate !== '--' && endDate !== '--'
-          ? `觀測區間 ${startDate} 至 ${endDate}`
+        heroDateRange.textContent = typeof window.PlatformPublic.buildObservationWindowLabel === 'function'
+          ? window.PlatformPublic.buildObservationWindowLabel(data)
           : '觀測區間尚在累積中';
         heroMethodologyMeta.textContent = `taxonomy ${safeValue(data && data.taxonomyVersion, 'topic-taxonomy.v1')} · sample ${safeValue(data && data.sampleScope, 'trusted')} · policy ${safeValue(data && data.methodology && data.methodology.trustPolicy, 'public-trusted-only')}`;
         if (heroStatusMessage) {
@@ -193,6 +197,9 @@
           data && data.signals ? data.signals.coordinatedAccountEstimate : 0
         );
         statContributors.textContent = safeValue(data && data.overview && data.overview.uploadCount, 0);
+        if (statPendingUploads) {
+          statPendingUploads.textContent = safeValue(data && data.intake && data.intake.probationUploadCount, 0);
+        }
 
         window.PlatformPublic.renderTrendChart(
           trendChart,

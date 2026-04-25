@@ -3,6 +3,196 @@ import { Storage } from './storage.js';
 
 export const Reporter = {
     sourceApp: 'ThreadsBlocker',
+    PLATFORM_UPLOAD_SOFT_MAX_BYTES: Math.floor(4.5 * 1024 * 1024),
+    PLATFORM_UPLOAD_HARD_MAX_BYTES: 5 * 1024 * 1024,
+
+    normalizeErrorMessage: (result, fallback = 'Unknown error') => {
+        if (!result) return fallback;
+        const primary = String(result.message || '').trim();
+        const reasons = Array.isArray(result.reasons)
+            ? result.reasons.map(v => String(v || '').trim()).filter(Boolean)
+            : [];
+        if (primary && reasons.length > 0) return `${primary}: ${reasons.join(', ')}`;
+        if (primary) return primary;
+        const skipped = String(result.skipped || '').trim();
+        if (skipped) return `Skipped: ${skipped}`;
+        const statusText = String(result.statusText || '').trim();
+        const code = Number(result.code) || 0;
+        if (code > 0 && statusText) return `HTTP ${code} ${statusText}`;
+        if (code > 0) return `HTTP ${code}`;
+        return fallback;
+    },
+
+    byteLengthOfJSON: (value) => {
+        try {
+            return new TextEncoder().encode(JSON.stringify(value)).length;
+        } catch (_) {
+            return Number.MAX_SAFE_INTEGER;
+        }
+    },
+
+    trimText: (value, maxLen = 160) => {
+        const text = String(value || '');
+        if (!text) return '';
+        return text.length > maxLen ? text.slice(0, maxLen) : text;
+    },
+
+    keepTopEntries: (value, limit = 10) => {
+        const obj = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+        return Object.fromEntries(
+            Object.entries(obj)
+                .sort((a, b) => (Number(b[1]) || 0) - (Number(a[1]) || 0))
+                .slice(0, limit)
+        );
+    },
+
+    optimizePlatformPayload: (payload, options = {}) => {
+        const maxBytes = Math.max(1024, Number(options.maxBytes) || Reporter.PLATFORM_UPLOAD_SOFT_MAX_BYTES);
+        const next = JSON.parse(JSON.stringify(payload || {}));
+        const originalBytes = Reporter.byteLengthOfJSON(next);
+        const steps = [];
+        const noteStep = (label, before, after) => {
+            if (after < before) steps.push(`${label}:${before}->${after}`);
+        };
+        const currentBytes = () => Reporter.byteLengthOfJSON(next);
+
+        if (originalBytes <= maxBytes) {
+            return { payload: next, originalBytes, finalBytes: originalBytes, optimized: false, steps };
+        }
+
+        let before = currentBytes();
+        if (Array.isArray(next.events)) {
+            next.events = next.events.map((event) => ({
+                ...event,
+                sourceText: Reporter.trimText(event?.sourceText, 160),
+                sourceOwner: Reporter.trimText(event?.sourceOwner, 80),
+                reportPath: Array.isArray(event?.reportPath) ? event.reportPath.slice(0, 3).map(v => Reporter.trimText(v, 80)) : []
+            }));
+        }
+        if (Array.isArray(next.accounts)) {
+            next.accounts = next.accounts.map((account) => ({
+                ...account,
+                sourceUrls: Array.isArray(account?.sourceUrls) ? account.sourceUrls.slice(0, 8) : [],
+                sourceOwners: Array.isArray(account?.sourceOwners) ? account.sourceOwners.slice(0, 4).map(v => Reporter.trimText(v, 80)) : [],
+                blockReasons: Array.isArray(account?.blockReasons) ? account.blockReasons.slice(0, 8).map(v => Reporter.trimText(v, 80)) : [],
+                reportPrimaryCategories: Array.isArray(account?.reportPrimaryCategories) ? account.reportPrimaryCategories.slice(0, 8).map(v => Reporter.trimText(v, 80)) : [],
+                reportLeafCategories: Array.isArray(account?.reportLeafCategories) ? account.reportLeafCategories.slice(0, 8).map(v => Reporter.trimText(v, 80)) : []
+            }));
+        }
+        if (Array.isArray(next.sources)) {
+            next.sources = next.sources.map((source) => ({
+                ...source,
+                sourceOwners: Array.isArray(source?.sourceOwners) ? source.sourceOwners.slice(0, 4).map(v => Reporter.trimText(v, 80)) : [],
+                sourceTextSamples: Array.isArray(source?.sourceTextSamples) ? source.sourceTextSamples.slice(0, 1).map(v => Reporter.trimText(v, 160)) : [],
+                accountIds: Array.isArray(source?.accountIds) ? source.accountIds.slice(0, 20).map(v => Reporter.trimText(v, 180)) : [],
+                reportPathCounts: Reporter.keepTopEntries(source?.reportPathCounts, 8),
+                blockReasonCounts: Reporter.keepTopEntries(source?.blockReasonCounts, 8),
+                topicHintCounts: Reporter.keepTopEntries(source?.topicHintCounts, 12),
+                topTopicHints: Array.isArray(source?.topTopicHints)
+                    ? source.topTopicHints.slice(0, 5).map((item) => ({
+                        topicHint: Reporter.trimText(item?.topicHint, 120),
+                        count: Number(item?.count) || 0
+                    }))
+                    : []
+            }));
+        }
+        if (Array.isArray(next.sourceEvidence)) {
+            next.sourceEvidence = next.sourceEvidence.map((item) => ({
+                ...item,
+                sourceOwner: Reporter.trimText(item?.sourceOwner, 80),
+                sourceChannel: Reporter.trimText(item?.sourceChannel, 40),
+                textHash: Reporter.trimText(item?.textHash, 120),
+                snippet: Reporter.trimText(item?.snippet, 160)
+            }));
+        }
+        if (next.analysisSeeds && typeof next.analysisSeeds === 'object') {
+            if (Array.isArray(next.analysisSeeds.suspiciousAccounts)) {
+                next.analysisSeeds.suspiciousAccounts = next.analysisSeeds.suspiciousAccounts.slice(0, 30);
+            }
+            if (Array.isArray(next.analysisSeeds.campaignCandidates)) {
+                next.analysisSeeds.campaignCandidates = next.analysisSeeds.campaignCandidates.slice(0, 30).map((item) => ({
+                    ...item,
+                    sourceOwners: Array.isArray(item?.sourceOwners) ? item.sourceOwners.slice(0, 4).map(v => Reporter.trimText(v, 80)) : [],
+                    sourceTextSamples: Array.isArray(item?.sourceTextSamples) ? item.sourceTextSamples.slice(0, 1).map(v => Reporter.trimText(v, 160)) : [],
+                    topTopicHints: Array.isArray(item?.topTopicHints) ? item.topTopicHints.slice(0, 5) : [],
+                    dominantReportPaths: Array.isArray(item?.dominantReportPaths) ? item.dominantReportPaths.slice(0, 3) : []
+                }));
+            }
+            if (Array.isArray(next.analysisSeeds.topicSeeds)) {
+                next.analysisSeeds.topicSeeds = next.analysisSeeds.topicSeeds.slice(0, 20).map((item) => ({
+                    ...item,
+                    sampleAccounts: Array.isArray(item?.sampleAccounts) ? item.sampleAccounts.slice(0, 5) : [],
+                    sampleSources: Array.isArray(item?.sampleSources) ? item.sampleSources.slice(0, 3) : []
+                }));
+            }
+            if (Array.isArray(next.analysisSeeds.narrativeSeeds)) {
+                next.analysisSeeds.narrativeSeeds = next.analysisSeeds.narrativeSeeds.slice(0, 20).map((item) => ({
+                    ...item,
+                    sourceOwners: Array.isArray(item?.sourceOwners) ? item.sourceOwners.slice(0, 4).map(v => Reporter.trimText(v, 80)) : [],
+                    sourceTextSamples: Array.isArray(item?.sourceTextSamples) ? item.sourceTextSamples.slice(0, 1).map(v => Reporter.trimText(v, 160)) : [],
+                    dominantReportPaths: Array.isArray(item?.dominantReportPaths) ? item.dominantReportPaths.slice(0, 3) : [],
+                    dominantBlockReasons: Array.isArray(item?.dominantBlockReasons) ? item.dominantBlockReasons.slice(0, 3) : [],
+                    dominantTopicHints: Array.isArray(item?.dominantTopicHints) ? item.dominantTopicHints.slice(0, 5) : []
+                }));
+            }
+        }
+        let after = currentBytes();
+        noteStep('compact_verbose_fields', before, after);
+        if (after <= maxBytes) {
+            return { payload: next, originalBytes, finalBytes: after, optimized: true, steps };
+        }
+
+        before = after;
+        if (Array.isArray(next.sourceEvidence)) {
+            next.sourceEvidence = next.sourceEvidence.map((item) => ({
+                ...item,
+                snippet: ''
+            }));
+        }
+        after = currentBytes();
+        noteStep('drop_source_evidence_snippets', before, after);
+        if (after <= maxBytes) {
+            return { payload: next, originalBytes, finalBytes: after, optimized: true, steps };
+        }
+
+        before = after;
+        if (Array.isArray(next.events)) {
+            next.events = next.events.map((event) => ({
+                ...event,
+                sourceText: ''
+            }));
+        }
+        if (Array.isArray(next.sources)) {
+            next.sources = next.sources.map((source) => ({
+                ...source,
+                sourceTextSamples: []
+            }));
+        }
+        if (next.analysisSeeds && typeof next.analysisSeeds === 'object' && Array.isArray(next.analysisSeeds.narrativeSeeds)) {
+            next.analysisSeeds.narrativeSeeds = next.analysisSeeds.narrativeSeeds.map((item) => ({
+                ...item,
+                sourceTextSamples: []
+            }));
+        }
+        after = currentBytes();
+        noteStep('drop_source_text_fields', before, after);
+        if (after <= maxBytes) {
+            return { payload: next, originalBytes, finalBytes: after, optimized: true, steps };
+        }
+
+        before = after;
+        next.sourceEvidence = [];
+        if (next.fieldSpec && typeof next.fieldSpec === 'object') {
+            next.fieldSpec = {
+                ...next.fieldSpec,
+                sourceEvidence: []
+            };
+        }
+        after = currentBytes();
+        noteStep('drop_source_evidence', before, after);
+
+        return { payload: next, originalBytes, finalBytes: after, optimized: after < originalBytes, steps };
+    },
 
     getHardwareId: () => {
         let hwid = Storage.get('hege_hwid');
@@ -75,7 +265,11 @@ export const Reporter = {
                     const resJson = JSON.parse(response.responseText);
                     resolve(resJson);
                 } catch (e) {
-                    resolve({ code: response.status, message: response.responseText });
+                    resolve({
+                        code: response.status,
+                        message: String(response.responseText || '').trim() || `HTTP ${response.status}`,
+                        statusText: response.statusText || ''
+                    });
                 }
             },
             onerror: (err) => {
@@ -97,7 +291,11 @@ export const Reporter = {
             try {
                 resolve(JSON.parse(text));
             } catch (e) {
-                resolve({ code: res.status, message: text });
+                resolve({
+                    code: res.status,
+                    message: String(text || '').trim() || `HTTP ${res.status}`,
+                    statusText: res.statusText || ''
+                });
             }
         }).catch(err => {
             reject({ code: 500, message: err.toString(), network: true, detail: err });
@@ -161,7 +359,7 @@ export const Reporter = {
         if (lastError) {
             return {
                 code: 500,
-                message: lastError.message || 'Network error',
+                message: Reporter.normalizeErrorMessage(lastError, 'Network error'),
                 detail: lastError
             };
         }
@@ -195,13 +393,38 @@ export const Reporter = {
                 uploadTrigger: options.trigger || 'manual'
             }
         };
+        const prepared = Reporter.optimizePlatformPayload(body, {
+            maxBytes: Reporter.PLATFORM_UPLOAD_SOFT_MAX_BYTES
+        });
+        const uploadBody = prepared.payload;
+        if (prepared.optimized) {
+            uploadBody.uploadMeta = uploadBody.uploadMeta && typeof uploadBody.uploadMeta === 'object'
+                ? uploadBody.uploadMeta
+                : {};
+            uploadBody.uploadMeta.payloadOptimization = {
+                originalBytes: prepared.originalBytes,
+                finalBytes: prepared.finalBytes,
+                steps: prepared.steps
+            };
+        }
+        if (prepared.finalBytes > Reporter.PLATFORM_UPLOAD_HARD_MAX_BYTES) {
+            return {
+                code: 413,
+                message: `Payload too large after optimization (${prepared.finalBytes} bytes)`,
+                detail: {
+                    originalBytes: prepared.originalBytes,
+                    finalBytes: prepared.finalBytes,
+                    steps: prepared.steps
+                }
+            };
+        }
 
         let lastError = null;
         for (const endpoint of endpoints) {
             try {
                 const result = typeof GM_xmlhttpRequest !== 'undefined'
-                    ? await Reporter.sendViaGM(endpoint, body)
-                    : await Reporter.sendViaFetch(endpoint, body);
+                    ? await Reporter.sendViaGM(endpoint, uploadBody)
+                    : await Reporter.sendViaFetch(endpoint, uploadBody);
 
                 if (result && Number(result.code) === 200) {
                     const syncedAt = Date.now();
@@ -219,7 +442,7 @@ export const Reporter = {
         if (lastError) {
             return {
                 code: 500,
-                message: lastError.message || 'Network error',
+                message: Reporter.normalizeErrorMessage(lastError, 'Network error'),
                 detail: lastError
             };
         }

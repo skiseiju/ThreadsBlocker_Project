@@ -1,6 +1,11 @@
 # Secrets
 .env
 .env.*
+SECRETS.md
+
+# Local operation artifacts
+.ops-backups/
+.ops-deploy/
 
 # Node.js
 node_modules/
