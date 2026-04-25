@@ -46,7 +46,15 @@ export const Storage = {
         localStorage.setItem(key, JSON.stringify(value));
     },
 
-    getPlatformSyncEnabled: () => Storage.get(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, 'true') === 'true',
+    getPlatformSyncPreference: () => Storage.get(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, null),
+    hasPlatformSyncPreference: () => Storage.getPlatformSyncPreference() === 'true' || Storage.getPlatformSyncPreference() === 'false',
+    getPlatformSyncConsentVersion: () => Storage.get(CONFIG.KEYS.PLATFORM_SYNC_CONSENT_VERSION, ''),
+    hasPlatformSyncConsentForCurrentVersion: () => Storage.hasPlatformSyncPreference() && Storage.getPlatformSyncConsentVersion() === CONFIG.VERSION,
+    setPlatformSyncConsentDecision: (enabled) => {
+        Storage.setPlatformSyncEnabled(enabled);
+        Storage.set(CONFIG.KEYS.PLATFORM_SYNC_CONSENT_VERSION, CONFIG.VERSION);
+    },
+    getPlatformSyncEnabled: () => Storage.getPlatformSyncPreference() === 'true',
     setPlatformSyncEnabled: (enabled) => Storage.set(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, enabled ? 'true' : 'false'),
     getPlatformSyncLastAt: () => parseInt(Storage.get(CONFIG.KEYS.PLATFORM_SYNC_LAST_AT, '0') || '0', 10) || 0,
     setPlatformSyncLastAt: (ts = Date.now()) => Storage.set(CONFIG.KEYS.PLATFORM_SYNC_LAST_AT, String(ts)),

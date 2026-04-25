@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="留友封 — Threads 批次封鎖、只檢舉與來源分析工具。在 Threads 網頁版上整理互動名單、建立貼文水庫，並可選擇上傳觀測資料。">
-    <meta name="keywords" content="Threads, 封鎖, 批次, Chrome 擴充功能, Firefox, Safari, 網軍">
+    <meta name="keywords" content="Threads, 封鎖, 批次, Chrome 擴充功能, Firefox, Safari, 可疑帶風向行為">
     <meta property="og:title" content="留友封 - ThreadsBlocker | Threads 批次封鎖工具">
     <meta property="og:description" content="在 Threads 網頁版上批次封鎖、只檢舉、整理來源分析，支援 Chrome、Firefox、Safari。">
     <meta property="og:url" content="https://threadsblocker.skiseiju.com">
@@ -364,7 +364,7 @@
                 <div class="feature-card">
                     <div class="feature-icon">☁️</div>
                     <h3>觀測平台上傳</h3>
-                    <p>可手動上傳一般使用者資料；Chrome / Firefox 版也可開啟每日自動上傳</p>
+                    <p>可手動上傳來源分析資料；支援擴充功能的 Chrome / Firefox（含 Android）會先詢問是否開啟每日自動上傳；iOS / Safari 以手動提醒為主</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">🌍</div>
@@ -497,7 +497,7 @@
                 <p>最後更新：2026 年 4 月</p>
 
                 <h3>核心原則</h3>
-                <p>留友封以本地運作為核心設計。封鎖、檢舉與來源分析預設都在你的瀏覽器內完成；只有在你主動回報問題、上傳觀測資料，或在 Chrome / Firefox 版開啟每日自動上傳時，才會傳送必要資料。</p>
+                <p>留友封以本地運作為核心設計。封鎖、檢舉與來源分析預設都在你的瀏覽器內完成；只有在你主動回報問題、手動上傳觀測資料，或在支援擴充功能的 Chrome / Firefox（含 Android）明確同意每日自動上傳後，才會傳送必要資料。</p>
 
                 <h3>本地儲存</h3>
                 <ul>
@@ -506,23 +506,26 @@
                 </ul>
 
                 <h3>來源分析與觀測上傳</h3>
-                <p>「來源分析報告」會在你的瀏覽器內整理封鎖與檢舉來源、批次、檢舉路徑與貼文線索。你可以選擇匯出 JSON 或一鍵上傳觀測平台；Chrome / Firefox extension 版可開啟每日自動上傳，iOS / Safari 仍維持手動上傳。</p>
-                <p>觀測資料用於聚合分析，不會要求你提供 Threads 密碼或平台登入憑證。是否上傳由使用者控制，並可在工具內查看最近一次成功上傳時間。</p>
+                <p>「來源分析報告」會在你的瀏覽器內整理封鎖與檢舉來源、批次、檢舉路徑與貼文線索。你可以選擇匯出 JSON 或一鍵上傳觀測平台；支援擴充功能的 Chrome / Firefox（含 Android）每次版本更新後，會在首次自動同步前詢問是否開啟每日自動上傳，iOS / Safari 受背景執行限制，會提醒你手動上傳。</p>
+                <p>觀測資料用於聚合分析，不會要求你提供 Threads 密碼、平台登入憑證、cookies、瀏覽器歷史紀錄、私人訊息、Email、Google 帳號或真實姓名。是否上傳由使用者控制，並可在工具內查看最近一次成功上傳時間。</p>
+                <p>若你同意上傳，資料可能包含你封鎖或檢舉過的帳號識別與公開個人檔案連結、相關來源貼文連結、公開文字片段、檢舉/封鎖分類、批次統計、時間、工具版本與匿名來源 ID。匿名來源 ID 是本工具在你的瀏覽器本機隨機產生的樣本代號，不是你的 Threads 使用者 ID，也不是由你的帳號、Email 或 Google 帳號推算而來；它只用來辨識同一個匿名來源的多次上傳，避免重複計算。</p>
+                <p>觀測平台呈現的是公開樣本中的聚合統計與可疑行為模式，不是對任何個別帳號、個人或組織的法律判定，也不鼓勵騷擾、肉搜、威脅或私下攻擊任何人。請勿將平台資料用於違法、騷擾或侵犯他人權益的行為。</p>
 
                 <h3>資料使用與分享</h3>
                 <ul>
                     <li>本機資料：封鎖名單、檢舉佇列、貼文水庫、來源分析、工具設定與執行紀錄，主要用於提供封鎖、檢舉、分析、回復與問題診斷功能。</li>
                     <li>問題回報：只有在你送出問題回報時，才會上傳必要的診斷資訊，例如版本、瀏覽器環境、錯誤訊息、近期操作紀錄與相關設定狀態。</li>
-                    <li>觀測上傳：只有在你手動上傳，或在 Chrome / Firefox extension 版開啟每日自動上傳時，才會上傳來源分析與聚合觀測資料，用於平台統計與樣本分級。</li>
+                    <li>觀測上傳：只有在你手動上傳，或在支援擴充功能的 Chrome / Firefox（含 Android）於當前版本同意每日自動上傳後，才會上傳來源分析與聚合觀測資料，用於平台統計與樣本分級。</li>
                     <li>資料用途限制：上傳資料只用於提供或改善留友封的使用者可見功能、問題診斷、安全/濫用調查與整體統計，不用於廣告投放、再行銷或出售。</li>
                 </ul>
 
                 <h3>Chrome Extension 權限與限制</h3>
                 <p>Chrome 版只在 Threads 網域上執行 content script，manifest 權限限定於 <code>threads.net</code> 與 <code>threads.com</code>。目前不要求 cookies、history、tabs、webRequest、declarativeNetRequest、scripting 或其他可讀取更廣泛瀏覽資料的 Chrome API 權限。</p>
                 <p>Chrome extension package 內不載入遠端程式碼；上傳端點只接收資料，不會下發可執行邏輯。功能、權限、網站隱私政策與 Chrome Web Store Developer Dashboard 的資料揭露應保持一致。</p>
+                <p>Firefox 版同樣只在 Threads 網域上執行 content script，並在 manifest 中揭露資料收集類型；使用者可在 Firefox / AMO 的安裝與擴充功能資訊中檢視相關權限與資料揭露。</p>
 
                 <h3>網路連線</h3>
-                <p>可能發生的網路連線包括：使用者主動送出「回報問題」、手動上傳觀測平台、Chrome / Firefox 版在開啟自動同步時每日嘗試上傳一次，以及瀏覽器下載或更新擴充功能本身。封鎖與檢舉自動化仍在 Threads 網頁版上由你的瀏覽器執行。</p>
+                <p>可能發生的網路連線包括：使用者主動送出「回報問題」、手動上傳觀測平台、支援擴充功能的 Chrome / Firefox（含 Android）在當前版本同意自動同步後每日嘗試上傳一次，以及瀏覽器下載或更新擴充功能本身。封鎖與檢舉自動化仍在 Threads 網頁版上由你的瀏覽器執行。</p>
 
                 <h3>不使用的技術</h3>
                 <ul>

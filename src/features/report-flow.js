@@ -556,20 +556,53 @@ Object.assign(Core, {
         },
 
         async selectReportTargetIfShown(kind = 'account', options = {}, user = '') {
-            const target = await Utils.pollUntil(() => {
+            const findTarget = () => {
                 const visibleOptions = Core.ReportDriver.getVisibleReportOptionTexts();
                 const hasTargetChooser = visibleOptions.some(t => t.includes('檢舉貼文') || t.includes('檢舉帳號') || t.includes('Report post') || t.includes('Report account'));
                 if (!hasTargetChooser) return null;
                 return kind === 'content'
                     ? Core.ReportDriver.findReportContentTarget()
                     : Core.ReportDriver.findReportAccountTarget();
-            }, 2000, 120);
+            };
+
+            const directPaths = kind === 'account'
+                ? [Core.ReportDriver.getReportPath(), Core.ReportDriver.getExecutionPath('profile')]
+                : [Core.ReportDriver.getExecutionPath('post')];
+            const waitStartedAt = Date.now();
+            const waitUntil = waitStartedAt + 10000;
+            let nextWaitLogAt = waitStartedAt;
+            let target = null;
+            while (Date.now() < waitUntil) {
+                target = findTarget();
+                if (target) break;
+                if (
+                    Core.ReportDriver.findConfirmationButton()
+                    || Core.ReportDriver.checkReportDone()
+                    || directPaths.some(path => Core.ReportDriver.findNextReportOption(path, 0))
+                ) {
+                    break;
+                }
+                const elapsedMs = Date.now() - waitStartedAt;
+                if (Date.now() >= nextWaitLogAt) {
+                    const elapsedSec = Math.floor(elapsedMs / 1000);
+                    if (window.hegeLog) window.hegeLog(`[只檢舉] 等待 Meta 檢舉視窗載入中：${elapsedSec} 秒`);
+                    Storage.setJSON(CONFIG.KEYS.BG_STATUS, {
+                        state: 'running',
+                        current: `只檢舉等待 Meta 檢舉視窗載入: @${user} (${elapsedSec} 秒)`,
+                        lastUpdate: Date.now(),
+                    });
+                    nextWaitLogAt += 1000;
+                }
+                await Utils.safeSleep(120);
+            }
+            if (!target) target = findTarget();
 
             if (target) {
-                if (window.hegeLog) window.hegeLog(`[只檢舉] 偵測到檢舉對象選擇層，選擇「${kind === 'content' ? '檢舉貼文、訊息或留言' : '檢舉帳號'}」`);
+                const waitElapsedMs = Date.now() - waitStartedAt;
+                if (window.hegeLog) window.hegeLog(`[只檢舉] 偵測到檢舉對象選擇層，等待 ${Math.round(waitElapsedMs / 1000)} 秒，選擇「${kind === 'content' ? '檢舉貼文、訊息或留言' : '檢舉帳號'}」`);
                 Core.ReportDriver.logVisibleOptions('檢舉對象選擇前', { target: kind });
-                Core.ReportDriver.recordDebugTrace('target_chooser_shown', user, options, { target: kind }, false);
-                await Core.ReportDriver.visualStep(options, user, `準備選擇「${kind === 'content' ? '檢舉貼文、訊息或留言' : '檢舉帳號'}」`, target, 650);
+                Core.ReportDriver.recordDebugTrace('target_chooser_shown', user, options, { target: kind, waitElapsedMs }, false);
+                await Core.ReportDriver.visualStep(options, user, `準備選擇「${kind === 'content' ? '檢舉貼文、訊息或留言' : '檢舉帳號'}」`, target, 320);
                 Utils.simClick(target);
                 await Utils.safeSleep(420);
                 const chooserStillVisible = await Utils.pollUntil(() => {
@@ -700,7 +733,7 @@ Object.assign(Core, {
                     return Core.ReportDriver.skipOrPauseForDebug(user, options, 'missing_more_button', `找不到 @${user} 的更多按鈕`);
                 }
 
-                await Core.ReportDriver.visualStep(options, user, mode === 'post' ? '準備點來源貼文的更多' : '準備點使用者主頁的更多', moreBtn, 650);
+                await Core.ReportDriver.visualStep(options, user, mode === 'post' ? '準備點來源貼文的更多' : '準備點使用者主頁的更多', moreBtn, 320);
                 Utils.simClick(moreBtn);
                 const reportMenuItem = await Utils.pollUntil(() => {
                     return Core.ReportDriver.findAnyText(REPORT_TEXTS, { exact: false });
@@ -709,7 +742,7 @@ Object.assign(Core, {
                     return Core.ReportDriver.skipOrPauseForDebug(user, options, 'missing_report_menu_item', `@${user} 選單內找不到檢舉項目`);
                 }
 
-                await Core.ReportDriver.visualStep(options, user, '準備點「檢舉」', reportMenuItem, 600);
+                await Core.ReportDriver.visualStep(options, user, '準備點「檢舉」', reportMenuItem, 300);
                 Utils.simClick(reportMenuItem);
                 const reportMenuClickAt = Date.now();
                 Core.ReportDriver.recordDebugTrace('report_menu_clicked', user, options, { mode }, false);
@@ -805,7 +838,7 @@ Object.assign(Core, {
                     if (window.hegeLog) {
                         window.hegeLog(`[只檢舉] 選擇檢舉項目「${match.step}」 pathIndex=${pathIndex} offset=${match.offset}`);
                     }
-                    await Core.ReportDriver.visualStep(options, user, `準備選擇「${match.step}」`, match.option, 650);
+                    await Core.ReportDriver.visualStep(options, user, `準備選擇「${match.step}」`, match.option, 320);
                     Utils.simClick(match.option);
                     pathIndex += match.offset + 1;
                     await Utils.safeSleep(700);
@@ -822,7 +855,7 @@ Object.assign(Core, {
                     submitOriginDialog = originDialog || submitOriginDialog;
                     const confirmText = (confirmBtn.innerText || confirmBtn.textContent || '').replace(/\s+/g, ' ').trim();
                     if (window.hegeLog) window.hegeLog(`[只檢舉] 準備點確認按鈕「${confirmText || '提交/完成'}」 round=${i + 1}`);
-                    await Core.ReportDriver.visualStep(options, user, `準備點「${confirmText || '提交/完成'}」`, confirmBtn, 650);
+                    await Core.ReportDriver.visualStep(options, user, `準備點「${confirmText || '提交/完成'}」`, confirmBtn, 320);
                     Utils.simClick(confirmBtn);
                     await Utils.safeSleep(700);
                     const submitState = Core.ReportDriver.getSubmitSuccessState(originDialog);

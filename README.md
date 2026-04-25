@@ -1,7 +1,7 @@
 # 留友封 (Threads Block Tool)
 
 **留友封** 是一個專為 Threads 設計的批量封鎖工具，旨在解決官方介面缺乏批量管理功能的痛點。本專案支援 **Userscript (Tampermonkey/Stay)** 與 **Chrome 擴充功能** 雙模式。
-目前正式版：`v2.6.0`
+目前正式版：`v2.6.1`
 
 ## ✨ 主要功能 (Features)
 
@@ -22,7 +22,8 @@
     *   智慧排除自我帳號，防止誤鎖。
 *   **只檢舉與資料上傳**：
     *   支援獨立 `REPORT_QUEUE`、每批次由 picker 明確選擇檢舉路徑與 worker 分流，讓只檢舉模式可單獨執行。
-    *   擴充功能版支援一般使用者一鍵上傳平台統計資料，協助建立整體樣本分析。
+    *   擴充功能版支援一鍵上傳來源分析資料，支援擴充功能的 Chrome / Firefox（含 Android）會在每次版本更新後先詢問是否開啟每日自動上傳；iOS / Safari 以手動提醒為主；上傳資料用於「可疑帶風向行為」的整體樣本分析。
+    *   上傳可能包含公開帳號/profile 連結、來源貼文連結、公開文字片段、檢舉/封鎖分類、批次統計、工具版本與匿名來源 ID；不包含 Threads 密碼、cookies、瀏覽器歷史、私人訊息、Email、Google 帳號或真實姓名。
 *   **跨平台支援**：
     *   Chrome / Edge / Brave (擴充功能 或 Tampermonkey)
     *   Safari (macOS / iOS Stay) 支援相測試中

@@ -379,7 +379,7 @@ export const Reporter = {
         const existingMeta = payload.uploadMeta && typeof payload.uploadMeta === 'object' ? payload.uploadMeta : {};
         const clientSourceId = String(payload.clientSourceId || Reporter.getPlatformSourceId() || '').trim();
         const clientPlatform = Reporter.getClientPlatform();
-        const autoSyncEnabled = Storage.getPlatformSyncEnabled();
+        const autoSyncEnabled = Storage.hasPlatformSyncConsentForCurrentVersion() && Storage.getPlatformSyncEnabled();
         const body = {
             ...payload,
             clientSourceId,

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "留友封 (Threads Block Tool)",
   "version": "2.2.2",
-  "description": "Threads 批次封鎖、只檢舉與來源分析工具",
+  "description": "Threads 批次封鎖、只檢舉、來源分析與「可疑帶風向行為」樣本工具",
   "host_permissions": [
     "*://*.threads.net/*",
     "*://threads.net/*",

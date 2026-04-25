@@ -28,6 +28,17 @@ export const Worker = {
         });
     },
 
+    resetStatsState: (startTime = 0) => {
+        Worker.stats = { success: 0, skipped: 0, failed: 0, vanished: 0, startTime };
+        Worker.initialTotal = 0;
+        Worker.sessionQueue = [];
+        Worker.verifyLevel = 0;
+        Worker.verifyCount = 0;
+        Worker.consecutiveFails = 0;
+        Worker.consecutiveRateLimits = 0;
+        Worker.limitWarningMessage = '';
+    },
+
     loadStats: () => {
         const saved = Storage.getJSON(CONFIG.KEYS.WORKER_STATS, null);
         if (saved && saved.stats) {
@@ -40,20 +51,24 @@ export const Worker = {
             Worker.consecutiveRateLimits = saved.consecutiveRateLimits || 0;
             Worker.limitWarningMessage = saved.limitWarningMessage || '';
         } else {
-            Worker.stats = { success: 0, skipped: 0, failed: 0, vanished: 0, startTime: Date.now() };
-            Worker.initialTotal = 0;
-            Worker.sessionQueue = [];
-            Worker.verifyLevel = 0;
-            Worker.verifyCount = 0;
-            Worker.consecutiveFails = 0;
-            Worker.consecutiveRateLimits = 0;
-            Worker.limitWarningMessage = '';
+            Worker.resetStatsState(Date.now());
         }
     },
 
     clearStats: () => {
-        Worker.limitWarningMessage = '';
+        Worker.resetStatsState(0);
         Storage.remove(CONFIG.KEYS.WORKER_STATS);
+    },
+
+    resetStatsIfStorageCleared: () => {
+        Storage.invalidate(CONFIG.KEYS.WORKER_STATS);
+        const saved = Storage.getJSON(CONFIG.KEYS.WORKER_STATS, null);
+        if (saved && saved.stats) return;
+
+        const processed = Worker.stats.success + Worker.stats.skipped + Worker.stats.failed + Worker.stats.vanished;
+        if (processed > 0 || Worker.initialTotal > 0 || Worker.sessionQueue.length > 0) {
+            Worker.resetStatsState(0);
+        }
     },
 
     ensureReportStats: (totalHint = 0) => {
@@ -1125,6 +1140,7 @@ export const Worker = {
                 }
 
                 if (window.hegeLog) window.hegeLog(`[只檢舉] 開始帳號檢舉 REPORT_QUEUE ${reportQueue.length} 筆`);
+                Worker.resetStatsIfStorageCleared();
                 Worker.ensureReportStats(reportQueue.length);
                 const handled = await Core.ReportDriver.processNext(Worker.getReportDriverOptions(reportUser, reportContext));
                 if (handled) return;
@@ -1163,6 +1179,7 @@ export const Worker = {
                 }
 
                 if (window.hegeLog) window.hegeLog(`[只檢舉] 開始帳號檢舉 REPORT_QUEUE ${reportQueue.length} 筆`);
+                Worker.resetStatsIfStorageCleared();
                 Worker.ensureReportStats(reportQueue.length);
                 const handled = await Core.ReportDriver.processNext(Worker.getReportDriverOptions(reportUser, reportContext));
                 if (handled) return;

@@ -1905,7 +1905,24 @@ export const Core = {
         const liveBgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
         const liveWorkerStats = Storage.getJSON(CONFIG.KEYS.WORKER_STATS, {});
         const providedWorkerStats = extra.workerStats || finalExtra.workerStats || {};
+        const normalizeWorkerStats = (value) => {
+            if (!value || typeof value !== 'object') return {};
+            if (value.stats && typeof value.stats === 'object') return value;
+            const hasFlatStats = ['success', 'skipped', 'failed', 'vanished'].some(key => Object.prototype.hasOwnProperty.call(value, key));
+            if (!hasFlatStats) return value;
+            return {
+                ...value,
+                stats: {
+                    success: value.success || 0,
+                    skipped: value.skipped || 0,
+                    failed: value.failed || 0,
+                    vanished: value.vanished || 0,
+                    startTime: value.startTime || 0,
+                },
+            };
+        };
         const hasWorkerStats = (value) => {
+            value = normalizeWorkerStats(value);
             if (!value || typeof value !== 'object') return false;
             const stats = value.stats;
             return !!(
@@ -1914,7 +1931,7 @@ export const Core = {
                 (stats && typeof stats === 'object' && Object.keys(stats).length > 0)
             );
         };
-        const pickWorkerStats = (...candidates) => candidates.find(hasWorkerStats) || {};
+        const pickWorkerStats = (...candidates) => normalizeWorkerStats(candidates.find(hasWorkerStats) || {});
         const bgStatus = resolvedStatus === 'running'
             ? liveBgStatus
             : (finalSnapshot.bgStatus || liveBgStatus);

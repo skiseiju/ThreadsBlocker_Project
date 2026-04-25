@@ -298,7 +298,7 @@ export const UI = {
                 </div>
 
                 <div class="hege-menu-item" id="hege-report-btn-item">
-                    <span>🚨 開始檢舉</span>
+                    <span>開始檢舉</span>
                     <span class="status" id="hege-report-count">0 筆</span>
                 </div>
 
@@ -513,6 +513,97 @@ export const UI = {
         overlay.querySelector('#hege-confirm-ok').onclick = () => {
             overlay.remove();
             if (onConfirm) onConfirm();
+        };
+    },
+
+    showPlatformSyncConsentModal: (options = {}) => {
+        if (document.getElementById('hege-platform-sync-consent-overlay')) return;
+        if (Storage.hasPlatformSyncConsentForCurrentVersion()) return;
+
+        const overlay = document.createElement('div');
+        overlay.id = 'hege-platform-sync-consent-overlay';
+        overlay.className = 'hege-manager-overlay';
+        overlay.innerHTML = `
+            <div class="hege-manager-box" style="width:min(92vw,720px);max-width:720px;max-height:calc(100vh - 28px);max-height:calc(100dvh - 28px);">
+                <div class="hege-manager-header">
+                    <span class="hege-manager-title">一起看見「可疑帶風向行為」</span>
+                </div>
+                <div style="padding:20px 24px;overflow-y:auto;-webkit-overflow-scrolling:touch;font-size:13px;line-height:1.75;color:#d5d5d5;">
+                    <p style="margin:0 0 12px;color:#f2f2f2;font-weight:700;">嗨，我是開發者海哥。</p>
+                    <p style="margin:0 0 12px;">留友封不是大型公司做的資料產品，而是由公開身份的個人維護。你可以檢視我的公開 ID、專案原始碼、網站說明與觀測方法，再決定是否支持我接下來的計畫。</p>
+                    <p style="margin:0 0 12px;">我做這個觀測計畫，是因為我們在 Threads 上看到太多相似帳號、相似留言、集中攻擊與帶風向行為。單一使用者很難證明那是不是一群帳號一起在操作，但如果許多人願意提供匿名樣本，我們就能把這些公開行為特徵整理成統計，讓更多人看見問題。</p>
+                    <p style="margin:0 0 14px;color:#f2f2f2;font-weight:700;">如果你信任我，或認同這件事值得被公開，你可以開啟每日自動上傳，來幫助大家更理解可疑帳號集中攻擊與帶風向的行為模式。</p>
+                    <div style="background:#2a1f08;border:1px solid #8f6d1f;border-radius:10px;padding:10px 12px;color:#ffe1a6;font-weight:700;margin-bottom:12px;">Chrome 擴充功能版也受 Google / Chrome Web Store 權限與隱私揭露審核限制。留友封沒有要求 cookies、history、tabs 等可讀取跨站資料的高敏感權限。</div>
+                    <div style="background:#101820;border:1px solid #263746;border-radius:10px;padding:12px;margin-bottom:12px;">
+                        <div style="font-weight:700;color:#cfe8ff;margin-bottom:6px;">如果你同意，我們會上傳：</div>
+                        <p style="margin:0 0 8px;">平台會取得你封鎖或檢舉過的帳號識別與公開個人檔案連結，用來做整體統計；公開頁不會列出你的完整封鎖/檢舉名單。</p>
+                        <p style="margin:0 0 8px;">也會上傳相關來源貼文連結、公開文字片段，以及你當時選擇的檢舉/封鎖分類，幫助判斷哪些議題正在被集中攻擊。</p>
+                        <p style="margin:0;">另外會包含批次統計、時間、工具版本與匿名來源 ID。匿名來源 ID 是本工具在你的瀏覽器本機隨機產生的樣本代號，不是你的 Threads 使用者 ID，也不是由你的帳號、Email 或 Google 帳號推算而來；它只用來辨識同一個匿名來源的多次上傳，避免重複計算。</p>
+                    </div>
+                    <div style="background:#181111;border:1px solid #3a2525;border-radius:10px;padding:12px;margin-bottom:12px;">
+                        <div style="font-weight:700;color:#ffd1d1;margin-bottom:6px;">我們不會上傳：</div>
+                        <p style="margin:0 0 8px;">Threads 密碼、登入憑證或雙因素驗證碼。</p>
+                        <p style="margin:0 0 8px;">cookies、瀏覽器歷史紀錄、其他網站資料或私人訊息。</p>
+                        <p style="margin:0;">你的 Email、Google 帳號或真實姓名。</p>
+                    </div>
+                    <p style="margin:0 0 12px;color:#b8b8b8;">觀測結果只代表公開樣本中的行為模式，不是對任何個別帳號、個人或組織的法律判定，也不鼓勵騷擾、肉搜、威脅或私下攻擊任何人。</p>
+                    <p style="margin:0 0 12px;">資料只用於公開統計、濫用偵測與方法改進，不用於廣告、再行銷或出售。你可以先看看<a href="https://threadsblocker.skiseiju.com/platform/?mock=1" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">示範觀測平台</a>會長什麼樣子，再決定也可以；也可以選擇只手動上傳，之後隨時能在「來源分析報告」中更改。</p>
+                    <p style="margin:0;color:#8ab4f8;">維護者與成果預覽：<a href="https://www.threads.com/@skiseiju" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">Threads @skiseiju</a> / <a href="https://skiseiju.com" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">skiseiju.com</a> / <a href="https://github.com/skiseiju/ThreadsBlocker_Project" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">GitHub @skiseiju</a> / <a href="https://threadsblocker.skiseiju.com/platform/" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">正式觀測平台</a> / <a href="https://threadsblocker.skiseiju.com/platform/?mock=1" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">示範觀測平台</a></p>
+                </div>
+                <div class="hege-manager-footer">
+                    <div style="display:flex;gap:10px;width:100%;justify-content:flex-end;flex-wrap:wrap;">
+                        <button class="hege-manager-btn secondary" id="hege-platform-sync-manual">先只使用手動上傳</button>
+                        <button class="hege-manager-btn primary" id="hege-platform-sync-enable" style="background:#30d158;color:#00150a;border-color:#30d158;">我願意開啟每日自動上傳</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const finish = (enabled) => {
+            Storage.setPlatformSyncConsentDecision(enabled);
+            overlay.remove();
+            if (enabled) {
+                UI.showToast('已開啟每日自動上傳，可在「來源分析報告」中更改');
+                if (typeof options.onEnable === 'function') options.onEnable();
+            } else {
+                UI.showToast('已保留手動上傳，可在「來源分析報告」中更改');
+                if (typeof options.onDisable === 'function') options.onDisable();
+            }
+        };
+
+        overlay.querySelector('#hege-platform-sync-manual').onclick = () => finish(false);
+        overlay.querySelector('#hege-platform-sync-enable').onclick = () => finish(true);
+    },
+
+    showPlatformManualUploadReminderModal: () => {
+        if (document.getElementById('hege-platform-manual-reminder-overlay')) return;
+        if (Storage.hasPlatformSyncConsentForCurrentVersion()) return;
+
+        const overlay = document.createElement('div');
+        overlay.id = 'hege-platform-manual-reminder-overlay';
+        overlay.className = 'hege-manager-overlay';
+        overlay.innerHTML = `
+            <div class="hege-manager-box" style="width:min(92vw,520px);max-width:520px;">
+                <div class="hege-manager-header">
+                    <span class="hege-manager-title">iOS / Safari 需要手動上傳</span>
+                </div>
+                <div style="padding:20px 24px;font-size:13px;line-height:1.75;color:#d5d5d5;">
+                    <p style="margin:0 0 12px;">iOS / Safari 受背景執行限制，留友封不會在這個環境自動上傳觀測資料。</p>
+                    <p style="margin:0;">如果你願意協助建立「可疑帶風向行為」樣本，可以稍後到「來源分析報告」使用「一鍵上傳平台」手動送出。</p>
+                </div>
+                <div class="hege-manager-footer">
+                    <div style="display:flex;gap:10px;width:100%;justify-content:flex-end;flex-wrap:wrap;">
+                        <button class="hege-manager-btn primary" id="hege-platform-manual-reminder-ok">知道了</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        overlay.querySelector('#hege-platform-manual-reminder-ok').onclick = () => {
+            Storage.setPlatformSyncConsentDecision(false);
+            overlay.remove();
         };
     },
 
@@ -1110,7 +1201,7 @@ export const UI = {
     buildPlatformExportPayload: (options = {}) => {
         const platformSyncEnabled = Object.prototype.hasOwnProperty.call(options, 'platformSyncEnabled')
             ? !!options.platformSyncEnabled
-            : Storage.getPlatformSyncEnabled();
+            : (Storage.hasPlatformSyncConsentForCurrentVersion() && Storage.getPlatformSyncEnabled());
         const platformSyncLastAt = Object.prototype.hasOwnProperty.call(options, 'platformSyncLastAt')
             ? (parseInt(options.platformSyncLastAt || '0', 10) || 0)
             : Storage.getPlatformSyncLastAt();
@@ -1497,8 +1588,19 @@ export const UI = {
     },
 
     tryAutoSyncPlatformUpload: async (options = {}) => {
+        if (!UI.supportsPlatformAutoSync()) {
+            if (!Storage.hasPlatformSyncConsentForCurrentVersion()) {
+                UI.showPlatformManualUploadReminderModal();
+            }
+            return { code: 204, skipped: 'unsupported_platform' };
+        }
+        if (!Storage.hasPlatformSyncConsentForCurrentVersion()) {
+            UI.showPlatformSyncConsentModal({
+                onEnable: () => UI.tryAutoSyncPlatformUpload({ ...options, source: options.source || 'consent_modal' })
+            });
+            return { code: 204, skipped: 'pending_version_consent' };
+        }
         if (!Storage.getPlatformSyncEnabled()) return { code: 204, skipped: 'disabled' };
-        if (!UI.supportsPlatformAutoSync()) return { code: 204, skipped: 'unsupported_platform' };
 
         const now = Date.now();
         const lastSyncedAt = Storage.getPlatformSyncLastAt();
@@ -1538,8 +1640,17 @@ export const UI = {
     showAnalyticsReport: (options = {}) => {
         if (document.getElementById('hege-analytics-overlay')) return;
         const analyticsShowAdvanced = Storage.get(CONFIG.KEYS.ANALYTICS_SHOW_ADVANCED, 'false') === 'true';
-        const platformSyncEnabled = Storage.getPlatformSyncEnabled();
+        const platformSyncPreference = Storage.getPlatformSyncPreference();
+        const hasPlatformSyncConsentForCurrentVersion = Storage.hasPlatformSyncConsentForCurrentVersion();
+        const platformSyncEnabled = hasPlatformSyncConsentForCurrentVersion && Storage.getPlatformSyncEnabled();
         const platformSyncLastAt = Storage.getPlatformSyncLastAt();
+        const platformSyncStateText = !hasPlatformSyncConsentForCurrentVersion
+            ? (platformSyncPreference === null
+                ? '尚未選擇；支援擴充功能的 Chrome / Firefox（含 Android）首次自動同步前會先詢問。'
+                : `此版本尚未確認；支援擴充功能的 Chrome / Firefox（含 Android）自動同步前會先詢問。上次確認版本：${Storage.getPlatformSyncConsentVersion() || '舊版'}`)
+            : (platformSyncEnabled
+                ? '已開啟每日自動上傳；支援擴充功能的 Chrome / Firefox（含 Android）會每天自動嘗試一次。'
+                : '已關閉每日自動上傳；目前只會在手動上傳時送出資料。');
 
         const db = Storage.getJSON(CONFIG.KEYS.DB_KEY, []);
         const ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
@@ -2199,7 +2310,7 @@ export const UI = {
                             <div style="font-size:12px;color:#cfe8ff;line-height:1.45;">會整理封鎖與檢舉對象來自哪篇貼文、哪個批次與哪條檢舉路徑；可匯出 JSON 供平台分析。</div>
                             <label style="display:flex;align-items:flex-start;gap:8px;font-size:11px;color:#9fb9d1;line-height:1.45;">
                                 <input id="hege-analytics-auto-sync-toggle" type="checkbox" ${platformSyncEnabled ? 'checked' : ''} style="margin-top:2px;">
-                                <span>開啟後，Chrome / Firefox extension 版會每天自動嘗試上傳一次；iOS 仍維持手動上傳。此偏好也會隨 upload 一起送出，供平台建立 trusted sync 與樣本分級；最近一次成功上傳：${platformSyncLastAt > 0 ? new Date(platformSyncLastAt).toLocaleString('zh-TW') : '尚未'}</span>
+                                <span>${platformSyncStateText} iOS / Safari 受背景執行限制，會提醒你手動上傳。此偏好也會隨 upload 一起送出，供平台建立 trusted sync 與樣本分級；最近一次成功上傳：${platformSyncLastAt > 0 ? new Date(platformSyncLastAt).toLocaleString('zh-TW') : '尚未'}</span>
                             </label>
                         </div>
                         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
@@ -2398,10 +2509,10 @@ export const UI = {
         const autoSyncToggle = overlay.querySelector('#hege-analytics-auto-sync-toggle');
         if (autoSyncToggle) {
             autoSyncToggle.onchange = () => {
-                Storage.setPlatformSyncEnabled(Boolean(autoSyncToggle.checked));
+                Storage.setPlatformSyncConsentDecision(Boolean(autoSyncToggle.checked));
                 if (uploadStatusEl) {
                     uploadStatusEl.textContent = autoSyncToggle.checked
-                        ? '已開啟每日自動同步；Chrome / Firefox extension 會在新的一天自動嘗試一次。'
+                        ? '已開啟每日自動同步；支援擴充功能的 Chrome / Firefox（含 Android）會在新的一天自動嘗試一次。'
                         : '已關閉每日自動同步；目前只會在手動上傳時送出資料。';
                 }
             };
@@ -2414,7 +2525,7 @@ export const UI = {
                 if (uploadStatusEl) uploadStatusEl.textContent = '平台上傳中...';
 
                 try {
-                    exportPayload.syncPreferences.autoSyncEnabled = Storage.getPlatformSyncEnabled();
+                    exportPayload.syncPreferences.autoSyncEnabled = Storage.hasPlatformSyncConsentForCurrentVersion() && Storage.getPlatformSyncEnabled();
                     exportPayload.syncPreferences.lastSyncedAt = Storage.getPlatformSyncLastAt();
                     const result = await Reporter.submitPlatformPayload(exportPayload, { source: 'analytics_overlay', trigger: 'manual' });
                     if (Number(result?.code) === 200) {
