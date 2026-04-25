@@ -147,7 +147,7 @@ cp "$TEMP_BUNDLE" "$FF_DIR/content.js"
 
 if [ -f "$SRC_DIR/manifest.firefox.json" ]; then
     cp "$SRC_DIR/manifest.firefox.json" "$FF_DIR/manifest.json"
-    FF_VERSION="$STORE_VERSION"
+    FF_VERSION="${FF_AMO_VERSION:-$STORE_VERSION}"
     sed -i '' -E "s/\"version\": \"[^\"]+\"/\"version\": \"$FF_VERSION\"/" "$FF_DIR/manifest.json"
 fi
 
