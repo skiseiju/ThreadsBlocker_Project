@@ -1,3 +1,8 @@
+## v2.6.2 — Chrome 上傳提醒修正
+
+*   **TL;DR：2.6.2 修正 Chrome userscript / 非 iOS 環境誤顯示 iOS / Safari 手動上傳提醒的問題。**
+*   **平台提醒修正**：只有真正的 iOS Userscript 環境才會顯示「iOS / Safari 需要手動上傳」提醒；Chrome / Firefox extension 仍走自動上傳同意流程，其他非支援環境不再誤顯示 iOS 文案。
+
 ## v2.6.1 — 檢舉流程穩定化與觀測上傳同意
 
 *   **TL;DR：2.6.1 強化只檢舉流程的慢載入處理與診斷統計，並將觀測平台上傳改為每版明確同意、Android extension 可自動同步、iOS / Safari 手動提醒的審核友善流程。**

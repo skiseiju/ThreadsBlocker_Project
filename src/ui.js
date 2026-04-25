@@ -1198,6 +1198,11 @@ export const UI = {
         return clientPlatform === 'chrome_extension' || clientPlatform === 'firefox_extension';
     },
 
+    shouldShowManualUploadReminder: () => {
+        const clientPlatform = Reporter.getClientPlatform();
+        return clientPlatform === 'ios_userscript';
+    },
+
     buildPlatformExportPayload: (options = {}) => {
         const platformSyncEnabled = Object.prototype.hasOwnProperty.call(options, 'platformSyncEnabled')
             ? !!options.platformSyncEnabled
@@ -1589,7 +1594,7 @@ export const UI = {
 
     tryAutoSyncPlatformUpload: async (options = {}) => {
         if (!UI.supportsPlatformAutoSync()) {
-            if (!Storage.hasPlatformSyncConsentForCurrentVersion()) {
+            if (!Storage.hasPlatformSyncConsentForCurrentVersion() && UI.shouldShowManualUploadReminder()) {
                 UI.showPlatformManualUploadReminderModal();
             }
             return { code: 204, skipped: 'unsupported_platform' };
