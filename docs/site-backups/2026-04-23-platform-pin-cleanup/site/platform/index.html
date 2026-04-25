@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="留友封觀測站以匿名聚合資料呈現事件量趨勢與重要事件時序對照。">
+  <meta property="og:title" content="留友封觀測站">
+  <meta property="og:description" content="以匿名聚合資料觀察封鎖、檢舉與重要事件時序。">
+  <meta property="og:type" content="website">
+  <title>留友封觀測站</title>
+  <link rel="stylesheet" href="/platform/styles.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="top-nav" aria-label="主導覽">
+      <div class="top-nav__inner">
+        <a class="brand" href="/platform/">留友封觀測站</a>
+        <nav class="top-nav__links">
+          <a href="/platform/methodology/">方法論</a>
+          <a href="/platform/reports/">月報</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero hero--tinted">
+        <div class="section-inner hero__content">
+          <p class="section-kicker">Civic Signal Observatory</p>
+          <h1 id="heroHeadline">台灣是 Threads 全球流量最高的市場之一　你以為跟你對話的是真人嗎？</h1>
+          <p id="heroSubtitle" class="hero__subtitle">留友封觀測站試著用匿名聚合資料來回答這個問題</p>
+          <p class="legal-note">依《個人資料保護法》，本站僅呈現匿名聚合統計與現象觀察，不公開使用者帳號 ID 或個別貼文連結。</p>
+          <p id="heroDateRange" class="hero__meta">--</p>
+          <p id="heroMethodologyMeta" class="hero__meta">--</p>
+          <p id="heroStatusMessage" class="legal-note" hidden>--</p>
+        </div>
+      </section>
+
+      <section class="key-numbers section-alt" aria-labelledby="numbersTitle">
+        <div class="section-inner">
+          <h2 id="numbersTitle" class="section-title">三個關鍵數字</h2>
+          <div class="stats-row">
+            <article class="stat-card">
+              <p id="statEvents" class="stat-card__value">0</p>
+              <p class="stat-card__label">總事件樣本</p>
+              <p class="stat-card__sub">觀測窗內封鎖＋檢舉</p>
+            </article>
+            <article class="stat-card">
+              <p id="statCoordinated" class="stat-card__value">0</p>
+              <p class="stat-card__label">疑似協調帳號</p>
+              <p class="stat-card__sub">高信號來源牽涉的帳號樣本數</p>
+            </article>
+            <article class="stat-card">
+              <p id="statContributors" class="stat-card__value">0</p>
+              <p class="stat-card__label">位真人貢獻資料</p>
+              <p class="stat-card__sub">匿名上傳，不含個資</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="categories-section" aria-labelledby="categoriesTitle">
+        <div class="section-inner">
+          <div class="section-heading">
+            <h2 id="categoriesTitle" class="section-title">檢舉分類分佈</h2>
+            <p class="section-copy">使用者檢舉事件依 Threads 原生分類統計，呈現觀測窗內匿名聚合樣本中各類型的佔比。</p>
+          </div>
+          <div id="categoriesList" class="categories-list">載入中。</div>
+        </div>
+      </section>
+
+      <section class="trend-section" aria-labelledby="trendTitle">
+        <div class="section-inner">
+          <div class="section-heading">
+            <h2 id="trendTitle" class="section-title">事件量趨勢 × 重要事件</h2>
+            <p class="section-copy">每次重大事件出現，封鎖/檢舉量就跟著爆增——這不是巧合。這些帳號不是隨機騷擾，而是在特定議題出現時被協調動員的。圖中標記為外部參考節點，不代表已證實因果關係。</p>
+          </div>
+          <div class="chart-card">
+            <div id="trendChart" class="chart-shell" aria-live="polite"></div>
+            <div id="trendEventDetail" class="chart-detail">載入中。</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="narratives-section section-alt" aria-labelledby="narrativesTitle">
+        <div class="section-inner">
+          <div class="section-heading">
+            <h2 id="narrativesTitle" class="section-title">近期熱門協調敘事</h2>
+            <p class="section-copy">觀測窗內匿名聚合樣本中重複出現的敘事框架，按事件量排序。高信號代表樣本中出現明顯的協調特徵。</p>
+          </div>
+          <div id="narrativesList" class="narratives-list">載入中。</div>
+        </div>
+      </section>
+
+      <section class="entry-section" aria-labelledby="entryTitle">
+        <div class="section-inner">
+          <h2 id="entryTitle" class="section-title">延伸閱讀</h2>
+          <div class="entry-grid">
+            <a class="entry-card" href="#narrativesTitle">
+              <span class="entry-card__eyebrow">資料入口</span>
+              <h3>完整資料分析</h3>
+              <p>四大指標、檢舉分類、熱門協調敘事框架</p>
+              <span class="entry-card__arrow" aria-hidden="true">→</span>
+            </a>
+            <a class="entry-card" href="/platform/methodology/">
+              <span class="entry-card__eyebrow">方法公開</span>
+              <h3>分析方法論</h3>
+              <p>信號計算方式、門檻定義、資料限制</p>
+              <span class="entry-card__arrow" aria-hidden="true">→</span>
+            </a>
+            <a class="entry-card" href="/platform/reports/">
+              <span class="entry-card__eyebrow">每月整理</span>
+              <h3>月報彙整</h3>
+              <p>每月公開摘要，適合媒體與研究者引用</p>
+              <span class="entry-card__arrow" aria-hidden="true">→</span>
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/platform/public.js"></script>
+  <script>
+    (function () {
+      const heroHeadline = document.getElementById('heroHeadline');
+      const heroSubtitle = document.getElementById('heroSubtitle');
+      const heroDateRange = document.getElementById('heroDateRange');
+      const heroMethodologyMeta = document.getElementById('heroMethodologyMeta');
+      const heroStatusMessage = document.getElementById('heroStatusMessage');
+      const statEvents = document.getElementById('statEvents');
+      const statCoordinated = document.getElementById('statCoordinated');
+      const statContributors = document.getElementById('statContributors');
+      const trendChart = document.getElementById('trendChart');
+      const trendEventDetail = document.getElementById('trendEventDetail');
+      const rotatingHeadlines = [
+        '台灣是 Threads 全球流量最高的市場之一\n你以為跟你對話的是真人嗎？',
+        '你每天都在封鎖/檢舉的帳號\n到底為什麼處理不完？',
+        '每次爭議話題出現\n背後有多少帳號是在協調行動？',
+        '你封鎖一個帳號\n後面還有三個在等',
+        '不是每一次「輿論爆發」\n都真的來自真人',
+        '你以為是輿論\n也可能只是機器人大量複製出來的聲量',
+        '有些「網友」不會累、不會停\n因為它們根本不是人',
+      ];
+      heroHeadline.textContent = rotatingHeadlines[Math.floor(Math.random() * rotatingHeadlines.length)];
+
+      const defaultHeadline = null;
+      const defaultSubtitle = '留友封觀測站試著用匿名聚合資料來回答這個問題';
+
+      function safeValue(value, fallback) {
+        return value === undefined || value === null || value === '' ? fallback : value;
+      }
+
+      function resolveHeadline(data) {
+        return safeValue(data && data.summary && data.summary.headline, defaultHeadline);
+      }
+
+      function resolveSubtitle(data) {
+        return safeValue(data && data.summary && data.summary.subtitle, defaultSubtitle);
+      }
+
+      if (!window.PlatformPublic) {
+        trendEventDetail.textContent = '平台腳本未載入。';
+        return;
+      }
+
+      window.PlatformPublic.init = async function init() {
+        const result = await window.PlatformPublic.fetchOverview();
+        const data = result && result.data ? result.data : {};
+        const eventsLoader = window.PlatformPublic.fetchPoliticalEvents || window.PlatformPublic.loadPoliticalEvents;
+        const politicalEvents = typeof eventsLoader === 'function' ? await eventsLoader() : [];
+
+        heroSubtitle.textContent = resolveSubtitle(data);
+        const startDate = safeValue(data && data.dateRange && data.dateRange.start, '--');
+        const endDate = safeValue(data && data.dateRange && data.dateRange.end, '--');
+        heroDateRange.textContent = startDate !== '--' && endDate !== '--'
+          ? `觀測區間 ${startDate} 至 ${endDate}`
+          : '觀測區間尚在累積中';
+        heroMethodologyMeta.textContent = `taxonomy ${safeValue(data && data.taxonomyVersion, 'topic-taxonomy.v1')} · sample ${safeValue(data && data.sampleScope, 'trusted')} · policy ${safeValue(data && data.methodology && data.methodology.trustPolicy, 'public-trusted-only')}`;
+        if (heroStatusMessage) {
+          if (result && result.message) {
+            heroStatusMessage.hidden = false;
+            heroStatusMessage.textContent = result.message;
+          } else {
+            heroStatusMessage.hidden = true;
+            heroStatusMessage.textContent = '';
+          }
+        }
+
+        statEvents.textContent = window.PlatformPublic.formatNumber(
+          data && data.overview ? data.overview.totalEventCount : 0
+        );
+        statCoordinated.textContent = window.PlatformPublic.formatNumber(
+          data && data.signals ? data.signals.coordinatedAccountEstimate : 0
+        );
+        statContributors.textContent = safeValue(data && data.overview && data.overview.uploadCount, 0);
+
+        window.PlatformPublic.renderTrendChart(
+          trendChart,
+          trendEventDetail,
+          Array.isArray(data.dailyTrend) ? data.dailyTrend : [],
+          politicalEvents,
+          Array.isArray(data.topicTimeSeries) ? data.topicTimeSeries : []
+        );
+
+        window.PlatformPublic.renderNarratives(
+          document.getElementById('narrativesList'),
+          Array.isArray(data.topNarratives) ? data.topNarratives : []
+        );
+
+        window.PlatformPublic.renderReportCategories(
+          document.getElementById('categoriesList'),
+          Array.isArray(data.reportCategories) ? data.reportCategories : []
+        );
+
+        return data;
+      };
+
+      window.PlatformPublic.init();
+    })();
+  </script>
+</body>
+</html>

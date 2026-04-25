@@ -4,8 +4,11 @@
 SECRETS.md
 
 # Local operation artifacts
+.ai/
 .ops-backups/
 .ops-deploy/
+.wrangler/
+cf_bug_admin/.wrangler/
 
 # Node.js
 node_modules/

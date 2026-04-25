@@ -1,12 +1,11 @@
 (function () {
   const API_BASE = 'https://threadsblocker-bug-admin.skiseiju.workers.dev';
   const DEFAULT_DAYS = 30;
-  const MOCK_DAYS = 60;
   const DEFAULT_TOP = 24;
   const QUERY = new URLSearchParams(window.location.search);
   const FORCE_MOCK = QUERY.get('mock') === '1';
 
-  const MOCK_TEMPLATE = {
+  const MOCK_DATA = {
     schema: 'threadsblocker.platform_public.v1',
     generatedAt: '2026-04-21T00:00:00Z',
     taxonomyVersion: 'topic-taxonomy.v1',
@@ -147,18 +146,6 @@ topNarratives: [
       { id: 518, created_at: '2026-04-19T17:04:00Z' },
       { id: 517, created_at: '2026-04-19T16:31:00Z' }
     ],
-    intake: {
-      acceptedUploadCount: 302,
-      acceptedEventCount: 151248,
-      trustedUploadCount: 286,
-      probationUploadCount: 16,
-      probationEventCount: 2516,
-      flaggedUploadCount: 0,
-      flaggedEventCount: 0,
-      latestAcceptedUploadAt: '2026-04-21T00:00:00Z',
-      latestProbationUploadAt: '2026-04-21T00:00:00Z',
-      latestFlaggedUploadAt: ''
-    },
     methodology: {
       trustPolicy: 'public-trusted-only',
       scoreBands: { low: '0-44', medium: '45-64', high: '65+' },
@@ -217,231 +204,7 @@ topNarratives: [
   }
 
   function cloneMockData() {
-    return JSON.parse(JSON.stringify(MOCK_TEMPLATE));
-  }
-
-  function toDateKey(date) {
-    const d = date instanceof Date ? new Date(date.getTime()) : new Date(date);
-    if (Number.isNaN(d.getTime())) return '';
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }
-
-  function shiftDayKey(dayKey, offset) {
-    const date = parseDateKey(dayKey);
-    if (Number.isNaN(date.getTime())) return dayKey;
-    date.setDate(date.getDate() + offset);
-    return toDateKey(date);
-  }
-
-  function shortLabelFromTitle(title, fallback = '事件') {
-    const text = String(title || '')
-      .replace(/[「」『』《》〈〉（）()【】\[\]，、。：；！？·\s]/g, '')
-      .trim();
-    return (text || fallback).slice(0, 6);
-  }
-
-  function normalizePoliticalEvent(row) {
-    const date = String(row?.date || row?.event_date || '').slice(0, 10);
-    const title = String(row?.title || '').trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !title) return null;
-
-    const sourceName = String(row?.sourceName || row?.source_name || '').trim();
-    const note = String(row?.note || '').trim()
-      || (sourceName ? `${sourceName}／外部公共事件節點` : '外部公共事件節點，僅作時序參考。');
-
-    return {
-      date,
-      title,
-      shortLabel: String(row?.shortLabel || row?.short_label || '').trim() || shortLabelFromTitle(title, date.slice(5)),
-      category: String(row?.category || '').trim() || '政黨動態',
-      note,
-      sourceName,
-      sourceUrl: String(row?.sourceUrl || row?.source_url || '').trim()
-    };
-  }
-
-  function dedupePoliticalEvents(events) {
-    const seen = new Map();
-    (Array.isArray(events) ? events : []).forEach((row) => {
-      const event = normalizePoliticalEvent(row);
-      if (!event) return;
-      const key = `${event.date}|${event.title}`;
-      if (!seen.has(key)) seen.set(key, event);
-    });
-    return Array.from(seen.values()).sort((a, b) => a.date.localeCompare(b.date));
-  }
-
-  async function loadStaticPoliticalEvents() {
-    try {
-      const response = await fetch('/platform/data/political-events.json');
-      if (!response.ok) return [];
-      const body = await response.json().catch(() => ({}));
-      return dedupePoliticalEvents(Array.isArray(body?.events) ? body.events : []);
-    } catch (error) {
-      return [];
-    }
-  }
-
-  function buildMockDailyTrend(events, days = MOCK_DAYS) {
-    const normalizedEvents = dedupePoliticalEvents(events);
-    const endDay = normalizedEvents.length
-      ? normalizedEvents[normalizedEvents.length - 1].date
-      : toDateKey(new Date());
-    const dayKeys = Array.from({ length: days }, (_, index) => shiftDayKey(endDay, -(days - 1 - index)));
-    const eventCountByDay = normalizedEvents.reduce((map, event) => {
-      map[event.date] = (map[event.date] || 0) + 1;
-      return map;
-    }, {});
-
-    return dayKeys.map((dayKey, index) => {
-      const sameDay = safeNum(eventCountByDay[dayKey]);
-      const prevDay = safeNum(eventCountByDay[shiftDayKey(dayKey, -1)]);
-      const nextDay = safeNum(eventCountByDay[shiftDayKey(dayKey, 1)]);
-      const farPrev = safeNum(eventCountByDay[shiftDayKey(dayKey, -2)]);
-      const farNext = safeNum(eventCountByDay[shiftDayKey(dayKey, 2)]);
-      const intensity = sameDay + prevDay * 0.62 + nextDay * 0.48 + farPrev * 0.25 + farNext * 0.18;
-
-      const baseTotal = 22 + (index % 7) * 3 + (index % 5) * 2;
-      const total = baseTotal + Math.round(intensity * 52);
-      const blockRatio = Math.min(0.74, 0.6 + Math.min(intensity, 2.5) * 0.035 + (index % 4) * 0.01);
-      const block = Math.round(total * blockRatio);
-      const report = Math.max(0, total - block);
-      const sourceCount = Math.max(2, Math.round(total / 18) + sameDay * 2 + (prevDay ? 1 : 0));
-
-      return {
-        day_key: dayKey,
-        total_event_count: total,
-        block_event_count: block,
-        report_event_count: report,
-        source_count: sourceCount,
-        is_spike: sameDay > 0 || total >= 95
-      };
-    });
-  }
-
-  function buildMockTopicTimeSeries(events) {
-    const grouped = new Map();
-    dedupePoliticalEvents(events).forEach((event) => {
-      if (!grouped.has(event.date)) grouped.set(event.date, new Map());
-      const dateGroup = grouped.get(event.date);
-      const label = event.category || '政黨動態';
-      dateGroup.set(label, (dateGroup.get(label) || 0) + 1);
-    });
-
-    return Array.from(grouped.entries()).map(([date, topics]) => ({
-      date,
-      topics: Array.from(topics.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([label, count]) => ({ label, count }))
-    }));
-  }
-
-  function buildMockReportCategories(totalReportEvents) {
-    const templates = [
-      ['垃圾訊息', 26],
-      ['霸凌或騷擾', 18],
-      ['不實資訊', 17],
-      ['暴力、仇恨或剝削', 14],
-      ['裸露或性行為', 13],
-      ['生理或心理威脅', 12]
-    ];
-    let assigned = 0;
-    return templates.map(([label, pct], index) => {
-      const eventCount = index === templates.length - 1
-        ? Math.max(0, totalReportEvents - assigned)
-        : Math.round(totalReportEvents * (pct / 100));
-      assigned += eventCount;
-      return {
-        label,
-        eventCount,
-        accountCount: Math.max(1, Math.round(eventCount * (0.48 + index * 0.03))),
-        sourceCount: Math.max(1, Math.round(eventCount / (18 + index * 2))),
-        sharePct: totalReportEvents > 0 ? Number(((eventCount / totalReportEvents) * 100).toFixed(1)) : 0
-      };
-    });
-  }
-
-  function buildMockNarratives(templateNarratives, totalEventCount) {
-    const templates = Array.isArray(templateNarratives) ? templateNarratives : [];
-    const baseline = templates.reduce((sum, item) => sum + safeNum(item.eventCount), 0) || 1;
-    const target = Math.max(360, Math.round(totalEventCount * 0.34));
-    const scale = target / baseline;
-    return templates.map((item, index) => ({
-      ...item,
-      eventCount: Math.max(72, Math.round(safeNum(item.eventCount) * scale)),
-      accountCount: Math.max(24, Math.round(safeNum(item.accountCount) * scale * 0.92)),
-      sourceCount: Math.max(3, safeNum(item.sourceCount) + Math.floor(index / 2))
-    }));
-  }
-
-  async function buildMockData() {
-    const base = cloneMockData();
-    const events = await loadStaticPoliticalEvents();
-    const dailyTrend = buildMockDailyTrend(events, MOCK_DAYS);
-    const topicTimeSeries = buildMockTopicTimeSeries(events);
-    const start = dailyTrend[0]?.day_key || '';
-    const end = dailyTrend[dailyTrend.length - 1]?.day_key || '';
-    const totals = dailyTrend.reduce((acc, row) => {
-      acc.total += safeNum(row.total_event_count);
-      acc.block += safeNum(row.block_event_count);
-      acc.report += safeNum(row.report_event_count);
-      acc.sources += safeNum(row.source_count);
-      return acc;
-    }, { total: 0, block: 0, report: 0, sources: 0 });
-    const last7 = dailyTrend.slice(-7).reduce((sum, row) => sum + safeNum(row.total_event_count), 0);
-    const previous7 = dailyTrend.slice(-14, -7).reduce((sum, row) => sum + safeNum(row.total_event_count), 0);
-    const uploadCount = Math.max(96, Math.round(totals.total / 20));
-    const sourceCoveragePct = Math.min(88, 66 + events.length);
-    const reportSourceCoveragePct = Math.max(42, sourceCoveragePct - 9);
-
-    return normalizeOverviewData({
-      ...base,
-      generatedAt: new Date().toISOString(),
-      days: MOCK_DAYS,
-      summary: {
-        headline: base.summary?.headline || '',
-        subtitle: '政治事件為近 60 天真實公開事件；平台統計為依事件節點生成的示意資料。'
-      },
-      overview: {
-        uploadCount,
-        blockEventCount: totals.block,
-        reportEventCount: totals.report,
-        totalEventCount: totals.total,
-        sourcePostCount: Math.max(events.length * 18, Math.round(totals.total * 0.1)),
-        topicSeedCount: Math.max(events.length * 2, 24),
-        sourceCoveragePct,
-        reportSourceCoveragePct
-      },
-      dateRange: {
-        start,
-        end,
-        activeDays: dailyTrend.length
-      },
-      credibility: {
-        effectiveUploadCount: uploadCount,
-        activeObservationDays: dailyTrend.length,
-        sourceCoveragePct,
-        reportSourceCoveragePct
-      },
-      signals: {
-        sourceConcentrationPct: Number(Math.min(34.5, 18 + events.length * 0.45).toFixed(1)),
-        repeatedNarrativePct: Number(Math.min(46.8, 25 + events.length * 0.7).toFixed(1)),
-        shortTermDiffusionPct: previous7 > 0
-          ? Number((((last7 - previous7) / previous7) * 100).toFixed(1))
-          : 0,
-        coordinatedAccountEstimate: Math.max(120, Math.round(totals.total * 0.27)),
-        coordinatedSourceCount: Math.max(8, Math.round(events.length * 0.75))
-      },
-      dailyTrend,
-      topicTimeSeries,
-      reportCategories: buildMockReportCategories(totals.report),
-      topNarratives: buildMockNarratives(base.topNarratives, totals.total),
-      recentUploads: []
-    });
+    return JSON.parse(JSON.stringify(MOCK_DATA));
   }
 
   function createEmptyOverview(days = DEFAULT_DAYS) {
@@ -495,18 +258,6 @@ topNarratives: [
       reportCategories: [],
       topNarratives: [],
       recentUploads: [],
-      intake: {
-        acceptedUploadCount: 0,
-        acceptedEventCount: 0,
-        trustedUploadCount: 0,
-        probationUploadCount: 0,
-        probationEventCount: 0,
-        flaggedUploadCount: 0,
-        flaggedEventCount: 0,
-        latestAcceptedUploadAt: '',
-        latestProbationUploadAt: '',
-        latestFlaggedUploadAt: ''
-      },
       methodology: {
         trustPolicy: 'public-trusted-only',
         scoreBands: { low: '0-44', medium: '45-64', high: '65+' },
@@ -535,62 +286,8 @@ topNarratives: [
       topicTimeSeries: Array.isArray(data?.topicTimeSeries) ? data.topicTimeSeries : [],
       reportCategories: Array.isArray(data?.reportCategories) ? data.reportCategories : [],
       topNarratives: Array.isArray(data?.topNarratives) ? data.topNarratives : [],
-      recentUploads: Array.isArray(data?.recentUploads) ? data.recentUploads : [],
-      intake: { ...empty.intake, ...(data?.intake || {}) }
+      recentUploads: Array.isArray(data?.recentUploads) ? data.recentUploads : []
     };
-  }
-
-  function buildIntakeMessage(data) {
-    const intake = data && data.intake ? data.intake : {};
-    const pending = safeNum(intake.probationUploadCount);
-    const pendingEvents = safeNum(intake.probationEventCount);
-    const flagged = safeNum(intake.flaggedUploadCount);
-    const flaggedEvents = safeNum(intake.flaggedEventCount);
-    if (pending <= 0 && flagged <= 0) return '';
-    const latest = intake.latestProbationUploadAt
-      ? `，最新一批 ${String(intake.latestProbationUploadAt).replace('T', ' ').slice(0, 16)} UTC`
-      : '';
-    const parts = [];
-    if (pending > 0) {
-      parts.push(`${formatNumber(pending)} 批待觀察上傳、${formatNumber(pendingEvents)} 筆事件${latest}`);
-    }
-    if (flagged > 0) {
-      parts.push(`${formatNumber(flagged)} 批隔離上傳、${formatNumber(flaggedEvents)} 筆事件`);
-    }
-    return `已收到 ${parts.join('；')}。公開圖表目前只納入 trusted sample，待觀察與隔離資料不會影響公開統計。`;
-  }
-
-  function formatUploadTimestamp(value) {
-    const text = String(value || '').trim();
-    if (!text) return '';
-    return text.replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC').replace(/Z$/, ' UTC').slice(0, 20);
-  }
-
-  function buildObservationWindowLabel(data) {
-    const dateRange = data && data.dateRange ? data.dateRange : {};
-    const intake = data && data.intake ? data.intake : {};
-    const start = dateRange.start || '';
-    const end = dateRange.end || '';
-    const latestAccepted = formatUploadTimestamp(intake.latestAcceptedUploadAt);
-    const acceptedCount = safeNum(intake.acceptedUploadCount);
-    const trustedCount = safeNum(intake.trustedUploadCount);
-    const probationCount = safeNum(intake.probationUploadCount);
-    const flaggedCount = safeNum(intake.flaggedUploadCount);
-    const parts = [];
-
-    if (latestAccepted) {
-      parts.push(`最新收到上傳：${latestAccepted}`);
-    }
-    if (acceptedCount > 0) {
-      parts.push(`已收 ${formatNumber(acceptedCount)} 批，其中 ${formatNumber(trustedCount)} 批公開統計、${formatNumber(probationCount)} 批待觀察、${formatNumber(flaggedCount)} 批隔離`);
-    }
-    if (start && end) {
-      parts.push(`公開統計區間：${start} 至 ${end}`);
-    } else {
-      parts.push('公開統計區間尚在累積中');
-    }
-
-    return parts.join('｜');
   }
 
   function summarizeSourceCoverage(data) {
@@ -608,27 +305,25 @@ topNarratives: [
 
   async function fetchOverview() {
     if (FORCE_MOCK) {
-      const data = await buildMockData();
       return {
-        data,
+        data: cloneMockData(),
         mockMode: true,
         emptyState: false,
-        message: '目前顯示 demo mode：政治事件取近 60 天真實公開事件，封鎖與檢舉統計為合成示意資料。'
+        message: '目前固定顯示示意資料（Mock），只用來展示公開頁版型與匿名欄位。'
       };
     }
 
     try {
       const result = await api(`/api/v1/platform/overview?days=${DEFAULT_DAYS}&top=${DEFAULT_TOP}`);
       const data = normalizeOverviewData(result.data || {});
-      const intakeMessage = buildIntakeMessage(data);
       if (hasLiveData(data)) {
-        return { data, mockMode: false, emptyState: false, message: intakeMessage };
+        return { data, mockMode: false, emptyState: false, message: '' };
       }
       return {
         data,
         mockMode: false,
         emptyState: true,
-        message: intakeMessage || '目前公開資料量仍在累積中，以下先顯示真實空狀態與方法資訊，不再自動補示意資料。'
+        message: '目前公開資料量仍在累積中，以下先顯示真實空狀態與方法資訊，不再自動補示意資料。'
       };
     } catch (error) {
       return {
@@ -649,7 +344,31 @@ topNarratives: [
   }
 
   async function loadPoliticalEvents() {
-    return loadStaticPoliticalEvents();
+    const results = await Promise.allSettled([
+      fetch(`${API_BASE}/api/v1/platform/political-events?days=30&limit=60`)
+        .then((r) => r.ok ? r.json() : Promise.reject())
+        .then((body) => (Array.isArray(body?.events) ? body.events : []).map((row) => ({
+          date: row.event_date,
+          title: row.title || '',
+          shortLabel: (row.title || '').slice(0, 6),
+          category: row.category || '',
+          note: row.source_name || ''
+        }))),
+      fetch('/platform/data/political-events.json')
+        .then((r) => r.ok ? r.json() : Promise.reject())
+        .then((body) => Array.isArray(body?.events) ? body.events : [])
+    ]);
+
+    const apiEvents = results[0].status === 'fulfilled' ? results[0].value : [];
+    const staticEvents = results[1].status === 'fulfilled' ? results[1].value : [];
+
+    const seen = new Set(apiEvents.map((e) => `${e.date}|${e.title}`));
+    const merged = [
+      ...apiEvents,
+      ...staticEvents.filter((e) => !seen.has(`${e.date}|${e.title}`))
+    ];
+    merged.sort((a, b) => (a.date > b.date ? 1 : -1));
+    return merged;
   }
 
   function filterEventsForRange(events, dailyTrend) {
@@ -790,7 +509,6 @@ topNarratives: [
     const minGap = 52;
     flatPins.forEach((pin) => {
       const x = xFor(pin.dayIndex);
-      const eventY = yFor(valuesTotal[pin.dayIndex]);
       let chosen = 0;
       for (let t = 0; t < tierYs.length; t++) {
         if (x - tierLastX[t] >= minGap) { chosen = t; break; }
@@ -798,18 +516,16 @@ topNarratives: [
       }
       tierLastX[chosen] = x;
       pin.x = x;
-      pin.eventY = eventY;
       pin.labelY = tierYs[chosen];
     });
 
-    const pins = flatPins.map(({ event, date, x, eventY, labelY }) => {
+    const pins = flatPins.map(({ event, date, x, labelY }) => {
       const label = String(event.shortLabel || event.label || event.title || '').trim() || date.slice(5);
       const labelText = label.length > 6 ? `${label.slice(0, 6)}…` : label;
       const { line: lineColor, text: textColor } = pinColor(event.category || '');
-      const lineTop = Math.min(labelY + 8, eventY - 8);
       return `<g class="chart-event-pin" tabindex="0" data-title="${escapeHtml(event.title || '')}" data-date="${escapeHtml(date)}" data-note="${escapeHtml(event.note || '')}" data-category="${escapeHtml(event.category || '')}">
-        <line x1="${x.toFixed(1)}" y1="${lineTop.toFixed(1)}" x2="${x.toFixed(1)}" y2="${eventY.toFixed(1)}" stroke="${lineColor}" stroke-width="1.2" stroke-dasharray="4 5" opacity="0.9"></line>
-        <circle cx="${x.toFixed(1)}" cy="${eventY.toFixed(1)}" r="4.5" fill="#ffffff" stroke="${lineColor}" stroke-width="2" opacity="0.98"></circle>
+        <line x1="${x.toFixed(1)}" y1="${padT}" x2="${x.toFixed(1)}" y2="${padT + chartH}" stroke="${lineColor}" stroke-width="1.2" stroke-dasharray="4 5"></line>
+        <circle cx="${x.toFixed(1)}" cy="${labelY.toFixed(1)}" r="4" fill="${lineColor}" opacity="0.85"></circle>
         <text x="${x.toFixed(1)}" y="${(labelY - 7).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="600" fill="${textColor}">${escapeHtml(labelText)}</text>
         <title>${escapeHtml(`${date}｜${event.title || ''}`)}</title>
       </g>`;
@@ -1041,7 +757,6 @@ topNarratives: [
   window.PlatformPublic = {
     API_BASE,
     DEFAULT_DAYS,
-    MOCK_DAYS,
     DEFAULT_TOP,
     FORCE_MOCK,
     formatNumber,
@@ -1051,9 +766,6 @@ topNarratives: [
     escapeHtml,
     bandLabel,
     summarizeSourceCoverage,
-    buildIntakeMessage,
-    buildObservationWindowLabel,
-    formatUploadTimestamp,
     fetchOverview,
     hasLiveData,
     loadPoliticalEvents,

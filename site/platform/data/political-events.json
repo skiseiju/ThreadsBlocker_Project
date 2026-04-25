@@ -1,0 +1,158 @@
+{
+  "updatedAt": "2026-04-23",
+  "windowStart": "2026-02-24",
+  "windowEnd": "2026-04-23",
+  "note": "Mock mode 使用近 60 天真實公開政治事件作為時間軸；平台統計數字仍為示意資料。",
+  "events": [
+    {
+      "date": "2026-02-24",
+      "title": "國防特別條例排入 3/6 付委，朝野版本將併案審查",
+      "category": "國會事件",
+      "shortLabel": "付委審查",
+      "note": "中央社／外部公共事件節點，僅作時序參考。",
+      "sourceName": "中央社 CNA",
+      "sourceUrl": "https://www.cna.com.tw/news/aipl/202602240066.aspx"
+    },
+    {
+      "date": "2026-02-26",
+      "title": "台海安全與國防特別預算座談會聚焦「台灣之盾」",
+      "category": "國會事件",
+      "shortLabel": "台灣之盾",
+      "note": "中央社／外部公共事件節點，僅作時序參考。",
+      "sourceName": "中央社 CNA",
+      "sourceUrl": "https://www.cna.com.tw/news/aipl/202602260133.aspx"
+    },
+    {
+      "date": "2026-03-09",
+      "title": "美國務院籲台灣各黨盡快通過國防特別預算",
+      "category": "國會事件",
+      "shortLabel": "美籲速審",
+      "note": "中央社／外部公共事件節點，僅作時序參考。",
+      "sourceName": "中央社 CNA",
+      "sourceUrl": "https://www.cna.com.tw/news/aipl/202603090011.aspx"
+    },
+    {
+      "date": "2026-03-14",
+      "title": "外交部證實收到史瓦帝尼邀請，評估賴總統 4 月出訪",
+      "category": "政黨動態",
+      "shortLabel": "訪史評估",
+      "note": "中央社／外部公共事件節點，僅作時序參考。",
+      "sourceName": "中央社 CNA",
+      "sourceUrl": "https://www.cna.com.tw/news/aipl/202603140079.aspx"
+    },
+    {
+      "date": "2026-03-22",
+      "title": "立院委員會將聯席審查國防特別條例三版本",
+      "category": "國會事件",
+      "shortLabel": "聯席審查",
+      "note": "中央社／外部公共事件節點，僅作時序參考。",
+      "sourceName": "中央社 CNA",
+      "sourceUrl": "https://www.cna.com.tw/news/aipl/202603220016.aspx"
+    },
+    {
+      "date": "2026-03-25",
+      "title": "立法院併案審查國防特別條例草案",
+      "category": "國會事件",
+      "shortLabel": "條例審查",
+      "note": "中央社／外部公共事件節點，僅作時序參考。",
+      "sourceName": "中央社 CNA",
+      "sourceUrl": "https://www.cna.com.tw/news/aipl/202603250166.aspx"
+    },
+    {
+      "date": "2026-03-28",
+      "title": "卓揆籲朝野支持國防，藍營回應應專業審查特別預算",
+      "category": "政黨動態",
+      "shortLabel": "朝野攻防",
+      "note": "中央社／外部公共事件節點，僅作時序參考。",
+      "sourceName": "中央社 CNA",
+      "sourceUrl": "https://www.cna.com.tw/news/aipl/202603280165.aspx"
+    },
+    {
+      "date": "2026-03-30",
+      "title": "顧立雄重申政院版國防特別條例各案項不可或缺",
+      "category": "國會事件",
+      "shortLabel": "顧立雄",
+      "note": "中央社／外部公共事件節點，僅作時序參考。",
+      "sourceName": "中央社 CNA",
+      "sourceUrl": "https://www.cna.com.tw/news/aipl/202603300028.aspx"
+    },
+    {
+      "date": "2026-04-02",
+      "title": "韓國瑜呼籲儘速審議總預算，藍白要求政院先依法編足",
+      "category": "國會事件",
+      "shortLabel": "總預算",
+      "note": "中央社／外部公共事件節點，僅作時序參考。",
+      "sourceName": "中央社 CNA",
+      "sourceUrl": "https://www.cna.com.tw/news/aipl/202604020317.aspx"
+    },
+    {
+      "date": "2026-04-07",
+      "title": "鄭麗文啟程訪中，宣布展開「和平之旅」",
+      "category": "政黨動態",
+      "shortLabel": "訪中啟程",
+      "note": "中央社／外部公共事件節點，僅作時序參考。",
+      "sourceName": "中央社 CNA",
+      "sourceUrl": "https://www.cna.com.tw/news/aipl/202604070064.aspx"
+    },
+    {
+      "date": "2026-04-10",
+      "title": "鄭麗文在北京與習近平會面，談及國際參與與兩岸交流",
+      "category": "政黨動態",
+      "shortLabel": "鄭習會",
+      "note": "中央社／外部公共事件節點，僅作時序參考。",
+      "sourceName": "中央社 CNA",
+      "sourceUrl": "https://www.cna.com.tw/news/acn/202604100213.aspx"
+    },
+    {
+      "date": "2026-04-10",
+      "title": "國防特別條例協商交由韓國瑜層級處理",
+      "category": "國會事件",
+      "shortLabel": "交韓協商",
+      "note": "中央社／外部公共事件節點，僅作時序參考。",
+      "sourceName": "中央社 CNA",
+      "sourceUrl": "https://www.cna.com.tw/news/aipl/202604100079.aspx"
+    },
+    {
+      "date": "2026-04-12",
+      "title": "國民黨訪中後宣布將就中方 10 項涉台措施組成工作小組",
+      "category": "政黨動態",
+      "shortLabel": "10項措施",
+      "note": "中央社／外部公共事件節點，僅作時序參考。",
+      "sourceName": "中央社 CNA",
+      "sourceUrl": "https://www.cna.com.tw/news/aipl/202604120153.aspx"
+    },
+    {
+      "date": "2026-04-13",
+      "title": "總統府宣布賴清德將於 4/22 出訪史瓦帝尼",
+      "category": "政黨動態",
+      "shortLabel": "宣布出訪",
+      "note": "中央社／外部公共事件節點，僅作時序參考。",
+      "sourceName": "中央社 CNA",
+      "sourceUrl": "https://www.cna.com.tw/news/aipl/202604130072.aspx"
+    },
+    {
+      "date": "2026-04-21",
+      "title": "賴清德出訪史瓦帝尼傳受中國施壓，總統府晚間開臨時記者會",
+      "category": "政黨動態",
+      "shortLabel": "府晚記者",
+      "note": "政治事件 crawler snapshot／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW"
+    },
+    {
+      "date": "2026-04-22",
+      "title": "中國外交部再稱「不存在中華民國總統」，引發朝野交鋒",
+      "category": "政黨動態",
+      "shortLabel": "總統稱謂",
+      "note": "政治事件 crawler snapshot／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞"
+    },
+    {
+      "date": "2026-04-23",
+      "title": "加拿大駐台代表拜會立法院，盼台加拓展合作",
+      "category": "國會事件",
+      "shortLabel": "台加合作",
+      "note": "政治事件 crawler snapshot／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報"
+    }
+  ]
+}

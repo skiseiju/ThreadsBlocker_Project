@@ -1,0 +1,6 @@
+Rollback source: docs/site-backups/2026-04-23-platform-pin-on-line/site
+Rollback command:
+cp docs/site-backups/2026-04-23-platform-pin-on-line/site/platform/index.html site/platform/index.html
+cp docs/site-backups/2026-04-23-platform-pin-on-line/site/platform/public.js site/platform/public.js
+cp docs/site-backups/2026-04-23-platform-pin-on-line/site/platform/data/political-events.json site/platform/data/political-events.json
+wrangler pages deploy site --project-name=threadsblocker --branch=main --commit-dirty=true

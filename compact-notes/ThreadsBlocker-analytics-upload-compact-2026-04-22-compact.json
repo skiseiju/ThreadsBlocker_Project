@@ -1,0 +1,98 @@
+{
+  "L0": "feat(platform): 趨勢圖 spike 偵測、話題時序、Filter Legend、政治事件改 D1 API — 完成；ingest 按 eventAt 重建話題時序待做",
+  "compact_version": "2.0",
+  "timestamp": "2026-04-22T00:00:00+08:00",
+  "project": {
+    "name": "ThreadsBlocker-analytics-upload",
+    "path": "/Volumes/Working 2T/CODE/products/ThreadsBlocker-analytics-upload",
+    "tech_stack": ["JavaScript", "Cloudflare Workers", "Cloudflare D1", "Cloudflare Pages", "Node.js", "Crawlee"],
+    "description": "留友封觀測站：Extension 上傳匿名聚合資料，CF Worker 儲存至 D1，平台頁公開呈現統計模式"
+  },
+  "session_goal": "把趨勢圖的政治事件標記與使用者封鎖資料做有意義的相關性連結",
+  "completed": [
+    {
+      "task": "新增「檢舉分類分佈」Donut 圖",
+      "files": ["site/platform/index.html", "site/platform/public.js", "site/platform/styles.css"],
+      "detail": "SVG stroke-dasharray donut，5 層顏色，中央顯示總事件數，圖例含事件數+帳號數"
+    },
+    {
+      "task": "CF Worker 新增 platform_topic_daily 表 + ingest 寫入",
+      "files": ["cf_bug_admin/src/index.js"],
+      "detail": "從 topicSeeds 按上傳日期聚合，UPSERT 進 platform_topic_daily（day_key, topic_label, event_count）"
+    },
+    {
+      "task": "CF Worker Spike 偵測 + topicTimeSeries API",
+      "files": ["cf_bug_admin/src/index.js"],
+      "detail": "detectSpikes(): 7日滾動平均 1.5x 閾值，dailyTrend 每筆加 is_spike: boolean；topicTimeSeries 按天回傳前 5 topic"
+    },
+    {
+      "task": "前端趨勢圖：Spike 橙點 + 話題 hover + Filter Legend",
+      "files": ["site/platform/public.js", "site/platform/styles.css"],
+      "detail": "spike 日顯示橙色圓點；滑鼠移日期顯示當天話題；legend 改 pill toggle button 可開關各線條"
+    },
+    {
+      "task": "政治事件改從 D1 API 讀取（合併靜態 JSON）",
+      "files": ["site/platform/public.js"],
+      "detail": "Promise.allSettled 並行拉 D1 API + 靜態 JSON，按 date|title 去重合併，Linode 爬蟲新事件自動上圖"
+    },
+    {
+      "task": "事件 pin 改為色點 + 文字，tier 系統垂直錯位",
+      "files": ["site/platform/public.js"],
+      "detail": "5 層 tier，minGap=52，padT=90，height=360；圓點+文字用 labelY 定位，不再壓字"
+    }
+  ],
+  "in_progress": [],
+  "failed_approaches": [
+    {
+      "attempt": "事件 pin 改純色點時固定 cy=padT-5",
+      "why_failed": "同日多事件完全重疊，視覺上只剩一個點",
+      "lesson": "tier 的 labelY 必須同時用在圓點和文字，不能只用固定 Y 值"
+    }
+  ],
+  "key_decisions": [
+    {
+      "decision": "政治事件合併 D1 + 靜態 JSON",
+      "reason": "D1 只有最近爬蟲資料，靜態 JSON 有歷史；合併才能兼顧兩者",
+      "alternatives_rejected": ["純 D1（歷史事件消失）", "pure fallback（新事件不會上圖）"]
+    },
+    {
+      "decision": "platform_topic_daily 目前用上傳日期，不用 eventAt",
+      "reason": "當時只改 topicSeeds 聚合，沒深入處理事件層級資料",
+      "alternatives_rejected": ["按 eventAt 分組（尚未實作）"]
+    }
+  ],
+  "user_preferences": [
+    "直接做完不要問",
+    "每次更動寫進 docs/devlog.md",
+    "支語不用（舉報→檢舉）"
+  ],
+  "key_files": {
+    "cf_bug_admin/src/index.js": "CF Worker 主程式：D1 schema、ingest handler、spike 偵測、所有 public API",
+    "site/platform/public.js": "平台前端主邏輯：fetchOverview、renderTrendChart、renderReportCategories、loadPoliticalEvents",
+    "site/platform/index.html": "平台首頁：section 結構、inline init script",
+    "site/platform/styles.css": "平台樣式：donut、chart-legend、event pin",
+    "crawlers/political-events/src/index.js": "Linode 爬蟲（自由時報+Google Trends+三立），每天 UTC 17:00",
+    "docs/devlog.md": "本 session 所有更動紀錄"
+  },
+  "open_problems": [
+    {
+      "problem": "platform_topic_daily 用上傳日期，不是封鎖發生日期",
+      "impact": "話題時序與政治事件的對應不準確——使用者可能在事件發生 3 週後才上傳",
+      "fix": "CF Worker ingest 改為從 events[] 的 eventAt 欄位按天聚合話題，存入 platform_topic_daily（用事件實際日期）",
+      "effort": "中：需改 handlePlatformIngest，從 events 陣列抽 eventAt + topicLabel，按日期 group，UPSERT platform_topic_daily"
+    },
+    {
+      "problem": "政治事件與封鎖資料的相關性目前只是視覺並列，沒有計算",
+      "impact": "圖表暗示相關但無依據，弱相關時會誤導讀者",
+      "fix": "實作 spike ± 3天 + topic 關鍵詞比對，計算每個政治事件的相關性分數；只高亮有分數的事件",
+      "effort": "大：需要 topic 時序資料先修正（上一個問題），再加相關性計算邏輯"
+    },
+    {
+      "problem": "topicTimeSeries 目前 D1 是空的（沒有歷史上傳資料）",
+      "impact": "hover 顯示「尚無話題資料」，spike 無法做 topic 比對",
+      "fix": "先修 ingest 按 eventAt 存話題，等新上傳進來後才有資料",
+      "effort": "小（等資料）"
+    }
+  ],
+  "handover_context": "平台前端功能完整，CF Worker 已部署。核心未解問題：platform_topic_daily 存的是上傳日期而非封鎖實際日期，導致話題時序無法跟政治事件做真實比對。下一步優先處理 CF Worker ingest：從 events[].eventAt 欄位按天聚合話題標籤，取代目前從 topicSeeds 按上傳日聚合的做法。這是讓政治事件相關性有意義的前提。"
+}

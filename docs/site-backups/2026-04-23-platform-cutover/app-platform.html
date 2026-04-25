@@ -1,0 +1,1253 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ThreadsBlocker 公開資訊平台：匿名聚合模式、政治事件時序對照、檢舉分類分佈、敘事框架與方法論透明。">
+  <meta property="og:title" content="ThreadsBlocker 公開資訊平台">
+  <meta property="og:description" content="只呈現匿名樣本中的統計模式與風險信號，不構成對任何個人或貼文的事實認定。">
+  <meta property="og:type" content="website">
+  <title>ThreadsBlocker 公開資訊平台</title>
+  <link rel="stylesheet" href="/platform/styles.css">
+  <style>
+    .category-visual-card {
+      display: grid;
+      grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+      align-items: center;
+      gap: 18px;
+    }
+
+    .category-chart-wrap {
+      position: relative;
+      min-height: 260px;
+    }
+
+    .category-chart-wrap canvas {
+      width: 100%;
+      max-width: 280px;
+      height: auto;
+      margin: 0 auto;
+      display: block;
+    }
+
+    .category-legend {
+      display: grid;
+      gap: 10px;
+    }
+
+    .category-legend-item {
+      display: grid;
+      grid-template-columns: 14px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .category-legend-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.4);
+    }
+
+    .category-legend-item strong {
+      color: var(--ink);
+      font-size: 12px;
+    }
+
+    .narrative-score {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .narrative-score-card {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.66);
+    }
+
+    .narrative-score-card .value {
+      display: block;
+      margin-top: 6px;
+      font-family: var(--display);
+      font-size: 28px;
+      line-height: 0.95;
+      color: var(--ink);
+    }
+
+    .chart-event-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .chart-event-item {
+      padding: 10px 12px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.65;
+    }
+
+    .chart-event-item strong {
+      color: var(--ink);
+    }
+
+    @media (max-width: 720px) {
+      .category-visual-card,
+      .narrative-score {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <a class="brand-chip" href="/apps/">
+          <span class="brand-dot"></span>
+          公開事實層
+        </a>
+        <div class="brand-copy">
+          <strong>ThreadsBlocker 公開資訊平台</strong>
+          <div>匿名聚合樣本、可重算指標、方法論透明與中性訊號</div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <a class="nav-chip" href="/platform/methodology/">方法論頁</a>
+        <a class="nav-chip" href="/platform/reports/">每月透明度報告</a>
+        <button id="toggleMockButton" class="tool-btn" type="button">查看示範資料</button>
+      </div>
+    </header>
+
+    <div id="demoBanner" class="banner" aria-live="polite">
+      <div>
+        <strong>示範資料模式</strong>
+        <span id="demoBannerText">目前顯示的是示範資料，只用來展示公開頁版型與匿名欄位，不代表真實平台現況。</span>
+      </div>
+      <button id="demoBannerAction" class="tool-btn" type="button">切回真實資料</button>
+    </div>
+
+    <section class="hero">
+      <article class="hero-copy">
+        <div class="eyebrow">公開聚合視圖 / V2</div>
+        <h1>公開哪些模式值得被觀察</h1>
+        <p class="hero-kicker">公開頁只顯示匿名聚合樣本中的模式、變化與方法限制，不顯示帳號 ID、原始 URL 或可回推個人的內容。</p>
+        <p id="heroIntro" class="hero-intro">
+          本頁呈現的是匿名樣本中的統計模式與風險信號，不構成對任何個人、帳號、貼文內容、動機或法律責任之事實認定。
+        </p>
+        <div class="hero-links">
+          <a class="hero-link" href="#metricsSection">四大指標</a>
+          <a class="hero-link" href="#trendSection">事件時間軸 × 政治節點</a>
+          <a class="hero-link" href="#categorySection">舉報分類分佈</a>
+          <a class="hero-link" href="#narrativeSection">熱門協調敘事框架</a>
+          <a class="hero-link" href="/platform/methodology/">方法論透明頁</a>
+          <a class="hero-link" href="/platform/reports/">最近月報</a>
+        </div>
+        <div class="hero-note">
+          這裡不是點名榜，也不是單篇貼文的真偽裁定頁。公開頁只負責把樣本裡能被重算、能被解釋的模式講清楚，並直接標註哪些結論不能從這些數字推出。
+        </div>
+      </article>
+
+      <aside class="hero-side">
+        <div>
+          <div class="k-label">觀測視窗</div>
+          <div class="hero-value"><span id="windowDays">30</span> 日</div>
+          <div id="windowSummary" class="hero-sub">最近 30 日匿名聚合樣本的公開摘要。</div>
+        </div>
+
+        <div class="badge-row" id="signalBadgeGrid"></div>
+
+        <div class="mini-grid">
+          <div class="mini-stat">
+            <div class="k-label">聚合事件</div>
+            <span id="heroEventCount" class="v">-</span>
+          </div>
+          <div class="mini-stat">
+            <div class="k-label">來源樣本</div>
+            <span id="heroSourceCount" class="v">-</span>
+          </div>
+          <div class="mini-stat">
+            <div class="k-label">有效上傳批次</div>
+            <span id="heroUploadCount" class="v">-</span>
+          </div>
+          <div class="mini-stat">
+            <div class="k-label">更新時間</div>
+            <span id="heroUpdatedAt" class="v" style="font-size:22px;">-</span>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <section id="metricsSection" class="section">
+      <div class="section-head">
+        <div>
+          <h2>四大公開指標</h2>
+        </div>
+        <p>每個指標都附有清楚定義與限制說明。高值代表樣本中的模式較明顯，不代表已完成對個人或貼文的定性判斷。</p>
+      </div>
+      <div class="metric-grid">
+        <article class="metric-card">
+          <div class="metric-index">01</div>
+          <div id="metricConcentrationValue" class="metric-value">-</div>
+          <div class="metric-label">來源集中度</div>
+          <div id="metricConcentrationBody" class="metric-body"></div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-index">02</div>
+          <div id="metricRepeatValue" class="metric-value">-</div>
+          <div class="metric-label">文字重複率</div>
+          <div id="metricRepeatBody" class="metric-body"></div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-index">03</div>
+          <div id="metricDiffusionValue" class="metric-value">-</div>
+          <div class="metric-label">短期擴散速度</div>
+          <div id="metricDiffusionBody" class="metric-body"></div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-index">04</div>
+          <div id="metricCoordinationValue" class="metric-value">-</div>
+          <div class="metric-label">協調帳號數</div>
+          <div id="metricCoordinationBody" class="metric-body"></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2>資料可信度指標</h2>
+        </div>
+        <p>公開頁除了顯示指標，也同步顯示樣本基礎。這些值只到聚合層，不揭露投稿者或上傳者識別資訊。</p>
+      </div>
+      <div class="cred-grid" id="credibilityGrid"></div>
+    </section>
+
+    <section id="trendSection" class="section">
+      <div class="two-col">
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>事件時間軸 × 政治節點</h3>
+              <p>政治事件標記是外部公共節點，用來做時序對照，不代表與平台樣本之間存在已證實的因果關係。</p>
+            </div>
+          </div>
+          <div class="chart-shell">
+            <div class="legend-row">
+              <span><span class="legend-swatch" style="background:#8b2f23"></span>總事件數</span>
+              <span><span class="legend-swatch" style="background:#0f766e"></span>封鎖事件數</span>
+              <span><span class="legend-swatch" style="background:#9f6b2c"></span>檢舉事件數</span>
+              <span><span class="legend-swatch" style="background:#625348"></span>來源樣本數</span>
+              <span><span class="legend-swatch" style="background:#c38132"></span>政治節點標記</span>
+            </div>
+            <div id="trendChart"></div>
+            <div id="trendEventDetail" class="chart-detail"></div>
+          </div>
+          <div class="chart-meta">
+            <div class="meta-card">
+              <div class="k-label">近 7 日事件總量</div>
+              <span id="chartLast7Events" class="v">-</span>
+            </div>
+            <div class="meta-card">
+              <div class="k-label">近 7 日封鎖事件</div>
+              <span id="chartLast7Blocks" class="v">-</span>
+            </div>
+            <div class="meta-card">
+              <div class="k-label">近 7 日檢舉事件</div>
+              <span id="chartLast7Reports" class="v">-</span>
+            </div>
+            <div class="meta-card">
+              <div class="k-label">活躍觀測日</div>
+              <span id="chartActiveDays" class="v">-</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>方法邊界</h3>
+              <p>公開頁與內部資料層之間有明確 public projection，避免任何帳號、URL 或可回指個人的欄位流到對外頁面。</p>
+            </div>
+          </div>
+          <dl class="definition-list">
+            <div>
+              <dt>公開頁有什麼</dt>
+              <dd>時間桶、聚合數值、檢舉分類分佈、匿名敘事摘要、方法說明與外部政治事件參考。</dd>
+            </div>
+            <div>
+              <dt>公開頁沒有什麼</dt>
+              <dd>帳號 ID、@username、原始貼文 URL、原文摘錄、具名風險標籤、個人層級 drill-down。</dd>
+            </div>
+            <div>
+              <dt>免責核心</dt>
+              <dd>本頁資訊不是對個人、貼文內容、動機、身分或違法性的法律認定；資料也不是 Threads 全量資料。</dd>
+            </div>
+            <div>
+              <dt>方法論完整說明</dt>
+              <dd>四大指標定義、`manipulationSignalScore` 的構成、分級門檻、樣本限制與最低公開門檻，全部在方法論頁公開。</dd>
+            </div>
+          </dl>
+          <div class="inline-links">
+            <a class="inline-link" href="/platform/methodology/">前往方法論頁</a>
+            <a class="inline-link" href="/platform/reports/">閱讀最近月報</a>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="categorySection" class="section">
+      <div class="section-head">
+        <div>
+          <h2>舉報分類分佈</h2>
+        </div>
+        <p>這些分類來自使用者在 Threads 原生檢舉流程中的所選類別。公開頁預設只顯示達公開門檻的 Top 類別與聚合統計。</p>
+      </div>
+      <div id="categoryGrid" class="category-grid"></div>
+    </section>
+
+    <section id="narrativeSection" class="section">
+      <div class="section-head">
+        <div>
+          <h2>熱門協調敘事框架 Top 5</h2>
+        </div>
+        <p>這裡只顯示摘要化、去識別化後的敘事描述，不貼原文整段、不附貼文連結，也不提供帳號對照。</p>
+      </div>
+      <div id="narrativeGrid" class="narrative-grid"></div>
+    </section>
+
+    <section class="section">
+      <div class="report-grid">
+        <article class="report-card">
+          <div class="card-topline">方法論說明</div>
+          <h3>方法論透明頁</h3>
+          <div class="card-body">公開 `manipulationSignalScore` 的構成、風險門檻、最低公開門檻與不能推出的結論，讓外部讀者知道每個指標的來源與限制。</div>
+          <div class="inline-links">
+            <a class="inline-link" href="/platform/methodology/">打開方法論頁</a>
+          </div>
+        </article>
+        <article class="report-card">
+          <div class="card-topline">每月透明度報告</div>
+          <h3>每月透明度報告</h3>
+          <div class="card-body">固定格式整理本期摘要、事件量、四大指標、主要敘事、政治事件對照與樣本限制，方便媒體與研究者引用。</div>
+          <div class="inline-links">
+            <a class="inline-link" href="/platform/reports/">閱讀最近月報</a>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="upload-card">
+        <div class="upload-head">
+          <div>
+            <h3>加入匿名樣本</h3>
+            <p>安裝留友封後，你可以把本地端產生的匿名聚合 JSON 上傳到平台。公開頁只會使用 public projection 後的匿名聚合資料，不會直接公開原始明細。</p>
+          </div>
+          <div class="mini-stat" style="min-width:180px;">
+            <div class="k-label">目前批次</div>
+            <span id="uploadCountDisplay" class="v">-</span>
+          </div>
+        </div>
+        <div class="upload-form">
+          <input id="platformJsonFile" type="file" accept="application/json,.json">
+          <button id="uploadPlatformJson" type="button">上傳我的匿名樣本</button>
+        </div>
+        <div id="uploadStatus" class="upload-status"></div>
+        <div class="footer">
+          <div>資料來源：留友封使用者自願上傳的匿名聚合資料。公開頁只呈現統計模式與風險信號，不構成對任何個人的事實認定。</div>
+          <div class="footer-links">
+            <a href="/apps/">Apps</a>
+            <a href="/platform/methodology/">方法論頁</a>
+            <a href="/platform/reports/">月報頁</a>
+            <a href="https://threadsblocker.skiseiju.com/" target="_blank" rel="noopener">產品首頁</a>
+            <a href="https://github.com/skiseiju/ThreadsBlocker_Project" target="_blank" rel="noopener">GitHub</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="/platform/public.js"></script>
+  <script>
+    // 此為示範資料，實際資料來源為使用者上傳批次
+    const MOCK_DATA = {
+      schema: 'threadsblocker.platform_public.v1',
+      generatedAt: '2026-04-21T00:00:00Z',
+      days: 30,
+      overview: {
+        uploadCount: 312,
+        blockEventCount: 11284,
+        reportEventCount: 7148,
+        totalEventCount: 18432,
+        sourcePostCount: 2763,
+        topicSeedCount: 57,
+        sourceCoveragePct: 73,
+        reportSourceCoveragePct: 69
+      },
+      dateRange: {
+        start: '2025-04-01',
+        end: '2025-04-30',
+        activeDays: 30
+      },
+      credibility: {
+        effectiveUploadCount: 312,
+        activeObservationDays: 30,
+        totalEventSampleCount: 18432,
+        sourceCoveragePct: 73,
+        reportSourceCoveragePct: 69
+      },
+      thresholds: {
+        categoryMinEvents: 5,
+        narrativeMinSources: 2,
+        narrativeMinEvents: 20,
+        highSignalScore: 65,
+        mediumSignalScore: 45
+      },
+      signals: {
+        sourceConcentrationPct: 67.4,
+        repeatedNarrativePct: 43.2,
+        shortTermDiffusionPct: 38.6,
+        coordinatedAccountEstimate: 847,
+        coordinatedSourceCount: 23,
+        normalized: {
+          sourceConcentrationRatio: 0.674,
+          repeatedNarrativeRatio: 0.432,
+          shortTermDiffusionRatio: 0.386
+        }
+      },
+      dailyTrend: [
+        { day_key: '2025-04-01', total_event_count: 29, block_event_count: 18, report_event_count: 11, source_count: 11 },
+        { day_key: '2025-04-02', total_event_count: 94, block_event_count: 61, report_event_count: 33, source_count: 27 },
+        { day_key: '2025-04-03', total_event_count: 37, block_event_count: 24, report_event_count: 13, source_count: 14 },
+        { day_key: '2025-04-04', total_event_count: 33, block_event_count: 21, report_event_count: 12, source_count: 13 },
+        { day_key: '2025-04-05', total_event_count: 27, block_event_count: 17, report_event_count: 10, source_count: 10 },
+        { day_key: '2025-04-06', total_event_count: 31, block_event_count: 19, report_event_count: 12, source_count: 12 },
+        { day_key: '2025-04-07', total_event_count: 35, block_event_count: 22, report_event_count: 13, source_count: 13 },
+        { day_key: '2025-04-08', total_event_count: 112, block_event_count: 71, report_event_count: 41, source_count: 31 },
+        { day_key: '2025-04-09', total_event_count: 38, block_event_count: 24, report_event_count: 14, source_count: 14 },
+        { day_key: '2025-04-10', total_event_count: 34, block_event_count: 21, report_event_count: 13, source_count: 12 },
+        { day_key: '2025-04-11', total_event_count: 29, block_event_count: 18, report_event_count: 11, source_count: 11 },
+        { day_key: '2025-04-12', total_event_count: 26, block_event_count: 16, report_event_count: 10, source_count: 10 },
+        { day_key: '2025-04-13', total_event_count: 32, block_event_count: 20, report_event_count: 12, source_count: 12 },
+        { day_key: '2025-04-14', total_event_count: 36, block_event_count: 23, report_event_count: 13, source_count: 13 },
+        { day_key: '2025-04-15', total_event_count: 128, block_event_count: 82, report_event_count: 46, source_count: 34 },
+        { day_key: '2025-04-16', total_event_count: 121, block_event_count: 76, report_event_count: 45, source_count: 33 },
+        { day_key: '2025-04-17', total_event_count: 41, block_event_count: 26, report_event_count: 15, source_count: 15 },
+        { day_key: '2025-04-18', total_event_count: 34, block_event_count: 21, report_event_count: 13, source_count: 12 },
+        { day_key: '2025-04-19', total_event_count: 30, block_event_count: 19, report_event_count: 11, source_count: 11 },
+        { day_key: '2025-04-20', total_event_count: 28, block_event_count: 17, report_event_count: 11, source_count: 10 },
+        { day_key: '2025-04-21', total_event_count: 33, block_event_count: 21, report_event_count: 12, source_count: 12 },
+        { day_key: '2025-04-22', total_event_count: 37, block_event_count: 23, report_event_count: 14, source_count: 13 },
+        { day_key: '2025-04-23', total_event_count: 35, block_event_count: 22, report_event_count: 13, source_count: 13 },
+        { day_key: '2025-04-24', total_event_count: 103, block_event_count: 65, report_event_count: 38, source_count: 29 },
+        { day_key: '2025-04-25', total_event_count: 97, block_event_count: 62, report_event_count: 35, source_count: 28 },
+        { day_key: '2025-04-26', total_event_count: 39, block_event_count: 24, report_event_count: 15, source_count: 14 },
+        { day_key: '2025-04-27', total_event_count: 31, block_event_count: 19, report_event_count: 12, source_count: 11 },
+        { day_key: '2025-04-28', total_event_count: 34, block_event_count: 21, report_event_count: 13, source_count: 12 },
+        { day_key: '2025-04-29', total_event_count: 36, block_event_count: 22, report_event_count: 14, source_count: 13 },
+        { day_key: '2025-04-30', total_event_count: 32, block_event_count: 20, report_event_count: 12, source_count: 12 }
+      ],
+      politicalEventMarkers: [
+        {
+          date: '2025-04-02',
+          title: '文學界與公眾人物連署挺罷免聲量升高',
+          category: '罷免案',
+          note: '公共政治事件標記，僅作時序對照，不代表與平台樣本存在已證實因果關係。'
+        },
+        {
+          date: '2025-04-08',
+          title: '多起立委罷免案進入第二階段連署領表焦點期',
+          category: '罷免案',
+          note: '公共政治事件標記，僅作時序對照，不代表與平台樣本存在已證實因果關係。'
+        },
+        {
+          date: '2025-04-15',
+          title: '中選會表示多件罷免案涉偽造或死亡連署',
+          category: '罷免案',
+          note: '公共政治事件標記，僅作時序對照，不代表與平台樣本存在已證實因果關係。'
+        },
+        {
+          date: '2025-04-16',
+          title: '幽靈連署案偵辦升高，政治討論量擴大',
+          category: '罷免案',
+          note: '公共政治事件標記，僅作時序對照，不代表與平台樣本存在已證實因果關係。'
+        },
+        {
+          date: '2025-04-24',
+          title: '大罷免二階連署倒數記者會成為輿論節點',
+          category: '罷免案',
+          note: '公共政治事件標記，僅作時序對照，不代表與平台樣本存在已證實因果關係。'
+        },
+        {
+          date: '2025-04-25',
+          title: '二階領表與倒數動員延續新一波討論',
+          category: '罷免案',
+          note: '公共政治事件標記，僅作時序對照，不代表與平台樣本存在已證實因果關係。'
+        }
+      ],
+      eventReferenceLibrary: [
+        { date: '2024-01-13', title: '2024 年總統與立委選舉投票日', category: '選舉' },
+        { date: '2024-05-17', title: '立法院處理國會職權修法時爆發激烈衝突', category: '國會事件' },
+        { date: '2024-05-20', title: '賴清德、蕭美琴就職', category: '選舉' },
+        { date: '2024-05-21', title: '立法院續審國會職權修法，再度成為政治焦點', category: '國會事件' },
+        { date: '2024-10-13', title: '基隆市長罷免案投票', category: '罷免案' },
+        { date: '2025-03-12', title: '總預算、財劃法覆議案遭立法院否決', category: '國會事件' },
+        { date: '2025-04-08', title: '多起立委罷免案進入第二階段連署領表焦點期', category: '罷免案' },
+        { date: '2025-04-15', title: '中選會表示 41 件罷免案涉偽造或死亡連署並已告發', category: '罷免案' },
+        { date: '2025-04-16', title: '幽靈連署案偵辦升高，政治討論量擴大', category: '罷免案' },
+        { date: '2025-04-24', title: '大罷免二階連署倒數記者會成為輿論節點', category: '罷免案' }
+      ],
+      reportCategories: [
+        { label: '垃圾訊息', eventCount: 4147, accountCount: 612, sourceCount: 141, sharePct: 58.0 },
+        { label: '霸凌或騷擾', eventCount: 1352, accountCount: 248, sourceCount: 79, sharePct: 18.9 },
+        { label: '不實資訊', eventCount: 1006, accountCount: 187, sourceCount: 62, sharePct: 14.1 },
+        { label: '暴力或仇恨', eventCount: 429, accountCount: 94, sourceCount: 31, sharePct: 6.0 },
+        { label: '其他', eventCount: 214, accountCount: 53, sourceCount: 18, sharePct: 3.0 }
+      ],
+      topNarratives: [
+        {
+          title: '以「程序正當性」與「議事透明」為主軸的重複討論框架',
+          signalScore: 74,
+          sampleCount: 628,
+          firstSeen: '2025-04-02',
+          category: '國會程序',
+          summary: '多個來源反覆使用相近措辭，圍繞議事程序、表決合法性與公開透明等角度進行轉述。',
+          eventCount: 628,
+          sourceCount: 14,
+          accountCount: 173,
+          signalBand: 'high',
+          hintLabels: ['程序正當性', '議事透明']
+        },
+        {
+          title: '以「連署真偽爭議」與「選務公正」為核心的同步轉述框架',
+          signalScore: 71,
+          sampleCount: 587,
+          firstSeen: '2025-04-15',
+          category: '罷免案',
+          summary: '樣本中出現高度相似的提問句與判斷句，集中討論連署真偽、查核機制與制度信任問題。',
+          eventCount: 587,
+          sourceCount: 12,
+          accountCount: 149,
+          signalBand: 'high',
+          hintLabels: ['連署真偽', '選務公正']
+        },
+        {
+          title: '以「大罷免倒數」與「公民動員」為主題的口號式擴散框架',
+          signalScore: 68,
+          sampleCount: 541,
+          firstSeen: '2025-04-08',
+          category: '公民動員',
+          summary: '可觀察到短句口號、時間倒數與行動呼籲被多次複製轉傳，語氣明顯一致。',
+          eventCount: 541,
+          sourceCount: 11,
+          accountCount: 138,
+          signalBand: 'high',
+          hintLabels: ['倒數', '公民動員']
+        },
+        {
+          title: '以「預算審議衝突」延伸到「治理失衡」的評論框架',
+          signalScore: 62,
+          sampleCount: 463,
+          firstSeen: '2025-03-12',
+          category: '預算與憲政',
+          summary: '部分來源以固定句型延伸討論預算審議、覆議結果與治理穩定性的關聯。',
+          eventCount: 463,
+          sourceCount: 9,
+          accountCount: 121,
+          signalBand: 'medium',
+          hintLabels: ['預算審議', '治理失衡']
+        },
+        {
+          title: '以「地方治理表現」連結「中央政治對立」的混合式敘事框架',
+          signalScore: 57,
+          sampleCount: 394,
+          firstSeen: '2025-04-24',
+          category: '地方與中央',
+          summary: '多個樣本將地方治理議題與中央政治對立並置，使用相似修辭形成跨主題聚合。',
+          eventCount: 394,
+          sourceCount: 8,
+          accountCount: 109,
+          signalBand: 'medium',
+          hintLabels: ['地方治理', '中央對立']
+        }
+      ],
+      recentUploads: [
+        { id: 312, created_at: '2026-04-21T00:00:00Z' },
+        { id: 311, created_at: '2026-04-20T15:20:00Z' }
+      ],
+      monthlyReportDemo: {
+        monthKey: '2025-04',
+        monthLabel: '2025年4月',
+        summary: '2025 年 4 月公開樣本顯示，平台事件量在平日維持低至中度波動，但於罷免案二階連署、選務爭議與檢調偵辦升高的節點出現明顯增幅。整體四大指標呈現中度風險訊號，其中來源集中度與文字重複率均高於穩定背景值，顯示少數敘事框架在短時間內被反覆轉述。由於本平台資料來自使用者自願上傳，並非社群平台全量資料，因此本月報告僅反映匿名樣本中的可觀察模式與公共事件之時序對照。',
+        keyFindings: [
+          '4 月共有 4 波可視化 spike，均與罷免案與選務爭議節點相鄰。',
+          '來源集中度為 67.4%，顯示少數來源在高波動時段具有較高放大量。',
+          '重複敘事主要集中在程序正當性、連署真偽與公民動員三類框架。'
+        ],
+        notableEventCorrelations: [
+          { date: '2025-04-02', label: '文學界連署挺罷免聲量升高', impact: '形成第一波 spike' },
+          { date: '2025-04-08', label: '多件罷免案進入二階領表期', impact: '形成第二波 spike' },
+          { date: '2025-04-15', label: '中選會告發涉偽造或死亡連署案', impact: '形成全月最高峰' },
+          { date: '2025-04-24', label: '二階連署倒數記者會', impact: '形成第四波 spike' }
+        ]
+      },
+      methodology: {
+        scoreBands: { low: '0-44', medium: '45-64', high: '65+' },
+        principles: [
+          '公開頁只呈現匿名樣本中的統計模式與中性訊號。',
+          '高風險分級是統計標籤，不是對個人、貼文、動機或違法性的認定。',
+          '資料來自使用者自願上傳，並非平台全量資料。'
+        ]
+      }
+    };
+
+    const $ = (id) => document.getElementById(id);
+    const MOCK_QUERY_KEY = 'mock';
+    const MOCK_STORAGE_KEY = 'threadsblocker.platform.mock';
+    const CATEGORY_COLORS = ['#8b2f23', '#b6672b', '#d18b33', '#7d5f46', '#c9aa84'];
+    let trendChartInstance = null;
+    let categoryChartInstance = null;
+
+    function safeNum(value) {
+      const num = Number(value);
+      return Number.isFinite(num) ? num : 0;
+    }
+
+    function formatNumber(value) {
+      return safeNum(value).toLocaleString('zh-TW');
+    }
+
+    function formatPercent(value, digits = 1, signed = false) {
+      const num = Number(value);
+      if (!Number.isFinite(num)) return signed ? '+0.0%' : '0.0%';
+      const abs = `${Math.abs(num).toFixed(digits)}%`;
+      if (!signed) return abs;
+      return `${num >= 0 ? '+' : '-'}${abs}`;
+    }
+
+    function escapeHtml(text) {
+      return String(text || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    function cloneData(value) {
+      return JSON.parse(JSON.stringify(value));
+    }
+
+    function formatDateLabel(dayKey) {
+      if (!dayKey) return '--';
+      return dayKey.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$1/$2/$3');
+    }
+
+    function formatShortDate(dayKey) {
+      if (!dayKey) return '--';
+      return dayKey.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$2/$3');
+    }
+
+    function bandLabel(band) {
+      if (band === 'high') return '高信號';
+      if (band === 'medium') return '中信號';
+      return '低信號';
+    }
+
+    function summarizeSourceCoverage(data) {
+      const coverage = safeNum(data.overview?.sourceCoveragePct);
+      const reportCoverage = safeNum(data.overview?.reportSourceCoveragePct);
+      return `來源覆蓋率 ${formatPercent(coverage, 0)} / 檢舉來源覆蓋率 ${formatPercent(reportCoverage, 0)}`;
+    }
+
+    function normalizeData(raw) {
+      const source = raw || {};
+      return {
+        ...cloneData(MOCK_DATA),
+        ...source,
+        overview: { ...cloneData(MOCK_DATA.overview), ...(source.overview || {}) },
+        dateRange: { ...cloneData(MOCK_DATA.dateRange), ...(source.dateRange || {}) },
+        credibility: { ...cloneData(MOCK_DATA.credibility), ...(source.credibility || {}) },
+        thresholds: { ...cloneData(MOCK_DATA.thresholds), ...(source.thresholds || {}) },
+        signals: {
+          ...cloneData(MOCK_DATA.signals),
+          ...(source.signals || {}),
+          normalized: {
+            ...cloneData(MOCK_DATA.signals.normalized),
+            ...((source.signals && source.signals.normalized) || {})
+          }
+        },
+        dailyTrend: Array.isArray(source.dailyTrend) && source.dailyTrend.length ? source.dailyTrend : cloneData(MOCK_DATA.dailyTrend),
+        politicalEventMarkers: Array.isArray(source.politicalEventMarkers) && source.politicalEventMarkers.length
+          ? source.politicalEventMarkers
+          : cloneData(MOCK_DATA.politicalEventMarkers),
+        eventReferenceLibrary: Array.isArray(source.eventReferenceLibrary) && source.eventReferenceLibrary.length
+          ? source.eventReferenceLibrary
+          : cloneData(MOCK_DATA.eventReferenceLibrary),
+        reportCategories: Array.isArray(source.reportCategories) && source.reportCategories.length
+          ? source.reportCategories
+          : cloneData(MOCK_DATA.reportCategories),
+        topNarratives: Array.isArray(source.topNarratives) && source.topNarratives.length
+          ? source.topNarratives
+          : cloneData(MOCK_DATA.topNarratives),
+        recentUploads: Array.isArray(source.recentUploads) && source.recentUploads.length
+          ? source.recentUploads
+          : cloneData(MOCK_DATA.recentUploads),
+        monthlyReportDemo: { ...cloneData(MOCK_DATA.monthlyReportDemo), ...(source.monthlyReportDemo || {}) },
+        methodology: { ...cloneData(MOCK_DATA.methodology), ...(source.methodology || {}) }
+      };
+    }
+
+    function computeWindowMetrics(data) {
+      const daily = Array.isArray(data.dailyTrend) ? data.dailyTrend : [];
+      const last7 = daily.slice(-7);
+      return {
+        last7Total: last7.reduce((sum, row) => sum + safeNum(row.total_event_count), 0),
+        last7Block: last7.reduce((sum, row) => sum + safeNum(row.block_event_count), 0),
+        last7Report: last7.reduce((sum, row) => sum + safeNum(row.report_event_count), 0),
+        activeDays: daily.filter((row) => safeNum(row.total_event_count) > 0).length
+      };
+    }
+
+    function buildSignalBadges(data) {
+      const signals = data.signals || {};
+      const items = [];
+
+      if (safeNum(signals.sourceConcentrationPct) >= 60) {
+        items.push({
+          tone: 'warn',
+          label: '來源集中',
+          detail: `少數來源放大量偏高，集中度達 ${formatPercent(signals.sourceConcentrationPct)}`
+        });
+      }
+      if (safeNum(signals.repeatedNarrativePct) >= 40) {
+        items.push({
+          tone: 'warn',
+          label: '敘事重複',
+          detail: `重複敘事事件占比 ${formatPercent(signals.repeatedNarrativePct)}`
+        });
+      }
+      if (safeNum(signals.shortTermDiffusionPct) >= 30) {
+        items.push({
+          tone: 'warn',
+          label: '短期擴散',
+          detail: `最近 7 日較前 7 日增加 ${formatPercent(signals.shortTermDiffusionPct, 1, true)}`
+        });
+      }
+      if (safeNum(signals.coordinatedAccountEstimate) >= 500) {
+        items.push({
+          tone: 'warn',
+          label: '多帳號參與',
+          detail: `高信號來源目前牽涉約 ${formatNumber(signals.coordinatedAccountEstimate)} 個帳號樣本`
+        });
+      }
+      return items.length ? items : [{
+        tone: 'steady',
+        label: '樣本穩定',
+        detail: '目前未觸發高強度公開訊號'
+      }];
+    }
+
+    function getRangeMarkers(data) {
+      const daily = Array.isArray(data.dailyTrend) ? data.dailyTrend : [];
+      if (!daily.length) return [];
+      const start = daily[0].day_key;
+      const end = daily[daily.length - 1].day_key;
+      const markers = Array.isArray(data.politicalEventMarkers) && data.politicalEventMarkers.length
+        ? data.politicalEventMarkers
+        : data.eventReferenceLibrary || [];
+      return markers.filter((item) => item.date >= start && item.date <= end);
+    }
+
+    function renderBanner(mockMode, message) {
+      $('toggleMockButton').textContent = mockMode ? '切回真實資料' : '查看示範資料';
+      $('demoBannerAction').textContent = mockMode ? '切回真實資料' : '重試真實資料';
+      if (!mockMode) {
+        $('demoBanner').classList.remove('show');
+        return;
+      }
+      $('demoBannerText').textContent = message || '目前顯示的是示範資料，只用來展示公開頁版型與匿名欄位，不代表真實平台現況。';
+      $('demoBanner').classList.add('show');
+    }
+
+    function renderHero(data) {
+      const latestUpload = data.recentUploads && data.recentUploads[0] ? data.recentUploads[0].created_at : data.generatedAt;
+      const updatedAt = latestUpload ? new Date(latestUpload) : new Date();
+      $('windowDays').textContent = String(data.days || 30);
+      $('heroEventCount').textContent = formatNumber(data.overview.totalEventCount);
+      $('heroSourceCount').textContent = formatNumber(data.overview.sourcePostCount);
+      $('heroUploadCount').textContent = formatNumber(data.overview.uploadCount);
+      $('heroUpdatedAt').textContent = updatedAt.toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' });
+      $('heroIntro').innerHTML = `最近 <strong>${data.days} 日</strong> 的匿名聚合樣本累積 <strong>${formatNumber(data.overview.totalEventCount)}</strong> 次事件與 <strong>${formatNumber(data.overview.sourcePostCount)}</strong> 筆來源樣本。公開頁目前只提供可重算的模式層訊號，不顯示任何帳號、原始 URL 或具名標籤。`;
+      $('windowSummary').textContent = `資料期間 ${formatDateLabel(data.dateRange.start)} 至 ${formatDateLabel(data.dateRange.end)}，${summarizeSourceCoverage(data)}。`;
+
+      const badges = buildSignalBadges(data);
+      $('signalBadgeGrid').innerHTML = badges.map((badge) => `
+        <div class="signal-badge ${badge.tone}">
+          <strong>${escapeHtml(badge.label)}</strong>
+          <span>${escapeHtml(badge.detail)}</span>
+        </div>
+      `).join('');
+    }
+
+    function renderMetrics(data) {
+      $('metricConcentrationValue').textContent = formatPercent(data.signals.sourceConcentrationPct);
+      $('metricConcentrationBody').textContent = `最高單一來源目前占可回推來源事件 ${formatPercent(data.signals.sourceConcentrationPct)}。高集中只代表少數來源放大量較高，不代表惡意。`;
+
+      $('metricRepeatValue').textContent = formatPercent(data.signals.repeatedNarrativePct);
+      $('metricRepeatBody').textContent = `達公開門檻的重複敘事約占可回推來源事件 ${formatPercent(data.signals.repeatedNarrativePct)}。重複不等於協調，可能也來自引用、摘要或新聞轉述。`;
+
+      $('metricDiffusionValue').textContent = formatPercent(data.signals.shortTermDiffusionPct, 1, true);
+      $('metricDiffusionBody').textContent = `最近 7 日事件量相對前 7 日變化 ${formatPercent(data.signals.shortTermDiffusionPct, 1, true)}。高成長不代表不當操作，也可能受重大公共事件驅動。`;
+
+      $('metricCoordinationValue').textContent = formatNumber(data.signals.coordinatedAccountEstimate);
+      $('metricCoordinationBody').textContent = `高信號來源目前涉及約 ${formatNumber(data.signals.coordinatedAccountEstimate)} 個帳號樣本、${formatNumber(data.signals.coordinatedSourceCount)} 組來源。這只代表模式聚集，不代表真實協調關係已被證實。`;
+    }
+
+    function renderCredibility(data) {
+      const cards = [
+        {
+          label: '獨立貢獻使用者數',
+          value: formatNumber(data.credibility.effectiveUploadCount),
+          body: '可用於公開頁重算的匿名樣本批次，代表示範資料已具備基本的跨來源觀測厚度。'
+        },
+        {
+          label: '資料涵蓋時間範圍',
+          value: `${formatNumber(data.credibility.activeObservationDays)} 日`,
+          body: `目前視窗固定為 ${formatDateLabel(data.dateRange.start)} 至 ${formatDateLabel(data.dateRange.end)}。`
+        },
+        {
+          label: '總事件樣本數',
+          value: formatNumber(data.credibility.totalEventSampleCount || data.overview.totalEventCount),
+          body: '這是整體示範資料集規模；與 30 日折線圖日桶數列不同，後者只用於公開頁視覺化。'
+        },
+        {
+          label: '來源覆蓋率',
+          value: formatPercent(data.credibility.sourceCoveragePct, 0),
+          body: `封鎖來源覆蓋率 ${formatPercent(data.credibility.sourceCoveragePct, 0)}，檢舉來源覆蓋率 ${formatPercent(data.credibility.reportSourceCoveragePct, 0)}。`
+        }
+      ];
+      $('credibilityGrid').innerHTML = cards.map((card) => `
+        <div class="cred-card">
+          <div class="k-label">${escapeHtml(card.label)}</div>
+          <span class="v">${escapeHtml(card.value)}</span>
+          <div class="body">${escapeHtml(card.body)}</div>
+        </div>
+      `).join('');
+    }
+
+    function buildEventMarkerPlugin(markers) {
+      return {
+        id: 'politicalEventMarkers',
+        afterDatasetsDraw(chart) {
+          const { ctx, chartArea, scales } = chart;
+          if (!chartArea || !scales.x) return;
+          const xScale = scales.x;
+          const topSlots = [chartArea.top + 10, chartArea.top + 32, chartArea.top + 54];
+
+          ctx.save();
+          ctx.font = '11px "Avenir Next", "PingFang TC", sans-serif';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+
+          markers.forEach((marker, idx) => {
+            const xIndex = chart.data.labels.indexOf(marker.date);
+            if (xIndex < 0) return;
+            const x = xScale.getPixelForValue(xIndex);
+            const y = topSlots[idx % topSlots.length];
+            const label = marker.title.length > 14 ? `${marker.title.slice(0, 14)}…` : marker.title;
+            const textWidth = ctx.measureText(label).width;
+
+            ctx.strokeStyle = 'rgba(195, 129, 50, 0.75)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(x, chartArea.top + 6);
+            ctx.lineTo(x, chartArea.bottom);
+            ctx.stroke();
+
+            const boxX = Math.min(Math.max(chartArea.left + 6, x + 6), chartArea.right - textWidth - 18);
+            const boxY = y - 10;
+            ctx.fillStyle = 'rgba(255, 248, 238, 0.94)';
+            ctx.strokeStyle = 'rgba(195, 129, 50, 0.42)';
+            ctx.beginPath();
+            ctx.roundRect(boxX, boxY, textWidth + 12, 20, 8);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = '#8b2f23';
+            ctx.fillText(label, boxX + 6, y);
+          });
+
+          ctx.restore();
+        }
+      };
+    }
+
+    function renderTrendChart(data) {
+      const host = $('trendChart');
+      const detail = $('trendEventDetail');
+      const daily = Array.isArray(data.dailyTrend) ? data.dailyTrend : [];
+      const markers = getRangeMarkers(data);
+
+      if (!daily.length) {
+        host.innerHTML = '<div class="empty-state">資料不足，暫時無法繪製趨勢圖。</div>';
+        detail.innerHTML = '<strong>事件標記</strong> 目前沒有可顯示的外部政治節點。';
+        return;
+      }
+
+      host.innerHTML = '<canvas id="trendChartCanvas" height="320" aria-label="30 日趨勢圖"></canvas>';
+      const canvas = $('trendChartCanvas');
+
+      if (trendChartInstance) trendChartInstance.destroy();
+
+      const labels = daily.map((row) => row.day_key);
+      const eventDates = new Set(markers.map((item) => item.date));
+      const markerPlugin = buildEventMarkerPlugin(markers);
+
+      trendChartInstance = new Chart(canvas, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: '總事件數',
+              data: daily.map((row) => safeNum(row.total_event_count)),
+              borderColor: '#8b2f23',
+              backgroundColor: 'rgba(139, 47, 35, 0.1)',
+              borderWidth: 3,
+              pointRadius: (ctx) => eventDates.has(labels[ctx.dataIndex]) ? 4 : 2,
+              pointHoverRadius: 5,
+              tension: 0.35,
+              yAxisID: 'y'
+            },
+            {
+              label: '封鎖事件數',
+              data: daily.map((row) => safeNum(row.block_event_count)),
+              borderColor: '#0f766e',
+              backgroundColor: 'rgba(15, 118, 110, 0.1)',
+              borderWidth: 2.4,
+              pointRadius: 0,
+              tension: 0.35,
+              yAxisID: 'y'
+            },
+            {
+              label: '檢舉事件數',
+              data: daily.map((row) => safeNum(row.report_event_count)),
+              borderColor: '#9f6b2c',
+              backgroundColor: 'rgba(159, 107, 44, 0.1)',
+              borderWidth: 2.2,
+              pointRadius: 0,
+              tension: 0.35,
+              yAxisID: 'y'
+            },
+            {
+              label: '來源樣本數',
+              data: daily.map((row) => safeNum(row.source_count)),
+              borderColor: '#625348',
+              backgroundColor: 'rgba(98, 83, 72, 0.08)',
+              borderWidth: 1.8,
+              borderDash: [6, 5],
+              pointRadius: 0,
+              tension: 0.28,
+              yAxisID: 'y1'
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            mode: 'index',
+            intersect: false
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: 'rgba(31, 23, 18, 0.92)',
+              titleColor: '#fffdfa',
+              bodyColor: '#f3efe7',
+              padding: 12,
+              callbacks: {
+                title(items) {
+                  return formatDateLabel(items[0].label);
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: {
+                color: 'rgba(49, 35, 24, 0.08)'
+              },
+              ticks: {
+                color: '#625348',
+                autoSkip: true,
+                maxTicksLimit: 8,
+                callback(value, index) {
+                  return formatShortDate(labels[index]);
+                }
+              }
+            },
+            y: {
+              position: 'left',
+              beginAtZero: true,
+              grid: {
+                color: 'rgba(49, 35, 24, 0.08)'
+              },
+              ticks: {
+                color: '#625348'
+              }
+            },
+            y1: {
+              position: 'right',
+              beginAtZero: true,
+              grid: {
+                drawOnChartArea: false
+              },
+              ticks: {
+                color: '#8d7867'
+              }
+            }
+          }
+        },
+        plugins: [markerPlugin]
+      });
+
+      detail.innerHTML = markers.length
+        ? `<strong>本月政治節點</strong><div class="chart-event-list">${markers.map((item) => `
+            <div class="chart-event-item">
+              <strong>${escapeHtml(formatDateLabel(item.date))}</strong> ${escapeHtml(item.title)}
+              <br>${escapeHtml(item.note || '公共政治事件標記，僅作時序對照，不代表與平台樣本存在已證實因果關係。')}
+            </div>
+          `).join('')}</div>`
+        : '<strong>本月政治節點</strong> 目前沒有落在此觀測區間的外部政治事件標記。';
+    }
+
+    function renderCategories(data) {
+      const rows = Array.isArray(data.reportCategories) ? data.reportCategories : [];
+      if (!rows.length) {
+        $('categoryGrid').innerHTML = '<div class="empty-state">目前沒有達公開門檻的檢舉分類分佈可顯示。</div>';
+        return;
+      }
+
+      const maxEvents = Math.max(...rows.map((row) => safeNum(row.eventCount)), 1);
+      $('categoryGrid').innerHTML = `
+        <article class="category-card category-visual-card">
+          <div class="category-chart-wrap">
+            <canvas id="categoryDonutCanvas" height="280" aria-label="舉報分類分佈圓餅圖"></canvas>
+          </div>
+          <div>
+            <div class="card-topline">分類總覽</div>
+            <h3>舉報分類分佈</h3>
+            <div class="card-body">示範資料中的檢舉事件以「垃圾訊息」為最大宗，其次為「霸凌或騷擾」與「不實資訊」。這些值只代表匿名樣本中的檢舉路徑分佈。</div>
+            <div class="category-legend">
+              ${rows.map((row, index) => `
+                <div class="category-legend-item">
+                  <span class="category-legend-dot" style="background:${CATEGORY_COLORS[index % CATEGORY_COLORS.length]};"></span>
+                  <span>${escapeHtml(row.label)} <strong>${formatPercent(row.sharePct)}</strong></span>
+                  <strong>${formatNumber(row.eventCount)}</strong>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </article>
+        ${rows.map((row) => `
+          <article class="category-card">
+            <div class="card-topline">檢舉分類</div>
+            <h3>${escapeHtml(row.label)}</h3>
+            <div class="card-body">這個類別目前占公開分類事件 ${formatPercent(row.sharePct)}，只反映樣本中使用者在 Threads 原生檢舉流程的所選類別。</div>
+            <div class="category-bar"><span style="width:${Math.max(8, Math.round((safeNum(row.eventCount) / maxEvents) * 100))}%"></span></div>
+            <div class="stat-row"><span>事件數</span><strong>${formatNumber(row.eventCount)}</strong></div>
+            <div class="stat-row"><span>帳號數</span><strong>${formatNumber(row.accountCount)}</strong></div>
+            <div class="stat-row"><span>來源數</span><strong>${formatNumber(row.sourceCount)}</strong></div>
+          </article>
+        `).join('')}
+      `;
+
+      if (categoryChartInstance) categoryChartInstance.destroy();
+      categoryChartInstance = new Chart($('categoryDonutCanvas'), {
+        type: 'doughnut',
+        data: {
+          labels: rows.map((row) => row.label),
+          datasets: [{
+            data: rows.map((row) => safeNum(row.eventCount)),
+            backgroundColor: CATEGORY_COLORS,
+            borderColor: 'rgba(255, 251, 245, 0.95)',
+            borderWidth: 3,
+            hoverOffset: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '64%',
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: 'rgba(31, 23, 18, 0.92)',
+              titleColor: '#fffdfa',
+              bodyColor: '#f3efe7',
+              padding: 12,
+              callbacks: {
+                label(context) {
+                  const row = rows[context.dataIndex];
+                  return `${row.label}：${formatNumber(row.eventCount)}（${formatPercent(row.sharePct)}）`;
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function renderNarratives(data) {
+      const rows = Array.isArray(data.topNarratives) ? data.topNarratives : [];
+      if (!rows.length) {
+        $('narrativeGrid').innerHTML = '<div class="empty-state">目前樣本不足，暫時沒有達公開門檻的匿名敘事框架可顯示。</div>';
+        return;
+      }
+      $('narrativeGrid').innerHTML = rows.slice(0, 5).map((row, index) => `
+        <article class="narrative-card">
+          <div class="card-topline">敘事框架 ${String(index + 1).padStart(2, '0')}</div>
+          <h3>${escapeHtml(row.title)}</h3>
+          <div class="card-body">${escapeHtml(row.summary)}</div>
+          <div class="narrative-score">
+            <div class="narrative-score-card">
+              <div class="k-label">信號強度</div>
+              <span class="value">${formatNumber(row.signalScore)}</span>
+            </div>
+            <div class="narrative-score-card">
+              <div class="k-label">樣本數</div>
+              <span class="value">${formatNumber(row.sampleCount)}</span>
+            </div>
+          </div>
+          <div class="pill-row">
+            <span class="pill signal-${escapeHtml(row.signalBand)}">${escapeHtml(bandLabel(row.signalBand))}</span>
+            <span class="pill">首見 ${escapeHtml(formatDateLabel(row.firstSeen))}</span>
+            <span class="pill">分類 ${escapeHtml(row.category)}</span>
+          </div>
+          <div class="pill-row">
+            <span class="pill">事件 ${formatNumber(row.eventCount)}</span>
+            <span class="pill">來源 ${formatNumber(row.sourceCount)}</span>
+            <span class="pill">帳號 ${formatNumber(row.accountCount)}</span>
+          </div>
+          <div class="pill-row">
+            ${(row.hintLabels || []).map((label) => `<span class="pill">${escapeHtml(label)}</span>`).join('')}
+          </div>
+        </article>
+      `).join('');
+    }
+
+    function renderTrendStats(data) {
+      const stats = computeWindowMetrics(data);
+      $('chartLast7Events').textContent = formatNumber(stats.last7Total);
+      $('chartLast7Blocks').textContent = formatNumber(stats.last7Block);
+      $('chartLast7Reports').textContent = formatNumber(stats.last7Report);
+      $('chartActiveDays').textContent = formatNumber(stats.activeDays);
+    }
+
+    function showUploadStatus(message, isError) {
+      const el = $('uploadStatus');
+      el.textContent = message || '';
+      el.className = `upload-status${isError ? ' err' : ''}`;
+    }
+
+    function setMockMode(forceMock) {
+      const url = new URL(window.location.href);
+      if (forceMock) {
+        url.searchParams.set(MOCK_QUERY_KEY, '1');
+        window.localStorage.setItem(MOCK_STORAGE_KEY, '1');
+      } else {
+        url.searchParams.delete(MOCK_QUERY_KEY);
+        window.localStorage.removeItem(MOCK_STORAGE_KEY);
+      }
+      window.location.href = url.toString();
+    }
+
+    async function uploadPlatformJson(file) {
+      if (!window.PlatformPublic || typeof window.PlatformPublic.uploadPlatformJson !== 'function') {
+        throw new Error('上傳功能暫時無法使用。');
+      }
+      return window.PlatformPublic.uploadPlatformJson(file);
+    }
+
+    async function resolveOverviewData() {
+      const query = new URLSearchParams(window.location.search);
+      const forceMock = query.get(MOCK_QUERY_KEY) === '1' || window.localStorage.getItem(MOCK_STORAGE_KEY) === '1';
+
+      if (forceMock) {
+        return {
+          data: normalizeData(MOCK_DATA),
+          mockMode: true,
+          message: '目前固定顯示示範資料，只用來展示公開頁版型與匿名欄位。'
+        };
+      }
+
+      if (window.PlatformPublic && typeof window.PlatformPublic.fetchOverview === 'function') {
+        const result = await window.PlatformPublic.fetchOverview();
+        if (result && result.mockMode) {
+          return {
+            data: normalizeData(MOCK_DATA),
+            mockMode: true,
+            message: result.message || '目前公開資料量不足，以下改顯示示範資料。'
+          };
+        }
+        return {
+          data: normalizeData(result ? result.data : null),
+          mockMode: false,
+          message: ''
+        };
+      }
+
+      return {
+        data: normalizeData(MOCK_DATA),
+        mockMode: true,
+        message: '目前無法讀取平台資料，以下改顯示示範資料。'
+      };
+    }
+
+    async function init() {
+      const { data, mockMode, message } = await resolveOverviewData();
+
+      renderBanner(mockMode, message);
+      renderHero(data);
+      renderMetrics(data);
+      renderCredibility(data);
+      renderTrendStats(data);
+      renderTrendChart(data);
+      renderCategories(data);
+      renderNarratives(data);
+      $('uploadCountDisplay').textContent = formatNumber(data.overview.uploadCount);
+
+      $('toggleMockButton').addEventListener('click', () => setMockMode(!mockMode));
+      $('demoBannerAction').addEventListener('click', () => setMockMode(false));
+      $('uploadPlatformJson').addEventListener('click', async () => {
+        try {
+          showUploadStatus('上傳中...', false);
+          const result = await uploadPlatformJson($('platformJsonFile').files && $('platformJsonFile').files[0]);
+          showUploadStatus(
+            result.duplicate
+              ? `這批資料已存在（ID ${result.id || '-'}）。`
+              : `上傳成功，已建立批次 ${result.id || '-'}。`,
+            false
+          );
+        } catch (error) {
+          showUploadStatus(`上傳失敗：${error.message || error}`, true);
+        }
+      });
+    }
+
+    init();
+  </script>
+</body>
+</html>

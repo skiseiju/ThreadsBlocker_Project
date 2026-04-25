@@ -48,6 +48,7 @@
 
 詳細版本紀錄請參閱 **[CHANGELOG.md](./CHANGELOG.md)**。
 架構與防護機制說明請參閱 **[docs/BLOCKING_ARCHITECTURE.md](./docs/BLOCKING_ARCHITECTURE.md)**。
+Bug 回報後台（Cloudflare Worker + D1）請參閱 **[docs/BUG_ADMIN_PLATFORM.md](./docs/BUG_ADMIN_PLATFORM.md)**。
 
 ## 📂 專案結構 (Structure)
 

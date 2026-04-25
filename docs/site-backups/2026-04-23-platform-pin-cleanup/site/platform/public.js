@@ -147,18 +147,6 @@ topNarratives: [
       { id: 518, created_at: '2026-04-19T17:04:00Z' },
       { id: 517, created_at: '2026-04-19T16:31:00Z' }
     ],
-    intake: {
-      acceptedUploadCount: 302,
-      acceptedEventCount: 151248,
-      trustedUploadCount: 286,
-      probationUploadCount: 16,
-      probationEventCount: 2516,
-      flaggedUploadCount: 0,
-      flaggedEventCount: 0,
-      latestAcceptedUploadAt: '2026-04-21T00:00:00Z',
-      latestProbationUploadAt: '2026-04-21T00:00:00Z',
-      latestFlaggedUploadAt: ''
-    },
     methodology: {
       trustPolicy: 'public-trusted-only',
       scoreBands: { low: '0-44', medium: '45-64', high: '65+' },
@@ -495,18 +483,6 @@ topNarratives: [
       reportCategories: [],
       topNarratives: [],
       recentUploads: [],
-      intake: {
-        acceptedUploadCount: 0,
-        acceptedEventCount: 0,
-        trustedUploadCount: 0,
-        probationUploadCount: 0,
-        probationEventCount: 0,
-        flaggedUploadCount: 0,
-        flaggedEventCount: 0,
-        latestAcceptedUploadAt: '',
-        latestProbationUploadAt: '',
-        latestFlaggedUploadAt: ''
-      },
       methodology: {
         trustPolicy: 'public-trusted-only',
         scoreBands: { low: '0-44', medium: '45-64', high: '65+' },
@@ -535,62 +511,8 @@ topNarratives: [
       topicTimeSeries: Array.isArray(data?.topicTimeSeries) ? data.topicTimeSeries : [],
       reportCategories: Array.isArray(data?.reportCategories) ? data.reportCategories : [],
       topNarratives: Array.isArray(data?.topNarratives) ? data.topNarratives : [],
-      recentUploads: Array.isArray(data?.recentUploads) ? data.recentUploads : [],
-      intake: { ...empty.intake, ...(data?.intake || {}) }
+      recentUploads: Array.isArray(data?.recentUploads) ? data.recentUploads : []
     };
-  }
-
-  function buildIntakeMessage(data) {
-    const intake = data && data.intake ? data.intake : {};
-    const pending = safeNum(intake.probationUploadCount);
-    const pendingEvents = safeNum(intake.probationEventCount);
-    const flagged = safeNum(intake.flaggedUploadCount);
-    const flaggedEvents = safeNum(intake.flaggedEventCount);
-    if (pending <= 0 && flagged <= 0) return '';
-    const latest = intake.latestProbationUploadAt
-      ? `，最新一批 ${String(intake.latestProbationUploadAt).replace('T', ' ').slice(0, 16)} UTC`
-      : '';
-    const parts = [];
-    if (pending > 0) {
-      parts.push(`${formatNumber(pending)} 批待觀察上傳、${formatNumber(pendingEvents)} 筆事件${latest}`);
-    }
-    if (flagged > 0) {
-      parts.push(`${formatNumber(flagged)} 批隔離上傳、${formatNumber(flaggedEvents)} 筆事件`);
-    }
-    return `已收到 ${parts.join('；')}。公開圖表目前只納入 trusted sample，待觀察與隔離資料不會影響公開統計。`;
-  }
-
-  function formatUploadTimestamp(value) {
-    const text = String(value || '').trim();
-    if (!text) return '';
-    return text.replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC').replace(/Z$/, ' UTC').slice(0, 20);
-  }
-
-  function buildObservationWindowLabel(data) {
-    const dateRange = data && data.dateRange ? data.dateRange : {};
-    const intake = data && data.intake ? data.intake : {};
-    const start = dateRange.start || '';
-    const end = dateRange.end || '';
-    const latestAccepted = formatUploadTimestamp(intake.latestAcceptedUploadAt);
-    const acceptedCount = safeNum(intake.acceptedUploadCount);
-    const trustedCount = safeNum(intake.trustedUploadCount);
-    const probationCount = safeNum(intake.probationUploadCount);
-    const flaggedCount = safeNum(intake.flaggedUploadCount);
-    const parts = [];
-
-    if (latestAccepted) {
-      parts.push(`最新收到上傳：${latestAccepted}`);
-    }
-    if (acceptedCount > 0) {
-      parts.push(`已收 ${formatNumber(acceptedCount)} 批，其中 ${formatNumber(trustedCount)} 批公開統計、${formatNumber(probationCount)} 批待觀察、${formatNumber(flaggedCount)} 批隔離`);
-    }
-    if (start && end) {
-      parts.push(`公開統計區間：${start} 至 ${end}`);
-    } else {
-      parts.push('公開統計區間尚在累積中');
-    }
-
-    return parts.join('｜');
   }
 
   function summarizeSourceCoverage(data) {
@@ -620,15 +542,14 @@ topNarratives: [
     try {
       const result = await api(`/api/v1/platform/overview?days=${DEFAULT_DAYS}&top=${DEFAULT_TOP}`);
       const data = normalizeOverviewData(result.data || {});
-      const intakeMessage = buildIntakeMessage(data);
       if (hasLiveData(data)) {
-        return { data, mockMode: false, emptyState: false, message: intakeMessage };
+        return { data, mockMode: false, emptyState: false, message: '' };
       }
       return {
         data,
         mockMode: false,
         emptyState: true,
-        message: intakeMessage || '目前公開資料量仍在累積中，以下先顯示真實空狀態與方法資訊，不再自動補示意資料。'
+        message: '目前公開資料量仍在累積中，以下先顯示真實空狀態與方法資訊，不再自動補示意資料。'
       };
     } catch (error) {
       return {
@@ -649,7 +570,18 @@ topNarratives: [
   }
 
   async function loadPoliticalEvents() {
-    return loadStaticPoliticalEvents();
+    const staticEvents = await loadStaticPoliticalEvents();
+    if (FORCE_MOCK) return staticEvents;
+
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/platform/political-events?days=${MOCK_DAYS}&limit=120`);
+      if (!response.ok) return staticEvents;
+      const body = await response.json().catch(() => ({}));
+      const apiEvents = Array.isArray(body?.events) ? body.events : [];
+      return dedupePoliticalEvents([...apiEvents, ...staticEvents]);
+    } catch (error) {
+      return staticEvents;
+    }
   }
 
   function filterEventsForRange(events, dailyTrend) {
@@ -790,7 +722,6 @@ topNarratives: [
     const minGap = 52;
     flatPins.forEach((pin) => {
       const x = xFor(pin.dayIndex);
-      const eventY = yFor(valuesTotal[pin.dayIndex]);
       let chosen = 0;
       for (let t = 0; t < tierYs.length; t++) {
         if (x - tierLastX[t] >= minGap) { chosen = t; break; }
@@ -798,18 +729,16 @@ topNarratives: [
       }
       tierLastX[chosen] = x;
       pin.x = x;
-      pin.eventY = eventY;
       pin.labelY = tierYs[chosen];
     });
 
-    const pins = flatPins.map(({ event, date, x, eventY, labelY }) => {
+    const pins = flatPins.map(({ event, date, x, labelY }) => {
       const label = String(event.shortLabel || event.label || event.title || '').trim() || date.slice(5);
       const labelText = label.length > 6 ? `${label.slice(0, 6)}…` : label;
       const { line: lineColor, text: textColor } = pinColor(event.category || '');
-      const lineTop = Math.min(labelY + 8, eventY - 8);
       return `<g class="chart-event-pin" tabindex="0" data-title="${escapeHtml(event.title || '')}" data-date="${escapeHtml(date)}" data-note="${escapeHtml(event.note || '')}" data-category="${escapeHtml(event.category || '')}">
-        <line x1="${x.toFixed(1)}" y1="${lineTop.toFixed(1)}" x2="${x.toFixed(1)}" y2="${eventY.toFixed(1)}" stroke="${lineColor}" stroke-width="1.2" stroke-dasharray="4 5" opacity="0.9"></line>
-        <circle cx="${x.toFixed(1)}" cy="${eventY.toFixed(1)}" r="4.5" fill="#ffffff" stroke="${lineColor}" stroke-width="2" opacity="0.98"></circle>
+        <line x1="${x.toFixed(1)}" y1="${padT}" x2="${x.toFixed(1)}" y2="${padT + chartH}" stroke="${lineColor}" stroke-width="1.2" stroke-dasharray="4 5"></line>
+        <circle cx="${x.toFixed(1)}" cy="${labelY.toFixed(1)}" r="4" fill="${lineColor}" opacity="0.85"></circle>
         <text x="${x.toFixed(1)}" y="${(labelY - 7).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="600" fill="${textColor}">${escapeHtml(labelText)}</text>
         <title>${escapeHtml(`${date}｜${event.title || ''}`)}</title>
       </g>`;
@@ -1051,9 +980,6 @@ topNarratives: [
     escapeHtml,
     bandLabel,
     summarizeSourceCoverage,
-    buildIntakeMessage,
-    buildObservationWindowLabel,
-    formatUploadTimestamp,
     fetchOverview,
     hasLiveData,
     loadPoliticalEvents,
