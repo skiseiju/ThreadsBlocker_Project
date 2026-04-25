@@ -660,10 +660,10 @@ export const Core = {
         if (shouldAddCleanList) {
             cleanListBtn = document.createElement('div');
             cleanListBtn.className = 'hege-clean-list-btn';
-            cleanListBtn.innerHTML = `
+            Utils.setHTML(cleanListBtn, `
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M7 12h10"></path><path d="M10 18h4"></path></svg>
                 <span>清理名單</span>
-            `;
+            `);
             cleanListBtn.title = '清理名單：同列全封、只檢舉、定點絕';
             cleanListBtn.dataset.hegeRole = 'clean-list';
 

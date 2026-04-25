@@ -490,7 +490,7 @@ export const UI = {
         const safeMsg = Utils.escapeHTML(message).replace(/\n/g, '<br>');
         const cancelLabel = Utils.escapeHTML(labels.cancel || '取消');
         const confirmLabel = Utils.escapeHTML(labels.confirm || '確認繼續');
-        overlay.innerHTML = `
+        Utils.setHTML(overlay, `
             <div class="hege-manager-box" style="max-width:420px;">
                 <div class="hege-manager-header">
                     <span class="hege-manager-title">⚠️ 確認</span>
@@ -503,7 +503,7 @@ export const UI = {
                     </div>
                 </div>
             </div>
-        `;
+        `);
         document.body.appendChild(overlay);
 
         overlay.querySelector('#hege-confirm-cancel').onclick = () => {
@@ -523,7 +523,7 @@ export const UI = {
         const overlay = document.createElement('div');
         overlay.id = 'hege-platform-sync-consent-overlay';
         overlay.className = 'hege-manager-overlay';
-        overlay.innerHTML = `
+        Utils.setHTML(overlay, `
             <div class="hege-manager-box" style="width:min(92vw,720px);max-width:720px;max-height:calc(100vh - 28px);max-height:calc(100dvh - 28px);">
                 <div class="hege-manager-header">
                     <span class="hege-manager-title">一起看見「可疑帶風向行為」</span>
@@ -557,7 +557,7 @@ export const UI = {
                     </div>
                 </div>
             </div>
-        `;
+        `);
         document.body.appendChild(overlay);
 
         const finish = (enabled) => {
@@ -583,7 +583,7 @@ export const UI = {
         const overlay = document.createElement('div');
         overlay.id = 'hege-platform-manual-reminder-overlay';
         overlay.className = 'hege-manager-overlay';
-        overlay.innerHTML = `
+        Utils.setHTML(overlay, `
             <div class="hege-manager-box" style="width:min(92vw,520px);max-width:520px;">
                 <div class="hege-manager-header">
                     <span class="hege-manager-title">iOS / Safari 需要手動上傳</span>
@@ -598,7 +598,7 @@ export const UI = {
                     </div>
                 </div>
             </div>
-        `;
+        `);
         document.body.appendChild(overlay);
 
         overlay.querySelector('#hege-platform-manual-reminder-ok').onclick = () => {
@@ -612,7 +612,7 @@ export const UI = {
 
         const overlay = document.createElement('div');
         overlay.id = 'hege-disclaimer-overlay';
-        overlay.innerHTML = `
+        Utils.setHTML(overlay, `
             <div id="hege-disclaimer-box">
                 <div id="hege-disclaimer-title">使用前說明</div>
                 <div id="hege-disclaimer-text">
@@ -620,7 +620,7 @@ export const UI = {
                 </div>
                 <button id="hege-disclaimer-btn">我同意並繼續</button>
             </div>
-        `;
+        `);
         (document.body || document.documentElement).appendChild(overlay);
 
         document.getElementById('hege-disclaimer-btn').onclick = () => {
@@ -636,7 +636,7 @@ export const UI = {
         overlay.id = 'hege-report-overlay';
         overlay.className = 'hege-manager-overlay';
 
-        overlay.innerHTML = `
+        Utils.setHTML(overlay, `
             <div class="hege-manager-box">
                 <div class="hege-manager-header">
                     <span class="hege-manager-title" style="display:flex; align-items:center; gap:6px;">
@@ -669,7 +669,7 @@ export const UI = {
                     </div>
                 </div>
             </div>
-        `;
+        `);
         document.body.appendChild(overlay);
 
         const closeBtn = overlay.querySelector('.hege-manager-close');
@@ -724,7 +724,7 @@ export const UI = {
         const overlay = document.createElement('div');
         overlay.id = 'hege-report-picker-overlay';
         overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.72); z-index:2147483647; display:flex; align-items:center; justify-content:center; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
-        overlay.innerHTML = `
+        Utils.setHTML(overlay, `
             <div style="width:min(420px, calc(100vw - 32px)); background:#181818; color:#f5f5f5; border:1px solid #333; border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,0.55); overflow:hidden;">
                 <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid #2a2a2a;">
                     <div style="font-size:15px; font-weight:700;">選擇檢舉項目</div>
@@ -736,13 +736,13 @@ export const UI = {
                     <button class="hege-manager-btn primary" id="hege-report-picker-confirm">${confirmLabel}</button>
                 </div>
             </div>
-        `;
+        `);
 
         const controls = overlay.querySelector('#hege-report-picker-controls');
         const close = () => overlay.remove();
         const render = () => {
             reportPath = UI.normalizeReportPath(reportPath);
-            controls.innerHTML = '';
+            controls.replaceChildren();
             let node = CONFIG.REPORT_MENU_TREE;
             let depth = 0;
 
@@ -822,7 +822,7 @@ export const UI = {
         const overlay = document.createElement('div');
         overlay.id = 'hege-clean-list-picker-overlay';
         overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.72); z-index:2147483647; display:flex; align-items:center; justify-content:center; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
-        overlay.innerHTML = `
+        Utils.setHTML(overlay, `
             <div style="width:min(440px, calc(100vw - 32px)); background:#181818; color:#f5f5f5; border:1px solid #333; border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,0.55); overflow:hidden;">
                 <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid #2a2a2a;">
                     <div style="font-size:15px; font-weight:700;">清理名單</div>
@@ -859,7 +859,7 @@ export const UI = {
                     <button class="hege-manager-btn primary" id="hege-clean-list-picker-confirm">確定加入清單</button>
                 </div>
             </div>
-        `;
+        `);
 
         const close = () => overlay.remove();
         overlay.querySelector('#hege-clean-list-picker-close').onclick = close;
@@ -903,7 +903,7 @@ export const UI = {
         overlay.id = 'hege-settings-overlay';
         overlay.className = 'hege-manager-overlay';
 
-        overlay.innerHTML = `
+        Utils.setHTML(overlay, `
             <div class="hege-manager-box hege-settings-box" style="max-width: 760px; width: 92vw;">
                 <div class="hege-manager-header">
                     <span class="hege-manager-title" style="display:flex; align-items:center; gap:6px;">
@@ -1039,7 +1039,7 @@ export const UI = {
                     </div>
                 </div>
             </div>
-        `;
+        `);
         document.body.appendChild(overlay);
 
         const close = () => overlay.remove();
@@ -2699,7 +2699,7 @@ export const UI = {
                 </div>`;
             }).join('');
 
-            overlay.innerHTML = `
+            Utils.setHTML(overlay, `
                 <div class="hege-manager-box" style="max-width:440px;">
                     <div class="hege-manager-header">
                         <span class="hege-manager-title">貼文水庫 (${entries.length} 篇)</span>
@@ -2734,7 +2734,7 @@ export const UI = {
                         ${histRows}
                     </div>` : ''}
                 </div>
-            `;
+            `);
             document.body.appendChild(overlay);
 
             overlay.querySelector('.hege-manager-close').onclick = () => overlay.remove();
@@ -2895,11 +2895,11 @@ export const UI = {
             if (!listEl) return;
 
             if (filtered.length === 0) {
-                listEl.innerHTML = `<div style="padding: 40px; text-align: center; color: #555;">${rawList.length === 0 ? '尚無蟑螂記錄' : '無符合結果'}</div>`;
+                Utils.setHTML(listEl, `<div style="padding: 40px; text-align: center; color: #555;">${rawList.length === 0 ? '尚無蟑螂記錄' : '無符合結果'}</div>`);
                 return;
             }
 
-            listEl.innerHTML = filtered.map(c => {
+            Utils.setHTML(listEl, filtered.map(c => {
                 const uname = getUname(c);
                 const safeU = Utils.escapeHTML(uname);
                 const timeStr = getTime(c) ? new Date(getTime(c)).toLocaleString() : '無記錄時間';
@@ -2915,13 +2915,13 @@ export const UI = {
                             </div>
                         </div>
                         <div class="user-info" style="flex:1;">
-                            <a href="https://www.threads.net/@${safeU}" target="_blank" style="color: #4cd964; text-decoration: underline; font-weight: 600;" onclick="event.stopPropagation()">@${safeU}</a>
+                            <a class="hege-cockroach-profile-link" href="https://www.threads.net/@${safeU}" target="_blank" style="color: #4cd964; text-decoration: underline; font-weight: 600;">@${safeU}</a>
                             <span class="time">${timeStr}</span>
                         </div>
                         <button class="hege-cockroach-open-profile" data-username="${safeU}" style="background:#5ac8fa; color:#001018; border:1px solid #5ac8fa; border-radius:6px; padding:5px 8px; font-size:12px; font-weight:700; cursor:pointer; white-space:nowrap;">📂 開啟主頁</button>
                     </div>
                 `;
-            }).join('');
+            }).join(''));
 
             listEl.querySelectorAll('.hege-cockroach-open-profile').forEach(btn => {
                 btn.onclick = (e) => {
@@ -2930,6 +2930,9 @@ export const UI = {
                     window.open(`https://www.threads.com/@${username}`, '_blank');
                     UI.showToast(`已開啟 @${username} 主頁，可在新 tab 手動定點絕想清的貼文`);
                 };
+            });
+            listEl.querySelectorAll('.hege-cockroach-profile-link').forEach(link => {
+                link.onclick = (e) => e.stopPropagation();
             });
 
             const items = listEl.querySelectorAll('.hege-manager-item');
@@ -2974,7 +2977,7 @@ export const UI = {
             ? `<span id="hege-cockroach-back" style="cursor:pointer; margin-right:8px; display:flex; align-items:center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"></path></svg></span>`
             : '';
 
-        overlay.innerHTML = `
+        Utils.setHTML(overlay, `
             <div class="hege-manager-box">
                 <div class="hege-manager-header">
                     <span class="hege-manager-title" style="display:flex; align-items:center;">
@@ -2996,7 +2999,7 @@ export const UI = {
                     </div>
                 </div>
             </div>
-        `;
+        `);
 
         document.body.appendChild(overlay);
         renderList();
@@ -3063,11 +3066,11 @@ export const UI = {
             if (!listEl) return;
 
             if (filtered.length === 0) {
-                listEl.innerHTML = '<div style="padding: 40px; text-align: center; color: #555;">無符合結果</div>';
+                Utils.setHTML(listEl, '<div style="padding: 40px; text-align: center; color: #555;">無符合結果</div>');
                 return;
             }
 
-            listEl.innerHTML = filtered.map(u => {
+            Utils.setHTML(listEl, filtered.map(u => {
                 const safeU = Utils.escapeHTML(u);
                 const time = getTs(u) ? new Date(getTs(u)).toLocaleString() : '無記錄時間';
                 const isSelected = selected.has(u);
@@ -3087,7 +3090,7 @@ export const UI = {
                         </div>
                     </div>
                 `;
-            }).join('');
+            }).join(''));
 
             // Bind item clicks
             const items = listEl.querySelectorAll('.hege-manager-item');
@@ -3134,7 +3137,7 @@ export const UI = {
             if (count) count.textContent = `已選取 ${selected.size} 筆`;
         };
 
-        overlay.innerHTML = `
+        Utils.setHTML(overlay, `
             <div class="hege-manager-box">
                 <div class="hege-manager-header">
                     <span class="hege-manager-title">管理已封鎖名單</span>
@@ -3158,7 +3161,7 @@ export const UI = {
                     </div>
                 </div>
             </div>
-        `;
+        `);
 
         document.body.appendChild(overlay);
         renderList();

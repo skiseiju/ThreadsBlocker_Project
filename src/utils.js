@@ -341,53 +341,14 @@ export const Utils = {
         return isIOS || /Android|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     },
 
-    // Trusted Types Policy for Meta sites
-    htmlPolicy: null,
-    getPolicy: () => {
-        if (Utils.htmlPolicy) return Utils.htmlPolicy;
-        if (window.trustedTypes && window.trustedTypes.createPolicy) {
-            try {
-                Utils.htmlPolicy = window.trustedTypes.createPolicy('hege_policy', {
-                    createHTML: (string) => string,
-                    createScript: (string) => string
-                });
-            } catch (e) {
-                console.warn('[RightBlock] Policy creation failed', e);
-                // Fallback: simple object to pass-through if policy exists but creation failed (e.g. duplicate name)
-                Utils.htmlPolicy = { createHTML: s => s, createScript: s => s };
-            }
-        } else {
-            Utils.htmlPolicy = { createHTML: s => s, createScript: s => s };
-        }
-        return Utils.htmlPolicy;
-    },
-
     setHTML: (element, html) => {
-        // Method 1: Trusted Types Policy
-        if (window.trustedTypes && window.trustedTypes.createPolicy) {
-            try {
-                const policy = Utils.getPolicy();
-                element.innerHTML = policy.createHTML(html);
-                return;
-            } catch (e) {
-                // Policy failed, fall through to parser
-            }
-        }
-
-        // Method 2: DOMParser (Bypasses innerHTML sink)
-        // Note: Scripts won't execute, which is what we want for UI.
         try {
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
-            element.innerHTML = '';
-            // Move children
-            while (doc.body.firstChild) {
-                element.appendChild(doc.body.firstChild);
-            }
+            element.replaceChildren(...Array.from(doc.body.childNodes));
         } catch (e) {
             console.error('[RightBlock] setHTML failed', e);
-            // Last resort
-            element.innerHTML = html;
+            element.textContent = '';
         }
     }
 };
