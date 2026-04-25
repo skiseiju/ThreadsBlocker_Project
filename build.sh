@@ -169,8 +169,11 @@ SAFARI_PATH="/Users/skiseiju/Library/Mobile Documents/com~apple~CloudDocs/usersc
 SAFARI_DIR=$(dirname "$SAFARI_PATH")
 
 if [ -d "$SAFARI_DIR" ]; then
-    cp "$OUT_FILE" "$SAFARI_PATH"
-    echo "Safari Build deployed: $SAFARI_PATH"
+    if cp "$OUT_FILE" "$SAFARI_PATH"; then
+        echo "Safari Build deployed: $SAFARI_PATH"
+    else
+        echo "Warning: Safari deploy failed (cp): $SAFARI_PATH"
+    fi
 else
     echo "Warning: Safari Userscripts directory not found: $SAFARI_DIR"
 fi

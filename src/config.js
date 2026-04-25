@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.6.0-beta38', // Beta
+    VERSION: '2.6.0-beta42', // Beta
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/reports/bug',
@@ -106,9 +106,6 @@ export const CONFIG = {
         COCKROACH_DB: 'hege_cockroach_db_v1',
         AUTO_MARK_LEADER: 'hege_auto_mark_leader',
         
-        // Task 3: 進階同列全封
-        ADVANCED_SCROLL_ENABLED: 'hege_advanced_scroll_enabled',
-
         // GraphQL API 深度挖掘
         GRAPHQL_DOC_ID: 'hege_graphql_likers_doc_id',
 

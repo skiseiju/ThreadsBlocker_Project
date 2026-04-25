@@ -32,13 +32,13 @@
 <claude-mem-context>
 # Memory Context
 
-# [ThreadsBlocker/ThreadsBlocker-analytics-upload] recent context, 2026-04-22 2:38am GMT+8
+# [ThreadsBlocker/ThreadsBlocker-analytics-upload] recent context, 2026-04-22 1:44pm GMT+8
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (13,800t read) | 578,818t work | 98% savings
+Stats: 50 obs (12,670t read) | 648,963t work | 98% savings
 
 ### Apr 21, 2026
 S128 ThreadsBlocker platform 部署目標確認 + SDD 產品定位核心訊息新增 (Apr 21 at 1:41 AM)
@@ -51,20 +51,6 @@ S138 新建政治事件爬蟲服務 crawlers/political-events/ (Apr 21 at 5:38 P
 S139 Political Events Crawler Dry Run — RSS Failures and Working Source (Apr 21 at 5:43 PM)
 S140 gtrends.js 改用 ht:news_item_title 解析；rss.js 移除三立新聞 (Apr 21 at 5:59 PM)
 S141 三立新聞整合進 fetchRssEvents sources 陣列 (Apr 21 at 6:09 PM)
-1134 6:19p 🔵 public.js political event pin color system uses category set membership
-1135 " 🔵 April 2026 monthly report content and statistics confirmed
-1136 " ✅ Political events table in monthly report given hookable DOM IDs and CSS classes
-1137 6:20p 🟣 Monthly report political events table converted to dynamic API-driven rendering
-1138 7:03p ⚖️ 敘事摘要長度規範調整為 3-5 行
-1139 " 🔵 ThreadsBlocker 分析報告頁面內容結構確認
-1140 7:04p 🔵 月報頁面動態載入政治事件對照表的實作確認
-1141 " 🟣 hint-tag 點擊開啟 Narrative Modal
-1142 7:05p 🔵 reports/index.html 插入點行號確認
-1143 " 🟣 月報 hint-tag 點擊展開 modal 詳情功能
-1144 7:06p 🟣 hint-tag modal 已成功寫入 index.html，版本升至 2.6.0-beta29
-1163 10:46p 🟣 Donut SVG Chart for renderReportCategories in public.js
-1164 " 🔵 renderReportCategories Pre-Edit State: Bar Chart at Line 499, Donut CSS Already Present
-1165 10:47p 🟣 renderReportCategories Replaced with SVG Donut Chart — Shipped as 2.6.0-beta30
 1183 11:40p 🟣 Add platform_topic_daily aggregation table and ingest logic to cf_bug_admin
 1184 " 🟣 Spike Detection and Topic Time Series Added to Platform Overview API
 1185 11:41p 🔵 cf_bug_admin index.js structure mapped for platform_topic_daily insertion
@@ -102,6 +88,20 @@ S141 三立新聞整合進 fetchRssEvents sources 陣列 (Apr 21 at 6:09 PM)
 1319 2:35a 🔵 留友封專案當前 git 工作狀態：platform 公開頁面與站點更新待提交
 1320 " 🔵 留友封 config.js 當前版本與核心端點配置（v2.6.0-beta32）
 1321 " 🔵 留友封 SDD 文件架構：多個功能模組各自有獨立 SDD 目錄
+1322 2:40a ⚖️ analytics 平台同步功能實作計畫確立：先 backup baseline 再落 SDD 再實作
+1323 " 🔵 留友封平台公開展示頁架構：public.js 目前使用 MOCK_DATA，等待真實 API 串接
+1324 " 🔵 CF Worker D1 資料庫完整 schema：七張表涵蓋平台分析全架構
+1325 " ✅ pre-sync trust-model baseline commit 完成：32 檔案、6509 行新增
+1326 2:41a ✅ SDD_Platform_Sync_Trust_Model 完整文件建立：總 SDD + 7 個 Task 文件
+1327 2:42a 🔵 CF Worker public overview API 已整合三個 signal 欄位聚合查詢
+1328 " 🔵 留友封 analytics overlay UI 已整合「一鍵上傳平台」按鈕
+1329 " 🔵 ensurePlatformTables 已實作三個信號欄位的 lazy ALTER TABLE 遷移
+1330 " 🔵 Reporter.getHardwareId() 已是穩定匿名來源識別（hege_hwid），可直接作為 Task_1 的 clientSourceId
+1331 " 🔵 exportPayload v2 schema 完整結構：manipulationSignalScore 由 client 端計算，含 suspiciousAccounts 與 campaignCandidates
+1332 3:15a 🔵 ThreadsBlocker build.sh 單指令建構四平台產物
+1333 3:19a 🔴 build.sh Safari 部署誤報修正：cp 失敗不再印成功訊息
+1334 3:20a 🔵 Safari iCloud cp 失敗確認為持續性 macOS 權限問題
+1335 " 🔵 Safari iCloud 複製需要提權執行，build.sh 內無法取得足夠權限
 
-Access 579k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 649k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

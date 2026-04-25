@@ -1,6 +1,13 @@
 # Secrets
 .env
 .env.*
+SECRETS.md
+cf_bug_admin/SECRETS.md
+
+# Local agent / deploy caches
+.ai/
+.wrangler/
+cf_bug_admin/.wrangler/
 
 # Node.js
 node_modules/

@@ -711,7 +711,6 @@ topNarratives: [
     const minGap = 52;
     flatPins.forEach((pin) => {
       const x = xFor(pin.dayIndex);
-      const eventY = yFor(valuesTotal[pin.dayIndex]);
       let chosen = 0;
       for (let t = 0; t < tierYs.length; t++) {
         if (x - tierLastX[t] >= minGap) { chosen = t; break; }
@@ -719,18 +718,16 @@ topNarratives: [
       }
       tierLastX[chosen] = x;
       pin.x = x;
-      pin.eventY = eventY;
       pin.labelY = tierYs[chosen];
     });
 
-    const pins = flatPins.map(({ event, date, x, eventY, labelY }) => {
+    const pins = flatPins.map(({ event, date, x, labelY }) => {
       const label = String(event.shortLabel || event.label || event.title || '').trim() || date.slice(5);
       const labelText = label.length > 6 ? `${label.slice(0, 6)}…` : label;
       const { line: lineColor, text: textColor } = pinColor(event.category || '');
-      const lineTop = Math.min(labelY + 8, eventY - 8);
       return `<g class="chart-event-pin" tabindex="0" data-title="${escapeHtml(event.title || '')}" data-date="${escapeHtml(date)}" data-note="${escapeHtml(event.note || '')}" data-category="${escapeHtml(event.category || '')}">
-        <line x1="${x.toFixed(1)}" y1="${lineTop.toFixed(1)}" x2="${x.toFixed(1)}" y2="${eventY.toFixed(1)}" stroke="${lineColor}" stroke-width="1.2" stroke-dasharray="4 5" opacity="0.9"></line>
-        <circle cx="${x.toFixed(1)}" cy="${eventY.toFixed(1)}" r="4.5" fill="#ffffff" stroke="${lineColor}" stroke-width="2" opacity="0.98"></circle>
+        <line x1="${x.toFixed(1)}" y1="${padT}" x2="${x.toFixed(1)}" y2="${padT + chartH}" stroke="${lineColor}" stroke-width="1.2" stroke-dasharray="4 5"></line>
+        <circle cx="${x.toFixed(1)}" cy="${labelY.toFixed(1)}" r="4" fill="${lineColor}" opacity="0.85"></circle>
         <text x="${x.toFixed(1)}" y="${(labelY - 7).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="600" fill="${textColor}">${escapeHtml(labelText)}</text>
         <title>${escapeHtml(`${date}｜${event.title || ''}`)}</title>
       </g>`;

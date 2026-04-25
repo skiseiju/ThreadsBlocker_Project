@@ -157,3 +157,20 @@
     - public API 的 `topNarratives` 新增 `whyNote`，首頁與月報都能顯示 live 敘事解釋，不再只靠前端 mock 文案
     - extension 新增真正的每日 auto sync gate：僅限 Chrome / Firefox extension、每天最多一次、成功才更新 `lastSyncedAt`、iOS 維持手動上傳
     - 版本升至 `2.6.0-beta38`
+
+21. **平台 mock mode 改為「真實事件時間軸＋合成平台數字」**（site/platform/public.js、site/platform/index.html、site/platform/data/political-events.json、src/config.js）
+    - `?mock=1` 不再使用固定 30 日靜態趨勢；改為讀取近 60 天真實公開政治事件快照，依事件節點生成 synthetic `dailyTrend`
+    - mock mode 的英雄文案與狀態訊息明確標示：政治事件為真實公開事件，封鎖/檢舉/分類/敘事統計仍為示意資料
+    - `site/platform/data/political-events.json` 改為 2026-02-24 至 2026-04-23 的真實政治事件清單，移除先前混入的娛樂／網紅／社會事件假資料
+    - 平台首頁文案去除寫死的「近 30 日」說法，改成較中性的「觀測窗」表述，避免 mock 與 live 時窗不一致
+    - 版本升至 `2.6.0-beta40`
+
+22. **首頁事件 pin 改回單一 curated 清單**（site/platform/public.js、src/config.js）
+    - `loadPoliticalEvents()` 不再混入 crawler API，首頁趨勢圖一律只讀 `site/platform/data/political-events.json`
+    - 移除右側堆疊的即時事件 pin，讓正式站與 mock 使用同一份人工整理的事件時間軸
+    - 版本升至 `2.6.0-beta41`
+
+23. **事件 pin 改為實際落在線上**（site/platform/public.js、src/config.js）
+    - 趨勢圖的事件 marker 不再只是上方圓點＋整條投影線；改為把事件點錨定在 `總事件` 曲線對應日期的 y 值上
+    - 標籤仍保留在圖上方，但改用短虛線連到實際事件點，避免「標的點不在線上」的誤讀
+    - 版本升至 `2.6.0-beta42`
