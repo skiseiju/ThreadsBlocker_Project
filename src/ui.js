@@ -491,12 +491,12 @@ export const UI = {
         const cancelLabel = Utils.escapeHTML(labels.cancel || '取消');
         const confirmLabel = Utils.escapeHTML(labels.confirm || '確認繼續');
         Utils.setHTML(overlay, `
-            <div class="hege-manager-box" style="max-width:420px;">
+            <div class="hege-manager-box" style="max-width:420px;max-height:min(86vh,640px);display:flex;flex-direction:column;overflow:hidden;">
                 <div class="hege-manager-header">
                     <span class="hege-manager-title">⚠️ 確認</span>
                 </div>
-                <div style="padding:20px;font-size:14px;line-height:1.7;color:#ccc;">${safeMsg}</div>
-                <div class="hege-manager-footer">
+                <div style="padding:20px;font-size:14px;line-height:1.7;color:#ccc;overflow:auto;overscroll-behavior:contain;min-height:0;">${safeMsg}</div>
+                <div class="hege-manager-footer" style="flex:0 0 auto;">
                     <div style="display:flex;gap:12px;width:100%;justify-content:flex-end;">
                         <button class="hege-manager-btn secondary" id="hege-confirm-cancel">${cancelLabel}</button>
                         <button class="hege-manager-btn primary" id="hege-confirm-ok">${confirmLabel}</button>
@@ -897,7 +897,7 @@ export const UI = {
     showSettingsModal: (callbacks) => {
         if (document.getElementById('hege-settings-overlay')) return;
 
-        const db = Storage.getJSON(CONFIG.KEYS.DB_KEY, []);
+        const db = Storage.getBlockDB();
 
         const overlay = document.createElement('div');
         overlay.id = 'hege-settings-overlay';
@@ -1212,7 +1212,7 @@ export const UI = {
             : Storage.getPlatformSyncLastAt();
         const clientSignals = Storage.getPlatformClientSignals();
 
-        const db = Storage.getJSON(CONFIG.KEYS.DB_KEY, []);
+        const db = Storage.getBlockDB();
         const ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
         const reportHistory = Storage.getJSON(CONFIG.KEYS.REPORT_HISTORY, []);
         const evidenceIndexRaw = Storage.getJSON(CONFIG.KEYS.SOURCE_EVIDENCE_INDEX, {});
@@ -1657,7 +1657,7 @@ export const UI = {
                 ? '已開啟每日自動上傳；支援擴充功能的 Chrome / Firefox（含 Android）會每天自動嘗試一次。'
                 : '已關閉每日自動上傳；目前只會在手動上傳時送出資料。');
 
-        const db = Storage.getJSON(CONFIG.KEYS.DB_KEY, []);
+        const db = Storage.getBlockDB();
         const ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
         const cockroachDB = Storage.getJSON(CONFIG.KEYS.COCKROACH_DB, []);
         const endlessHistory = Storage.getJSON(CONFIG.KEYS.ENDLESS_HISTORY, []);

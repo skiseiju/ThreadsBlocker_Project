@@ -24,7 +24,7 @@ export const Core = {
     },
 
     filterNewUsers: (rawUsers) => {
-        const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+        const db = new Set(Storage.getBlockDB());
         const activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
         const activeSet = new Set(activeQueue);
         return rawUsers.filter(u => !db.has(u) && !activeSet.has(u) && !Core.pendingUsers.has(u));
@@ -936,7 +936,7 @@ export const Core = {
             return rect.height > 0 && rect.width > 0;
         });
 
-        const dbRef = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+        const dbRef = new Set(Storage.getBlockDB());
         const activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
         const activeSet = new Set(activeQueue);
 
@@ -1085,7 +1085,7 @@ export const Core = {
         if (moreSvgs.length === 0) return;
 
         // Optimization: Cache DB lookup
-        const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+        const db = new Set(Storage.getBlockDB());
 
         moreSvgs.forEach(svg => {
             const btn = svg.closest('div[role="button"]');
@@ -1166,7 +1166,7 @@ export const Core = {
                 btn.dataset.username = username;
                 container.dataset.username = username;
 
-                const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+                const db = new Set(Storage.getBlockDB());
                 const cdq = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
                 const bgq = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
 
@@ -1289,7 +1289,7 @@ export const Core = {
             targetAction = 'uncheck';
         }
 
-        const currentDB = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+        const currentDB = new Set(Storage.getBlockDB());
         const actionBatchId = targetAction === 'uncheck' ? '' : `b_${Date.now()}`;
 
         targetBoxes.forEach(box => {
@@ -1386,7 +1386,7 @@ export const Core = {
 
 
     openBlockManager: () => {
-        const db = Storage.getJSON(CONFIG.KEYS.DB_KEY, []);
+        const db = Storage.getBlockDB();
         const ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
         UI.showBlockManager(db, ts, (toUnblock) => {
             Core.startUnblock(toUnblock);
@@ -1427,7 +1427,7 @@ export const Core = {
         const targets = [...new Set((Array.isArray(usernames) ? usernames : []).filter(Boolean))];
         if (targets.length === 0) return 0;
 
-        const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+        const db = new Set(Storage.getBlockDB());
         const bgq = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
         const cdq = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
         let added = 0;
@@ -1520,7 +1520,7 @@ export const Core = {
         Core._uiUpdatePending = null;
 
         const bgMode = Core.getBgMode();
-        const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+        const db = new Set(Storage.getBlockDB());
         const cdq = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
         const bgq = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
         const getQueueEtaText = (bgQueueLen) => {
@@ -2074,7 +2074,7 @@ export const Core = {
     },
 
     exportHistory: () => {
-        const db = Storage.getJSON(CONFIG.KEYS.DB_KEY, []);
+        const db = Storage.getBlockDB();
         if (db.length === 0) { UI.showToast('歷史資料庫是空的'); return; }
         const list = db.join('\n');
         navigator.clipboard.writeText(list).then(() => { UI.showToast(`已複製 ${db.length} 人名單`); }).catch(() => { prompt("請手動複製總名單：", list); });
@@ -2132,7 +2132,7 @@ export const Core = {
         // 名單內部自身去重
         rawUsers = [...new Set(rawUsers)];
 
-        const db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+        const db = new Set(Storage.getBlockDB());
         let activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
         const activeSet = new Set(activeQueue);
 
@@ -2303,7 +2303,7 @@ export const Core = {
     },
 
     buildBlockDebugExport: () => {
-        const db = Storage.getJSON(CONFIG.KEYS.DB_KEY, []);
+        const db = Storage.getBlockDB();
         const timestamps = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
         const blockContextMap = Storage.getJSON(CONFIG.KEYS.BLOCK_CONTEXT_MAP, {});
         const bgQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);

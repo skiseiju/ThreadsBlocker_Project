@@ -69,13 +69,13 @@ if [[ "$MODE" == "release" ]]; then
     fi
 
     # ── Step 5: Chrome Web Store 自動上傳 ──────────────────────
-    ENV_FILE="$SCRIPT_DIR/.env"
+    ENV_FILE="${THREADSBLOCKER_CWS_ENV:-$HOME/.codex/secrets/ThreadsBlocker/chrome-web-store.env}"
     if [ -f "$ENV_FILE" ]; then
         source "$ENV_FILE"
     fi
 
     if [ -z "$CWS_CLIENT_ID" ] || [ -z "$CWS_CLIENT_SECRET" ] || [ -z "$CWS_REFRESH_TOKEN" ]; then
-        echo "⚠️  缺少 CWS 憑證（.env），跳過 Chrome Web Store 上傳"
+        echo "⚠️  缺少 CWS 憑證，跳過 Chrome Web Store 上傳；位置見 /Volumes/Working 2T/CODE/docs/security/secrets-registry.md"
     else
         CWS_EXT_ID="goibhoemcnjojlejjlojpikfehmccbbj"
         echo "🌐 取得 Chrome Web Store access token..."

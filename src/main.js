@@ -313,19 +313,31 @@ import './features/cockroach.js';
                 const toRemind = cockroachDB.filter(c => (now - c.timestamp) >= tenDaysMs);
 
                 if (toRemind.length > 0) {
-                    const listStr = toRemind.map(c => `@${c.username}`).join('\n');
-                    UI.showConfirm(`【大蟑螂回望提醒】\n\n以下網軍頭領已經超過 10 天未檢查，是否要開啟他們的主頁看看有沒有新的網軍？\n\n${listStr}`, () => {
-                        toRemind.forEach(c => {
+                    const previewLimit = 30;
+                    const openLimit = 10;
+                    const listStr = toRemind
+                        .slice(0, previewLimit)
+                        .map(c => `@${c.username}`)
+                        .join('\n');
+                    const extraCount = toRemind.length - previewLimit;
+                    const extraLine = extraCount > 0 ? `\n\n另有 ${extraCount} 個帳號，請到「大蟑螂名單」分批處理。` : '';
+                    const openLine = toRemind.length > openLimit
+                        ? `\n\n按確認會先開啟前 ${openLimit} 個主頁，並把本批提醒延後，避免一重載就再次彈出。`
+                        : '\n\n按確認會開啟這些主頁，並把本批提醒延後。';
+                    UI.showConfirm(`【大蟑螂回望提醒】\n\n有 ${toRemind.length} 個大蟑螂帳號已經超過 10 天未檢查，是否要先回望一批？\n\n${listStr}${extraLine}${openLine}`, () => {
+                        toRemind.slice(0, openLimit).forEach(c => {
                             window.open(`https://www.threads.net/@${c.username}`, '_blank');
-                            c.timestamp = now; // Reset timer
+                        });
+                        toRemind.forEach(c => {
+                            c.timestamp = now; // Reset reminder timer for this shown batch.
                         });
                         Storage.setJSON(CONFIG.KEYS.COCKROACH_DB, cockroachDB);
                     }, () => {
                         toRemind.forEach(c => {
-                            c.timestamp = now; // Dismiss for now
+                            c.timestamp = now; // Snooze instead of re-opening on the next page load.
                         });
                         Storage.setJSON(CONFIG.KEYS.COCKROACH_DB, cockroachDB);
-                    });
+                    }, { confirm: toRemind.length > openLimit ? `開啟前 ${openLimit} 個` : '開啟主頁', cancel: '稍後提醒' });
                 }
             }, 2000);
 

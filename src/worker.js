@@ -962,7 +962,7 @@ export const Worker = {
             } else {
                 if (window.hegeLog) window.hegeLog(`[批次驗證] @${user} ❌ 驗證失敗`);
                 // 從 DB 移除未確認的封鎖
-                if (!isUnblock && Storage.getJSON(CONFIG.KEYS.DB_KEY, []).includes(user)) {
+                if (!isUnblock && Storage.getBlockDB().includes(user)) {
                     Storage.removeFromBlockDB(user);
                     Storage.queueAddUnique(CONFIG.KEYS.FAILED_QUEUE, user);
                     if (window.hegeLog) window.hegeLog(`[批次驗證] @${user} 已從 DB 移除，加入失敗佇列`);
@@ -1298,7 +1298,7 @@ export const Worker = {
         const targetUser = isUnblock ? rawTarget.replace(CONFIG.UNBLOCK_PREFIX, '') : rawTarget;
         const currentTotal = queue.length;
 
-        let db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+        let db = new Set(Storage.getBlockDB());
         if (!isUnblock && db.has(targetUser)) {
             Worker.stats.skipped++;
             Worker.saveStats();
@@ -1380,7 +1380,7 @@ export const Worker = {
                 }
 
                 // Remove from database since user is gone
-                if (Storage.getJSON(CONFIG.KEYS.DB_KEY, []).includes(targetUser)) {
+                if (Storage.getBlockDB().includes(targetUser)) {
                     Storage.removeFromBlockDB(targetUser);
                     window.hegeLog(`[清理] @${targetUser} 已從資料庫移除 (404/失效)`);
                 }
@@ -1612,7 +1612,7 @@ export const Worker = {
         window.hegeLog('[冷卻] 觸發 12 小時冷卻保護！正在回滾 session...');
 
         // 1. Remove all session users from DB
-        let db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+        let db = new Set(Storage.getBlockDB());
         const sessionSet = new Set(Worker.sessionQueue);
         for (const u of sessionSet) {
             db.delete(u);

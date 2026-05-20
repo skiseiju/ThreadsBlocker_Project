@@ -45,6 +45,17 @@ export const Storage = {
         Storage.cache[key] = value;
         localStorage.setItem(key, JSON.stringify(value));
     },
+    getStringArray: (key, defaultVal = []) => {
+        const raw = Storage.getJSON(key, defaultVal);
+        if (Array.isArray(raw)) {
+            return raw.map(v => String(v || '').trim()).filter(Boolean);
+        }
+        if (raw && typeof raw === 'object') {
+            return Object.keys(raw).map(v => String(v || '').trim()).filter(Boolean);
+        }
+        return Array.isArray(defaultVal) ? [...defaultVal] : [];
+    },
+    getBlockDB: () => Storage.getStringArray(CONFIG.KEYS.DB_KEY, []),
 
     getPlatformSyncPreference: () => Storage.get(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, null),
     hasPlatformSyncPreference: () => Storage.getPlatformSyncPreference() === 'true' || Storage.getPlatformSyncPreference() === 'false',
@@ -280,7 +291,7 @@ export const Storage = {
 
     // Block DB operations
     addToBlockDB: (username, metadata = {}) => {
-        let db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+        let db = new Set(Storage.getBlockDB());
         let ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
         const isNew = !db.has(username);
         const tsMissing = !ts[username];
@@ -312,7 +323,7 @@ export const Storage = {
         Storage.removeBlockContext(username);
     },
     removeFromBlockDB: (username) => {
-        let db = new Set(Storage.getJSON(CONFIG.KEYS.DB_KEY, []));
+        let db = new Set(Storage.getBlockDB());
         let ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
         db.delete(username);
         delete ts[username];
