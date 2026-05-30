@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.6.1',
+    VERSION: '2.6.2',
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/reports/bug',

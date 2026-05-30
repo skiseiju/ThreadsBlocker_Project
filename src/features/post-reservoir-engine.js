@@ -354,15 +354,51 @@ Object.assign(Core, {
             const existingDialog = Core.getTopContext();
             if (existingDialog && existingDialog !== document.body) return existingDialog;
 
+            const getCurrentPostScope = () => {
+                const currentPath = (() => {
+                    try {
+                        return new URL(Core.SweepDriver.cleanCurrentUrl(), window.location.origin).pathname;
+                    } catch (e) {
+                        return window.location.pathname;
+                    }
+                })();
+                if (!currentPath.includes('/post/')) return document;
+
+                const postLinks = Array.from(document.querySelectorAll('a[href*="/post/"]'))
+                    .filter(a => !a.closest('[role="dialog"]'))
+                    .filter(a => {
+                        try {
+                            return new URL(a.getAttribute('href') || '', window.location.origin).pathname === currentPath;
+                        } catch (e) {
+                            return false;
+                        }
+                    });
+
+                for (const link of postLinks) {
+                    const article = link.closest('article, [role="article"], [data-pressable-container], div[data-pressable-container="true"]');
+                    if (article) return article;
+                }
+
+                console.warn('[SweepDriver] Target post link not found; aborting engagement lookup for', currentPath);
+                return null;
+            };
+
+            const targetScope = getCurrentPostScope();
+            if (!targetScope) {
+                UI.showToast('⚠️ 找不到目標貼文容器，已停止本次掃描，避免抓錯互動名單。', 5000);
+                return null;
+            }
+            console.log('[SweepDriver] openEngagementList target scope:', targetScope === document ? 'document' : targetScope.tagName);
+
             const findLikesLink = () => {
-                const directLinks = document.querySelectorAll('a[href*="liked_by"], a[href*="/likes/"]');
+                const directLinks = targetScope.querySelectorAll('a[href*="liked_by"], a[href*="/likes/"]');
                 for (const link of directLinks) {
                     if (!link.closest('[role="dialog"]')) {
                         console.log('[SweepDriver] findLikesLink direct href match:', link.getAttribute('href'));
                         return link;
                     }
                 }
-                const ariaElements = document.querySelectorAll('[aria-label]');
+                const ariaElements = targetScope.querySelectorAll('[aria-label]');
                 const ariaCandidates = [];
                 for (const el of ariaElements) {
                     if (el.closest('[role="dialog"]')) continue;
@@ -376,7 +412,7 @@ Object.assign(Core, {
                     }
                     if (hasDigit && label.length < 80) ariaCandidates.push({ tag: el.tagName, label: label.slice(0, 60) });
                 }
-                const allElements = document.querySelectorAll('a, span, div[role="button"], button');
+                const allElements = targetScope.querySelectorAll('a, span, div[role="button"], button');
                 const textCandidates = [];
                 for (const el of allElements) {
                     if (el.closest('[role="dialog"]')) continue;
@@ -395,8 +431,8 @@ Object.assign(Core, {
 
             const findActivityButton = () => {
                 // 使用 includes 寬鬆比對（v2.5.2 行為）
-                const containers = document.querySelectorAll('article, main, [role="article"], [role="main"]');
-                const scopes = containers.length > 0 ? Array.from(containers) : [document];
+                const containers = targetScope.querySelectorAll('article, [role="article"]');
+                const scopes = containers.length > 0 ? [targetScope, ...Array.from(containers)] : [targetScope];
                 for (const scope of scopes) {
                     const spans = scope.querySelectorAll('div[role="button"] span[dir="auto"], span[role="link"], a[role="link"] span[dir="auto"]');
                     for (const span of spans) {
