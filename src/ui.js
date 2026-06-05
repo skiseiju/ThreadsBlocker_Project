@@ -978,7 +978,7 @@ export const UI = {
                                 來源分析報告
                             </span>
                         </div>
-                        ${callbacks.onExportReportDebug ? `
+                        ${callbacks.onExportReportDebug && Utils.isBetaBuild() ? `
                         <div style="font-size:11px;color:#666;font-weight:600;padding:6px 8px 0;letter-spacing:1px;">診斷</div>
                         <div class="hege-menu-item" id="hege-s-export-report-debug">
                             <span>匯出檢舉診斷</span>
