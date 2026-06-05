@@ -27,7 +27,7 @@ else
 fi
 
 # Re-read version after build (build.sh may have changed it)
-VERSION=$(grep -oE "VERSION: '[^']+'" "$SCRIPT_DIR/src/config.js" | cut -d "'" -f 2 | tr -d '\r')
+VERSION="$(sed -n "s/^[[:space:]]*VERSION: '\([^']*\)'.*/\1/p" "$SCRIPT_DIR/src/config.js" | head -n 1 | tr -d '\r')"
 TAG_NAME="v$VERSION"
 echo "📦 版本號: $TAG_NAME"
 
