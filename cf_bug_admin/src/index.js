@@ -49,6 +49,24 @@ const PLATFORM_TABLE_STMTS = [
     upload_trigger TEXT,
     note TEXT
   )`,
+  `CREATE TABLE IF NOT EXISTS platform_raw_ingests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT,
+    raw_payload_hash TEXT NOT NULL,
+    analysis_payload_hash TEXT,
+    payload_bytes INTEGER NOT NULL DEFAULT 0,
+    schema TEXT,
+    client_source_id TEXT,
+    client_platform TEXT,
+    exporter_version TEXT,
+    upload_trigger TEXT,
+    ingest_status TEXT NOT NULL DEFAULT 'received',
+    accepted_upload_id INTEGER,
+    duplicate_of_upload_id INTEGER,
+    error_message TEXT,
+    raw_payload TEXT NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS platform_topic_metrics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     upload_id INTEGER NOT NULL,
@@ -134,6 +152,10 @@ const PLATFORM_INDEX_STMTS = [
   'CREATE INDEX IF NOT EXISTS idx_platform_uploads_events ON platform_uploads(total_event_count DESC)',
   'CREATE INDEX IF NOT EXISTS idx_platform_uploads_trust_tier ON platform_uploads(trust_tier)',
   'CREATE INDEX IF NOT EXISTS idx_platform_uploads_ip_hash ON platform_uploads(ip_hash)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_raw_ingests_created_at ON platform_raw_ingests(created_at DESC)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_raw_ingests_status ON platform_raw_ingests(ingest_status, created_at DESC)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_raw_ingests_analysis_hash ON platform_raw_ingests(analysis_payload_hash)',
+  'CREATE INDEX IF NOT EXISTS idx_platform_raw_ingests_source ON platform_raw_ingests(client_source_id, created_at DESC)',
   'CREATE INDEX IF NOT EXISTS idx_platform_topic_upload ON platform_topic_metrics(upload_id)',
   'CREATE INDEX IF NOT EXISTS idx_platform_topic_event_count ON platform_topic_metrics(event_count DESC)',
   'CREATE INDEX IF NOT EXISTS idx_platform_source_upload ON platform_source_metrics(upload_id)',
@@ -360,54 +382,102 @@ async function handlePlatformIngest(request, env) {
   if (!rawText || rawText.trim().length === 0) {
     return json({ code: 400, message: 'Bad Request: empty payload' }, 400);
   }
-  if (rawText.length > PLATFORM_MAX_PAYLOAD_BYTES) {
-    return json({
-      code: 413,
-      message: `Payload too large (${rawText.length} bytes > ${PLATFORM_MAX_PAYLOAD_BYTES} bytes)`
-    }, 413);
+  const rawPayloadBytes = utf8ByteLength(rawText);
+  if (rawPayloadBytes > PLATFORM_MAX_PAYLOAD_BYTES) {
+    return json({ code: 413, message: 'Payload too large' }, 413);
   }
 
+  const rawPayloadHash = await sha256Hex(rawText);
   const body = safeParseJSON(rawText);
   if (!body || typeof body !== 'object') {
-    return json({ code: 400, message: 'Bad Request: invalid json' }, 400);
-  }
-  if (safeString(body.schema, 80) !== 'threadsblocker.platform_upload.v2') {
-    return json({ code: 400, message: 'Bad Request: unsupported schema' }, 400);
+    const rawIngestId = await recordPlatformRawIngest(env, {
+      rawPayloadHash,
+      payloadBytes: rawPayloadBytes,
+      ingestStatus: 'invalid_json',
+      errorMessage: 'invalid json',
+      rawPayload: rawText
+    });
+    return json({
+      code: 400,
+      message: 'Bad Request: invalid json',
+      rawStored: true,
+      rawIngestId
+    }, 400);
   }
 
-  const payloadHash = await sha256Hex(rawText);
   const summary = asObject(body.summary);
   const exporter = asObject(body.exporter);
   const analysisSeeds = asObject(body.analysisSeeds);
   const clientSignals = asObject(body.clientSignals);
-  const derived = derivePlatformPayloadMetrics(body);
-  if (derived.errors.length > 0) {
-    const reasonText = derived.errors.join(', ');
-    return json({
-      code: 400,
-      message: `Bad Request: payload consistency check failed: ${reasonText}`,
-      reasons: derived.errors
-    }, 400);
-  }
-
+  const uploadMeta = asObject(body.uploadMeta);
   const sourceApp = safeString(exporter.tool || body.source_app || 'ThreadsBlocker', 80);
   const exporterVersion = safeString(exporter.version || '', 80);
   const timezone = safeString(exporter.timezone || '', 64);
   const locale = safeString(exporter.locale || '', 64);
-  const uploadMeta = asObject(body.uploadMeta);
   const clientSourceId = safeString(body.clientSourceId || uploadMeta.clientSourceId || '', 120);
   const clientPlatform = safeString(uploadMeta.clientPlatform || body.clientPlatform || 'unknown', 40);
+  const schemaName = safeString(body.schema, 80);
+  const uploadTrigger = safeString(uploadMeta.uploadTrigger || 'manual', 40);
+  const rawIngestId = await recordPlatformRawIngest(env, {
+    rawPayloadHash,
+    payloadBytes: rawPayloadBytes,
+    schema: schemaName,
+    clientSourceId,
+    clientPlatform,
+    exporterVersion,
+    uploadTrigger,
+    ingestStatus: schemaName === 'threadsblocker.platform_upload.v2' ? 'received' : 'invalid_schema',
+    errorMessage: schemaName === 'threadsblocker.platform_upload.v2' ? '' : 'unsupported schema',
+    rawPayload: rawText
+  });
+
+  if (schemaName !== 'threadsblocker.platform_upload.v2') {
+    return json({
+      code: 400,
+      message: 'Bad Request: unsupported schema',
+      rawStored: true,
+      rawIngestId
+    }, 400);
+  }
+
+  const payloadHash = await buildPlatformAnalysisPayloadHash(body, clientSourceId);
+  await updatePlatformRawIngest(env, rawIngestId, {
+    analysisPayloadHash: payloadHash,
+    ingestStatus: 'received'
+  });
+
+  const derived = derivePlatformPayloadMetrics(body);
+  if (derived.errors.length > 0) {
+    const reasonText = derived.errors.join(', ');
+    await updatePlatformRawIngest(env, rawIngestId, {
+      ingestStatus: 'invalid_payload',
+      errorMessage: reasonText
+    });
+    return json({
+      code: 400,
+      message: `Bad Request: payload consistency check failed: ${reasonText}`,
+      reasons: derived.errors,
+      rawStored: true,
+      rawIngestId
+    }, 400);
+  }
+
   const syncEnabled = boolAsInt(asObject(body.syncPreferences).autoSyncEnabled);
-  const uploadTrigger = safeString(uploadMeta.uploadTrigger || 'manual', 24);
   const taxonomyVersion = CURRENT_TAXONOMY_VERSION;
   const ip = request.headers.get('CF-Connecting-IP') || '';
   const ipHash = ip ? await sha256Hex(ip) : '';
   const rateLimit = await checkPlatformIngestRateLimit(env, clientSourceId, ipHash);
   if (!rateLimit.ok) {
+    await updatePlatformRawIngest(env, rawIngestId, {
+      ingestStatus: 'rate_limited',
+      errorMessage: rateLimit.reason || rateLimit.message
+    });
     return json({
       code: 429,
       message: rateLimit.message,
-      reason: rateLimit.reason
+      reason: rateLimit.reason,
+      rawStored: true,
+      rawIngestId
     }, 429);
   }
 
@@ -435,6 +505,26 @@ async function handlePlatformIngest(request, env) {
   const shortTermDiffusionPct = totalEventCount > 0
     ? Math.min(100, Math.round((campaignEventCount / totalEventCount) * 1000) / 10)
     : 0;
+  const duplicateRow = await env.DB.prepare(
+    'SELECT id, created_at FROM platform_uploads WHERE payload_hash = ?'
+  ).bind(payloadHash).first();
+  if (duplicateRow) {
+    await touchSourceRegistrySeen(env, clientSourceId, clientPlatform, exporterVersion);
+    await updatePlatformRawIngest(env, rawIngestId, {
+      ingestStatus: 'duplicate',
+      duplicateOfUploadId: duplicateRow.id || null,
+      errorMessage: ''
+    });
+    return json({
+      code: 200,
+      message: 'Duplicate payload stored but skipped for analytics',
+      duplicate: true,
+      rawStored: true,
+      rawIngestId,
+      id: duplicateRow.id || null,
+      createdAt: duplicateRow.created_at || null
+    }, 200);
+  }
   const trustMeta = await resolveTrustMeta(env, clientSourceId, clientPlatform, exporterVersion, {
     hasValidationWarnings: derived.warnings.length > 0,
     totalEventCount,
@@ -491,10 +581,18 @@ async function handlePlatformIngest(request, env) {
       const row = await env.DB.prepare(
         'SELECT id, created_at FROM platform_uploads WHERE payload_hash = ?'
       ).bind(payloadHash).first();
+      await touchSourceRegistrySeen(env, clientSourceId, clientPlatform, exporterVersion);
+      await updatePlatformRawIngest(env, rawIngestId, {
+        ingestStatus: 'duplicate',
+        duplicateOfUploadId: row?.id || null,
+        errorMessage: ''
+      });
       return json({
         code: 200,
-        message: 'Duplicate payload skipped',
+        message: 'Duplicate payload stored but skipped for analytics',
         duplicate: true,
+        rawStored: true,
+        rawIngestId,
         id: row?.id || null,
         createdAt: row?.created_at || null
       }, 200);
@@ -503,7 +601,16 @@ async function handlePlatformIngest(request, env) {
   }
 
   if (!uploadId) {
-    return json({ code: 500, message: 'Failed to create upload record' }, 500);
+    await updatePlatformRawIngest(env, rawIngestId, {
+      ingestStatus: 'error',
+      errorMessage: 'Failed to create upload record'
+    });
+    return json({
+      code: 500,
+      message: 'Failed to create upload record',
+      rawStored: true,
+      rawIngestId
+    }, 500);
   }
 
   const topicSeeds = derived.topicSeeds;
@@ -680,11 +787,18 @@ async function handlePlatformIngest(request, env) {
     sources,
     sourceEvidence: asArray(body.sourceEvidence)
   });
+  await updatePlatformRawIngest(env, rawIngestId, {
+    ingestStatus: 'accepted',
+    acceptedUploadId: uploadId,
+    errorMessage: ''
+  });
 
   return json({
     code: 200,
     message: 'Platform payload ingested',
     id: uploadId,
+    rawStored: true,
+    rawIngestId,
     trustTier: trustMeta.trustTier,
     riskScoreBand: trustMeta.riskScoreBand,
     trustReasons: trustMeta.reasons || [],
@@ -1545,6 +1659,81 @@ function safePercent(v) {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
+function utf8ByteLength(text) {
+  return new TextEncoder().encode(String(text || '')).length;
+}
+
+function stableStringify(value) {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(item => stableStringify(item)).join(',')}]`;
+  }
+  const keys = Object.keys(value).sort();
+  return `{${keys.map(key => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+}
+
+async function buildPlatformAnalysisPayloadHash(body, clientSourceId) {
+  const sourceKey = safeString(clientSourceId, 120) || 'anonymous';
+  const canonical = {
+    schema: safeString(body?.schema, 80),
+    source: sourceKey,
+    accounts: asArray(body?.accounts),
+    events: asArray(body?.events),
+    sources: asArray(body?.sources),
+    sourceEvidence: asArray(body?.sourceEvidence),
+    analysisSeeds: asObject(body?.analysisSeeds),
+    summary: asObject(body?.summary)
+  };
+  return sha256Hex(`${sourceKey}\n${stableStringify(canonical)}`);
+}
+
+async function recordPlatformRawIngest(env, fields) {
+  const insert = await env.DB.prepare(
+    `INSERT INTO platform_raw_ingests (
+      raw_payload_hash, analysis_payload_hash, payload_bytes, schema, client_source_id,
+      client_platform, exporter_version, upload_trigger, ingest_status, error_message, raw_payload
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    safeString(fields.rawPayloadHash, 128),
+    safeString(fields.analysisPayloadHash, 128) || null,
+    safeCount(fields.payloadBytes),
+    safeString(fields.schema, 80) || null,
+    safeString(fields.clientSourceId, 120) || null,
+    safeString(fields.clientPlatform, 40) || null,
+    safeString(fields.exporterVersion, 80) || null,
+    safeString(fields.uploadTrigger, 40) || null,
+    safeString(fields.ingestStatus || 'received', 40),
+    safeString(fields.errorMessage, 300) || null,
+    String(fields.rawPayload || '')
+  ).run();
+  return Number(insert.meta?.last_row_id || 0);
+}
+
+async function updatePlatformRawIngest(env, rawIngestId, fields = {}) {
+  const id = Number(rawIngestId || 0);
+  if (!id) return;
+
+  await env.DB.prepare(
+    `UPDATE platform_raw_ingests
+     SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+         analysis_payload_hash = COALESCE(?, analysis_payload_hash),
+         ingest_status = COALESCE(?, ingest_status),
+         accepted_upload_id = COALESCE(?, accepted_upload_id),
+         duplicate_of_upload_id = COALESCE(?, duplicate_of_upload_id),
+         error_message = ?
+     WHERE id = ?`
+  ).bind(
+    safeString(fields.analysisPayloadHash, 128) || null,
+    fields.ingestStatus ? safeString(fields.ingestStatus, 40) : null,
+    fields.acceptedUploadId ? safeCount(fields.acceptedUploadId) : null,
+    fields.duplicateOfUploadId ? safeCount(fields.duplicateOfUploadId) : null,
+    fields.errorMessage === undefined ? null : (safeString(fields.errorMessage, 300) || null),
+    id
+  ).run();
+}
+
 function toDayKey(rawTs) {
   const ts = normalizeEpochMs(rawTs);
   if (!ts) return '';
@@ -1563,6 +1752,24 @@ function boolAsInt(v) {
   if (v === true) return 1;
   if (v === false) return 0;
   return null;
+}
+
+async function touchSourceRegistrySeen(env, clientSourceId, clientPlatform, exporterVersion) {
+  const sourceId = safeString(clientSourceId, 120);
+  if (!sourceId) return;
+
+  await env.DB.prepare(
+    `UPDATE platform_source_registry
+     SET last_seen_at = ?,
+         client_platform = ?,
+         last_exporter_version = ?
+     WHERE client_source_id = ?`
+  ).bind(
+    new Date().toISOString(),
+    safeString(clientPlatform, 40),
+    safeString(exporterVersion, 80),
+    sourceId
+  ).run();
 }
 
 async function checkPlatformIngestRateLimit(env, clientSourceId, ipHash) {

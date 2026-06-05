@@ -60,6 +60,30 @@ CREATE TABLE IF NOT EXISTS platform_uploads (
 CREATE INDEX IF NOT EXISTS idx_platform_uploads_created_at ON platform_uploads(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_platform_uploads_events ON platform_uploads(total_event_count DESC);
 
+CREATE TABLE IF NOT EXISTS platform_raw_ingests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT,
+  raw_payload_hash TEXT NOT NULL,
+  analysis_payload_hash TEXT,
+  payload_bytes INTEGER NOT NULL DEFAULT 0,
+  schema TEXT,
+  client_source_id TEXT,
+  client_platform TEXT,
+  exporter_version TEXT,
+  upload_trigger TEXT,
+  ingest_status TEXT NOT NULL DEFAULT 'received',
+  accepted_upload_id INTEGER,
+  duplicate_of_upload_id INTEGER,
+  error_message TEXT,
+  raw_payload TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_platform_raw_ingests_created_at ON platform_raw_ingests(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_platform_raw_ingests_status ON platform_raw_ingests(ingest_status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_platform_raw_ingests_analysis_hash ON platform_raw_ingests(analysis_payload_hash);
+CREATE INDEX IF NOT EXISTS idx_platform_raw_ingests_source ON platform_raw_ingests(client_source_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS platform_topic_metrics (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   upload_id INTEGER NOT NULL,

@@ -135,7 +135,10 @@ else
     touch "$EXT_DIR/icon.png"
 fi
 
+rm -f "$DIST_DIR/extension.zip"
+(cd "$EXT_DIR" && zip -qr "$DIST_DIR/extension.zip" .)
 echo "Chrome Extension Build complete: $EXT_DIR"
+echo "Chrome Extension ZIP: $DIST_DIR/extension.zip"
 
 
 # 3. Firefox Extension Build (MV2)

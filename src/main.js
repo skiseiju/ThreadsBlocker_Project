@@ -16,6 +16,7 @@ import './features/cockroach.js';
 
     // (Early-boot interceptor removed to prevent Safari Userscripts crash)
     Utils.initConsoleInterceptor();
+    Storage.migratePlatformSyncConsent();
     console.log('[留友封] Extension Script Initializing...');
 
     function migratePostReservoirPhase2() {
@@ -313,14 +314,14 @@ import './features/cockroach.js';
                 const toRemind = cockroachDB.filter(c => (now - c.timestamp) >= tenDaysMs);
 
                 if (toRemind.length > 0) {
-                    const previewLimit = 30;
+                    const previewLimit = 8;
                     const openLimit = 10;
                     const listStr = toRemind
                         .slice(0, previewLimit)
                         .map(c => `@${c.username}`)
                         .join('\n');
                     const extraCount = toRemind.length - previewLimit;
-                    const extraLine = extraCount > 0 ? `\n\n另有 ${extraCount} 個帳號，請到「大蟑螂名單」分批處理。` : '';
+                    const extraLine = extraCount > 0 ? `\n\n另有 ${extraCount} 個帳號未列出，請到「大蟑螂名單」分批處理。` : '';
                     const openLine = toRemind.length > openLimit
                         ? `\n\n按確認會先開啟前 ${openLimit} 個主頁，並把本批提醒延後，避免一重載就再次彈出。`
                         : '\n\n按確認會開啟這些主頁，並把本批提醒延後。';
@@ -639,6 +640,20 @@ import './features/cockroach.js';
 
             setTimeout(async () => {
                 try {
+                    const repairResult = await UI.tryRepairPlatformReupload({
+                        source: 'main_boot_repair',
+                        trigger: 'repair_reupload_v1'
+                    });
+                    if (CONFIG.DEBUG_MODE && repairResult?.skipped) {
+                        console.log('[留友封][PlatformSync] repair skipped:', repairResult.skipped);
+                    }
+                    if (CONFIG.DEBUG_MODE && Number(repairResult?.code) === 200) {
+                        console.log('[留友封][PlatformSync] repair upload result:', repairResult?.id || '-');
+                    }
+                    if (Number(repairResult?.code) === 200 && !repairResult?.skipped) {
+                        return;
+                    }
+
                     const result = await UI.tryAutoSyncPlatformUpload({
                         source: 'main_boot',
                         trigger: 'auto_daily'

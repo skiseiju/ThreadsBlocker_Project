@@ -491,13 +491,13 @@ export const UI = {
         const cancelLabel = Utils.escapeHTML(labels.cancel || '取消');
         const confirmLabel = Utils.escapeHTML(labels.confirm || '確認繼續');
         Utils.setHTML(overlay, `
-            <div class="hege-manager-box" style="max-width:420px;max-height:min(86vh,640px);display:flex;flex-direction:column;overflow:hidden;">
+            <div class="hege-manager-box" style="width:min(420px,calc(100vw - 24px));max-width:calc(100vw - 24px);height:auto;max-height:calc(100dvh - 24px);display:flex;flex-direction:column;overflow:hidden;">
                 <div class="hege-manager-header">
                     <span class="hege-manager-title">⚠️ 確認</span>
                 </div>
-                <div style="padding:20px;font-size:14px;line-height:1.7;color:#ccc;overflow:auto;overscroll-behavior:contain;min-height:0;">${safeMsg}</div>
-                <div class="hege-manager-footer" style="flex:0 0 auto;">
-                    <div style="display:flex;gap:12px;width:100%;justify-content:flex-end;">
+                <div style="flex:1 1 auto;padding:20px;font-size:14px;line-height:1.7;color:#ccc;overflow:auto;overscroll-behavior:contain;min-height:0;max-height:calc(100dvh - 180px);word-break:break-word;overflow-wrap:anywhere;-webkit-overflow-scrolling:touch;">${safeMsg}</div>
+                <div class="hege-manager-footer" style="flex:0 0 auto;position:sticky;bottom:0;z-index:1;padding-bottom:max(16px,env(safe-area-inset-bottom));">
+                    <div style="display:flex;gap:10px;width:100%;justify-content:flex-end;flex-wrap:wrap;">
                         <button class="hege-manager-btn secondary" id="hege-confirm-cancel">${cancelLabel}</button>
                         <button class="hege-manager-btn primary" id="hege-confirm-ok">${confirmLabel}</button>
                     </div>
@@ -1634,6 +1634,52 @@ export const UI = {
                 source: options.source || 'auto_sync_boot',
                 trigger: options.trigger || 'auto_daily'
             });
+        } finally {
+            const currentLock = parseInt(Storage.get(CONFIG.KEYS.PLATFORM_SYNC_LOCK, '0') || '0', 10) || 0;
+            if (currentLock === now) {
+                Storage.remove(CONFIG.KEYS.PLATFORM_SYNC_LOCK);
+            }
+        }
+    },
+
+    tryRepairPlatformReupload: async (options = {}) => {
+        if (!Storage.getPlatformSyncEnabled()) return { code: 204, skipped: 'disabled' };
+        if (!UI.supportsPlatformAutoSync()) return { code: 204, skipped: 'unsupported_platform' };
+        if (Storage.getPlatformReuploadRepairDone()) return { code: 204, skipped: 'repair_already_done' };
+
+        const now = Date.now();
+        const lastSyncedAt = Storage.getPlatformSyncLastAt();
+        const lockTtlMs = 10 * 60 * 1000;
+        const existingLock = parseInt(Storage.get(CONFIG.KEYS.PLATFORM_SYNC_LOCK, '0') || '0', 10) || 0;
+        if (existingLock > 0 && now - existingLock < lockTtlMs) {
+            return { code: 204, skipped: 'sync_in_flight' };
+        }
+
+        Storage.set(CONFIG.KEYS.PLATFORM_SYNC_LOCK, String(now));
+        try {
+            const exportPayload = UI.buildPlatformExportPayload({
+                platformSyncEnabled: true,
+                platformSyncLastAt: lastSyncedAt,
+            });
+
+            if ((exportPayload.summary?.totalEventCount || 0) <= 0) {
+                return { code: 204, skipped: 'no_events' };
+            }
+
+            const sourceId = Storage.getPlatformSourceId();
+            const result = await Reporter.submitPlatformPayload(exportPayload, {
+                source: options.source || 'repair_reupload_v1',
+                trigger: options.trigger || 'repair_reupload_v1',
+                forceReupload: true,
+                repairRunId: `repair_reupload_v1:${sourceId}`,
+                repairReason: 'raw_ingest_recovery_2026_05_31',
+                countDuplicateAsSync: false
+            });
+
+            if (Number(result?.code) === 200 && (!result.duplicate || result.rawStored)) {
+                Storage.setPlatformReuploadRepairDone(true, Date.now());
+            }
+            return result;
         } finally {
             const currentLock = parseInt(Storage.get(CONFIG.KEYS.PLATFORM_SYNC_LOCK, '0') || '0', 10) || 0;
             if (currentLock === now) {

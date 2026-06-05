@@ -57,7 +57,26 @@ export const Storage = {
     },
     getBlockDB: () => Storage.getStringArray(CONFIG.KEYS.DB_KEY, []),
 
-    getPlatformSyncPreference: () => Storage.get(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, null),
+    normalizeBooleanString: (value) => {
+        if (value === true || value === 'true' || value === '1' || value === 1) return 'true';
+        if (value === false || value === 'false' || value === '0' || value === 0) return 'false';
+        return null;
+    },
+    migratePlatformSyncConsent: () => {
+        const normalized = Storage.normalizeBooleanString(Storage.get(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, null));
+        if (!normalized) return false;
+        if (Storage.get(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, null) !== normalized) {
+            Storage.set(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, normalized);
+        }
+        if (!Storage.getPlatformSyncConsentVersion()) {
+            Storage.set(CONFIG.KEYS.PLATFORM_SYNC_CONSENT_VERSION, CONFIG.VERSION);
+        }
+        return normalized === 'true';
+    },
+    getPlatformSyncPreference: () => {
+        const normalized = Storage.normalizeBooleanString(Storage.get(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, null));
+        return normalized || null;
+    },
     hasPlatformSyncPreference: () => Storage.getPlatformSyncPreference() === 'true' || Storage.getPlatformSyncPreference() === 'false',
     getPlatformSyncConsentVersion: () => Storage.get(CONFIG.KEYS.PLATFORM_SYNC_CONSENT_VERSION, ''),
     hasPlatformSyncConsentForCurrentVersion: () => Storage.hasPlatformSyncPreference() && Storage.getPlatformSyncConsentVersion() === CONFIG.VERSION,
@@ -65,10 +84,19 @@ export const Storage = {
         Storage.setPlatformSyncEnabled(enabled);
         Storage.set(CONFIG.KEYS.PLATFORM_SYNC_CONSENT_VERSION, CONFIG.VERSION);
     },
-    getPlatformSyncEnabled: () => Storage.getPlatformSyncPreference() === 'true',
+    getPlatformSyncEnabled: () => {
+        const preference = Storage.getPlatformSyncPreference();
+        if (preference) return preference === 'true';
+        return Storage.migratePlatformSyncConsent();
+    },
     setPlatformSyncEnabled: (enabled) => Storage.set(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, enabled ? 'true' : 'false'),
     getPlatformSyncLastAt: () => parseInt(Storage.get(CONFIG.KEYS.PLATFORM_SYNC_LAST_AT, '0') || '0', 10) || 0,
     setPlatformSyncLastAt: (ts = Date.now()) => Storage.set(CONFIG.KEYS.PLATFORM_SYNC_LAST_AT, String(ts)),
+    getPlatformReuploadRepairDone: () => Storage.get(CONFIG.KEYS.PLATFORM_REUPLOAD_REPAIR_V1_DONE, 'false') === 'true',
+    setPlatformReuploadRepairDone: (done = true, ts = Date.now()) => {
+        Storage.set(CONFIG.KEYS.PLATFORM_REUPLOAD_REPAIR_V1_DONE, done ? 'true' : 'false');
+        if (done) Storage.set(CONFIG.KEYS.PLATFORM_REUPLOAD_REPAIR_V1_AT, String(ts));
+    },
     getPlatformSourceCreatedAt: () => {
         let createdAt = parseInt(Storage.get(CONFIG.KEYS.PLATFORM_SOURCE_CREATED_AT, '0') || '0', 10) || 0;
         if (createdAt <= 0) {
