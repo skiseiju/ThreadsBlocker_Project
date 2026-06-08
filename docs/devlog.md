@@ -1,5 +1,49 @@
 # 留友封觀測站 開發日誌
 
+## 2026-06-08
+
+### Extension platform payload 操作跡象 schema 增量
+
+- Extension payload `events` 新增 `textFingerprint` / `textFingerprintVersion`、`timeBucket10m`、`timeBucket1h`，讓 Worker 能用不可逆文字指紋與時間桶分析話術相似度及短時間同步。
+- `sourceEvidence` 由 snippet 產生同一版 `textFingerprint` 與時間桶；`sources` 新增 `textFingerprintCounts`、`topTextFingerprints`、`timeBucket10mCounts`、`timeBucket1hCounts`、`firstEventAt`、`lastEventAt`。
+- `analysisSeeds` 新增 `temporalBuckets10m` / `temporalBuckets1h`，每個 bucket 聚合 block/report/total event、source/account 數與文字指紋數。
+- Privacy 邊界：不新增公開原文、個人 URL 或可逆文字欄位；payload optimizer 在裁切 `sourceText` / `snippet` 後仍保留 derived hash 與時間桶。
+- Extension 版本升至 `2.6.6`，此變更已進入正式版 release package。
+
+## 2026-06-07
+
+### Platform Worker overview / raw backfill incident 修復
+
+- 事故現象：live 平台頁一度只顯示可分析趨勢 `2026-04-19` 單日，Worker overview API 回 `uploadCount=1`，但 D1 direct SQL 可查到 44 筆既有可分析 uploads。
+- 直接原因 1：production Worker 跑的 overview projection 與 repo 版本不一致；先部署修復後，overview 恢復到 44 批次、趨勢 `2026-04-19` 至 `2026-04-29`。
+- 直接原因 2：`platform_uploads` 的 `INSERT` 欄位數與 `VALUES` placeholder 數不一致，造成 5/31-6/03 的 raw 已寫入 `platform_raw_ingests`，但 2599 筆無法進入可分析表，錯誤為 `D1_ERROR: 23 values for 24 columns`。
+- 直接原因 3：舊 D1 將完整 raw JSON 存在 D1，資料庫達 499,998,720 bytes，replay smoke test 遇到 `D1_ERROR: Exceeded maximum DB size`。
+- 修復策略：採非破壞切換。舊 D1 `threadsblocker_bug_admin` / `28a80d0f-04fb-4ddc-a107-1d3e1de6cc99` 保留為 raw archive / rollback source；新 active D1 為 `threadsblocker_bug_admin_v2` / `595fc1df-b6fd-491a-b3c7-325994a409a7`。
+- Raw 儲存架構：Worker 新增 R2 binding `RAW_INGEST_BUCKET` -> `threadsblocker-platform-raw-ingests`；完整 raw payload 寫入 R2，D1 `platform_raw_ingests.raw_payload` 只保存 `r2://...` pointer。
+- Backfill：從舊 D1 選出 358 筆 unique raw backlog。第一輪 replay 328 accepted、30 HTTP 503；30 筆重試後 14 accepted、16 duplicate、0 failed。最終 358/358 unique raw 都已在 active D1 analytics 表示。
+- 最終驗證：active D1 `platform_uploads=419`、`platform_daily_metrics=1395`，日期範圍 `2026-04-19` 至 `2026-06-07`，`total_event_count=65004`；live page 顯示 419 批次、193 來源、65,004 件。
+- Rollback reference：production Worker final version `d21a5da8-67a1-48a3-b5b3-754b2fd3212f`；D1 v2/R2 cutover 前 rollback version `304910b0-21fb-47e5-b368-addc1929d22b`；完整 rollback 記錄在 `docs/site-backups/2026-06-07-platform-worker-overview-incident/ROLLBACK.txt`。
+- Guardrail：新增 `cf_bug_admin/scripts/check-sql-placeholders.mjs`，修改 Worker D1 `INSERT` / materialized metrics 前必須跑，避免 columns / `VALUES` / bind 參數不一致。
+
+## 2026-05-31
+
+### Ingest 與公開頁口徑修正
+
+- Worker ingest：重複 payload 先判斷再處理 trust，避免 duplicate upload 灌高 `platform_source_registry.upload_count`。
+- Public overview：公開統計改用來源目前的 registry trust tier 回看可公開批次；事件數以 `platform_daily_metrics` materialized rows 為準，避免舊版 summary 總量誤入趨勢口徑。
+- 平台頁：四個關鍵數字分開呈現「可分析事件 / 疑似協調帳號 / 近期回報來源 / 可分析批次」。
+- 事件資料：首頁改為優先讀 Worker live political-events API，靜態 JSON fallback 更新到 2026-05-30。
+- 趨勢圖：日期軸補齊空白天，外部事件 pin 改為按日期合併顯示「N 件事件」，事件標題移到下方 detail 區，避免圖面文字重疊。
+- 趨勢圖：新增讀圖摘要，直接列出可分析趨勢期間、可分析樣本、事件量、外部事件標記與最新來源回報；日期 hover 改顯示當日總事件、封鎖、檢舉、來源數。
+- 政策讀者修正：四個關鍵數字新增時間範圍口徑提醒；疑似協調帳號副標補上「非身分或違法認定」；趨勢圖補來源數共用量尺與 0 值限制；檢舉分類甜甜圈改標明「占全部事件」與「占檢舉事件」。
+- 口徑再收斂：四個關鍵數字全部改為同一可分析窗口內的數字；`近期回報來源` 移出核心數字，改為狀態訊息，避免把 5 月來源活躍誤讀成 5 月趨勢資料。
+- Worker public overview：公開趨勢改為納入所有已成功寫入 `platform_uploads` / `platform_daily_metrics` 的 analysis-ready 批次，不再用 mutable `platform_source_registry.trust_tier` 回頭排除既有可分析列。
+- Worker ingest：`payload_hash` 改為 source-scoped hash，同一來源同一 payload 才視為 duplicate，避免不同匿名來源送出相同內容時被全站唯一 hash 擋掉而只留下 registry last_seen。
+- Worker ingest：新增 `platform_raw_ingests`，所有非空且未超過上限的 platform payload 會先保存完整 raw JSON；invalid schema/json、duplicate、accepted、error 都會留下 raw row 與狀態。
+- Worker ingest：公開分析用 `payload_hash` 改由 raw data canonical hash 產生，排除 `uploadMeta.uploadedAt`、`syncPreferences.lastSyncedAt` 等傳輸欄位，duplicate 判定改看同一匿名來源的完整資料內容。
+- Extension 2.6.3：新增一次性 `repair_reupload_v1` 自動重傳；已開啟平台同步的使用者會在啟動時繞過同日同步限制重送一次本機完整分析資料，server 回傳 duplicate 時不再把每日同步時間寫成成功。
+- Chrome release packaging：Chrome manifest 版號改輸出為 Web Store 合法的數字格式；啟動時會 normalize / migrate 平台同步同意狀態，2.6 已勾選 `hege_platform_sync_enabled` 的使用者升版後不需重新勾選。
+
 ## 2026-04-21
 
 ### 背景
@@ -158,60 +202,90 @@
     - extension 新增真正的每日 auto sync gate：僅限 Chrome / Firefox extension、每天最多一次、成功才更新 `lastSyncedAt`、iOS 維持手動上傳
     - 版本升至 `2.6.0-beta38`
 
-21. **設定面板移除已固定化的「完整互動名單收集」提示項**（src/ui.js）
-    - 清理名單已固定為完整收集，不再在設定面板顯示唯讀 checkbox
-    - 封鎖設定摘要同步移除「完整收集」字樣，避免讓使用者以為仍可切換
-    - 版本升至 `2.6.0-beta39`
-
-22. **平台反污染保護 v1：來源/IP 節流、payload 一致性驗證與更嚴格信任升級**（cf_bug_admin/src/index.js）
-    - `platform_uploads` 新增 `ip_hash` 與對應索引，ingest 會記錄來源 IP 的 SHA-256 摘要，用於 server 端節流，不保留原始 IP
-    - 平台 ingest 新增兩層 rate limit：
-      - 同一 `clientSourceId` 在 60 分鐘內最多 6 次 upload
-      - 同一 `ip_hash` 在 15 分鐘內最多 12 次 upload
-    - `resolveTrustMeta()` 不再把缺少 `clientSourceId` 的 payload 視為 legacy trusted，改為直接標成 `flagged`
-    - trusted 升級條件提高為：偏好平台來源、至少 5 次 upload、跨 3 天活躍、且 payload 無 validation warning
-    - ingest 不再信任 client summary 計數，改由 server 端從 `events / sources / topicSeeds` 重新推導：
-      - `blockEventCount`
-      - `reportEventCount`
-      - `totalEventCount`
-      - `sourcePostCount`
-      - `topTopicSeedCount`
-      - `sourceCoveragePct`
-      - `reportSourceCoveragePct`
-      - `sourceConcentrationPct`
-    - 若 summary 與實際 payload 不一致、事件過多、有效事件為 0、或無效事件比例異常，會直接拒收
-    - ingest response 與 upload note 會保留 `validationWarnings` / `trustReasons`，方便後續追查
+21. **平台 mock mode 改為「真實事件時間軸＋合成平台數字」**（site/platform/public.js、site/platform/index.html、site/platform/data/political-events.json、src/config.js）
+    - `?mock=1` 不再使用固定 30 日靜態趨勢；改為讀取近 60 天真實公開政治事件快照，依事件節點生成 synthetic `dailyTrend`
+    - mock mode 的英雄文案與狀態訊息明確標示：政治事件為真實公開事件，封鎖/檢舉/分類/敘事統計仍為示意資料
+    - `site/platform/data/political-events.json` 改為 2026-02-24 至 2026-04-23 的真實政治事件清單，移除先前混入的娛樂／網紅／社會事件假資料
+    - 平台首頁文案去除寫死的「近 30 日」說法，改成較中性的「觀測窗」表述，避免 mock 與 live 時窗不一致
     - 版本升至 `2.6.0-beta40`
 
-23. **extension provenance 訊號補強：本機來源年齡、上傳歷史與 trust reason 串接**（src/storage.js、src/reporter.js、src/ui.js、cf_bug_admin/src/index.js）
-    - extension 新增 `clientSignals` 區塊，會隨平台 payload 一起送出：
-      - `sourceCreatedAt`
-      - `sourceAgeDays`
-      - `firstSeenVersion`
-      - `successfulUploadCount`
-      - `manualUploadCount`
-      - `autoUploadCount`
-      - `activeUploadDayCount`
-      - `firstSuccessfulUploadAt`
-      - `lastSuccessfulUploadAt`
-    - 平台來源 ID 建立時會一併記錄本機 `sourceCreatedAt` 與 `firstSeenVersion`
-    - 每次平台 upload 成功後，會在本機累積成功上傳統計與活躍天數
-    - ingest 會把 `clientSignals` 寫進 upload note，並納入 trust reason：
-      - 缺少本機 provenance → `missing_client_provenance`
-      - 本機成功上傳歷史明顯落後於 server registry → `local_history_gap`
-      - 本機來源已持續使用一段時間且有多日成功上傳 → `mature_local_installation`
-    - 這些訊號只作為軟性 provenance / risk signal，不作為單獨信任依據
+22. **首頁事件 pin 改回單一 curated 清單**（site/platform/public.js、src/config.js）
+    - `loadPoliticalEvents()` 不再混入 crawler API，首頁趨勢圖一律只讀 `site/platform/data/political-events.json`
+    - 移除右側堆疊的即時事件 pin，讓正式站與 mock 使用同一份人工整理的事件時間軸
     - 版本升至 `2.6.0-beta41`
 
-24. **修正 build.sh 版號偵測被 platform key 誤匹配**（build.sh、src/config.js）
-    - `build.sh` 先前用寬鬆 `grep` 取 `config.js` 的 `VERSION`，在新增 `PLATFORM_SOURCE_FIRST_VERSION` 後會誤抓到 key 名字
-    - 這會讓 `APP_VERSION` 夾帶多餘內容，進而造成 manifest `sed` 取代失敗、產物仍停留舊版號
-    - 改為只匹配開頭的 `VERSION:` 設定列，避免被其他 key 干擾
-    - 重新 build 後，Chrome / Firefox manifest 版號會正確跟隨當前版本
+23. **事件 pin 改為實際落在線上**（site/platform/public.js、src/config.js）
+    - 趨勢圖的事件 marker 不再只是上方圓點＋整條投影線；改為把事件點錨定在 `總事件` 曲線對應日期的 y 值上
+    - 標籤仍保留在圖上方，但改用短虛線連到實際事件點，避免「標的點不在線上」的誤讀
     - 版本升至 `2.6.0-beta42`
 
-25. **Chrome / Firefox manifest 版號改為 store-safe 數字格式**（build.sh、src/config.js）
-    - repo 內部版本仍維持 `2.6.0-betaN`，方便追蹤 beta 線進度
-    - build 產物的 manifest `version` 會自動轉成瀏覽器可接受的數字格式，例如 `2.6.0-beta43` → `2.6.0.43`
-    - 避免 Chrome / Firefox extension manifest 因為帶 `-beta` 被視為無效版本字串
+24. **mock 熱門敘事改為對齊 60 天政治事件軸**（site/platform/public.js、src/config.js）
+    - `topNarratives` 移除舊的罷免／媒體／表決爭議文案，改成與目前事件表一致的五組敘事：國防特別條例程序攻防、訪中和平框架、外交與兩岸壓力、總預算與國防支出、國會外交站隊解讀
+    - 讓 mock 的敘事說明、`hintLabels` 與時間軸上的事件主題一致，避免首頁同時出現兩套互不相干的 demo 故事
     - 版本升至 `2.6.0-beta43`
+
+25. **移除事件軸最右側未採認的尾端事件**（site/platform/data/political-events.json、src/config.js）
+    - 刪除 `2026-04-21`、`2026-04-22`、`2026-04-23` 三筆 crawler snapshot 尾端事件
+    - 事件時間軸回到只保留前面人工確認過的節點，避免右側 still 看起來像混入假資料
+    - 版本升至 `2.6.0-beta44`
+
+26. **首頁延伸閱讀先收斂成整理中提示**（site/platform/index.html、src/config.js）
+    - 移除「完整資料分析」卡片
+    - 「分析方法論」與「月報彙整」改為純文字資訊卡，不再跳轉，直接標示內容仍在整理中
+    - 先把首頁定位成記錄入口，等資料與呈現修正完成後再重新開放
+    - 版本升至 `2.6.0-beta45`
+
+27. **異常峰值改為貼線顯示並避開事件 pin**（site/platform/public.js、src/config.js）
+    - `異常峰值` 不再固定畫在圖頂端，改為貼著 `總事件` 曲線上方顯示
+    - 若同一天已有事件 pin，峰值 marker 會自動向右錯開，避免兩個標記重疊
+    - 版本升至 `2.6.0-beta46`
+
+28. **峰值 marker 改回同一天對齊，只做垂直錯位**（site/platform/public.js、src/config.js）
+    - 移除 `異常峰值` 的橫向偏移，讓 marker 回到與當天日期、曲線相同的 x 座標
+    - 若同一天也有事件 pin，改成把峰值再往上讓更多，避免重疊但不破壞對齊
+    - 版本升至 `2.6.0-beta47`
+
+29. **事件軸補入公共社會事件，不再只有政治節點**（site/platform/data/political-events.json、site/platform/public.js、src/config.js）
+    - 新增 5 筆近 60 天公共社會事件：兒少性侵追訴時效釋憲說明會、未成年性侵重判案、法官猥褻改判、頭份男醫性騷案、台大舍監跟騷案
+    - 事件軸改為「政治主軸 + 社會補充」，避免使用者首頁只看到政治事件
+    - 新增 `公共社會事件`、`重大司法事件` 類別的 pin 顏色，和政治事件視覺區隔
+    - 版本升至 `2.6.0-beta48`
+
+30. **移除事件 pin 的空心圓 marker**（site/platform/public.js、src/config.js）
+    - 事件 pin 改為只保留標籤與短虛線，不再畫空心圓點
+    - 維持 hover / focus 細節互動，但讓趨勢圖視覺更乾淨
+    - 版本升至 `2.6.0-beta49`
+
+31. **修正事件表 metadata 與實際採認事件不一致**（site/platform/data/political-events.json、src/config.js）
+    - `updatedAt` 更新為 `2026-04-29`
+    - `windowEnd` 改為實際最後一筆採認事件日期 `2026-04-13`
+    - 說明文字改為「近 60 天內採認的真實公開事件」，避免誤解為每天自動完整更新
+    - 版本升至 `2.6.0-beta50`
+
+32. **首頁區分真人貢獻與可信資料批次**（cf_bug_admin/src/index.js、site/platform/index.html、site/platform/styles.css）
+    - public overview 新增 `overview.contributorCount`，用於顯示「位真人貢獻資料」
+    - 首頁新增「筆通過可信門檻的資料」，避免把有效上傳批次誤寫成真人數
+    - 統計卡改為自適應欄寬，四張卡在桌面與手機都可正常排列
+    - 平台版本對應 `0.1.0-beta1`
+
+33. **真人貢獻與觀測區間改用全體上傳 metadata**（cf_bug_admin/src/index.js、site/platform/index.html）
+    - `位真人貢獻資料` 改為計算觀測窗內所有可辨識匿名來源，不再只看 trusted sample
+    - public overview 新增 `contribution` 區塊，包含全體上傳批次、匿名來源數與上傳日期範圍
+    - 首頁觀測區間優先使用全體上傳日期範圍，有新上傳才推進，不再被 trusted 舊資料卡住
+    - 平台版本對應 `0.1.0-beta2`
+
+34. **首頁關鍵數字固定四卡排列**（site/platform/index.html、site/platform/styles.css）
+    - 標題改為「四個關鍵數字」
+    - 桌面版統計列固定一排四張卡，避免第四張掉到下一行
+    - 窄螢幕改為兩欄，手機再收成單欄
+    - 平台版本對應 `0.1.0-beta3`
+
+35. **首頁移除技術 metadata 行**（site/platform/index.html）
+    - 移除 hero 上的 `taxonomy / sample / policy` 技術資訊，避免干擾一般使用者
+    - 技術揭露仍保留在方法論與月報頁
+    - 平台版本對應 `0.1.0-beta4`
+
+36. **拆分 extension 與平台版號**（AGENTS.md、site/platform/version.json、site/platform/public.js、src/config.js）
+    - extension 版號回到 `2.6.0-beta50`，平台頁/API 不再使用 extension 版號跳版
+    - 新增 `site/platform/version.json` 作為平台版本來源，目前平台版本 `0.1.0-beta11`
+    - `PlatformPublic.PLATFORM_VERSION` 也同步暴露平台版本，方便前端或檢查工具讀取

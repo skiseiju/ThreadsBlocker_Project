@@ -1,0 +1,66 @@
+Incident: platform overview API only exposed one analyzable upload/day on 2026-06-07.
+
+Production rollback source before Worker deploy:
+- Worker: threadsblocker-bug-admin
+- Version ID: b88e0644-84e6-4d13-8c4d-82fe888d67a8
+- Created: 2026-06-05T12:58:55.949Z
+
+Rollback command:
+
+set -a
+source ~/.codex/secrets/cloudflare-workers-deploy.env
+set +a
+wrangler rollback b88e0644-84e6-4d13-8c4d-82fe888d67a8 --name threadsblocker-bug-admin --yes
+
+Intermediate production rollback source after restoring overview projection and before the ingest INSERT fix:
+- Worker: threadsblocker-bug-admin
+- Version ID: 2c882211-a704-487b-ac72-fc6bba292668
+- Created: 2026-06-07T07:51:00.937Z
+
+Intermediate rollback command:
+
+set -a
+source ~/.codex/secrets/cloudflare-workers-deploy.env
+set +a
+wrangler rollback 2c882211-a704-487b-ac72-fc6bba292668 --name threadsblocker-bug-admin --yes
+
+Production rollback source before D1 v2 / R2 raw pointer cutover:
+- Worker: threadsblocker-bug-admin
+- Version ID: 304910b0-21fb-47e5-b368-addc1929d22b
+- Old D1: threadsblocker_bug_admin / 28a80d0f-04fb-4ddc-a107-1d3e1de6cc99
+- New D1 candidate: threadsblocker_bug_admin_v2 / 595fc1df-b6fd-491a-b3c7-325994a409a7
+- New R2 raw bucket candidate: threadsblocker-platform-raw-ingests
+
+D1 v2 cutover rollback command:
+
+set -a
+source ~/.codex/secrets/cloudflare-workers-deploy.env
+set +a
+wrangler rollback 304910b0-21fb-47e5-b368-addc1929d22b --name threadsblocker-bug-admin --yes
+
+Final production state after D1 v2 / R2 raw pointer cutover:
+- Worker version ID: d21a5da8-67a1-48a3-b5b3-754b2fd3212f
+- Active D1: threadsblocker_bug_admin_v2 / 595fc1df-b6fd-491a-b3c7-325994a409a7
+- Active R2 raw bucket: RAW_INGEST_BUCKET -> threadsblocker-platform-raw-ingests
+- Old D1 retained as raw archive: threadsblocker_bug_admin / 28a80d0f-04fb-4ddc-a107-1d3e1de6cc99
+
+Backfill final verification:
+- Old D1 unique raw backlog selected: 358 rows.
+- First replay: 328 accepted, 0 duplicate, 30 HTTP 503 edge responses.
+- Retry of the 30 HTTP 503 rows: 14 accepted, 16 duplicate, 0 failed.
+- Final unique raw backlog outcome: 358/358 represented in active D1 analytics; no remaining failed rows.
+- Active D1 platform_uploads: 419 rows.
+- Active D1 platform_daily_metrics: 1395 rows, 2026-04-19 through 2026-06-07, total_event_count sum 65004.
+- Active D1 platform_raw_ingests: 396 rows, all raw_payload values are r2:// pointers.
+- Active D1 size after backfill: 4898816 bytes.
+- Old D1 size retained: 499998720 bytes.
+
+Local pre-deploy file backups:
+- cf_worker_index.js.before
+- wrangler.toml.before
+
+Pre-change verification:
+- D1 platform_uploads had 44 rows from 2026-04-19T10:29:22.965Z to 2026-04-29T01:55:33.761Z.
+- D1 platform_daily_metrics had 45 rows from 2026-04-19 to 2026-04-29.
+- Direct SQL for the current 90-day window returned 44 uploads and five daily trend days.
+- Live /api/v1/platform/overview?days=90 returned only uploadCount=1 and dailyTrend=[2026-04-19].

@@ -1,8 +1,11 @@
 (function () {
+  const PLATFORM_VERSION = '0.1.0-beta11';
   const API_BASE = 'https://threadsblocker-bug-admin.skiseiju.workers.dev';
-  const DEFAULT_DAYS = 30;
+  const DEFAULT_DAYS = 90;
   const MOCK_DAYS = 60;
   const DEFAULT_TOP = 24;
+  const EVENT_DAYS = 90;
+  const EVENT_LIMIT = 300;
   const QUERY = new URLSearchParams(window.location.search);
   const FORCE_MOCK = QUERY.get('mock') === '1';
 
@@ -93,72 +96,60 @@
     ],
 topNarratives: [
       {
-        title: '圍繞罷免案投票資格爭議的同質性回覆',
-        summary: '多個來源反覆轉發對罷免案投票門檻的質疑框架，使用相近句型與問句結構，集中出現在罷免案相關貼文下方。',
-        whyNote: '罷免投票日前後，特定貼文下方出現大量使用相似問句的留言，質疑投票門檻的合法性。這些帳號的建立時間集中、互動模式雷同，且在短時間內從不同帳號發出結構相近的內容，符合協調傳播的觀察特徵。',
+        title: '圍繞國防特別條例程序攻防的同質性留言',
+        summary: '多個來源反覆放大「黑箱付委」「程序偷渡」等相似框架，集中出現在國防特別條例與委員會審查相關貼文下方。',
+        whyNote: '從 2 月底付委到 4 月中協商，這類留言長期使用固定詞彙批評國會程序，且大量帳號只在相關議題出現。句型、標籤與出現時點都高度集中，符合協調放大單一程序敘事的特徵。',
         eventCount: 2341,
         sourceCount: 8,
         accountCount: 714,
         signalBand: 'high',
-        hintLabels: ['罷免', '投票資格']
+        hintLabels: ['國防特別條例', '程序攻防']
       },
       {
-        title: '批評特定媒體報導立場的重複框架',
-        summary: '樣本中多次出現針對特定媒體報導的格式化批評，常見句型為「OO媒體又在...」，由不同帳號在短時間內集中貼出。',
-        whyNote: '少數幾篇批評特定媒體的貼文在數小時內被大量帳號複製轉發，句型幾乎相同。這類模式常見於有人刻意放大特定敘事框架的情況——原始來源很少，但擴散速度和帳號數量不成比例。',
+        title: '把訪中行程包裝成「和平解方」的重複框架',
+        summary: '鄭麗文訪中與後續 10 項涉台措施討論期間，樣本中反覆出現將訪中描述為唯一理性出路的相似貼文與留言。',
+        whyNote: '這批內容常把訪中行程包裝成「務實交流」與「避戰唯一道路」，但多數帳號平時幾乎沒有其他公共議題互動。文本模板相近、推進節奏一致，顯示並非自然形成的輿論分布。',
         eventCount: 1876,
         sourceCount: 6,
         accountCount: 531,
         signalBand: 'high',
-        hintLabels: ['媒體批評', '假新聞']
+        hintLabels: ['訪中', '和平之旅']
       },
       {
-        title: '利用兩岸議題製造對立情緒的樣本群',
-        summary: '涉及兩岸關係的同質性貼文，使用煽動性標籤與固定句式，事件量在政治節點前後出現明顯峰值。',
-        whyNote: '這批樣本使用的標籤與句式，與其他平台已記錄的跨平台協調模板高度吻合。事件量在政治敏感節點前後明顯上升，但帳號本身沒有其他互動紀錄，屬於典型的「單一目的帳號」特徵。',
+        title: '借外交與兩岸議題放大「總統失能」敘事',
+        summary: '圍繞史瓦帝尼出訪、外部施壓與「不存在中華民國總統」等節點，樣本中出現大量貶抑式固定句型，嘗試把外交事件導向領導失能框架。',
+        whyNote: '這組內容在 4 月中下旬快速增溫，常把不同外交新聞剪接成單一負面結論。帳號之間雖少有互動，但用詞和情緒標籤高度同步，屬於典型的事件借題放大。',
         eventCount: 1423,
         sourceCount: 5,
         accountCount: 389,
         signalBand: 'medium',
-        hintLabels: ['兩岸', '國際關係']
+        hintLabels: ['外交', '兩岸']
       },
       {
-        title: '質疑政府政策執行效率的協調轉貼',
-        summary: '多個來源反覆轉貼對政府特定政策的負面評價，句型高度相似，源自少數幾篇高流量貼文。',
-        whyNote: '源頭只有兩三篇貼文，但被數百個帳號在短時間內轉發，且評論句型高度一致。這種「少來源、多傳播」的結構，是協調放大敘事的常見模式，而非自然的輿論擴散。',
+        title: '將總預算與國防支出綁成「政府失序」的轉貼群',
+        summary: '總預算與國防支出討論期間，多個來源重複轉貼將朝野協商失靈歸咎於單一陣營的貼文，文案高度相似。',
+        whyNote: '這些貼文常用簡化口號把預算爭議壓縮成單一責任敘事，並由少量原始貼文快速擴散。內容缺少細節，但複製速度快、帳號重疊度高，符合協調轉貼的常見型態。',
         eventCount: 1187,
         sourceCount: 4,
         accountCount: 302,
         signalBand: 'medium',
-        hintLabels: ['政府政策', '行政效率']
+        hintLabels: ['總預算', '國防支出']
       },
       {
-        title: '對立法院委員會表決爭議的放大敘事',
-        summary: '圍繞立法院特定表決結果的重複評論群，帳號間協調特徵明顯，集中在事件發生後72小時內擴散。',
-        whyNote: '表決結果公布後 72 小時內，相關貼文下方湧現大量結構相似的評論。這些帳號彼此間沒有互動歷史，但內容幾乎同步出現，符合「統一時間點啟動」的協調操作特徵。',
+        title: '把對外國會互動解讀成陣營站隊的放大敘事',
+        summary: '在台加國會互動、國際參與等新聞下方，樣本中可見把正常國會外交互動直接轉成陣營對決的重複評論群。',
+        whyNote: '這些留言通常不討論事件本身，而是迅速把國會互動翻譯成政黨站隊與忠誠測驗。它們經常在事件發布後數小時內同步湧現，顯示是為了搶占解讀框架而非自然討論。',
         eventCount: 934,
         sourceCount: 3,
         accountCount: 248,
         signalBand: 'medium',
-        hintLabels: ['立法院', '表決爭議']
+        hintLabels: ['國會外交', '陣營對決']
       }
     ],
     recentUploads: [
       { id: 518, created_at: '2026-04-19T17:04:00Z' },
       { id: 517, created_at: '2026-04-19T16:31:00Z' }
     ],
-    intake: {
-      acceptedUploadCount: 302,
-      acceptedEventCount: 151248,
-      trustedUploadCount: 286,
-      probationUploadCount: 16,
-      probationEventCount: 2516,
-      flaggedUploadCount: 0,
-      flaggedEventCount: 0,
-      latestAcceptedUploadAt: '2026-04-21T00:00:00Z',
-      latestProbationUploadAt: '2026-04-21T00:00:00Z',
-      latestFlaggedUploadAt: ''
-    },
     methodology: {
       trustPolicy: 'public-trusted-only',
       scoreBands: { low: '0-44', medium: '45-64', high: '65+' },
@@ -457,9 +448,11 @@ topNarratives: [
       },
       overview: {
         uploadCount: 0,
+        contributorCount: 0,
         blockEventCount: 0,
         reportEventCount: 0,
         totalEventCount: 0,
+        summaryTotalEventCount: 0,
         sourcePostCount: 0,
         topicSeedCount: 0,
         sourceCoveragePct: 0,
@@ -495,17 +488,16 @@ topNarratives: [
       reportCategories: [],
       topNarratives: [],
       recentUploads: [],
-      intake: {
-        acceptedUploadCount: 0,
-        acceptedEventCount: 0,
-        trustedUploadCount: 0,
-        probationUploadCount: 0,
-        probationEventCount: 0,
-        flaggedUploadCount: 0,
-        flaggedEventCount: 0,
-        latestAcceptedUploadAt: '',
-        latestProbationUploadAt: '',
-        latestFlaggedUploadAt: ''
+      sourceRegistry: {
+        sourceCount: 0,
+        trustedSourceCount: 0,
+        probationSourceCount: 0,
+        flaggedSourceCount: 0,
+        activeLast1d: 0,
+        activeLast7d: 0,
+        registryUploadCount: 0,
+        dateRange: { start: '', end: '' },
+        latestSeenAt: ''
       },
       methodology: {
         trustPolicy: 'public-trusted-only',
@@ -528,6 +520,7 @@ topNarratives: [
       overview: { ...empty.overview, ...(data?.overview || {}) },
       dateRange: { ...empty.dateRange, ...(data?.dateRange || {}) },
       credibility: { ...empty.credibility, ...(data?.credibility || {}) },
+      sourceRegistry: { ...empty.sourceRegistry, ...(data?.sourceRegistry || {}) },
       thresholds: { ...empty.thresholds, ...(data?.thresholds || {}) },
       signals: { ...empty.signals, ...(data?.signals || {}) },
       methodology: { ...empty.methodology, ...(data?.methodology || {}) },
@@ -535,62 +528,8 @@ topNarratives: [
       topicTimeSeries: Array.isArray(data?.topicTimeSeries) ? data.topicTimeSeries : [],
       reportCategories: Array.isArray(data?.reportCategories) ? data.reportCategories : [],
       topNarratives: Array.isArray(data?.topNarratives) ? data.topNarratives : [],
-      recentUploads: Array.isArray(data?.recentUploads) ? data.recentUploads : [],
-      intake: { ...empty.intake, ...(data?.intake || {}) }
+      recentUploads: Array.isArray(data?.recentUploads) ? data.recentUploads : []
     };
-  }
-
-  function buildIntakeMessage(data) {
-    const intake = data && data.intake ? data.intake : {};
-    const pending = safeNum(intake.probationUploadCount);
-    const pendingEvents = safeNum(intake.probationEventCount);
-    const flagged = safeNum(intake.flaggedUploadCount);
-    const flaggedEvents = safeNum(intake.flaggedEventCount);
-    if (pending <= 0 && flagged <= 0) return '';
-    const latest = intake.latestProbationUploadAt
-      ? `，最新一批 ${String(intake.latestProbationUploadAt).replace('T', ' ').slice(0, 16)} UTC`
-      : '';
-    const parts = [];
-    if (pending > 0) {
-      parts.push(`${formatNumber(pending)} 批待觀察上傳、${formatNumber(pendingEvents)} 筆事件${latest}`);
-    }
-    if (flagged > 0) {
-      parts.push(`${formatNumber(flagged)} 批隔離上傳、${formatNumber(flaggedEvents)} 筆事件`);
-    }
-    return `已收到 ${parts.join('；')}。公開圖表目前只納入 trusted sample，待觀察與隔離資料不會影響公開統計。`;
-  }
-
-  function formatUploadTimestamp(value) {
-    const text = String(value || '').trim();
-    if (!text) return '';
-    return text.replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC').replace(/Z$/, ' UTC').slice(0, 20);
-  }
-
-  function buildObservationWindowLabel(data) {
-    const dateRange = data && data.dateRange ? data.dateRange : {};
-    const intake = data && data.intake ? data.intake : {};
-    const start = dateRange.start || '';
-    const end = dateRange.end || '';
-    const latestAccepted = formatUploadTimestamp(intake.latestAcceptedUploadAt);
-    const acceptedCount = safeNum(intake.acceptedUploadCount);
-    const trustedCount = safeNum(intake.trustedUploadCount);
-    const probationCount = safeNum(intake.probationUploadCount);
-    const flaggedCount = safeNum(intake.flaggedUploadCount);
-    const parts = [];
-
-    if (latestAccepted) {
-      parts.push(`最新收到上傳：${latestAccepted}`);
-    }
-    if (acceptedCount > 0) {
-      parts.push(`已收 ${formatNumber(acceptedCount)} 批，其中 ${formatNumber(trustedCount)} 批公開統計、${formatNumber(probationCount)} 批待觀察、${formatNumber(flaggedCount)} 批隔離`);
-    }
-    if (start && end) {
-      parts.push(`公開統計區間：${start} 至 ${end}`);
-    } else {
-      parts.push('公開統計區間尚在累積中');
-    }
-
-    return parts.join('｜');
   }
 
   function summarizeSourceCoverage(data) {
@@ -620,15 +559,14 @@ topNarratives: [
     try {
       const result = await api(`/api/v1/platform/overview?days=${DEFAULT_DAYS}&top=${DEFAULT_TOP}`);
       const data = normalizeOverviewData(result.data || {});
-      const intakeMessage = buildIntakeMessage(data);
       if (hasLiveData(data)) {
-        return { data, mockMode: false, emptyState: false, message: intakeMessage };
+        return { data, mockMode: false, emptyState: false, message: buildDataHealthMessage(data) };
       }
       return {
         data,
         mockMode: false,
         emptyState: true,
-        message: intakeMessage || '目前公開資料量仍在累積中，以下先顯示真實空狀態與方法資訊，不再自動補示意資料。'
+        message: '目前公開資料量仍在累積中，以下先顯示真實空狀態與方法資訊，不再自動補示意資料。'
       };
     } catch (error) {
       return {
@@ -648,7 +586,34 @@ topNarratives: [
       || (Array.isArray(data?.topNarratives) && data.topNarratives.length > 0);
   }
 
+  function buildDataHealthMessage(data) {
+    const registry = data?.sourceRegistry || {};
+    const active = safeNum(registry.activeLast1d);
+    const trustedSources = safeNum(registry.trustedSourceCount);
+    const uploadCount = safeNum(data?.overview?.uploadCount);
+    const analysisEnd = data?.dateRange?.end || data?.contribution?.dateRange?.end || '';
+    const latestSeen = registry.latestSeenAt ? String(registry.latestSeenAt).slice(0, 10) : '';
+    const parts = [];
+
+    if (active > 0 || trustedSources > 0) {
+      parts.push(`資料管線最近 24 小時有 ${formatNumber(active)} 個來源回報，累計 ${formatNumber(trustedSources)} 個來源通過 trusted 門檻；這代表回報活躍，不代表已形成 5 月可分析趨勢。`);
+    }
+    if (uploadCount > 0) {
+      parts.push(`目前公開趨勢只納入 ${formatNumber(uploadCount)} 筆已形成可分析列的批次。`);
+    }
+    if (latestSeen && analysisEnd && latestSeen > analysisEnd) {
+      parts.push(`最新來源回報到 ${latestSeen}，可分析趨勢暫到 ${analysisEnd}。`);
+    }
+
+    return parts.join(' ');
+  }
+
   async function loadPoliticalEvents() {
+    try {
+      const result = await api(`/api/v1/platform/political-events?days=${EVENT_DAYS}&limit=${EVENT_LIMIT}`);
+      const events = dedupePoliticalEvents(Array.isArray(result.events) ? result.events : []);
+      if (events.length) return events;
+    } catch (error) {}
     return loadStaticPoliticalEvents();
   }
 
@@ -660,6 +625,115 @@ topNarratives: [
       const date = String(event.date || '');
       return date >= start && date <= end;
     });
+  }
+
+  function normalizeDailyTrendRows(dailyTrend) {
+    const rows = (Array.isArray(dailyTrend) ? dailyTrend : [])
+      .map((row) => ({
+        day_key: String(row?.day_key || '').slice(0, 10),
+        block_event_count: safeNum(row?.block_event_count),
+        report_event_count: safeNum(row?.report_event_count),
+        total_event_count: safeNum(row?.total_event_count),
+        source_count: safeNum(row?.source_count),
+        is_spike: Boolean(row?.is_spike)
+      }))
+      .filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.day_key))
+      .sort((a, b) => a.day_key.localeCompare(b.day_key));
+
+    if (rows.length < 2) return rows;
+
+    const byDay = new Map(rows.map((row) => [row.day_key, row]));
+    const start = rows[0].day_key;
+    const end = rows[rows.length - 1].day_key;
+    const filled = [];
+    let cursor = start;
+    let guard = 0;
+
+    while (cursor <= end && guard < 370) {
+      filled.push(byDay.get(cursor) || {
+        day_key: cursor,
+        block_event_count: 0,
+        report_event_count: 0,
+        total_event_count: 0,
+        source_count: 0,
+        is_spike: false
+      });
+      cursor = shiftDayKey(cursor, 1);
+      guard += 1;
+    }
+
+    return filled;
+  }
+
+  function groupEventsByDay(events) {
+    const groups = new Map();
+    (Array.isArray(events) ? events : []).forEach((event) => {
+      const date = String(event?.date || '').slice(0, 10);
+      if (!date) return;
+      if (!groups.has(date)) groups.set(date, []);
+      groups.get(date).push(event);
+    });
+    return Array.from(groups.entries()).map(([date, dayEvents]) => ({
+      date,
+      events: dayEvents,
+      category: dayEvents[0]?.category || '',
+      title: dayEvents.length === 1 ? dayEvents[0].title : `${dayEvents.length} 件外部事件`,
+      label: `${dayEvents.length}件事件`
+    }));
+  }
+
+  function renderTrendReadout(container, data, externalEvents) {
+    if (!container) return;
+    const daily = normalizeDailyTrendRows(data?.dailyTrend || []);
+    if (!daily.length) {
+      container.innerHTML = '<p class="chart-readout__empty">目前還沒有足夠資料形成可引用趨勢。</p>';
+      return;
+    }
+
+    const scopedEvents = filterEventsForRange(externalEvents, daily);
+    const eventGroups = groupEventsByDay(scopedEvents);
+    const start = daily[0]?.day_key || data?.dateRange?.start || '';
+    const end = daily[daily.length - 1]?.day_key || data?.dateRange?.end || '';
+    const activeDays = daily.filter((row) => safeNum(row.total_event_count) > 0).length;
+    const peak = daily.reduce((max, row) => (
+      safeNum(row.total_event_count) > safeNum(max.total_event_count) ? row : max
+    ), daily[0] || {});
+    const overview = data?.overview || {};
+    const contributorCount = safeNum(overview.contributorCount);
+
+    const items = [
+      {
+        label: '可分析趨勢',
+        value: `${formatDateLabel(start)} - ${formatDateLabel(end)}`,
+        note: `${formatNumber(activeDays)} 個有效日期；0 表示當日沒有進入可分析表的事件，不代表 Threads 完全沒有相關活動。`
+      },
+      {
+        label: '可分析樣本',
+        value: `${formatNumber(overview.uploadCount)} 批次${contributorCount ? ` / ${formatNumber(contributorCount)} 來源` : ''}`,
+        note: '只計入已成功寫入可分析表、可形成趨勢與分類的批次。'
+      },
+      {
+        label: '事件量',
+        value: `${formatNumber(overview.totalEventCount)} 件`,
+        note: `封鎖 ${formatNumber(overview.blockEventCount)}；檢舉 ${formatNumber(overview.reportEventCount)}。`
+      },
+      {
+        label: '外部事件標記',
+        value: `${formatNumber(scopedEvents.length)} 件 / ${formatNumber(eventGroups.length)} 日期`,
+        note: '只作時序參照，不代表匿名樣本與事件之間有已證實因果關係。'
+      },
+      {
+        label: '觀測窗高點',
+        value: `${formatDateLabel(peak.day_key)} / ${formatNumber(peak.total_event_count)} 件`,
+        note: `封鎖 ${formatNumber(peak.block_event_count)}；檢舉 ${formatNumber(peak.report_event_count)}；來源數 ${formatNumber(peak.source_count)}。`
+      }
+    ];
+
+    container.innerHTML = items.map((item) => `<div class="chart-readout__item">
+      <span class="chart-readout__label">${escapeHtml(item.label)}</span>
+      <strong>${escapeHtml(item.value)}</strong>
+      <span>${escapeHtml(item.note)}</span>
+    </div>`).join('');
   }
 
   function computeWindowMetrics(data) {
@@ -724,7 +798,7 @@ topNarratives: [
   }
 
   function renderTrendChart(container, detailEl, dailyTrend, externalEvents, topicTimeSeries) {
-    const daily = Array.isArray(dailyTrend) ? dailyTrend : [];
+    const daily = normalizeDailyTrendRows(dailyTrend);
     const topicMap = {};
     (Array.isArray(topicTimeSeries) ? topicTimeSeries : []).forEach((entry) => {
       if (entry && entry.date) topicMap[entry.date] = Array.isArray(entry.topics) ? entry.topics : [];
@@ -732,10 +806,14 @@ topNarratives: [
     if (!container) return;
     if (daily.length < 2) {
       container.innerHTML = '<div class="empty-state">資料不足，暫時無法繪製趨勢圖。</div>';
+      if (detailEl) {
+        detailEl.innerHTML = '<strong>資料不足</strong> 目前可分析日期少於兩天，暫時不繪製趨勢線；外部事件標記仍會在資料區間足夠時顯示。';
+      }
       return;
     }
 
     const scopedEvents = filterEventsForRange(externalEvents, daily);
+    const groupedEvents = groupEventsByDay(scopedEvents);
     const valuesTotal = daily.map((row) => safeNum(row.total_event_count));
     const valuesBlock = daily.map((row) => safeNum(row.block_event_count));
     const valuesReport = daily.map((row) => safeNum(row.report_event_count));
@@ -766,25 +844,25 @@ topNarratives: [
     }).join('');
 
     const POLITICAL_CATS = new Set(['國會事件', '罷免案', '政黨動態']);
+    const SOCIAL_CATS = new Set(['公共社會事件', '重大司法事件']);
     const GENDER_CATS = new Set(['性別爭議', '性騷擾指控']);
     const DRAMA_CATS = new Set(['娛樂八卦', '網路論戰', '直播爭議']);
     function pinColor(category) {
       if (POLITICAL_CATS.has(category)) return { line: '#f59e0b', text: '#b45309' };
+      if (SOCIAL_CATS.has(category)) return { line: '#ef4444', text: '#b91c1c' };
       if (GENDER_CATS.has(category)) return { line: '#ec4899', text: '#be185d' };
       if (DRAMA_CATS.has(category)) return { line: '#14b8a6', text: '#0f766e' };
       return { line: '#7c3aed', text: '#6d28d9' };
     }
 
-    // Flatten all events and sort by x position for tier assignment
     const flatPins = [];
-    scopedEvents.forEach((event) => {
-      const dayIndex = daily.findIndex((row) => row.day_key === event.date);
+    groupedEvents.forEach((group) => {
+      const dayIndex = daily.findIndex((row) => row.day_key === group.date);
       if (dayIndex < 0) return;
-      flatPins.push({ event, dayIndex, date: event.date });
+      flatPins.push({ group, dayIndex, date: group.date });
     });
     flatPins.sort((a, b) => a.dayIndex - b.dayIndex);
 
-    // Assign stagger tiers so nearby labels don't overlap
     const tierYs = [padT - 10, padT - 24, padT - 38, padT - 52, padT - 66];
     const tierLastX = tierYs.map(() => Number.NEGATIVE_INFINITY);
     const minGap = 52;
@@ -802,23 +880,36 @@ topNarratives: [
       pin.labelY = tierYs[chosen];
     });
 
-    const pins = flatPins.map(({ event, date, x, eventY, labelY }) => {
-      const label = String(event.shortLabel || event.label || event.title || '').trim() || date.slice(5);
+    const pins = flatPins.map(({ group, date, x, eventY, labelY }) => {
+      const label = String(group.label || '').trim() || date.slice(5);
       const labelText = label.length > 6 ? `${label.slice(0, 6)}…` : label;
-      const { line: lineColor, text: textColor } = pinColor(event.category || '');
+      const { line: lineColor, text: textColor } = pinColor(group.category || '');
       const lineTop = Math.min(labelY + 8, eventY - 8);
-      return `<g class="chart-event-pin" tabindex="0" data-title="${escapeHtml(event.title || '')}" data-date="${escapeHtml(date)}" data-note="${escapeHtml(event.note || '')}" data-category="${escapeHtml(event.category || '')}">
+      const hitY = Math.max(0, labelY - 24);
+      const hitHeight = Math.max(32, eventY - hitY + 8);
+      const payload = group.events.map((event) => ({
+        title: event.title || '',
+        category: event.category || '',
+        note: event.note || '',
+        sourceName: event.sourceName || '',
+        sourceUrl: event.sourceUrl || ''
+      }));
+      return `<g class="chart-event-pin" tabindex="0" data-title="${escapeHtml(group.title || '')}" data-date="${escapeHtml(date)}" data-events="${escapeHtml(JSON.stringify(payload))}">
+        <rect class="chart-event-pin-hit" x="${(x - 26).toFixed(1)}" y="${hitY.toFixed(1)}" width="52" height="${hitHeight.toFixed(1)}" fill="transparent"></rect>
         <line x1="${x.toFixed(1)}" y1="${lineTop.toFixed(1)}" x2="${x.toFixed(1)}" y2="${eventY.toFixed(1)}" stroke="${lineColor}" stroke-width="1.2" stroke-dasharray="4 5" opacity="0.9"></line>
-        <circle cx="${x.toFixed(1)}" cy="${eventY.toFixed(1)}" r="4.5" fill="#ffffff" stroke="${lineColor}" stroke-width="2" opacity="0.98"></circle>
         <text x="${x.toFixed(1)}" y="${(labelY - 7).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="600" fill="${textColor}">${escapeHtml(labelText)}</text>
-        <title>${escapeHtml(`${date}｜${event.title || ''}`)}</title>
+        <title>${escapeHtml(`${date}｜${group.title || ''}`)}</title>
       </g>`;
     }).join('');
 
+    const eventDayIndexSet = new Set(flatPins.map((pin) => pin.dayIndex));
     const spikeDots = daily.map((row, index) => {
       if (!row.is_spike) return '';
-      const x = xFor(index);
-      return `<circle cx="${x.toFixed(1)}" cy="${(padT - 18).toFixed(1)}" r="5" fill="#f97316" opacity="0.9">
+      const baseX = xFor(index);
+      const baseY = yFor(valuesTotal[index]);
+      const spikeOffsetY = eventDayIndexSet.has(index) ? 24 : 14;
+      const spikeY = Math.max(padT + 8, baseY - spikeOffsetY);
+      return `<circle cx="${baseX.toFixed(1)}" cy="${spikeY.toFixed(1)}" r="5" fill="#f97316" opacity="0.9">
         <title>異常峰值：${escapeHtml(row.day_key)}</title>
       </circle>`;
     }).join('');
@@ -838,9 +929,9 @@ topNarratives: [
           <path id="chart-path-block" d="${pathFor(valuesBlock)}" fill="none" stroke="#10b981" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path>
           <path id="chart-path-report" d="${pathFor(valuesReport)}" fill="none" stroke="#60a5fa" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
           <path id="chart-path-source" d="${pathFor(valuesSource)}" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="5 5" stroke-linecap="round" stroke-linejoin="round"></path>
+          ${dayRects}
           ${pins}
           <g id="chart-spikes">${spikeDots}</g>
-          ${dayRects}
           ${labels}
         </svg>
       </div>
@@ -851,19 +942,31 @@ topNarratives: [
         <button class="chart-legend-item" data-target="source"><span class="chart-legend-dot chart-legend-dot--dashed" style="background:#9ca3af"></span>來源數</button>
         <button class="chart-legend-item" data-target="spikes"><span class="chart-legend-dot chart-legend-dot--spike"></span>異常峰值</button>
       </div>
+      <p class="chart-scale-note">總事件 = 封鎖 + 檢舉。來源數使用同一個垂直量尺，只適合看方向與相對變化，不適合和事件數直接比較。0 值代表當日沒有進入可分析表的事件。</p>
     `;
 
     if (detailEl) {
       detailEl.innerHTML = scopedEvents.length
-        ? '<strong>外部重要事件參考</strong> 點擊圖上的事件標記，可查看日期與事件說明。這些標記只用來做時序對照，不代表因果認定。'
-        : '<strong>外部重要事件參考</strong> 目前這段觀測區間沒有手動標記的公共事件，圖上只顯示平台匿名樣本趨勢。';
+        ? '<strong>讀圖方式</strong> 藍線是可分析事件總量，綠線是封鎖事件，淺藍線是檢舉事件，灰色虛線是來源數。上方垂直標記是外部公共事件，只作時序對照，不代表因果認定。'
+        : '<strong>讀圖方式</strong> 藍線是可分析事件總量，綠線是封鎖事件，淺藍線是檢舉事件，灰色虛線是來源數；目前這段觀測區間沒有外部事件標記。';
 
       container.querySelectorAll('.chart-event-pin').forEach((node) => {
         const renderDetail = () => {
-          detailEl.innerHTML = `<strong>${node.dataset.date}</strong> ${escapeHtml(node.dataset.title)}`
-            + `${node.dataset.category ? ` · ${escapeHtml(node.dataset.category)}` : ''}`
-            + `${node.dataset.note ? `<br>${escapeHtml(node.dataset.note)}` : ''}`
-            + '<br>政治事件為外部參考，不代表與平台樣本之間存在已證實的因果關係。';
+          let events = [];
+          try {
+            events = JSON.parse(node.dataset.events || '[]');
+          } catch (error) {}
+          const list = events.slice(0, 8).map((event) => (
+            `<li>
+              <span class="chart-detail-event-title">${escapeHtml(event.title || '')}</span>
+              <span class="chart-detail-event-meta">${escapeHtml([event.category, event.sourceName].filter(Boolean).join(' · ') || '外部事件')}</span>
+            </li>`
+          )).join('');
+          const more = events.length > 8 ? `<p class="chart-detail-more">另有 ${events.length - 8} 件事件。</p>` : '';
+          detailEl.innerHTML = `<strong>${node.dataset.date}</strong> ${escapeHtml(node.dataset.title || '')}`
+            + (list ? `<ul class="chart-detail-events">${list}</ul>` : '')
+            + more
+            + '<p class="chart-detail-note">政治事件為外部參考，不代表與平台樣本之間存在已證實的因果關係。</p>';
         };
         node.addEventListener('mouseenter', renderDetail);
         node.addEventListener('focus', renderDetail);
@@ -874,12 +977,14 @@ topNarratives: [
         rect.addEventListener('mouseenter', () => {
           const day = rect.dataset.day;
           const isSpike = rect.dataset.spike === '1';
+          const row = daily.find((item) => item.day_key === day) || {};
           const topics = topicMap[day] || [];
           const spikeNote = isSpike ? '<span style="color:#f97316;font-weight:600">▲ 異常峰值</span> · ' : '';
+          const countText = `總事件 ${formatNumber(row.total_event_count)}；封鎖 ${formatNumber(row.block_event_count)}；檢舉 ${formatNumber(row.report_event_count)}；來源數 ${formatNumber(row.source_count)}`;
           const topicText = topics.length
             ? '熱門話題：' + topics.map((t) => `${escapeHtml(t.label)} (${t.count})`).join('、')
-            : '尚無話題資料';
-          detailEl.innerHTML = `<strong>${escapeHtml(day)}</strong> · ${spikeNote}${topicText}`;
+            : '當日沒有可公開話題摘要';
+          detailEl.innerHTML = `<strong>${escapeHtml(day)}</strong> · ${spikeNote}${escapeHtml(countText)}<br>${topicText}`;
         });
       });
 
@@ -943,7 +1048,7 @@ topNarratives: [
     });
   }
 
-  function renderReportCategories(container, categories) {
+  function renderReportCategories(container, categories, overview = {}) {
     if (!container) return;
     const items = Array.isArray(categories) ? categories : [];
     if (!items.length) {
@@ -956,18 +1061,27 @@ topNarratives: [
     const r = 70;
     const strokeWidth = 28;
     const circumference = 2 * Math.PI * r;
-    const totalEventCount = items.reduce((sum, cat) => sum + safeNum(cat.eventCount), 0);
+    const categoryEventCount = items.reduce((sum, cat) => sum + safeNum(cat.eventCount), 0);
+    const reportEventCount = safeNum(overview.reportEventCount);
+    const totalEventCount = safeNum(overview.totalEventCount);
+    const denominator = totalEventCount || categoryEventCount || 1;
     const normalized = items.map((cat, index) => {
       const eventCount = safeNum(cat.eventCount);
       const accountCount = safeNum(cat.accountCount);
-      const pct = safeNum(cat.sharePct);
+      const allEventPct = totalEventCount > 0
+        ? Number(((eventCount / totalEventCount) * 100).toFixed(1))
+        : safeNum(cat.sharePct);
+      const reportPct = reportEventCount > 0
+        ? Number(((eventCount / reportEventCount) * 100).toFixed(1))
+        : 0;
       return {
         color: colors[index % colors.length],
         label: escapeHtml(cat.label || ''),
-        pct,
+        pct: allEventPct,
+        reportPct,
         eventCount,
         accountCount,
-        arcLength: (Math.max(pct, 0) / 100) * circumference
+        arcLength: (Math.max(allEventPct, 0) / 100) * circumference
       };
     });
 
@@ -992,9 +1106,9 @@ topNarratives: [
     const legend = normalized.map((cat) => `<div class="donut-legend-row">
       <span class="donut-legend-dot" style="background:${cat.color}"></span>
       <span class="donut-legend-label">${cat.label}</span>
-      <span class="donut-legend-pct">${formatPercent(cat.pct)}</span>
+      <span class="donut-legend-pct">${formatPercent(cat.pct)} 全部</span>
       <span class="donut-legend-count">${formatNumber(cat.eventCount)} 事件</span>
-      <span class="donut-legend-count">${formatNumber(cat.accountCount)} 帳號</span>
+      <span class="donut-legend-count">${formatPercent(cat.reportPct)} 檢舉</span>
     </div>`).join('');
 
     container.innerHTML = `<div class="donut-wrap">
@@ -1009,8 +1123,9 @@ topNarratives: [
             stroke-width="${strokeWidth}"
           ></circle>
           ${segments}
-          <text x="${cx}" y="96" text-anchor="middle" class="donut-center-label">總計</text>
-          <text x="${cx}" y="114" text-anchor="middle" class="donut-center-value">${formatNumber(totalEventCount)}</text>
+          <text x="${cx}" y="88" text-anchor="middle" class="donut-center-label">分類事件</text>
+          <text x="${cx}" y="108" text-anchor="middle" class="donut-center-value">${formatNumber(categoryEventCount)}</text>
+          <text x="${cx}" y="126" text-anchor="middle" class="donut-center-note">占全部 ${formatPercent((categoryEventCount / denominator) * 100, 1)}</text>
         </svg>
       </div>
       <div class="donut-legend">${legend}</div>
@@ -1039,6 +1154,7 @@ topNarratives: [
   }
 
   window.PlatformPublic = {
+    PLATFORM_VERSION,
     API_BASE,
     DEFAULT_DAYS,
     MOCK_DAYS,
@@ -1051,9 +1167,6 @@ topNarratives: [
     escapeHtml,
     bandLabel,
     summarizeSourceCoverage,
-    buildIntakeMessage,
-    buildObservationWindowLabel,
-    formatUploadTimestamp,
     fetchOverview,
     hasLiveData,
     loadPoliticalEvents,
@@ -1061,6 +1174,7 @@ topNarratives: [
     computeWindowMetrics,
     buildSignalBadges,
     renderTrendChart,
+    renderTrendReadout,
     renderNarratives,
     renderReportCategories,
     toggleMockMode,

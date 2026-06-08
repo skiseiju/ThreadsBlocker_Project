@@ -63,7 +63,7 @@ CREATE INDEX IF NOT EXISTS idx_platform_uploads_events ON platform_uploads(total
 CREATE TABLE IF NOT EXISTS platform_raw_ingests (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  updated_at TEXT,
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   raw_payload_hash TEXT NOT NULL,
   analysis_payload_hash TEXT,
   payload_bytes INTEGER NOT NULL DEFAULT 0,

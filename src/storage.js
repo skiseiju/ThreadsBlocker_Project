@@ -68,8 +68,8 @@ export const Storage = {
         if (Storage.get(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, null) !== normalized) {
             Storage.set(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, normalized);
         }
-        if (!Storage.getPlatformSyncConsentVersion()) {
-            Storage.set(CONFIG.KEYS.PLATFORM_SYNC_CONSENT_VERSION, CONFIG.VERSION);
+        if (!Storage.hasPlatformSyncConsentForCurrentVersion()) {
+            Storage.set(CONFIG.KEYS.PLATFORM_SYNC_CONSENT_VERSION, Storage.getPlatformSyncConsentPolicyVersion());
         }
         return normalized === 'true';
     },
@@ -78,11 +78,22 @@ export const Storage = {
         return normalized || null;
     },
     hasPlatformSyncPreference: () => Storage.getPlatformSyncPreference() === 'true' || Storage.getPlatformSyncPreference() === 'false',
+    getPlatformSyncConsentPolicyVersion: () => CONFIG.PLATFORM_SYNC_CONSENT_POLICY_VERSION || CONFIG.VERSION,
     getPlatformSyncConsentVersion: () => Storage.get(CONFIG.KEYS.PLATFORM_SYNC_CONSENT_VERSION, ''),
-    hasPlatformSyncConsentForCurrentVersion: () => Storage.hasPlatformSyncPreference() && Storage.getPlatformSyncConsentVersion() === CONFIG.VERSION,
+    hasPlatformSyncConsentForCurrentVersion: () => {
+        if (!Storage.hasPlatformSyncPreference()) return false;
+        const policyVersion = Storage.getPlatformSyncConsentPolicyVersion();
+        const consentVersion = String(Storage.getPlatformSyncConsentVersion() || '').trim();
+        if (consentVersion === policyVersion) return true;
+        if (!consentVersion || /^\d+\.\d+\.\d+/.test(consentVersion)) {
+            Storage.set(CONFIG.KEYS.PLATFORM_SYNC_CONSENT_VERSION, policyVersion);
+            return true;
+        }
+        return false;
+    },
     setPlatformSyncConsentDecision: (enabled) => {
         Storage.setPlatformSyncEnabled(enabled);
-        Storage.set(CONFIG.KEYS.PLATFORM_SYNC_CONSENT_VERSION, CONFIG.VERSION);
+        Storage.set(CONFIG.KEYS.PLATFORM_SYNC_CONSENT_VERSION, Storage.getPlatformSyncConsentPolicyVersion());
     },
     getPlatformSyncEnabled: () => {
         const preference = Storage.getPlatformSyncPreference();

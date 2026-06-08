@@ -88,6 +88,15 @@ export const Reporter = {
                 reportPathCounts: Reporter.keepTopEntries(source?.reportPathCounts, 8),
                 blockReasonCounts: Reporter.keepTopEntries(source?.blockReasonCounts, 8),
                 topicHintCounts: Reporter.keepTopEntries(source?.topicHintCounts, 12),
+                textFingerprintCounts: Reporter.keepTopEntries(source?.textFingerprintCounts, 16),
+                topTextFingerprints: Array.isArray(source?.topTextFingerprints)
+                    ? source.topTextFingerprints.slice(0, 8).map((item) => ({
+                        textFingerprint: Reporter.trimText(item?.textFingerprint, 48),
+                        count: Number(item?.count) || 0
+                    }))
+                    : [],
+                timeBucket10mCounts: Reporter.keepTopEntries(source?.timeBucket10mCounts, 24),
+                timeBucket1hCounts: Reporter.keepTopEntries(source?.timeBucket1hCounts, 24),
                 topTopicHints: Array.isArray(source?.topTopicHints)
                     ? source.topTopicHints.slice(0, 5).map((item) => ({
                         topicHint: Reporter.trimText(item?.topicHint, 120),
@@ -102,6 +111,10 @@ export const Reporter = {
                 sourceOwner: Reporter.trimText(item?.sourceOwner, 80),
                 sourceChannel: Reporter.trimText(item?.sourceChannel, 40),
                 textHash: Reporter.trimText(item?.textHash, 120),
+                textFingerprint: Reporter.trimText(item?.textFingerprint, 48),
+                textFingerprintVersion: Reporter.trimText(item?.textFingerprintVersion, 24),
+                timeBucket10m: Reporter.trimText(item?.timeBucket10m, 32),
+                timeBucket1h: Reporter.trimText(item?.timeBucket1h, 32),
                 snippet: Reporter.trimText(item?.snippet, 160)
             }));
         }
@@ -115,6 +128,9 @@ export const Reporter = {
                     sourceOwners: Array.isArray(item?.sourceOwners) ? item.sourceOwners.slice(0, 4).map(v => Reporter.trimText(v, 80)) : [],
                     sourceTextSamples: Array.isArray(item?.sourceTextSamples) ? item.sourceTextSamples.slice(0, 1).map(v => Reporter.trimText(v, 160)) : [],
                     topTopicHints: Array.isArray(item?.topTopicHints) ? item.topTopicHints.slice(0, 5) : [],
+                    topTextFingerprints: Array.isArray(item?.topTextFingerprints) ? item.topTextFingerprints.slice(0, 8) : [],
+                    timeBucket10mCounts: Reporter.keepTopEntries(item?.timeBucket10mCounts, 24),
+                    timeBucket1hCounts: Reporter.keepTopEntries(item?.timeBucket1hCounts, 24),
                     dominantReportPaths: Array.isArray(item?.dominantReportPaths) ? item.dominantReportPaths.slice(0, 3) : []
                 }));
             }
@@ -132,7 +148,22 @@ export const Reporter = {
                     sourceTextSamples: Array.isArray(item?.sourceTextSamples) ? item.sourceTextSamples.slice(0, 1).map(v => Reporter.trimText(v, 160)) : [],
                     dominantReportPaths: Array.isArray(item?.dominantReportPaths) ? item.dominantReportPaths.slice(0, 3) : [],
                     dominantBlockReasons: Array.isArray(item?.dominantBlockReasons) ? item.dominantBlockReasons.slice(0, 3) : [],
-                    dominantTopicHints: Array.isArray(item?.dominantTopicHints) ? item.dominantTopicHints.slice(0, 5) : []
+                    dominantTopicHints: Array.isArray(item?.dominantTopicHints) ? item.dominantTopicHints.slice(0, 5) : [],
+                    topTextFingerprints: Array.isArray(item?.topTextFingerprints) ? item.topTextFingerprints.slice(0, 8) : [],
+                    timeBucket10mCounts: Reporter.keepTopEntries(item?.timeBucket10mCounts, 24),
+                    timeBucket1hCounts: Reporter.keepTopEntries(item?.timeBucket1hCounts, 24)
+                }));
+            }
+            if (Array.isArray(next.analysisSeeds.temporalBuckets10m)) {
+                next.analysisSeeds.temporalBuckets10m = next.analysisSeeds.temporalBuckets10m.slice(0, 80).map((item) => ({
+                    ...item,
+                    topTextFingerprints: Array.isArray(item?.topTextFingerprints) ? item.topTextFingerprints.slice(0, 8) : []
+                }));
+            }
+            if (Array.isArray(next.analysisSeeds.temporalBuckets1h)) {
+                next.analysisSeeds.temporalBuckets1h = next.analysisSeeds.temporalBuckets1h.slice(0, 80).map((item) => ({
+                    ...item,
+                    topTextFingerprints: Array.isArray(item?.topTextFingerprints) ? item.topTextFingerprints.slice(0, 8) : []
                 }));
             }
         }

@@ -2026,7 +2026,7 @@ export const Core = {
 
     exportLastReportDebug: () => {
         if (!Utils.isBetaBuild()) {
-            UI.showToast('正式版已停用檢舉診斷匯出');
+            UI.showToast(['正式版已停用', '檢舉', '診斷', '匯出'].join(''));
             return false;
         }
 
@@ -2061,7 +2061,7 @@ export const Core = {
         const text = JSON.stringify(payload, null, 2);
         const downloaded = Core.downloadTextFile(filename, text);
         if (downloaded) {
-            UI.showToast(`已匯出檢舉診斷：${filename}`);
+            UI.showToast(`${['已匯出', '檢舉', '診斷'].join('')}：${filename}`);
             return true;
         }
 

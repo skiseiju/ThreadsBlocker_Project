@@ -214,6 +214,9 @@
 - `sourceText`
 - `sourceOwner`
 - `eventAt`
+- `timeBucket10m`
+- `timeBucket1h`
+- `textFingerprint`（不可逆 derived hash；只供聚合，不直接展示）
 
 #### `sources`
 
@@ -221,11 +224,17 @@
 - `manipulationRiskLevel`
 - `topicHintCounts`
 - `topTopicHints`
+- `textFingerprintCounts`
+- `topTextFingerprints`
+- `timeBucket10mCounts`
+- `timeBucket1hCounts`
 
 #### `analysisSeeds`
 
 - `narrativeSeeds`
 - `campaignCandidates`
+- `temporalBuckets10m`
+- `temporalBuckets1h`
 
 ### 5.3 公開頁資料使用限制
 

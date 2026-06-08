@@ -140,6 +140,27 @@ rm -f "$DIST_DIR/extension.zip"
 echo "Chrome Extension Build complete: $EXT_DIR"
 echo "Chrome Extension ZIP: $DIST_DIR/extension.zip"
 
+LEGACY_CHROME_ZIP="$DIST_DIR/threads_blocker_chrome.zip"
+VERSIONED_CHROME_ZIP="$DIST_DIR/threads_blocker_chrome_v${STORE_VERSION}.zip"
+cp "$DIST_DIR/extension.zip" "$LEGACY_CHROME_ZIP"
+cp "$DIST_DIR/extension.zip" "$VERSIONED_CHROME_ZIP"
+echo "Chrome Extension Legacy ZIP: $LEGACY_CHROME_ZIP"
+echo "Chrome Extension Versioned ZIP: $VERSIONED_CHROME_ZIP"
+
+verify_chrome_zip_version() {
+    local zip_file="$1"
+    local bundled_version
+    bundled_version="$(unzip -p "$zip_file" content.js | sed -n "s/.*Content Script Injected, Version: \([^']*\).*/\1/p" | head -n 1)"
+    if [[ "$bundled_version" != "$APP_VERSION" ]]; then
+        echo "Error: $zip_file contains version '$bundled_version', expected '$APP_VERSION'" >&2
+        exit 1
+    fi
+}
+
+verify_chrome_zip_version "$DIST_DIR/extension.zip"
+verify_chrome_zip_version "$LEGACY_CHROME_ZIP"
+verify_chrome_zip_version "$VERSIONED_CHROME_ZIP"
+
 
 # 3. Firefox Extension Build (MV2)
 FF_DIR="$DIST_DIR/firefox"

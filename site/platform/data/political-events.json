@@ -1,158 +1,1952 @@
 {
-  "updatedAt": "2026-04-23",
-  "windowStart": "2026-02-24",
-  "windowEnd": "2026-04-23",
-  "note": "Mock mode 使用近 60 天真實公開政治事件作為時間軸；平台統計數字仍為示意資料。",
+  "updatedAt": "2026-05-31",
+  "windowStart": "2026-04-21",
+  "windowEnd": "2026-05-30",
+  "note": "Static fallback generated from /api/v1/platform/political-events. The platform page uses the live API first.",
   "events": [
     {
-      "date": "2026-02-24",
-      "title": "國防特別條例排入 3/6 付委，朝野版本將併案審查",
-      "category": "國會事件",
-      "shortLabel": "付委審查",
-      "note": "中央社／外部公共事件節點，僅作時序參考。",
-      "sourceName": "中央社 CNA",
-      "sourceUrl": "https://www.cna.com.tw/news/aipl/202602240066.aspx"
-    },
-    {
-      "date": "2026-02-26",
-      "title": "台海安全與國防特別預算座談會聚焦「台灣之盾」",
-      "category": "國會事件",
-      "shortLabel": "台灣之盾",
-      "note": "中央社／外部公共事件節點，僅作時序參考。",
-      "sourceName": "中央社 CNA",
-      "sourceUrl": "https://www.cna.com.tw/news/aipl/202602260133.aspx"
-    },
-    {
-      "date": "2026-03-09",
-      "title": "美國務院籲台灣各黨盡快通過國防特別預算",
-      "category": "國會事件",
-      "shortLabel": "美籲速審",
-      "note": "中央社／外部公共事件節點，僅作時序參考。",
-      "sourceName": "中央社 CNA",
-      "sourceUrl": "https://www.cna.com.tw/news/aipl/202603090011.aspx"
-    },
-    {
-      "date": "2026-03-14",
-      "title": "外交部證實收到史瓦帝尼邀請，評估賴總統 4 月出訪",
+      "date": "2026-04-21",
+      "title": "傳中國施壓...賴清德明無法出訪史瓦帝尼 總統府18時開臨時記者會",
       "category": "政黨動態",
-      "shortLabel": "訪史評估",
-      "note": "中央社／外部公共事件節點，僅作時序參考。",
-      "sourceName": "中央社 CNA",
-      "sourceUrl": "https://www.cna.com.tw/news/aipl/202603140079.aspx"
-    },
-    {
-      "date": "2026-03-22",
-      "title": "立院委員會將聯席審查國防特別條例三版本",
-      "category": "國會事件",
-      "shortLabel": "聯席審查",
-      "note": "中央社／外部公共事件節點，僅作時序參考。",
-      "sourceName": "中央社 CNA",
-      "sourceUrl": "https://www.cna.com.tw/news/aipl/202603220016.aspx"
-    },
-    {
-      "date": "2026-03-25",
-      "title": "立法院併案審查國防特別條例草案",
-      "category": "國會事件",
-      "shortLabel": "條例審查",
-      "note": "中央社／外部公共事件節點，僅作時序參考。",
-      "sourceName": "中央社 CNA",
-      "sourceUrl": "https://www.cna.com.tw/news/aipl/202603250166.aspx"
-    },
-    {
-      "date": "2026-03-28",
-      "title": "卓揆籲朝野支持國防，藍營回應應專業審查特別預算",
-      "category": "政黨動態",
-      "shortLabel": "朝野攻防",
-      "note": "中央社／外部公共事件節點，僅作時序參考。",
-      "sourceName": "中央社 CNA",
-      "sourceUrl": "https://www.cna.com.tw/news/aipl/202603280165.aspx"
-    },
-    {
-      "date": "2026-03-30",
-      "title": "顧立雄重申政院版國防特別條例各案項不可或缺",
-      "category": "國會事件",
-      "shortLabel": "顧立雄",
-      "note": "中央社／外部公共事件節點，僅作時序參考。",
-      "sourceName": "中央社 CNA",
-      "sourceUrl": "https://www.cna.com.tw/news/aipl/202603300028.aspx"
-    },
-    {
-      "date": "2026-04-02",
-      "title": "韓國瑜呼籲儘速審議總預算，藍白要求政院先依法編足",
-      "category": "國會事件",
-      "shortLabel": "總預算",
-      "note": "中央社／外部公共事件節點，僅作時序參考。",
-      "sourceName": "中央社 CNA",
-      "sourceUrl": "https://www.cna.com.tw/news/aipl/202604020317.aspx"
-    },
-    {
-      "date": "2026-04-07",
-      "title": "鄭麗文啟程訪中，宣布展開「和平之旅」",
-      "category": "政黨動態",
-      "shortLabel": "訪中啟程",
-      "note": "中央社／外部公共事件節點，僅作時序參考。",
-      "sourceName": "中央社 CNA",
-      "sourceUrl": "https://www.cna.com.tw/news/aipl/202604070064.aspx"
-    },
-    {
-      "date": "2026-04-10",
-      "title": "鄭麗文在北京與習近平會面，談及國際參與與兩岸交流",
-      "category": "政黨動態",
-      "shortLabel": "鄭習會",
-      "note": "中央社／外部公共事件節點，僅作時序參考。",
-      "sourceName": "中央社 CNA",
-      "sourceUrl": "https://www.cna.com.tw/news/acn/202604100213.aspx"
-    },
-    {
-      "date": "2026-04-10",
-      "title": "國防特別條例協商交由韓國瑜層級處理",
-      "category": "國會事件",
-      "shortLabel": "交韓協商",
-      "note": "中央社／外部公共事件節點，僅作時序參考。",
-      "sourceName": "中央社 CNA",
-      "sourceUrl": "https://www.cna.com.tw/news/aipl/202604100079.aspx"
-    },
-    {
-      "date": "2026-04-12",
-      "title": "國民黨訪中後宣布將就中方 10 項涉台措施組成工作小組",
-      "category": "政黨動態",
-      "shortLabel": "10項措施",
-      "note": "中央社／外部公共事件節點，僅作時序參考。",
-      "sourceName": "中央社 CNA",
-      "sourceUrl": "https://www.cna.com.tw/news/aipl/202604120153.aspx"
-    },
-    {
-      "date": "2026-04-13",
-      "title": "總統府宣布賴清德將於 4/22 出訪史瓦帝尼",
-      "category": "政黨動態",
-      "shortLabel": "宣布出訪",
-      "note": "中央社／外部公共事件節點，僅作時序參考。",
-      "sourceName": "中央社 CNA",
-      "sourceUrl": "https://www.cna.com.tw/news/aipl/202604130072.aspx"
+      "shortLabel": "傳中國施壓.",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
     },
     {
       "date": "2026-04-21",
-      "title": "賴清德出訪史瓦帝尼傳受中國施壓，總統府晚間開臨時記者會",
+      "title": "傳中國施壓...賴清德明無法出訪史瓦帝尼 總統府18時開臨時記者會",
       "category": "政黨動態",
-      "shortLabel": "府晚記者",
-      "note": "政治事件 crawler snapshot／外部公共事件節點，僅作時序參考。",
-      "sourceName": "Google Trends TW"
+      "shortLabel": "傳中國施壓.",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-21",
+      "title": "國民黨宜蘭三星鄉長李志鏞涉貪判12年 年底轉戰縣議員泡湯",
+      "category": "政黨動態",
+      "shortLabel": "國民黨宜蘭三",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-21",
+      "title": "國民黨宜蘭三星鄉長李志鏞涉貪判12年 年底轉戰縣議員泡湯",
+      "category": "政黨動態",
+      "shortLabel": "國民黨宜蘭三",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-21",
+      "title": "國民黨宜蘭三星鄉長李志鏞涉貪判12年 年底轉戰縣議員泡湯",
+      "category": "政黨動態",
+      "shortLabel": "國民黨宜蘭三",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-21",
+      "title": "國民黨宜蘭三星鄉長李志鏞涉貪判12年 年底轉戰縣議員泡湯",
+      "category": "政黨動態",
+      "shortLabel": "國民黨宜蘭三",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-21",
+      "title": "國民黨宜蘭三星鄉長李志鏞涉貪判12年 年底轉戰縣議員泡湯",
+      "category": "政黨動態",
+      "shortLabel": "國民黨宜蘭三",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-21",
+      "title": "左營區里長劉淯騰涉毒駕判刑 民進黨高市黨部：2026不提名",
+      "category": "政黨動態",
+      "shortLabel": "左營區里長劉",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-21",
+      "title": "左營區里長劉淯騰涉毒駕判刑 民進黨高市黨部：2026不提名",
+      "category": "政黨動態",
+      "shortLabel": "左營區里長劉",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-21",
+      "title": "左營區里長劉淯騰涉毒駕判刑 民進黨高市黨部：2026不提名",
+      "category": "政黨動態",
+      "shortLabel": "左營區里長劉",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-21",
+      "title": "左營區里長劉淯騰涉毒駕判刑 民進黨高市黨部：2026不提名",
+      "category": "政黨動態",
+      "shortLabel": "左營區里長劉",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-21",
+      "title": "左營區里長劉淯騰涉毒駕判刑 民進黨高市黨部：2026不提名",
+      "category": "政黨動態",
+      "shortLabel": "左營區里長劉",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-21",
+      "title": "直播／傳賴總統明天無法出訪史瓦帝尼 總統府晚間6時緊急召開記者會",
+      "category": "政黨動態",
+      "shortLabel": "直播／傳賴總",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-21",
+      "title": "直播／傳賴總統明天無法出訪史瓦帝尼 總統府晚間6時緊急召開記者會",
+      "category": "政黨動態",
+      "shortLabel": "直播／傳賴總",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
     },
     {
       "date": "2026-04-22",
-      "title": "中國外交部再稱「不存在中華民國總統」，引發朝野交鋒",
+      "title": "國民黨才喊完當然在…中國外交部再嗆：世界上不存在「中華民國總統」",
       "category": "政黨動態",
-      "shortLabel": "總統稱謂",
-      "note": "政治事件 crawler snapshot／外部公共事件節點，僅作時序參考。",
-      "sourceName": "三立新聞"
+      "shortLabel": "國民黨才喊完",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-22",
+      "title": "鄭麗文嗆賴清德抗中毀台 民進黨反擊：砲口對內與國際脫節",
+      "category": "政黨動態",
+      "shortLabel": "鄭麗文嗆賴清",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
     },
     {
       "date": "2026-04-23",
-      "title": "加拿大駐台代表拜會立法院，盼台加拓展合作",
+      "title": "「臉書退黨不算數」贏了！徐瑞希告民眾黨　確認黨員資格存在一審勝訴",
+      "category": "政黨動態",
+      "shortLabel": "臉書退黨不算",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-23",
+      "title": "加拿大駐台代表拜會立法院：盼台加持續拓展各領域合作",
       "category": "國會事件",
-      "shortLabel": "台加合作",
-      "note": "政治事件 crawler snapshot／外部公共事件節點，僅作時序參考。",
-      "sourceName": "自由時報"
+      "shortLabel": "加拿大駐台代",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-23",
+      "title": "民眾黨批鏡週刊自甘墮落 黃國昌等3人挨告不起訴確定",
+      "category": "政黨動態",
+      "shortLabel": "民眾黨批鏡週",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-23",
+      "title": "這也不認？民眾黨稱柯文哲329遊行沒喊「賴祥德」",
+      "category": "政黨動態",
+      "shortLabel": "這也不認民眾",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-24",
+      "title": "李四川要把新北人才送進輝達 民眾黨提醒蔣萬安別總是「孔融讓梨」",
+      "category": "政黨動態",
+      "shortLabel": "李四川要把新",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-24",
+      "title": "民眾黨中市議員拱盧秀燕選總統 蔣萬安回應了",
+      "category": "政黨動態",
+      "shortLabel": "民眾黨中市議",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-24",
+      "title": "立院三讀娛樂稅修正案 北市稅收影響近3億、蔣萬安稱推動演唱會經濟",
+      "category": "國會事件",
+      "shortLabel": "立院三讀娛樂",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-24",
+      "title": "立院三讀演唱會等免娛樂稅　北市估每年少收3億元",
+      "category": "國會事件",
+      "shortLabel": "立院三讀演唱",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-24",
+      "title": "綠讚沈伯洋懂音樂、體育 民眾黨北市議員：選市長不是才藝大賽",
+      "category": "政黨動態",
+      "shortLabel": "綠讚沈伯洋懂",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-24",
+      "title": "總統彈劾案5/19立院表決 民進黨團：政治鬧劇將不出席投票",
+      "category": "國會事件",
+      "shortLabel": "總統彈劾案5",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-24",
+      "title": "總統彈劾案立院5/19表決　綠：政治鬧劇不會進場投票",
+      "category": "國會事件",
+      "shortLabel": "總統彈劾案立",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-25",
+      "title": "入黨2年半成民進黨高市黨部主委 黃捷：串聯雙北女力一起打拚",
+      "category": "政黨動態",
+      "shortLabel": "入黨2年半成",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-25",
+      "title": "國民黨在台北市執政70年 沈伯洋：挑戰者更要謙虛聆聽市民",
+      "category": "政黨動態",
+      "shortLabel": "國民黨在台北",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-26",
+      "title": "「台灣網紅節」具統戰嫌疑卻連年獲商業處補助 議員批拿北市公帑搭建紅統舞台",
+      "category": "網路論戰",
+      "shortLabel": "台灣網紅節具",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-26",
+      "title": "兩岸直航將全面恢復？民航局六點聲明「28航點未滿載　我方13班遭卡」",
+      "category": "政黨動態",
+      "shortLabel": "兩岸直航將全",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-26",
+      "title": "國民黨中壢議員黨內初選4搶3 彭康傑獲劉和然、呂家愷力挺市場拜票",
+      "category": "政黨動態",
+      "shortLabel": "國民黨中壢議",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-26",
+      "title": "國民黨團又推「稅收超徵普發現金」 李坤城：別只做無本生意",
+      "category": "政黨動態",
+      "shortLabel": "國民黨團又推",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-26",
+      "title": "民眾黨澎湖唯一議員參選人莊國輝 推出「考試Fun福利」活動",
+      "category": "政黨動態",
+      "shortLabel": "民眾黨澎湖唯",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-26",
+      "title": "民調比照張啓楷模式合開記者會？ 黃國昌：按政黨合作協議前進",
+      "category": "政黨動態",
+      "shortLabel": "民調比照張啓",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-26",
+      "title": "總統彈劾案519投票綠不進場投票 國民黨團：大法官稱不出席是支持",
+      "category": "政黨動態",
+      "shortLabel": "總統彈劾案5",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-27",
+      "title": "遭誤爆「交往54歲小鐘」！王俐人不忍回應了　親吐真實關係",
+      "category": "娛樂八卦",
+      "shortLabel": "遭誤爆交往5",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-28",
+      "title": "「藍白合」民調國民黨李四川勝出將征戰新北 黃國昌喊全力輔選",
+      "category": "政黨動態",
+      "shortLabel": "藍白合民調國",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-28",
+      "title": "28歲女警遭巨輪輾過死因出爐！男友崩潰蹲地認屍　社群放閃照成最美回憶",
+      "category": "社會事件",
+      "shortLabel": "28歲女警遭",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-28",
+      "title": "要同仁拍養眼照！中市稽查大隊傳霸凌及性騷 環保局長挨批狀況外",
+      "category": "性騷擾指控",
+      "shortLabel": "要同仁拍養眼",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-29",
+      "title": "國台辦稱管制高德地圖「反科技」　民進黨嗆爆：中國可用Google Maps？",
+      "category": "政黨動態",
+      "shortLabel": "國台辦稱管制",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-29",
+      "title": "國民黨軍購版本「上意不明」 藍委顏寬恒、廖偉翔拒表態",
+      "category": "政黨動態",
+      "shortLabel": "國民黨軍購版",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-29",
+      "title": "國民黨軍購版本分歧！ 邱鎮軍：沒有對錯、重在落實執行",
+      "category": "政黨動態",
+      "shortLabel": "國民黨軍購版",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-29",
+      "title": "盧秀燕曾表態支持軍購8000億至1兆 對國民黨版大亂鬥無回應",
+      "category": "政黨動態",
+      "shortLabel": "盧秀燕曾表態",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-29",
+      "title": "遭微風質疑不公！台鐵發聲明硬起來：結果外流已調查、評審均知悉迴避",
+      "category": "政黨動態",
+      "shortLabel": "遭微風質疑不",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-29",
+      "title": "開戰！陳智菡轟違藍白合默契 游淑慧反擊：妳最沒資格情勒國民黨",
+      "category": "政黨動態",
+      "shortLabel": "開戰陳智菡轟",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-30",
+      "title": "李四川關心韓國瑜 國民黨勞工表揚與鄭麗文同台不同場",
+      "category": "政黨動態",
+      "shortLabel": "李四川關心韓",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-30",
+      "title": "白沙鄉公所總預算爭議 澎湖縣府強調依法行政、積極協調",
+      "category": "社會事件",
+      "shortLabel": "白沙鄉公所總",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-04-30",
+      "title": "鄭麗文北京行後不演了？作家示警國民黨赤化危機：2028野心藏不住",
+      "category": "政黨動態",
+      "shortLabel": "鄭麗文北京行",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-01",
+      "title": "募款千萬挨轟 柯文哲嗆綠吃香喝辣：民眾黨連呼吸都有罪",
+      "category": "政黨動態",
+      "shortLabel": "募款千萬挨轟",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-01",
+      "title": "國民黨「軍購之亂」繼續燒 他預言恐上演「倒鄭」戲碼",
+      "category": "政黨動態",
+      "shortLabel": "國民黨軍購之",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-01",
+      "title": "決裂了？ 國民黨中央對他「急急如律令」趙少康再嗆：何時變成這樣獨裁......",
+      "category": "政黨動態",
+      "shortLabel": "決裂了國民黨",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-01",
+      "title": "突預告登出民進黨北市黨部 「焦糖哥哥」陳嘉行求職中：考慮回娛樂圈",
+      "category": "政黨動態",
+      "shortLabel": "突預告登出民",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-02",
+      "title": "不管對手是誰！民進黨陳素月拋政見 老人健保不排富全免",
+      "category": "政黨動態",
+      "shortLabel": "不管對手是誰",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-02",
+      "title": "國安法修法擬禁「鼓吹武統」！網紅砲轟：箝制言論自由、製造寒蟬效應",
+      "category": "國會事件",
+      "shortLabel": "國安法修法擬",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-02",
+      "title": "民眾黨市議員參選人喊「車子被放追蹤器」 四叉貓查出是「防丟器」",
+      "category": "政黨動態",
+      "shortLabel": "民眾黨市議員",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-02",
+      "title": "立院直播爆通話疑雲！曾資程轟民眾黨修《選罷法》替高虹安解套",
+      "category": "政黨動態",
+      "shortLabel": "立院直播爆通",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-02",
+      "title": "藍營「這些大咖」挺軍購逾8千億以上版本 黃暐瀚：國民黨考紀會這陣子會很忙",
+      "category": "政黨動態",
+      "shortLabel": "藍營這些大咖",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-03",
+      "title": "倫敦桌球賽驚傳台女將遭性騷　大會火速開除涉案人員並正式道歉",
+      "category": "性騷擾指控",
+      "shortLabel": "倫敦桌球賽驚",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-03",
+      "title": "北市鼠患失控！ 林智群批：國民黨處理手法跟共產黨一樣",
+      "category": "政黨動態",
+      "shortLabel": "北市鼠患失控",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-03",
+      "title": "台灣女選手疑遭性騷 桌協發布10點聲明說明處理進度",
+      "category": "性騷擾指控",
+      "shortLabel": "台灣女選手疑",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-03",
+      "title": "林俊憲：友邦與我國站在一起 國民黨卻替中共打壓台灣",
+      "category": "政黨動態",
+      "shortLabel": "林俊憲友邦與",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-03",
+      "title": "桌球／鄭怡靜安檢傳「不當性騷」！桌協證實回應了",
+      "category": "性騷擾指控",
+      "shortLabel": "桌球／鄭怡靜",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-03",
+      "title": "民眾黨出「奇兵」促彰化藍白合？吳韋達回應了",
+      "category": "政黨動態",
+      "shortLabel": "民眾黨出奇兵",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-03",
+      "title": "獨家》稱個人因素！民眾黨前高雄市主委莊貽量自爆遭裝追蹤器撤文",
+      "category": "政黨動態",
+      "shortLabel": "獨家稱個人因",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-03",
+      "title": "談大陳過台灣！媽媽感恩國民黨 梁文傑：值得感謝的是台灣",
+      "category": "政黨動態",
+      "shortLabel": "談大陳過台灣",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-03",
+      "title": "鄭怡靜世團賽安檢遭性騷 國際桌總發聲明：完全不可接受",
+      "category": "性騷擾指控",
+      "shortLabel": "鄭怡靜世團賽",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-04",
+      "title": "代表國民黨選雲林縣長 張嘉郡稱支持最有利國家與民眾的軍購方案",
+      "category": "政黨動態",
+      "shortLabel": "代表國民黨選",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-04",
+      "title": "北市鼠患變沈伯洋選舉「墊腳鼠」 柳采葳：民進黨強力炒作走火入魔",
+      "category": "政黨動態",
+      "shortLabel": "北市鼠患變沈",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-04",
+      "title": "強化高雄藍營空戰能量 立委陳菁徽為國民黨民代幕僚授課",
+      "category": "政黨動態",
+      "shortLabel": "強化高雄藍營",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-04",
+      "title": "民眾黨內訌！莊貽量批2個太陽矛盾已浮現 指小草不想當「小藍」",
+      "category": "政黨動態",
+      "shortLabel": "民眾黨內訌莊",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-04",
+      "title": "民進黨宜蘭縣長參選人林國漳推治水藍圖 承諾增設10座抽水站",
+      "category": "政黨動態",
+      "shortLabel": "民進黨宜蘭縣",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-04",
+      "title": "民進黨竹縣議員關切楊文科兼任國民黨主委 整合勞心力、籲顧身體",
+      "category": "政黨動態",
+      "shortLabel": "民進黨竹縣議",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-04",
+      "title": "遭控惡意拖欠60萬 民眾黨前高雄市主委莊貽量否認卻回偵查不公開",
+      "category": "政黨動態",
+      "shortLabel": "遭控惡意拖欠",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-05",
+      "title": "「安鼠之亂」延燒 蔣萬安下午4點記者會說明",
+      "category": "政黨動態",
+      "shortLabel": "安鼠之亂延燒",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-05",
+      "title": "5年情驚爆生變？阿喜認了想分手無尊曝「關鍵主因」：蠻想自己待著",
+      "category": "娛樂八卦",
+      "shortLabel": "5年情驚爆生",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-05",
+      "title": "中配尪爽領普發1萬喊「天上掉餡餅」 網紅夫妻統戰言論曝光網氣炸",
+      "category": "網路論戰",
+      "shortLabel": "中配尪爽領普",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-05",
+      "title": "提台獨言論納國安法是被中共洗腦？ 葛如鈞：反對有疑慮的修法不等於不愛國",
+      "category": "國會事件",
+      "shortLabel": "提台獨言論納",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-05",
+      "title": "民眾黨不同意檢察總長人事案 周榆修：徐錫祥司改方向不明確",
+      "category": "政黨動態",
+      "shortLabel": "民眾黨不同意",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-05",
+      "title": "阿喜直言有在考慮分手！(#01J) 【阿喜脫口想分手無尊！5年情生變「原因曝光」 認溝通無效：要不要放過彼此】",
+      "category": "娛樂八卦",
+      "shortLabel": "阿喜直言有在",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-05",
+      "title": "阿喜脫口想分手無尊！5年情生變「原因曝光」 認溝通無效：要不要放過彼此",
+      "category": "娛樂八卦",
+      "shortLabel": "阿喜脫口想分",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-06",
+      "title": "TPBL／高國豪爆家醜遭扣薪禁活動　TPBL：啟動調查不排除召開紀律委員會",
+      "category": "國會事件",
+      "shortLabel": "TPBL／高",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-06",
+      "title": "中天主播林宸佑受陸資助製播反罷免節目 橋檢起訴求重刑17年",
+      "category": "罷免案",
+      "shortLabel": "中天主播林宸",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-06",
+      "title": "傳達台以堅定情誼 以色列前國會議長率團拜會韓國瑜",
+      "category": "國會事件",
+      "shortLabel": "傳達台以堅定",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-06",
+      "title": "民進黨下鄉宣講「台灣好生活」 5/9首場高雄鄭麗君打頭陣",
+      "category": "政黨動態",
+      "shortLabel": "民進黨下鄉宣",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-06",
+      "title": "軍購條例4度朝野協商 徐巧芯重申國民黨3原則",
+      "category": "政黨動態",
+      "shortLabel": "軍購條例4度",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-06",
+      "title": "遭爆「放鳥」日本自民黨訪團 國民黨反駁：非刻意婉拒",
+      "category": "政黨動態",
+      "shortLabel": "遭爆放鳥日本",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-06",
+      "title": "鄭麗文遭爆放鳥日本自民黨訪團 民進黨震驚：別影響對台觀感",
+      "category": "政黨動態",
+      "shortLabel": "鄭麗文遭爆放",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-07",
+      "title": "女力集結！民進黨號召「烏貓戰隊」 3天2夜打造選戰即戰力",
+      "category": "政黨動態",
+      "shortLabel": "女力集結民進",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-07",
+      "title": "展現外交軟實力 蕭美琴邀紐西蘭國會訪團聆賞排灣祭典組曲",
+      "category": "國會事件",
+      "shortLabel": "展現外交軟實",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-07",
+      "title": "李珠珢直播狂掃800萬鑽破紀錄！ 首揭私下真實面：每天8點入睡",
+      "category": "直播爭議",
+      "shortLabel": "李珠珢直播狂",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-07",
+      "title": "立院初審通過18歲公民權修法 時力：莫因修憲高門檻而功敗垂成",
+      "category": "罷免案",
+      "shortLabel": "立院初審通過",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-07",
+      "title": "美前副國安顧問示警國防預算　點名國民黨：恐錯失烏克蘭、中東戰爭教訓",
+      "category": "政黨動態",
+      "shortLabel": "美前副國安顧",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-07",
+      "title": "補教業者拿政府標案涉性侵未成年 嘉市教育處：已登錄不適任",
+      "category": "性騷擾指控",
+      "shortLabel": "補教業者拿政",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-07",
+      "title": "軍購案最快明表決！鄭麗文今中午拜會 盧秀燕早上已表態「8千億軍購優先通過」",
+      "category": "國會事件",
+      "shortLabel": "軍購案最快明",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-07",
+      "title": "軍購特別條例拚明表決？ 賴士葆：藍白8000億有共識盼盡速定調",
+      "category": "國會事件",
+      "shortLabel": "軍購特別條例",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-07",
+      "title": "軍購預算最快明表決 林俊憲無奈：藍白最有可能硬推3800億版本",
+      "category": "國會事件",
+      "shortLabel": "軍購預算最快",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-07",
+      "title": "金主豪砸百萬禮物洗版！李珠珢開播十分鐘吸金50萬 平台一度癱瘓斷線",
+      "category": "社會事件",
+      "shortLabel": "金主豪砸百萬",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-08",
+      "title": "台南國民黨參選人紫底看板引熱議 網：紅色+藍色？",
+      "category": "政黨動態",
+      "shortLabel": "台南國民黨參",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-08",
+      "title": "獨家》立法院三讀通過軍購案 鄭麗文赴民眾黨團密會黃國昌",
+      "category": "國會事件",
+      "shortLabel": "獨家立法院三",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-08",
+      "title": "白委「邊哭邊投贊成」國民黨版醫療法　吳思瑤：藍白合就是這麼沒是非",
+      "category": "政黨動態",
+      "shortLabel": "白委邊哭邊投",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-08",
+      "title": "立院三讀《醫療法》！三班護病比入法 違規醫院最重可停業1年",
+      "category": "國會事件",
+      "shortLabel": "立院三讀醫療",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-08",
+      "title": "立院表決國防特別條例 三讀通過藍白「7800億」版本",
+      "category": "國會事件",
+      "shortLabel": "立院表決國防",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-08",
+      "title": "藍白軍購打6折成國防破口 民進黨：不放棄尋求其他方案",
+      "category": "政黨動態",
+      "shortLabel": "藍白軍購打6",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-09",
+      "title": "他談「不婚不生」如何確認快樂一生掀論戰　名醫直言：不生就閉嘴享受",
+      "category": "網路論戰",
+      "shortLabel": "他談不婚不生",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-09",
+      "title": "喊退黨就算數！民眾黨註銷黨員身分訊息曝 SOP受質疑",
+      "category": "政黨動態",
+      "shortLabel": "喊退黨就算數",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-09",
+      "title": "民進黨「台灣好生活」宣講高雄啟動 陳其邁曝市長選舉「最大變數」",
+      "category": "政黨動態",
+      "shortLabel": "民進黨台灣好",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-09",
+      "title": "竹北市長選舉 邱臣遠：民眾黨將採徵召方式，不受藍白合影響",
+      "category": "政黨動態",
+      "shortLabel": "竹北市長選舉",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-09",
+      "title": "邱慧洳淚投國民黨版！伍麗華爆傅崐萁吐「1句話」 白委尷尬苦笑",
+      "category": "政黨動態",
+      "shortLabel": "邱慧洳淚投國",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-09",
+      "title": "鄭麗文、黃國昌「深夜對談」軍購急轉彎 張育萌：國民黨為藍白合瘋了",
+      "category": "政黨動態",
+      "shortLabel": "鄭麗文黃國昌",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-10",
+      "title": "三班護病比2年後才上路 國民黨團強力譴責",
+      "category": "政黨動態",
+      "shortLabel": "三班護病比2",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-10",
+      "title": "何欣純質疑國民黨刪軍購預算江啟臣不吭聲 江啟臣:主持議事需中立",
+      "category": "政黨動態",
+      "shortLabel": "何欣純質疑國",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-10",
+      "title": "國民黨北市中正萬華5/10~5/12民調 郭音蘭、周世雄、張延廷3搶1",
+      "category": "政黨動態",
+      "shortLabel": "國民黨北市中",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-10",
+      "title": "震撼彈！國民黨4連任資深里長 將脫黨參選台中議員",
+      "category": "政黨動態",
+      "shortLabel": "震撼彈國民黨",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-11",
+      "title": "陳玉珍「離島條例」修法藏5大國安疑慮！ 經民連：金門軍營恐被中國斷電",
+      "category": "國會事件",
+      "shortLabel": "陳玉珍離島條",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-11",
+      "title": "雙城論壇選後才辦「固選票」？蔣萬安：雙方協調出適合時間",
+      "category": "社會事件",
+      "shortLabel": "雙城論壇選後",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-12",
+      "title": "國民黨彰化縣長參選人確定後 蕭景田預告「這件事」要先做",
+      "category": "政黨動態",
+      "shortLabel": "國民黨彰化縣",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-12",
+      "title": "徐巧芯酸參選北市長「靠他救國民黨」 沈伯洋回敬7個字",
+      "category": "政黨動態",
+      "shortLabel": "徐巧芯酸參選",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-12",
+      "title": "快訊／PCB大廠17:30點召開重訊記者會　說明董事會重大決議",
+      "category": "政黨動態",
+      "shortLabel": "快訊／PCB",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-13",
+      "title": "NONO被控性侵猥褻一審判無罪　法官一段話曝理由",
+      "category": "性騷擾指控",
+      "shortLabel": "NONO被控",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-13",
+      "title": "國民黨徵召魏平政參選彰化縣長 「不敗女王」王惠美歐洲回應了",
+      "category": "政黨動態",
+      "shortLabel": "國民黨徵召魏",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-13",
+      "title": "小草狂罵台電LOGO！ 律師打臉：民眾黨淡藍色調就是聶永真做的",
+      "category": "政黨動態",
+      "shortLabel": "小草狂罵台電",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-13",
+      "title": "民進黨中執會徵召參選北市長 沈伯洋：女兒讓我知道改變是可能的",
+      "category": "政黨動態",
+      "shortLabel": "民進黨中執會",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-13",
+      "title": "民進黨宣布沈伯洋選北市 蔣萬安：我每天就是專注市政",
+      "category": "政黨動態",
+      "shortLabel": "民進黨宣布沈",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-13",
+      "title": "民進黨徵召沈伯洋選北市 陳柏惟力挺：武運昌隆",
+      "category": "政黨動態",
+      "shortLabel": "民進黨徵召沈",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-13",
+      "title": "蔡壁如表態選彰縣長 國民黨：藍白合作只談4縣市",
+      "category": "政黨動態",
+      "shortLabel": "蔡壁如表態選",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-14",
+      "title": "台灣人65歲領勞保，移工10年就能領勞退？查核中心詳解真實制度：移工退休金門檻超高",
+      "category": "罷免案",
+      "shortLabel": "台灣人65歲",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-14",
+      "title": "民眾黨批綠營提案新北普發現金是詐騙市民 綠議員反嗆陳世軒",
+      "category": "政黨動態",
+      "shortLabel": "民眾黨批綠營",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-14",
+      "title": "民進黨台南市黨部Threads擁1.2萬粉絲 多管道與社會對話",
+      "category": "政黨動態",
+      "shortLabel": "民進黨台南市",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-14",
+      "title": "民進黨雲林縣第三波徵召5人 吳東旻參選四湖鄉長",
+      "category": "政黨動態",
+      "shortLabel": "民進黨雲林縣",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-14",
+      "title": "網傳川普批台灣總統導致衝突 民進黨翻原文駁「假訊息」",
+      "category": "政黨動態",
+      "shortLabel": "網傳川普批台",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-14",
+      "title": "藝群醫美槓上官方！指控抄家式稽查 高市衛生局爆：診間133支鏡頭 | 新頭殼",
+      "category": "性騷擾指控",
+      "shortLabel": "藝群醫美槓上",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-14",
+      "title": "軍公教一情況無父母喪葬補助？網傳這族群領走50億「掏空勞保」，最大給付曝光 | 李瑋萱 | 新聞",
+      "category": "歧視爭議",
+      "shortLabel": "軍公教一情況",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-14",
+      "title": "郭雪芙分手老外！認了「單身一年」拒復合 談分手原因結巴：我我...我發現 | 鏡週刊",
+      "category": "娛樂八卦",
+      "shortLabel": "郭雪芙分手老",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-14",
+      "title": "郭雪芙無預警認了分手！ 斷開外國男友拒復合：不適合",
+      "category": "娛樂八卦",
+      "shortLabel": "郭雪芙無預警",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-15",
+      "title": "國民黨宜蘭縣長參選人吳宗憲遭捏造涉貪 檢方分案偵辦",
+      "category": "政黨動態",
+      "shortLabel": "國民黨宜蘭縣",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-15",
+      "title": "大胃王挑戰遇刁難？吃貨網紅被要求骨頭重啃、付低消 負評爆炸店家急回應",
+      "category": "網路論戰",
+      "shortLabel": "大胃王挑戰遇",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-15",
+      "title": "怒控阿雅抄襲健身影片！受害網紅出面痛批：妳是明星沒道德底線嗎？",
+      "category": "娛樂八卦",
+      "shortLabel": "怒控阿雅抄襲",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-15",
+      "title": "立法院邀5/19專案報告國防特別條例 卓榮泰：按時間進行",
+      "category": "國會事件",
+      "shortLabel": "立法院邀5/",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-15",
+      "title": "鄭麗文稱「川普說台灣有對的總統兩岸就不會戰爭」 民進黨昨已指是假訊息",
+      "category": "政黨動態",
+      "shortLabel": "鄭麗文稱川普",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-16",
+      "title": "向無黨籍招手！白營台中議員拚「坐5望6搶7」成立黨團",
+      "category": "政黨動態",
+      "shortLabel": "向無黨籍招手",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-16",
+      "title": "國民黨徵召魏平政選彰化縣長 柯呈枋終發聲：沒被收買",
+      "category": "政黨動態",
+      "shortLabel": "國民黨徵召魏",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-16",
+      "title": "孫安佐遭羈押函送！狄鶯直播嗆「我兒到底做了什麼？」爆哭：跟你們沒完",
+      "category": "直播爭議",
+      "shortLabel": "孫安佐遭羈押",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-17",
+      "title": "CBS主播控圓山飯店禁播報川習會 外交部：溝通誤解 已向外媒說明事實",
+      "category": "直播爭議",
+      "shortLabel": "CBS主播控",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-17",
+      "title": "先26鄉鎮市長再縣議員 國民黨彰化縣黨部「這天」公布選舉時程",
+      "category": "政黨動態",
+      "shortLabel": "先26鄉鎮市",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-17",
+      "title": "國民黨彰化黨部冷處理基層反彈 魏平政：不擔心蝴蝶效應",
+      "category": "政黨動態",
+      "shortLabel": "國民黨彰化黨",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-18",
+      "title": "「台獨黨綱」攻防殷瑋酸沈伯洋打臉段宜康 簡舒培反問蔣萬安認同國民黨綱「統一」？",
+      "category": "政黨動態",
+      "shortLabel": "台獨黨綱攻防",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-18",
+      "title": "因應少子化 國民黨團提0到15歲每月5000元育兒補助3項對策",
+      "category": "政黨動態",
+      "shortLabel": "因應少子化國",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-18",
+      "title": "國民黨屏東基層選舉領表踴躍 競爭更勝往年",
+      "category": "政黨動態",
+      "shortLabel": "國民黨屏東基",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-18",
+      "title": "從棒球到《大濛》公益包場 民進黨南市黨部：不忘「街頭精神」",
+      "category": "政黨動態",
+      "shortLabel": "從棒球到大濛",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-18",
+      "title": "柯志恩喊接棒邁未必要民進黨 賴瑞隆稱真正高雄隊友才能接好棒",
+      "category": "政黨動態",
+      "shortLabel": "柯志恩喊接棒",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-18",
+      "title": "民眾黨劉芩妤拍外送員有三急 民眾頻「歪樓」、咪咪說話了",
+      "category": "政黨動態",
+      "shortLabel": "民眾黨劉芩妤",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-18",
+      "title": "民進黨苗栗縣黨部執委會聲聲催 建請中央徵召林月琴參選苗栗市長",
+      "category": "政黨動態",
+      "shortLabel": "民進黨苗栗縣",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-18",
+      "title": "總統賴清德彈劾案明表決！吳思瑤轟藍白「創下國會惡例」：我大聲喊反對",
+      "category": "國會事件",
+      "shortLabel": "總統賴清德彈",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-18",
+      "title": "花蓮總預算府會爭議交內政部定案 立委傅崐萁稱積極奔走協調",
+      "category": "社會事件",
+      "shortLabel": "花蓮總預算府",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-18",
+      "title": "馬文君刪凍無人機潛艦預算 徐巧芯：非最終結果、國民黨都支持無人機",
+      "category": "政黨動態",
+      "shortLabel": "馬文君刪凍無",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-19",
+      "title": "告別「一中市場」台灣變多強？民進黨執政10週年 總經專家曝14大歷史性翻轉",
+      "category": "政黨動態",
+      "shortLabel": "告別一中市場",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-19",
+      "title": "馬英九向三人小組下通牒 27日不公佈蕭案調查結果 馬辦將開記者會",
+      "category": "政黨動態",
+      "shortLabel": "馬英九向三人",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-20",
+      "title": "不統一投你幹嘛？ 陳揮文反問國民黨「怎不放棄九二共識？」",
+      "category": "政黨動態",
+      "shortLabel": "不統一投你幹",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-20",
+      "title": "國民黨全代會725舉行 九合一主軸「拼和平、顧人民、台灣贏」",
+      "category": "政黨動態",
+      "shortLabel": "國民黨全代會",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-20",
+      "title": "國民黨桃市龜山區議員4選3 高華駿、林明義、江冠妤勝出",
+      "category": "政黨動態",
+      "shortLabel": "國民黨桃市龜",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-20",
+      "title": "從烤肉活動到培訓營 國會大叔力推「走向青年」政策",
+      "category": "國會事件",
+      "shortLabel": "從烤肉活動到",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-20",
+      "title": "民進黨澎湖縣黨部主委雙雄對決 24日ㄧ決高下",
+      "category": "政黨動態",
+      "shortLabel": "民進黨澎湖縣",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-20",
+      "title": "瞬撞畫面曝光！違規慣犯開車「搶快鬼切」　對向機車騎士被撞拋飛喪命",
+      "category": "直播爭議",
+      "shortLabel": "瞬撞畫面曝光",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-20",
+      "title": "賈永婕嗆「不當台灣人就走」媒體人：民進黨兩套無敵組合拳正在失效",
+      "category": "政黨動態",
+      "shortLabel": "賈永婕嗆不當",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-20",
+      "title": "賴清德拋0到18歲每月5千 黃國昌：意識到民進黨少子化政策一塌糊塗",
+      "category": "政黨動態",
+      "shortLabel": "賴清德拋0到",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-20",
+      "title": "鄭朝方保竹北或攻新竹縣長？民進黨選對會最快5/27給答案",
+      "category": "政黨動態",
+      "shortLabel": "鄭朝方保竹北",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-21",
+      "title": "挺Women的歌開唱！民進黨姊妹回娘家 台南首場輔選凝聚女性力量",
+      "category": "政黨動態",
+      "shortLabel": "挺Women",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-21",
+      "title": "葉元之嗆綠黨綱就是台獨！于北辰當面打臉：國民黨自己黨綱要不要改一改？",
+      "category": "政黨動態",
+      "shortLabel": "葉元之嗆綠黨",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-21",
+      "title": "高壓=透支生命！研究：害生理年齡老10歲　醫揭做6事助逆齡",
+      "category": "性別爭議",
+      "shortLabel": "高壓=透支生",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-22",
+      "title": "失智了？馬英九出示毛筆聲明駁傳言：我聽了覺得可笑",
+      "category": "政黨動態",
+      "shortLabel": "失智了馬英九",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-22",
+      "title": "失智症協會拜會國民黨團 藍委：黨團已提出「失智症基本法」",
+      "category": "政黨動態",
+      "shortLabel": "失智症協會拜",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-22",
+      "title": "桃園市黨部主委高宇彥不滿「黨意」退黨 民眾黨：尊重但勿混淆視聽",
+      "category": "政黨動態",
+      "shortLabel": "桃園市黨部主",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-22",
+      "title": "棒球教練性侵案　監院糾正台中市教育局與所屬國小",
+      "category": "性騷擾指控",
+      "shortLabel": "棒球教練性侵",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-22",
+      "title": "鄭麗文宜蘭婦女座談 吳宗憲缺席引關注",
+      "category": "性別爭議",
+      "shortLabel": "鄭麗文宜蘭婦",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-23",
+      "title": "北市密室死亡案竟推給中央 民進黨：選蔣萬安當市長幹嘛？",
+      "category": "政黨動態",
+      "shortLabel": "北市密室死亡",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-23",
+      "title": "民眾黨基層出走、黃國昌致歉 柯文哲緩頰：換我來也不會做得更好",
+      "category": "政黨動態",
+      "shortLabel": "民眾黨基層出",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-23",
+      "title": "獨家／巨瘤長半張臉　一輩子切不掉！她無懼歧視受訪：想讓大家認識這病",
+      "category": "歧視爭議",
+      "shortLabel": "獨家／巨瘤長",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-24",
+      "title": "5年情斷！無尊驚爆「阿喜提分手」 露面認了：各自思考下階段",
+      "category": "娛樂八卦",
+      "shortLabel": "5年情斷無尊",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-24",
+      "title": "外媒：黃仁勳令人意外聲明 輝達將成為AI「雙領頭羊」霸主",
+      "category": "政黨動態",
+      "shortLabel": "外媒黃仁勳令",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-24",
+      "title": "快訊／阿喜分手了！無尊證實分開「祝福彼此」 交往5年情斷",
+      "category": "娛樂八卦",
+      "shortLabel": "快訊／阿喜分",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-24",
+      "title": "民眾黨為高虹安連任「量身打造」 選罷法最快本週強行表決",
+      "category": "國會事件",
+      "shortLabel": "民眾黨為高虹",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-24",
+      "title": "民進黨雲林縣黨部改選佈局選戰 劉建國：會與新任主委共商",
+      "category": "政黨動態",
+      "shortLabel": "民進黨雲林縣",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-24",
+      "title": "民進黨黨職改選　陳水扁首度台南投票",
+      "category": "政黨動態",
+      "shortLabel": "民進黨黨職改",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-24",
+      "title": "賴清德拋「主婦月領5000」新政？ 與這項修法有關",
+      "category": "國會事件",
+      "shortLabel": "賴清德拋主婦",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-24",
+      "title": "黃仁勳揭輝達新平台，預告台鏈下半年迎大單-財經焦點情報站",
+      "category": "社會事件",
+      "shortLabel": "黃仁勳揭輝達",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-25",
+      "title": "中職／郭天信明星賽吞8連敗！呂彥青不想跟他同隊　自嘲10連敗要有獎牌",
+      "category": "娛樂八卦",
+      "shortLabel": "中職／郭天信",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-25",
+      "title": "民進黨徵召選屏東市長 梁育慈提5帖藥方促縣市合作",
+      "category": "政黨動態",
+      "shortLabel": "民進黨徵召選",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-26",
+      "title": "Energy vs. Electricity 沈伯洋、蔣萬安論戰",
+      "category": "網路論戰",
+      "shortLabel": "Energy",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-26",
+      "title": "新北明年起提升里鄰長基層經費 李四川：國民黨團政策包含他聽到的建議",
+      "category": "政黨動態",
+      "shortLabel": "新北明年起提",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-26",
+      "title": "法國會友台小組主席獲頒睦誼外交獎章 誓持續為台法友誼努力",
+      "category": "國會事件",
+      "shortLabel": "法國會友台小",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-26",
+      "title": "爆中國直播月賺3億！郝劭文證實返台定居了　鬆口「真實收入」",
+      "category": "直播爭議",
+      "shortLabel": "爆中國直播月",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-26",
+      "title": "綠批藍青年歌頌中共火箭發射 尹乃菁反嗆：民進黨有恐共症",
+      "category": "政黨動態",
+      "shortLabel": "綠批藍青年歌",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-26",
+      "title": "黃光芹開撕！黃國昌昔上館長直播聽到「上海那個」臉僵畫面被挖出",
+      "category": "直播爭議",
+      "shortLabel": "黃光芹開撕黃",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-27",
+      "title": "「0-18歲成長津貼」挨轟割稻尾 總統：國民黨還停留在「給付式」思維",
+      "category": "政黨動態",
+      "shortLabel": "0-18歲成",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-27",
+      "title": "18項少子化新對策 賴清德：請民進黨公職加強地方宣傳",
+      "category": "政黨動態",
+      "shortLabel": "18項少子化",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-27",
+      "title": "民進黨職改選戰力就位！ 賴清德下軍令：全力協助年底地方選舉",
+      "category": "政黨動態",
+      "shortLabel": "民進黨職改選",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-27",
+      "title": "鄭麗文訪美不順竟怪賴清德 民進黨批：慣性抹黑莫名其妙",
+      "category": "政黨動態",
+      "shortLabel": "鄭麗文訪美不",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-27",
+      "title": "酸沈伯洋energy不是electricity 藍黨團：停止文字遊戲正視能源困境",
+      "category": "政黨動態",
+      "shortLabel": "酸沈伯洋en",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-28",
+      "title": "「仙塔律師」被控洩密詐團、洗錢案辯論終結　認罪發5點聲明",
+      "category": "政黨動態",
+      "shortLabel": "仙塔律師被控",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-28",
+      "title": "「陳素月接班人」耳語流傳 民進黨彰化主委：對手挑起的「假議題」",
+      "category": "政黨動態",
+      "shortLabel": "陳素月接班人",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-28",
+      "title": "最高法院撤銷貪汙罪判刑7年10月 顏寬恒聲明回應了",
+      "category": "政黨動態",
+      "shortLabel": "最高法院撤銷",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-28",
+      "title": "彰化偵查佐涉性侵16歲少女被免職！議員喊話「下半身要管理好」",
+      "category": "性騷擾指控",
+      "shortLabel": "彰化偵查佐涉",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-28",
+      "title": "快訊！台塑16：00召開重訊記者會 說明重大決議",
+      "category": "政黨動態",
+      "shortLabel": "快訊台塑16",
+      "note": "Google Trends TW／外部公共事件節點，僅作時序參考。",
+      "sourceName": "Google Trends TW",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-28",
+      "title": "照顧新北客家長輩 蘇巧慧爭取放寬「伯公照護站」設置門檻",
+      "category": "罷免案",
+      "shortLabel": "照顧新北客家",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-28",
+      "title": "赴國民黨部約好要見蕭旭岑人卻在中國 美智庫訪賓傻眼",
+      "category": "政黨動態",
+      "shortLabel": "赴國民黨部約",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-28",
+      "title": "輝達用電爆論戰 北市府秀時序表：從未要求撤回臨時變電所",
+      "category": "網路論戰",
+      "shortLabel": "輝達用電爆論",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-28",
+      "title": "黃光芹爆黃國昌想到國民黨發揮「鯰魚效應」 林俊憲酸：比較像鮣魚......",
+      "category": "政黨動態",
+      "shortLabel": "黃光芹爆黃國",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-29",
+      "title": "1.5萬份連署爭大巨蛋來樹林 侯友宜：新北快速建設絕不會到2050",
+      "category": "罷免案",
+      "shortLabel": "1.5萬份連",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-29",
+      "title": "凌濤推薦詹江村接文傳會主委 綠營：國民黨荒謬只能由國民黨超越",
+      "category": "政黨動態",
+      "shortLabel": "凌濤推薦詹江",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-29",
+      "title": "又捲財務糾紛 民眾黨前高市黨部主委莊貽量：已進入司法偵查",
+      "category": "政黨動態",
+      "shortLabel": "又捲財務糾紛",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-29",
+      "title": "外送員「惡搞加料」只罰1.5萬？Gino怒轟平台消極處理：不會再叫外送",
+      "category": "社會事件",
+      "shortLabel": "外送員惡搞加",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-29",
+      "title": "批民進黨看不起台北市民 秦慧珠斷言沈伯洋選不上、喊賭100萬",
+      "category": "政黨動態",
+      "shortLabel": "批民進黨看不",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-29",
+      "title": "簡沛恩爆氣開撕性騷留言！怒嗆「幫妳通一通」網友　3小時不刪就提告",
+      "category": "性騷擾指控",
+      "shortLabel": "簡沛恩爆氣開",
+      "note": "三立新聞／外部公共事件節點，僅作時序參考。",
+      "sourceName": "三立新聞",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-30",
+      "title": "國民黨議員喊警消未婚要心理輔導 侯友宜尷尬微笑：二者有關係嗎？",
+      "category": "政黨動態",
+      "shortLabel": "國民黨議員喊",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
+    },
+    {
+      "date": "2026-05-30",
+      "title": "馬辦家變越演越烈 他揭關鍵原因：中共想要一批新的國民黨談判代表",
+      "category": "政黨動態",
+      "shortLabel": "馬辦家變越演",
+      "note": "自由時報／外部公共事件節點，僅作時序參考。",
+      "sourceName": "自由時報",
+      "sourceUrl": ""
     }
   ]
 }

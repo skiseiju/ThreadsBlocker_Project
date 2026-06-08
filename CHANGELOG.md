@@ -1,3 +1,18 @@
+## v2.6.6 — 平台操作跡象 schema 增量
+
+*   **TL;DR：平台上傳 payload 新增穩定文字指紋與時間桶，讓後端可分析短時間同步與話術相似度，不必依賴會裁切的 snippet 或原文 sample。**
+*   **文字指紋**：`events` 與 `sourceEvidence` 新增 `textFingerprint` / `textFingerprintVersion`，由本機正規化文字後產生不可逆 hash；`sources`、`campaignCandidates`、`narrativeSeeds` 同步提供 `textFingerprintCounts` / `topTextFingerprints` 聚合。
+*   **時間桶**：`events` 與 `sourceEvidence` 新增 `timeBucket10m` / `timeBucket1h`；`sources`、`analysisSeeds.temporalBuckets10m`、`analysisSeeds.temporalBuckets1h` 提供短時間同步判斷所需的聚合計數。
+*   **隱私邊界維持**：未新增公開可回推個人的原文或 URL 欄位；payload optimizer 在裁切 snippet/sourceText 後仍保留 derived hash 與時間桶。
+
+## v2.6.5 — 平台 D1 v2 / R2 raw 修復與新版 release guard
+
+*   **TL;DR：平台上傳後端切到新 D1 + R2 raw pointer 架構，完成 358 筆 unique raw backlog 回補，並修復新版不應重問每日上傳偏好的 release guard。**
+*   **平台後端容量修復**：`threadsblocker-bug-admin` Worker active D1 切到 `threadsblocker_bug_admin_v2`，完整 raw payload 改存 R2 bucket `threadsblocker-platform-raw-ingests`，D1 `platform_raw_ingests.raw_payload` 只保存 `r2://...` pointer，避免舊 D1 500MB 上限再次阻塞新上傳。
+*   **raw backfill 完成**：5/31-6/03 舊 D1 raw backlog 共 358 筆 unique payload 已全部進入 active D1 analytics；live 平台頁驗證為 419 批次、193 來源、65,004 件，可分析趨勢範圍 2026-04-19 至 2026-06-07。
+*   **SQL 寫入 guardrail**：新增 `cf_bug_admin/scripts/check-sql-placeholders.mjs`，部署前檢查 `platform_uploads` / `platform_raw_ingests` 的 `INSERT` columns、`VALUES` 與 bind 參數數量一致，避免 raw 已存但可分析表未入庫。
+*   **上傳同意不再跟 app 版號重置**：平台同步同意改用 `PLATFORM_SYNC_CONSENT_POLICY_VERSION`，既有同意會 migration 到政策版本，單純升版不再重新要求每日上傳選擇。
+
 ## v2.6.4 — 2.6.3 上傳修復合回與提醒視窗防卡死
 
 *   **TL;DR：合回 2.6.3 的平台上傳 raw 資料保全修正，duplicate 上傳仍會保存原始 payload，並修復大蟑螂回望提醒在長名單/小視窗下按不到確認或取消。**

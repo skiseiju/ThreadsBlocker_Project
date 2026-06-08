@@ -5,9 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="留友封觀測站以匿名聚合資料呈現事件量趨勢與重要事件時序對照。">
   <meta property="og:title" content="留友封觀測站">
-  <meta property="og:description" content="以匿名聚合資料觀察近 30 日的封鎖、檢舉與重要事件時序。">
+  <meta property="og:description" content="以匿名聚合資料觀察封鎖、檢舉與重要事件時序。">
   <meta property="og:type" content="website">
   <title>留友封觀測站</title>
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/platform/styles.css">
 </head>
 <body>
@@ -30,34 +31,34 @@
           <p id="heroSubtitle" class="hero__subtitle">留友封觀測站試著用匿名聚合資料來回答這個問題</p>
           <p class="legal-note">依《個人資料保護法》，本站僅呈現匿名聚合統計與現象觀察，不公開使用者帳號 ID 或個別貼文連結。</p>
           <p id="heroDateRange" class="hero__meta">--</p>
-          <p id="heroMethodologyMeta" class="hero__meta">--</p>
           <p id="heroStatusMessage" class="legal-note" hidden>--</p>
         </div>
       </section>
 
       <section class="key-numbers section-alt" aria-labelledby="numbersTitle">
         <div class="section-inner">
-          <h2 id="numbersTitle" class="section-title">三個關鍵數字</h2>
+          <h2 id="numbersTitle" class="section-title">四個關鍵數字</h2>
+          <p id="numbersScopeNote" class="scope-note">可分析趨勢與來源活躍狀態的時間範圍不同，兩者不可直接相加。</p>
           <div class="stats-row">
             <article class="stat-card">
               <p id="statEvents" class="stat-card__value">0</p>
-              <p class="stat-card__label">總事件樣本</p>
-              <p class="stat-card__sub">近30日封鎖＋檢舉</p>
+              <p class="stat-card__label">可分析事件</p>
+              <p class="stat-card__sub">納入趨勢計算的封鎖與檢舉事件</p>
             </article>
             <article class="stat-card">
               <p id="statCoordinated" class="stat-card__value">0</p>
               <p class="stat-card__label">疑似協調帳號</p>
-              <p class="stat-card__sub">高信號來源牽涉的帳號樣本數</p>
+              <p class="stat-card__sub">高信號樣本牽涉的帳號樣本數，非身分或違法認定</p>
             </article>
             <article class="stat-card">
               <p id="statContributors" class="stat-card__value">0</p>
-              <p class="stat-card__label">批 trusted 上傳</p>
-              <p class="stat-card__sub">納入公開圖表的匿名樣本</p>
+              <p class="stat-card__label">可分析來源</p>
+              <p class="stat-card__sub">已進入可分析批次的來源數</p>
             </article>
             <article class="stat-card">
-              <p id="statPendingUploads" class="stat-card__value">0</p>
-              <p class="stat-card__label">批待觀察上傳</p>
-              <p class="stat-card__sub">已收到，尚未混入公開統計</p>
+              <p id="statTrustedUploads" class="stat-card__value">0</p>
+              <p class="stat-card__label">可分析批次</p>
+              <p class="stat-card__sub">已通過整理，可用於趨勢與分類呈現</p>
             </article>
           </div>
         </div>
@@ -67,7 +68,7 @@
         <div class="section-inner">
           <div class="section-heading">
             <h2 id="categoriesTitle" class="section-title">檢舉分類分佈</h2>
-            <p class="section-copy">使用者檢舉事件依 Threads 原生分類統計，呈現近 30 日匿名聚合樣本中各類型的佔比。</p>
+            <p class="section-copy">使用者檢舉事件依 Threads 原生分類統計，同時標示占全部可分析事件與占檢舉事件的比例。</p>
           </div>
           <div id="categoriesList" class="categories-list">載入中。</div>
         </div>
@@ -77,9 +78,10 @@
         <div class="section-inner">
           <div class="section-heading">
             <h2 id="trendTitle" class="section-title">事件量趨勢 × 重要事件</h2>
-            <p class="section-copy">每次重大事件出現，封鎖/檢舉量就跟著爆增——這不是巧合。這些帳號不是隨機騷擾，而是在特定議題出現時被協調動員的。圖中標記為外部參考節點，不代表已證實因果關係。</p>
+            <p class="section-copy">匿名事件量與外部公共事件放在同一時間軸觀察。圖中標記只作時序參考，不代表已證實因果關係。</p>
           </div>
           <div class="chart-card">
+            <div id="trendReadout" class="chart-readout">載入中。</div>
             <div id="trendChart" class="chart-shell" aria-live="polite"></div>
             <div id="trendEventDetail" class="chart-detail">載入中。</div>
           </div>
@@ -90,7 +92,7 @@
         <div class="section-inner">
           <div class="section-heading">
             <h2 id="narrativesTitle" class="section-title">近期熱門協調敘事</h2>
-            <p class="section-copy">近六個月匿名聚合樣本中重複出現的敘事框架，按事件量排序。高信號代表樣本中出現明顯的協調特徵。</p>
+            <p class="section-copy">觀測窗內匿名聚合樣本中重複出現的敘事框架，按可分析事件量排序。高信號代表樣本中出現明顯的協調特徵。</p>
           </div>
           <div id="narrativesList" class="narratives-list">載入中。</div>
         </div>
@@ -100,24 +102,18 @@
         <div class="section-inner">
           <h2 id="entryTitle" class="section-title">延伸閱讀</h2>
           <div class="entry-grid">
-            <a class="entry-card" href="#narrativesTitle">
-              <span class="entry-card__eyebrow">資料入口</span>
-              <h3>完整資料分析</h3>
-              <p>四大指標、檢舉分類、熱門協調敘事框架</p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </a>
-            <a class="entry-card" href="/platform/methodology/">
+            <div class="entry-card">
               <span class="entry-card__eyebrow">方法公開</span>
               <h3>分析方法論</h3>
               <p>信號計算方式、門檻定義、資料限制</p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </a>
-            <a class="entry-card" href="/platform/reports/">
+              <p>內容整理中，等資料定義與呈現方式修正後再公開。</p>
+            </div>
+            <div class="entry-card">
               <span class="entry-card__eyebrow">每月整理</span>
               <h3>月報彙整</h3>
               <p>每月公開摘要，適合媒體與研究者引用</p>
-              <span class="entry-card__arrow" aria-hidden="true">→</span>
-            </a>
+              <p>內容整理中，等資料校正與月報格式穩定後再公開。</p>
+            </div>
           </div>
         </div>
       </section>
@@ -130,12 +126,13 @@
       const heroHeadline = document.getElementById('heroHeadline');
       const heroSubtitle = document.getElementById('heroSubtitle');
       const heroDateRange = document.getElementById('heroDateRange');
-      const heroMethodologyMeta = document.getElementById('heroMethodologyMeta');
       const heroStatusMessage = document.getElementById('heroStatusMessage');
       const statEvents = document.getElementById('statEvents');
       const statCoordinated = document.getElementById('statCoordinated');
       const statContributors = document.getElementById('statContributors');
-      const statPendingUploads = document.getElementById('statPendingUploads');
+      const statTrustedUploads = document.getElementById('statTrustedUploads');
+      const numbersScopeNote = document.getElementById('numbersScopeNote');
+      const trendReadout = document.getElementById('trendReadout');
       const trendChart = document.getElementById('trendChart');
       const trendEventDetail = document.getElementById('trendEventDetail');
       const rotatingHeadlines = [
@@ -176,10 +173,20 @@
         const politicalEvents = typeof eventsLoader === 'function' ? await eventsLoader() : [];
 
         heroSubtitle.textContent = resolveSubtitle(data);
-        heroDateRange.textContent = typeof window.PlatformPublic.buildObservationWindowLabel === 'function'
-          ? window.PlatformPublic.buildObservationWindowLabel(data)
+        const analysisRange = data && data.dateRange ? data.dateRange : null;
+        const uploadRange = data && data.contribution && data.contribution.dateRange ? data.contribution.dateRange : null;
+        const registry = data && data.sourceRegistry ? data.sourceRegistry : {};
+        const registryLatest = registry && registry.latestSeenAt ? String(registry.latestSeenAt).slice(0, 10) : '';
+        const startDate = safeValue(analysisRange && analysisRange.start, uploadRange && uploadRange.start ? uploadRange.start : '--');
+        const endDate = safeValue(analysisRange && analysisRange.end, uploadRange && uploadRange.end ? uploadRange.end : '--');
+        heroDateRange.textContent = startDate !== '--' && endDate !== '--'
+          ? `可分析趨勢 ${startDate} 至 ${endDate}${registryLatest ? `；最新來源回報 ${registryLatest}` : ''}`
           : '觀測區間尚在累積中';
-        heroMethodologyMeta.textContent = `taxonomy ${safeValue(data && data.taxonomyVersion, 'topic-taxonomy.v1')} · sample ${safeValue(data && data.sampleScope, 'trusted')} · policy ${safeValue(data && data.methodology && data.methodology.trustPolicy, 'public-trusted-only')}`;
+        if (numbersScopeNote) {
+          numbersScopeNote.textContent = startDate !== '--' && endDate !== '--'
+            ? `四個關鍵數字均屬可分析趨勢窗口：${startDate} 至 ${endDate}。${registryLatest ? `最新來源回報到 ${registryLatest}，但那只是資料管線活躍狀態，不列入這四個數字。` : ''}`
+            : '四個關鍵數字只呈現已形成可分析列的資料；來源活躍狀態另列，不可直接相加。';
+        }
         if (heroStatusMessage) {
           if (result && result.message) {
             heroStatusMessage.hidden = false;
@@ -196,10 +203,12 @@
         statCoordinated.textContent = window.PlatformPublic.formatNumber(
           data && data.signals ? data.signals.coordinatedAccountEstimate : 0
         );
-        statContributors.textContent = safeValue(data && data.overview && data.overview.uploadCount, 0);
-        if (statPendingUploads) {
-          statPendingUploads.textContent = safeValue(data && data.intake && data.intake.probationUploadCount, 0);
-        }
+        statContributors.textContent = window.PlatformPublic.formatNumber(
+          safeValue(data && data.overview && data.overview.contributorCount, 0)
+        );
+        statTrustedUploads.textContent = window.PlatformPublic.formatNumber(
+          safeValue(data && data.overview && data.overview.uploadCount, 0)
+        );
 
         window.PlatformPublic.renderTrendChart(
           trendChart,
@@ -208,6 +217,9 @@
           politicalEvents,
           Array.isArray(data.topicTimeSeries) ? data.topicTimeSeries : []
         );
+        if (typeof window.PlatformPublic.renderTrendReadout === 'function') {
+          window.PlatformPublic.renderTrendReadout(trendReadout, data, politicalEvents);
+        }
 
         window.PlatformPublic.renderNarratives(
           document.getElementById('narrativesList'),
@@ -216,7 +228,8 @@
 
         window.PlatformPublic.renderReportCategories(
           document.getElementById('categoriesList'),
-          Array.isArray(data.reportCategories) ? data.reportCategories : []
+          Array.isArray(data.reportCategories) ? data.reportCategories : [],
+          data.overview || {}
         );
 
         return data;

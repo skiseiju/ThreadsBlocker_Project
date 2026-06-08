@@ -499,7 +499,7 @@ async function handlePlatformIngest(request, env) {
           source_coverage_pct, report_source_coverage_pct, source_concentration_pct,
           repeated_narrative_pct, short_term_diffusion_pct, client_source_id, client_platform,
           taxonomy_version, trust_tier, risk_score_band, sync_enabled, upload_trigger
-        ) VALUES (?, ?, ?, ?, ?, 'extension', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, 'extension', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
         'threadsblocker.platform_upload.v2',
         sourceApp,
@@ -1664,13 +1664,6 @@ async function buildPlatformAnalysisPayloadHash(body, clientSourceId) {
 }
 
 async function recordPlatformRawIngest(env, fields) {
-  const rawPayload = String(fields.rawPayload || '');
-  const rawPayloadRef = await storePlatformRawPayload(env, {
-    rawPayload,
-    rawPayloadHash: fields.rawPayloadHash,
-    clientSourceId: fields.clientSourceId,
-    ingestStatus: fields.ingestStatus
-  });
   const insert = await env.DB.prepare(
     `INSERT INTO platform_raw_ingests (
       raw_payload_hash, analysis_payload_hash, payload_bytes, schema, client_source_id,
@@ -1687,38 +1680,9 @@ async function recordPlatformRawIngest(env, fields) {
     safeString(fields.uploadTrigger, 40) || null,
     safeString(fields.ingestStatus || 'received', 40),
     safeString(fields.errorMessage, 300) || null,
-    rawPayloadRef
+    String(fields.rawPayload || '')
   ).run();
   return Number(insert.meta?.last_row_id || 0);
-}
-
-async function storePlatformRawPayload(env, fields) {
-  const rawPayload = String(fields.rawPayload || '');
-  if (!rawPayload) return '';
-
-  if (!env.RAW_INGEST_BUCKET || typeof env.RAW_INGEST_BUCKET.put !== 'function') {
-    return rawPayload;
-  }
-
-  const day = new Date().toISOString().slice(0, 10);
-  const sourceId = safeString(fields.clientSourceId || 'anonymous', 120)
-    .replace(/[^a-zA-Z0-9._-]+/g, '_')
-    .slice(0, 80) || 'anonymous';
-  const hash = safeString(fields.rawPayloadHash, 128) || await sha256Hex(rawPayload);
-  const status = safeString(fields.ingestStatus || 'received', 40)
-    .replace(/[^a-zA-Z0-9._-]+/g, '_') || 'received';
-  const key = `platform-raw-ingests/${day}/${status}/${sourceId}/${hash}.json`;
-
-  await env.RAW_INGEST_BUCKET.put(key, rawPayload, {
-    httpMetadata: { contentType: 'application/json; charset=utf-8' },
-    customMetadata: {
-      rawPayloadHash: hash,
-      clientSourceId: sourceId,
-      ingestStatus: status
-    }
-  });
-
-  return `r2://${key}`;
 }
 
 async function updatePlatformRawIngest(env, rawIngestId, fields = {}) {

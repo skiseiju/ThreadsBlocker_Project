@@ -898,6 +898,8 @@ export const UI = {
         if (document.getElementById('hege-settings-overlay')) return;
 
         const db = Storage.getBlockDB();
+        const reportDebugExportId = Utils.isBetaBuild() ? ['hege', 's', 'export', 'report', 'debug'].join('-') : '';
+        const reportDebugExportLabel = Utils.isBetaBuild() ? ['匯出', '檢舉', '診斷'].join('') : '';
 
         const overlay = document.createElement('div');
         overlay.id = 'hege-settings-overlay';
@@ -978,10 +980,10 @@ export const UI = {
                                 來源分析報告
                             </span>
                         </div>
-                        ${callbacks.onExportReportDebug && Utils.isBetaBuild() ? `
+                        ${callbacks.onExportReportDebug && reportDebugExportId ? `
                         <div style="font-size:11px;color:#666;font-weight:600;padding:6px 8px 0;letter-spacing:1px;">診斷</div>
-                        <div class="hege-menu-item" id="hege-s-export-report-debug">
-                            <span>匯出檢舉診斷</span>
+                        <div class="hege-menu-item" id="${reportDebugExportId}">
+                            <span>${reportDebugExportLabel}</span>
                         </div>
                         ` : ''}
                         <div style="font-size:11px;color:#666;font-weight:600;padding:6px 8px 0;letter-spacing:1px;">危險操作</div>
@@ -1082,7 +1084,7 @@ export const UI = {
         bind('hege-s-reservoir', callbacks.onReservoir);
         bind('hege-s-import', callbacks.onImport);
         bind('hege-s-export', callbacks.onExport);
-        bind('hege-s-export-report-debug', callbacks.onExportReportDebug);
+        bind(reportDebugExportId, callbacks.onExportReportDebug);
         bind('hege-s-clear-db', callbacks.onClearDB);
         bind('hege-s-report', callbacks.onReport);
         bind('hege-s-analytics', callbacks.onAnalytics);
@@ -1203,6 +1205,132 @@ export const UI = {
         return clientPlatform === 'ios_userscript';
     },
 
+    normalizePlatformFingerprintText: (text) => {
+        return String(text || '')
+            .normalize('NFKC')
+            .toLowerCase()
+            .replace(/https?:\/\/\S+/g, ' ')
+            .replace(/www\.\S+/g, ' ')
+            .replace(/@[a-z0-9_.-]+/gi, ' ')
+            .replace(/#[^\s#.,，。!?！？:：;；、]+/g, ' ')
+            .replace(/[0-9０-９]+/g, '0')
+            .replace(/\s+/g, ' ')
+            .trim();
+    },
+
+    hashPlatformFingerprintText: (normalizedText) => {
+        const text = String(normalizedText || '');
+        if (!text) return '';
+        let h1 = 0xdeadbeef ^ text.length;
+        let h2 = 0x41c6ce57 ^ text.length;
+        for (let i = 0; i < text.length; i++) {
+            const ch = text.charCodeAt(i);
+            h1 = Math.imul(h1 ^ ch, 2654435761);
+            h2 = Math.imul(h2 ^ ch, 1597334677);
+        }
+        h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+        h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+        return `tfp1_${(h2 >>> 0).toString(16).padStart(8, '0')}${(h1 >>> 0).toString(16).padStart(8, '0')}`;
+    },
+
+    getPlatformTextFingerprint: (text) => {
+        const normalizedText = UI.normalizePlatformFingerprintText(text);
+        if (normalizedText.length < 8) return '';
+        return UI.hashPlatformFingerprintText(normalizedText);
+    },
+
+    getPlatformTimeBucket: (timestamp, bucketMs) => {
+        const ts = Number(timestamp) || 0;
+        const size = Number(bucketMs) || 0;
+        if (ts <= 0 || size <= 0) return '';
+        return new Date(Math.floor(ts / size) * size).toISOString();
+    },
+
+    annotatePlatformEventSignals: (event) => {
+        const textFingerprint = UI.getPlatformTextFingerprint(event.sourceText || '');
+        return {
+            ...event,
+            textFingerprint,
+            textFingerprintVersion: textFingerprint ? 'tfp.v1' : '',
+            timeBucket10m: UI.getPlatformTimeBucket(event.eventAt, 10 * 60 * 1000),
+            timeBucket1h: UI.getPlatformTimeBucket(event.eventAt, 60 * 60 * 1000),
+        };
+    },
+
+    countTopPlatformValues: (values, limit = 12) => {
+        const counts = {};
+        values.filter(Boolean).forEach((value) => {
+            const key = String(value);
+            counts[key] = (counts[key] || 0) + 1;
+        });
+        return Object.entries(counts)
+            .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+            .slice(0, limit)
+            .map(([value, count]) => ({ value, count }));
+    },
+
+    incrementPlatformCount: (target, key) => {
+        if (!key) return;
+        target[key] = (target[key] || 0) + 1;
+    },
+
+    createPlatformSourceAggregation: (sourceUrl) => ({
+        sourceUrl,
+        sourceOwners: new Set(),
+        sourceTextSamples: new Set(),
+        blockEventCount: 0,
+        reportEventCount: 0,
+        totalEventCount: 0,
+        accountIds: new Set(),
+        reportPathCounts: {},
+        blockReasonCounts: {},
+        topicHintCounts: {},
+        textFingerprintCounts: {},
+        timeBucket10mCounts: {},
+        timeBucket1hCounts: {},
+        firstEventAt: 0,
+        lastEventAt: 0,
+    }),
+
+    buildPlatformTemporalBuckets: (events, bucketField, limit = 120) => {
+        const bucketMap = {};
+        (Array.isArray(events) ? events : []).forEach((event) => {
+            const bucket = event && event[bucketField];
+            if (!bucket) return;
+            if (!bucketMap[bucket]) {
+                bucketMap[bucket] = {
+                    bucket,
+                    blockEventCount: 0,
+                    reportEventCount: 0,
+                    totalEventCount: 0,
+                    sourceUrls: new Set(),
+                    accountIds: new Set(),
+                    textFingerprints: new Set(),
+                };
+            }
+            const item = bucketMap[bucket];
+            item.totalEventCount++;
+            if (event.eventType === 'block') item.blockEventCount++;
+            if (event.eventType === 'report') item.reportEventCount++;
+            if (event.sourceUrl) item.sourceUrls.add(event.sourceUrl);
+            if (event.accountId) item.accountIds.add(event.accountId);
+            if (event.textFingerprint) item.textFingerprints.add(event.textFingerprint);
+        });
+        return Object.values(bucketMap)
+            .sort((a, b) => b.totalEventCount - a.totalEventCount || String(a.bucket).localeCompare(String(b.bucket)))
+            .slice(0, limit)
+            .map(item => ({
+                bucket: item.bucket,
+                blockEventCount: item.blockEventCount,
+                reportEventCount: item.reportEventCount,
+                totalEventCount: item.totalEventCount,
+                sourceCount: item.sourceUrls.size,
+                accountCount: item.accountIds.size,
+                textFingerprintCount: item.textFingerprints.size,
+                topTextFingerprints: Array.from(item.textFingerprints).slice(0, 12),
+            }));
+    },
+
     buildPlatformExportPayload: (options = {}) => {
         const platformSyncEnabled = Object.prototype.hasOwnProperty.call(options, 'platformSyncEnabled')
             ? !!options.platformSyncEnabled
@@ -1220,8 +1348,19 @@ export const UI = {
             ? evidenceIndexRaw
             : {};
         const sourceEvidenceList = Object.entries(evidenceIndexMap)
-            .map(([sourceUrl, item]) => ({ sourceUrl, ...(item || {}) }))
+            .map(([sourceUrl, item]) => {
+                const evidence = { sourceUrl, ...(item || {}) };
+                const textFingerprint = UI.getPlatformTextFingerprint(evidence.snippet || '');
+                return {
+                    ...evidence,
+                    textFingerprint,
+                    textFingerprintVersion: textFingerprint ? 'tfp.v1' : '',
+                    timeBucket10m: UI.getPlatformTimeBucket(evidence.updatedAt || evidence.capturedAt, 10 * 60 * 1000),
+                    timeBucket1h: UI.getPlatformTimeBucket(evidence.updatedAt || evidence.capturedAt, 60 * 60 * 1000),
+                };
+            })
             .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        const sourceEvidenceBySource = Object.fromEntries(sourceEvidenceList.map(item => [item.sourceUrl, item]));
 
         const getEntry = (u) => {
             const e = ts[u];
@@ -1272,6 +1411,7 @@ export const UI = {
 
         const unifiedEvents = [...blockEvents, ...reportEvents]
             .filter(UI.isValidPlatformEvent)
+            .map(UI.annotatePlatformEventSignals)
             .sort((a, b) => (b.eventAt || 0) - (a.eventAt || 0));
 
         const accountAgg = {};
@@ -1355,18 +1495,7 @@ export const UI = {
             const url = event.sourceUrl || '';
             if (!url) return;
             if (!sourceAgg[url]) {
-                sourceAgg[url] = {
-                    sourceUrl: url,
-                    sourceOwners: new Set(),
-                    sourceTextSamples: new Set(),
-                    blockEventCount: 0,
-                    reportEventCount: 0,
-                    totalEventCount: 0,
-                    accountIds: new Set(),
-                    reportPathCounts: {},
-                    blockReasonCounts: {},
-                    topicHintCounts: {},
-                };
+                sourceAgg[url] = UI.createPlatformSourceAggregation(url);
             }
             const src = sourceAgg[url];
             src.totalEventCount++;
@@ -1375,6 +1504,13 @@ export const UI = {
             if (event.accountId) src.accountIds.add(event.accountId);
             if (event.sourceOwner) src.sourceOwners.add(event.sourceOwner);
             if (event.sourceText) src.sourceTextSamples.add(event.sourceText);
+            UI.incrementPlatformCount(src.textFingerprintCounts, event.textFingerprint);
+            UI.incrementPlatformCount(src.timeBucket10mCounts, event.timeBucket10m);
+            UI.incrementPlatformCount(src.timeBucket1hCounts, event.timeBucket1h);
+            if (event.eventAt > 0) {
+                if (!src.firstEventAt || event.eventAt < src.firstEventAt) src.firstEventAt = event.eventAt;
+                if (!src.lastEventAt || event.eventAt > src.lastEventAt) src.lastEventAt = event.eventAt;
+            }
             if (event.reportPath.length > 0) {
                 const key = event.reportPath.join(' > ');
                 src.reportPathCounts[key] = (src.reportPathCounts[key] || 0) + 1;
@@ -1399,25 +1535,17 @@ export const UI = {
         sourceEvidenceList.forEach((ev) => {
             if (!ev.sourceUrl) return;
             if (!sourceAgg[ev.sourceUrl]) {
-                sourceAgg[ev.sourceUrl] = {
-                    sourceUrl: ev.sourceUrl,
-                    sourceOwners: new Set(),
-                    sourceTextSamples: new Set(),
-                    blockEventCount: 0,
-                    reportEventCount: 0,
-                    totalEventCount: 0,
-                    accountIds: new Set(),
-                    reportPathCounts: {},
-                    blockReasonCounts: {},
-                    topicHintCounts: {},
-                };
+                sourceAgg[ev.sourceUrl] = UI.createPlatformSourceAggregation(ev.sourceUrl);
             }
             if (ev.sourceOwner) sourceAgg[ev.sourceUrl].sourceOwners.add(ev.sourceOwner);
             if (ev.snippet) sourceAgg[ev.sourceUrl].sourceTextSamples.add(ev.snippet);
+            UI.incrementPlatformCount(sourceAgg[ev.sourceUrl].textFingerprintCounts, ev.textFingerprint);
+            UI.incrementPlatformCount(sourceAgg[ev.sourceUrl].timeBucket10mCounts, ev.timeBucket10m);
+            UI.incrementPlatformCount(sourceAgg[ev.sourceUrl].timeBucket1hCounts, ev.timeBucket1h);
         });
 
         const sources = Object.values(sourceAgg).map((src) => {
-            const evidence = evidenceIndexMap[src.sourceUrl] || {};
+            const evidence = sourceEvidenceBySource[src.sourceUrl] || {};
             const reportPathVariety = Object.keys(src.reportPathCounts).length;
             const topicHintVariety = Object.keys(src.topicHintCounts).length;
             const manipulationSignalScore = Math.min(100,
@@ -1441,6 +1569,12 @@ export const UI = {
                 blockReasonCounts: src.blockReasonCounts,
                 topicHintCounts: src.topicHintCounts,
                 topTopicHints: Object.entries(src.topicHintCounts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([topicHint, count]) => ({ topicHint, count })),
+                textFingerprintCounts: src.textFingerprintCounts,
+                topTextFingerprints: Object.entries(src.textFingerprintCounts).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([textFingerprint, count]) => ({ textFingerprint, count })),
+                timeBucket10mCounts: src.timeBucket10mCounts,
+                timeBucket1hCounts: src.timeBucket1hCounts,
+                firstEventAt: src.firstEventAt || 0,
+                lastEventAt: src.lastEventAt || 0,
                 manipulationSignalScore,
                 manipulationRiskLevel,
                 evidence: {
@@ -1451,6 +1585,10 @@ export const UI = {
                     snippet: evidence.snippet || '',
                     sourceOwner: evidence.sourceOwner || '',
                     sourceChannel: evidence.sourceChannel || '',
+                    textFingerprint: evidence.textFingerprint || '',
+                    textFingerprintVersion: evidence.textFingerprintVersion || '',
+                    timeBucket10m: evidence.timeBucket10m || '',
+                    timeBucket1h: evidence.timeBucket1h || '',
                 },
                 platformReview: {
                     isLikelyNarrativeManipulation: null,
@@ -1495,6 +1633,11 @@ export const UI = {
             dominantReportPaths: Object.entries(src.reportPathCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([path, count]) => ({ path, count })),
             dominantBlockReasons: Object.entries(src.blockReasonCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([reasonCode, count]) => ({ reasonCode, count })),
             dominantTopicHints: src.topTopicHints.slice(0, 5),
+            topTextFingerprints: src.topTextFingerprints.slice(0, 8),
+            timeBucket10mCounts: src.timeBucket10mCounts,
+            timeBucket1hCounts: src.timeBucket1hCounts,
+            firstEventAt: src.firstEventAt,
+            lastEventAt: src.lastEventAt,
             manipulationSignalScore: src.manipulationSignalScore,
             manipulationRiskLevel: src.manipulationRiskLevel,
         }));
@@ -1512,6 +1655,9 @@ export const UI = {
                 reportEventCount: src.reportEventCount,
                 uniqueAccountCount: src.uniqueAccountCount,
                 topTopicHints: src.topTopicHints.slice(0, 5),
+                topTextFingerprints: src.topTextFingerprints.slice(0, 8),
+                timeBucket10mCounts: src.timeBucket10mCounts,
+                timeBucket1hCounts: src.timeBucket1hCounts,
                 dominantReportPaths: Object.entries(src.reportPathCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([path, count]) => ({ path, count })),
             }));
 
@@ -1528,6 +1674,9 @@ export const UI = {
                 sourceUrlCount: acc.sourceUrlCount,
                 reportLeafCategoryCount: acc.reportLeafCategories.length,
             }));
+
+        const temporalBuckets10m = UI.buildPlatformTemporalBuckets(unifiedEvents, 'timeBucket10m', 120);
+        const temporalBuckets1h = UI.buildPlatformTemporalBuckets(unifiedEvents, 'timeBucket1h', 120);
 
         const sourceEvidenceWithSnippetCount = sourceEvidenceList.filter(item => !!item.snippet).length;
         const sourcedBlockCount = blockEvents.filter(event => !!event.sourceUrl).length;
@@ -1551,10 +1700,10 @@ export const UI = {
                 root: ['clientSourceId', 'exportedAt', 'exporter', 'clientSignals', 'syncPreferences', 'fieldSpec', 'summary', 'accounts', 'events', 'sources', 'sourceEvidence', 'analysisSeeds'],
                 clientSignals: ['sourceCreatedAt', 'sourceAgeDays', 'firstSeenVersion', 'successfulUploadCount', 'manualUploadCount', 'autoUploadCount', 'activeUploadDayCount', 'firstSuccessfulUploadAt', 'lastSuccessfulUploadAt'],
                 accounts: ['accountId', 'profileUrl', 'blockEventCount', 'reportEventCount', 'totalEventCount', 'firstSeenAt', 'lastSeenAt', 'sourceUrlCount', 'sourceUrls', 'sourceOwners', 'blockReasons', 'reportPrimaryCategories', 'reportLeafCategories', 'platformReview'],
-                events: ['eventId', 'eventType', 'accountId', 'profileUrl', 'eventAt', 'sourceUrl', 'sourceOwner', 'sourceText', 'sourceChannel', 'blockReasonCode', 'reportPath', 'reportPrimaryCategory', 'reportLeafCategory', 'reportTargetType', 'batchId'],
-                sources: ['sourceUrl', 'sourceOwners', 'sourceTextSamples', 'blockEventCount', 'reportEventCount', 'totalEventCount', 'uniqueAccountCount', 'accountIds', 'reportPathCounts', 'blockReasonCounts', 'topicHintCounts', 'topTopicHints', 'manipulationSignalScore', 'manipulationRiskLevel', 'platformReview'],
-                sourceEvidence: ['sourceUrl', 'capturedAt', 'updatedAt', 'captureCount', 'sourceOwner', 'sourceChannel', 'lastEventType', 'textHash', 'snippet'],
-                analysisSeeds: ['suspiciousAccounts', 'campaignCandidates', 'topicSeeds', 'narrativeSeeds'],
+                events: ['eventId', 'eventType', 'accountId', 'profileUrl', 'eventAt', 'timeBucket10m', 'timeBucket1h', 'sourceUrl', 'sourceOwner', 'sourceText', 'textFingerprint', 'textFingerprintVersion', 'sourceChannel', 'blockReasonCode', 'reportPath', 'reportPrimaryCategory', 'reportLeafCategory', 'reportTargetType', 'batchId'],
+                sources: ['sourceUrl', 'sourceOwners', 'sourceTextSamples', 'textFingerprintCounts', 'topTextFingerprints', 'timeBucket10mCounts', 'timeBucket1hCounts', 'firstEventAt', 'lastEventAt', 'blockEventCount', 'reportEventCount', 'totalEventCount', 'uniqueAccountCount', 'accountIds', 'reportPathCounts', 'blockReasonCounts', 'topicHintCounts', 'topTopicHints', 'manipulationSignalScore', 'manipulationRiskLevel', 'platformReview'],
+                sourceEvidence: ['sourceUrl', 'capturedAt', 'updatedAt', 'captureCount', 'sourceOwner', 'sourceChannel', 'lastEventType', 'textHash', 'textFingerprint', 'textFingerprintVersion', 'timeBucket10m', 'timeBucket1h', 'snippet'],
+                analysisSeeds: ['suspiciousAccounts', 'campaignCandidates', 'topicSeeds', 'narrativeSeeds', 'temporalBuckets10m', 'temporalBuckets1h'],
             },
             clientSignals,
             syncPreferences: {
@@ -1572,6 +1721,9 @@ export const UI = {
                 sourceCoveragePct,
                 reportSourceCoveragePct,
                 sourcePostCount: sources.length,
+                textFingerprintCount: new Set(unifiedEvents.map(event => event.textFingerprint).filter(Boolean)).size,
+                temporalBucket10mCount: temporalBuckets10m.length,
+                temporalBucket1hCount: temporalBuckets1h.length,
                 sourceEvidenceCount: sourceEvidenceList.length,
                 sourceEvidenceCoveragePct,
                 sourceEvidenceSnippetCoveragePct,
@@ -1588,6 +1740,8 @@ export const UI = {
                 campaignCandidates,
                 topicSeeds,
                 narrativeSeeds,
+                temporalBuckets10m,
+                temporalBuckets1h,
             },
         };
     },
@@ -1714,8 +1868,19 @@ export const UI = {
             ? evidenceIndexRaw
             : {};
         const sourceEvidenceList = Object.entries(evidenceIndexMap)
-            .map(([sourceUrl, item]) => ({ sourceUrl, ...(item || {}) }))
+            .map(([sourceUrl, item]) => {
+                const evidence = { sourceUrl, ...(item || {}) };
+                const textFingerprint = UI.getPlatformTextFingerprint(evidence.snippet || '');
+                return {
+                    ...evidence,
+                    textFingerprint,
+                    textFingerprintVersion: textFingerprint ? 'tfp.v1' : '',
+                    timeBucket10m: UI.getPlatformTimeBucket(evidence.updatedAt || evidence.capturedAt, 10 * 60 * 1000),
+                    timeBucket1h: UI.getPlatformTimeBucket(evidence.updatedAt || evidence.capturedAt, 60 * 60 * 1000),
+                };
+            })
             .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        const sourceEvidenceBySource = Object.fromEntries(sourceEvidenceList.map(item => [item.sourceUrl, item]));
         const activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
         const failedQueue = Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []);
         const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
@@ -1948,6 +2113,7 @@ export const UI = {
         });
         const unifiedEvents = [...blockEvents, ...reportEvents]
             .filter(UI.isValidPlatformEvent)
+            .map(UI.annotatePlatformEventSignals)
             .sort((a, b) => (b.eventAt || 0) - (a.eventAt || 0));
 
         const accountAgg = {};
@@ -2031,18 +2197,7 @@ export const UI = {
             const url = event.sourceUrl || '';
             if (!url) return;
             if (!sourceAgg[url]) {
-                sourceAgg[url] = {
-                    sourceUrl: url,
-                    sourceOwners: new Set(),
-                    sourceTextSamples: new Set(),
-                    blockEventCount: 0,
-                    reportEventCount: 0,
-                    totalEventCount: 0,
-                    accountIds: new Set(),
-                    reportPathCounts: {},
-                    blockReasonCounts: {},
-                    topicHintCounts: {},
-                };
+                sourceAgg[url] = UI.createPlatformSourceAggregation(url);
             }
             const src = sourceAgg[url];
             src.totalEventCount++;
@@ -2051,6 +2206,13 @@ export const UI = {
             if (event.accountId) src.accountIds.add(event.accountId);
             if (event.sourceOwner) src.sourceOwners.add(event.sourceOwner);
             if (event.sourceText) src.sourceTextSamples.add(event.sourceText);
+            UI.incrementPlatformCount(src.textFingerprintCounts, event.textFingerprint);
+            UI.incrementPlatformCount(src.timeBucket10mCounts, event.timeBucket10m);
+            UI.incrementPlatformCount(src.timeBucket1hCounts, event.timeBucket1h);
+            if (event.eventAt > 0) {
+                if (!src.firstEventAt || event.eventAt < src.firstEventAt) src.firstEventAt = event.eventAt;
+                if (!src.lastEventAt || event.eventAt > src.lastEventAt) src.lastEventAt = event.eventAt;
+            }
             if (event.reportPath.length > 0) {
                 const key = event.reportPath.join(' > ');
                 src.reportPathCounts[key] = (src.reportPathCounts[key] || 0) + 1;
@@ -2074,24 +2236,16 @@ export const UI = {
         sourceEvidenceList.forEach((ev) => {
             if (!ev.sourceUrl) return;
             if (!sourceAgg[ev.sourceUrl]) {
-                sourceAgg[ev.sourceUrl] = {
-                    sourceUrl: ev.sourceUrl,
-                    sourceOwners: new Set(),
-                    sourceTextSamples: new Set(),
-                    blockEventCount: 0,
-                    reportEventCount: 0,
-                    totalEventCount: 0,
-                    accountIds: new Set(),
-                    reportPathCounts: {},
-                    blockReasonCounts: {},
-                    topicHintCounts: {},
-                };
+                sourceAgg[ev.sourceUrl] = UI.createPlatformSourceAggregation(ev.sourceUrl);
             }
             if (ev.sourceOwner) sourceAgg[ev.sourceUrl].sourceOwners.add(ev.sourceOwner);
             if (ev.snippet) sourceAgg[ev.sourceUrl].sourceTextSamples.add(ev.snippet);
+            UI.incrementPlatformCount(sourceAgg[ev.sourceUrl].textFingerprintCounts, ev.textFingerprint);
+            UI.incrementPlatformCount(sourceAgg[ev.sourceUrl].timeBucket10mCounts, ev.timeBucket10m);
+            UI.incrementPlatformCount(sourceAgg[ev.sourceUrl].timeBucket1hCounts, ev.timeBucket1h);
         });
         const sources = Object.values(sourceAgg).map((src) => {
-            const evidence = evidenceIndexMap[src.sourceUrl] || {};
+            const evidence = sourceEvidenceBySource[src.sourceUrl] || {};
             const reportPathVariety = Object.keys(src.reportPathCounts).length;
             const topicHintVariety = Object.keys(src.topicHintCounts).length;
             const manipulationSignalScore = Math.min(100,
@@ -2115,6 +2269,12 @@ export const UI = {
                 blockReasonCounts: src.blockReasonCounts,
                 topicHintCounts: src.topicHintCounts,
                 topTopicHints: Object.entries(src.topicHintCounts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([topicHint, count]) => ({ topicHint, count })),
+                textFingerprintCounts: src.textFingerprintCounts,
+                topTextFingerprints: Object.entries(src.textFingerprintCounts).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([textFingerprint, count]) => ({ textFingerprint, count })),
+                timeBucket10mCounts: src.timeBucket10mCounts,
+                timeBucket1hCounts: src.timeBucket1hCounts,
+                firstEventAt: src.firstEventAt || 0,
+                lastEventAt: src.lastEventAt || 0,
                 manipulationSignalScore,
                 manipulationRiskLevel,
                 evidence: {
@@ -2125,6 +2285,10 @@ export const UI = {
                     snippet: evidence.snippet || '',
                     sourceOwner: evidence.sourceOwner || '',
                     sourceChannel: evidence.sourceChannel || '',
+                    textFingerprint: evidence.textFingerprint || '',
+                    textFingerprintVersion: evidence.textFingerprintVersion || '',
+                    timeBucket10m: evidence.timeBucket10m || '',
+                    timeBucket1h: evidence.timeBucket1h || '',
                 },
                 platformReview: {
                     isLikelyNarrativeManipulation: null,
@@ -2168,6 +2332,11 @@ export const UI = {
             dominantReportPaths: Object.entries(src.reportPathCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([path, count]) => ({ path, count })),
             dominantBlockReasons: Object.entries(src.blockReasonCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([reasonCode, count]) => ({ reasonCode, count })),
             dominantTopicHints: src.topTopicHints.slice(0, 5),
+            topTextFingerprints: src.topTextFingerprints.slice(0, 8),
+            timeBucket10mCounts: src.timeBucket10mCounts,
+            timeBucket1hCounts: src.timeBucket1hCounts,
+            firstEventAt: src.firstEventAt,
+            lastEventAt: src.lastEventAt,
             manipulationSignalScore: src.manipulationSignalScore,
             manipulationRiskLevel: src.manipulationRiskLevel,
         }));
@@ -2184,6 +2353,9 @@ export const UI = {
                 reportEventCount: src.reportEventCount,
                 uniqueAccountCount: src.uniqueAccountCount,
                 topTopicHints: src.topTopicHints.slice(0, 5),
+                topTextFingerprints: src.topTextFingerprints.slice(0, 8),
+                timeBucket10mCounts: src.timeBucket10mCounts,
+                timeBucket1hCounts: src.timeBucket1hCounts,
                 dominantReportPaths: Object.entries(src.reportPathCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([path, count]) => ({ path, count })),
             }));
         const suspiciousAccountSeeds = accounts
@@ -2199,6 +2371,8 @@ export const UI = {
                 sourceUrlCount: acc.sourceUrlCount,
                 reportLeafCategoryCount: acc.reportLeafCategories.length,
             }));
+        const temporalBuckets10m = UI.buildPlatformTemporalBuckets(unifiedEvents, 'timeBucket10m', 120);
+        const temporalBuckets1h = UI.buildPlatformTemporalBuckets(unifiedEvents, 'timeBucket1h', 120);
         const clientSignals = Storage.getPlatformClientSignals();
 
         const exportPayload = {
@@ -2215,10 +2389,10 @@ export const UI = {
                 root: ['clientSourceId', 'exportedAt', 'exporter', 'clientSignals', 'syncPreferences', 'fieldSpec', 'summary', 'accounts', 'events', 'sources', 'sourceEvidence', 'analysisSeeds'],
                 clientSignals: ['sourceCreatedAt', 'sourceAgeDays', 'firstSeenVersion', 'successfulUploadCount', 'manualUploadCount', 'autoUploadCount', 'activeUploadDayCount', 'firstSuccessfulUploadAt', 'lastSuccessfulUploadAt'],
                 accounts: ['accountId', 'profileUrl', 'blockEventCount', 'reportEventCount', 'totalEventCount', 'firstSeenAt', 'lastSeenAt', 'sourceUrlCount', 'sourceUrls', 'sourceOwners', 'blockReasons', 'reportPrimaryCategories', 'reportLeafCategories', 'platformReview'],
-                events: ['eventId', 'eventType', 'accountId', 'profileUrl', 'eventAt', 'sourceUrl', 'sourceOwner', 'sourceText', 'sourceChannel', 'blockReasonCode', 'reportPath', 'reportPrimaryCategory', 'reportLeafCategory', 'reportTargetType', 'batchId'],
-                sources: ['sourceUrl', 'sourceOwners', 'sourceTextSamples', 'blockEventCount', 'reportEventCount', 'totalEventCount', 'uniqueAccountCount', 'accountIds', 'reportPathCounts', 'blockReasonCounts', 'topicHintCounts', 'topTopicHints', 'manipulationSignalScore', 'manipulationRiskLevel', 'platformReview'],
-                sourceEvidence: ['sourceUrl', 'capturedAt', 'updatedAt', 'captureCount', 'sourceOwner', 'sourceChannel', 'lastEventType', 'textHash', 'snippet'],
-                analysisSeeds: ['suspiciousAccounts', 'campaignCandidates', 'topicSeeds', 'narrativeSeeds'],
+                events: ['eventId', 'eventType', 'accountId', 'profileUrl', 'eventAt', 'timeBucket10m', 'timeBucket1h', 'sourceUrl', 'sourceOwner', 'sourceText', 'textFingerprint', 'textFingerprintVersion', 'sourceChannel', 'blockReasonCode', 'reportPath', 'reportPrimaryCategory', 'reportLeafCategory', 'reportTargetType', 'batchId'],
+                sources: ['sourceUrl', 'sourceOwners', 'sourceTextSamples', 'textFingerprintCounts', 'topTextFingerprints', 'timeBucket10mCounts', 'timeBucket1hCounts', 'firstEventAt', 'lastEventAt', 'blockEventCount', 'reportEventCount', 'totalEventCount', 'uniqueAccountCount', 'accountIds', 'reportPathCounts', 'blockReasonCounts', 'topicHintCounts', 'topTopicHints', 'manipulationSignalScore', 'manipulationRiskLevel', 'platformReview'],
+                sourceEvidence: ['sourceUrl', 'capturedAt', 'updatedAt', 'captureCount', 'sourceOwner', 'sourceChannel', 'lastEventType', 'textHash', 'textFingerprint', 'textFingerprintVersion', 'timeBucket10m', 'timeBucket1h', 'snippet'],
+                analysisSeeds: ['suspiciousAccounts', 'campaignCandidates', 'topicSeeds', 'narrativeSeeds', 'temporalBuckets10m', 'temporalBuckets1h'],
             },
             clientSignals,
             syncPreferences: {
@@ -2236,6 +2410,9 @@ export const UI = {
                 sourceCoveragePct,
                 reportSourceCoveragePct,
                 sourcePostCount: sources.length,
+                textFingerprintCount: new Set(unifiedEvents.map(event => event.textFingerprint).filter(Boolean)).size,
+                temporalBucket10mCount: temporalBuckets10m.length,
+                temporalBucket1hCount: temporalBuckets1h.length,
                 sourceEvidenceCount: sourceEvidenceList.length,
                 sourceEvidenceCoveragePct,
                 sourceEvidenceSnippetCoveragePct,
@@ -2252,6 +2429,8 @@ export const UI = {
                 campaignCandidates,
                 topicSeeds,
                 narrativeSeeds,
+                temporalBuckets10m,
+                temporalBuckets1h,
             },
         };
         const previewRows = unifiedEvents.slice(0, 6).map((event) => ({

@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.6.4',
+    VERSION: '2.6.6',
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     BUG_REPORT_URL: 'https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/reports/bug',
@@ -9,6 +9,7 @@ export const CONFIG = {
     BUG_REPORT_SALT: 'PGO_BETA_2026_SALT',
     PLATFORM_UPLOAD_URL: 'https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/platform/ingest',
     PLATFORM_UPLOAD_FALLBACK_URLS: [],
+    PLATFORM_SYNC_CONSENT_POLICY_VERSION: 'platform-sync-v1',
 
     DEBUG_MODE: false,
 

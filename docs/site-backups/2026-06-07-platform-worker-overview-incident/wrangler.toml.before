@@ -5,12 +5,8 @@ workers_dev = true
 
 [[d1_databases]]
 binding = "DB"
-database_name = "threadsblocker_bug_admin_v2"
-database_id = "595fc1df-b6fd-491a-b3c7-325994a409a7"
-
-[[r2_buckets]]
-binding = "RAW_INGEST_BUCKET"
-bucket_name = "threadsblocker-platform-raw-ingests"
+database_name = "threadsblocker_bug_admin"
+database_id = "28a80d0f-04fb-4ddc-a107-1d3e1de6cc99"
 
 [vars]
 ALLOWED_TIME_DRIFT_SEC = "300"
