@@ -97,7 +97,7 @@ export const Core = {
         }
 
         const maxLimit = window.__DEBUG_HEGE_LIKES_LIMIT || 1000;
-        const label = options.label || '掃描整串互動名單';
+        const label = options.label || '掃描整串帳號名單';
         const collectedLinks = new Set();
         let isAborted = false;
         let unchangedCount = 0;
@@ -293,7 +293,69 @@ export const Core = {
         if (CONFIG.LIKES_TEXTS.some(t => text.includes(t))) return 'likes';
         if (CONFIG.QUOTES_TEXTS.some(t => text.includes(t))) return 'quotes';
         if (CONFIG.REPOSTS_TEXTS.some(t => text.includes(t))) return 'reposts';
+        if (CONFIG.FOLLOWERS_TEXTS.some(t => text.includes(t))) return 'followers';
+        if (CONFIG.FOLLOWING_TEXTS.some(t => text.includes(t))) return 'following';
         return 'manual';
+    },
+
+    shouldAttachSourceUrlForReason: (reason = '') => {
+        return reason !== 'followers' && reason !== 'following';
+    },
+
+    isProfileListReason: (reason = '') => {
+        return reason === 'followers' || reason === 'following';
+    },
+
+    hasVisibleDialogUserLinks: (ctx) => {
+        if (!ctx || !ctx.querySelectorAll) return false;
+        return Array.from(ctx.querySelectorAll('a[href^="/@"]')).some(a => {
+            const href = a.getAttribute('href') || '';
+            if (!href.match(/^\/@[^/?#]+/)) return false;
+            const rect = a.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+        });
+    },
+
+    getSupportedDialogTitle: (ctx) => {
+        if (!ctx) return null;
+        const isDialog = ctx !== document.body;
+        const isExcluded = (text) => ['回覆', '回文', 'Reply', 'Replies', '回應', '新串文', 'New thread', '發佈串文', 'Post', '編輯', 'Edit', '刪除', '删除', 'Delete', '確定刪除', '確認刪除'].some(t => text.includes(t));
+        const isSupported = (text, allowAnyDialogHeader = false) => {
+            const value = String(text || '').trim();
+            if (!value || value === 'Threads' || isExcluded(value)) return false;
+            return (allowAnyDialogHeader && isDialog) || CONFIG.DIALOG_HEADER_TEXTS.some(t => value.includes(t));
+        };
+        const isVisible = (el) => {
+            if (!el || !el.getBoundingClientRect) return false;
+            const rect = el.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+        };
+        const findMatch = (nodes, options = {}) => {
+            for (let h of nodes) {
+                const text = (h.innerText || h.textContent || '').trim();
+                if (isSupported(text, !!options.allowAnyDialogHeader) && isVisible(h)) return { header: h, titleText: text };
+            }
+            return null;
+        };
+
+        const explicitHeader = findMatch(ctx.querySelectorAll('h1, h2, div[role="heading"] span'), { allowAnyDialogHeader: true });
+        if (explicitHeader) return explicitHeader;
+
+        // Newer Threads profile lists use tabs ("粉絲" / "追蹤中") instead of h1/h2 headers.
+        const tabHeader = findMatch(ctx.querySelectorAll('[role="tab"], [aria-selected="true"], [aria-selected="false"]'));
+        if (tabHeader) return tabHeader;
+
+        if (isDialog) {
+            const ctxRect = ctx.getBoundingClientRect();
+            const topNodes = Array.from(ctx.querySelectorAll('span[dir="auto"], div[role="button"], a[role="link"]'))
+                .filter(el => {
+                    const rect = el.getBoundingClientRect();
+                    return rect.width > 0 && rect.height > 0 && rect.top <= ctxRect.top + 140;
+                });
+            return findMatch(topNodes);
+        }
+
+        return null;
     },
 
     resolveBlockReasonFromElement: (element) => {
@@ -615,28 +677,10 @@ export const Core = {
 
     injectDialogBlockAll: () => {
         const ctx = Core.getTopContext();
-        const isDialog = ctx !== document.body;
-
-        const headers = ctx.querySelectorAll('h1, h2, div[role="heading"] span');
-        let header = null;
-        let titleText = '';
-
-        for (let h of headers) {
-            const tempText = (h.innerText || h.textContent || '');
-            const text = tempText.trim();
-            if (text && text !== 'Threads') {
-                // 排除回覆/回文/發文 dialog — 會回文/發文代表不想或不能封鎖
-                const isExcludeCtx = ['回覆', '回文', 'Reply', 'Replies', '回應', '新串文', 'New thread', '發佈串文', 'Post', '編輯', 'Edit', '刪除', '删除', 'Delete', '確定刪除', '確認刪除'].some(t => text.includes(t));
-                if (isExcludeCtx) continue;
-
-                if (isDialog || CONFIG.DIALOG_HEADER_TEXTS.some(t => text.includes(t))) {
-                    header = h;
-                    titleText = text;
-                }
-            }
-        }
-
-        if (!header) return;
+        const titleInfo = Core.getSupportedDialogTitle(ctx);
+        if (!titleInfo) return;
+        const { header, titleText } = titleInfo;
+        const dialogReason = Core.resolveBlockReasonFromTitle(titleText);
 
         const headerContainer = header.parentElement;
         if (!headerContainer) return;
@@ -650,6 +694,10 @@ export const Core = {
 
         const existingCleanList = localCtx.querySelector('.hege-clean-list-btn');
         localCtx.querySelectorAll('.hege-block-all-btn, .hege-report-only-btn, .hege-endless-sweep-btn').forEach(btn => btn.remove());
+        if (Core.isProfileListReason(dialogReason) || !Core.hasVisibleDialogUserLinks(ctx)) {
+            if (existingCleanList) existingCleanList.remove();
+            return;
+        }
 
         let cleanListBtn = existingCleanList;
         
@@ -664,7 +712,7 @@ export const Core = {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M7 12h10"></path><path d="M10 18h4"></path></svg>
                 <span>清理名單</span>
             `);
-            cleanListBtn.title = '清理名單：同列全封、只檢舉、定點絕';
+            cleanListBtn.title = '清理名單：批次封鎖、只檢舉、定點絕';
             cleanListBtn.dataset.hegeRole = 'clean-list';
 
             const bgMode = Core.getBgMode();
@@ -705,7 +753,8 @@ export const Core = {
 
             // 記錄每個帳號自己的封鎖 provenance，避免 queue 追加時被全域 context 覆寫
             const reason = Core.resolveBlockReasonFromTitle(titleText);
-            const sourceUrl = Core.findSourcePostUrl(activeCtx) || window.location.href.split('?')[0];
+            const sourceUrl = Core.findSourcePostUrl(activeCtx)
+                || (Core.shouldAttachSourceUrlForReason(reason) ? window.location.href.split('?')[0] : '');
             const batchId = `b_${Date.now()}`;
             Core.setBlockContext(newUsers, {
                 sourceUrl,
@@ -761,11 +810,12 @@ export const Core = {
             }
 
             let added = 0;
+            const reason = Core.resolveBlockReasonFromTitle(titleText);
             const sourceUrl = Core.findSourcePostUrl(activeCtx);
             rawUsers.forEach(u => {
                 Core.setReportContext(u, {
                     sourceUrl,
-                    source: 'dialog',
+                    source: reason === 'manual' ? 'dialog' : reason,
                     targetType: 'account',
                     sourceText: Utils.getPostText(sourceUrl),
                     sourceOwner: Utils.getPostOwner(sourceUrl) || '',
@@ -916,19 +966,10 @@ export const Core = {
 
     injectDialogCheckboxes: () => {
         const ctx = Core.getTopContext();
-        const isDialog = ctx !== document.body;
-
-        const dialogHeaders = ctx.querySelectorAll('h1, h2, div[role="heading"] span');
-        let header = null;
-        for (let h of dialogHeaders) {
-            const tempText = (h.innerText || h.textContent || '').trim();
-            if (tempText && tempText !== 'Threads') {
-                if (isDialog || CONFIG.DIALOG_HEADER_TEXTS.some(t => tempText.includes(t))) {
-                    header = h;
-                }
-            }
-        }
-        if (!header) return;
+        const titleInfo = Core.getSupportedDialogTitle(ctx);
+        if (!titleInfo) return;
+        const dialogReason = Core.resolveBlockReasonFromTitle(titleInfo.titleText);
+        const isProfileList = Core.isProfileListReason(dialogReason);
 
         const links = Array.from(ctx.querySelectorAll('a[href^="/@"]')).filter(a => {
             // Only filter truly invisible elements (display:none, zero-size); allow off-screen items
@@ -997,8 +1038,18 @@ export const Core = {
             if (!flexRow) return;
 
             // Beta 54: Absolute deduplication. Check the whole row for THIS user's box.
-            const existingBox = flexRow.querySelector(`.hege-checkbox-container[data-username="${CSS.escape(username)}"]`);
+            const checkboxHost = isProfileList && followBtn
+                ? (followBtn.parentElement || flexRow)
+                : flexRow;
+            const existingBox = checkboxHost.querySelector(`.hege-checkbox-container[data-username="${CSS.escape(username)}"]`)
+                || flexRow.querySelector(`.hege-checkbox-container[data-username="${CSS.escape(username)}"]`);
             if (existingBox) {
+                if (existingBox.parentElement !== checkboxHost) {
+                    const targetBefore = isProfileList && followBtn && followBtn.parentElement === checkboxHost ? followBtn : null;
+                    if (targetBefore) checkboxHost.insertBefore(existingBox, targetBefore);
+                    else checkboxHost.appendChild(existingBox);
+                    existingBox.classList.toggle('hege-profile-list-checkbox', isProfileList);
+                }
                 const isChecked = Core.pendingUsers.has(username);
                 if (isChecked !== existingBox.classList.contains('checked')) {
                     existingBox.classList.toggle('checked', isChecked);
@@ -1008,7 +1059,10 @@ export const Core = {
 
             // Beta 54: Special case - if a box already exists in this row but for a different username, 
             // it means we've hit a shared parent. For safety, let's look for a better spot or skip.
-            if (flexRow.querySelector('.hege-checkbox-container')) {
+            const hasAnyBoxInPlacement = isProfileList
+                ? checkboxHost.querySelector('.hege-checkbox-container')
+                : flexRow.querySelector('.hege-checkbox-container');
+            if (hasAnyBoxInPlacement) {
                 // If the user's box isn't here, maybe it's in a different sub-flex.
                 // But generally, one box per role="listitem" is the goal.
                 return;
@@ -1016,6 +1070,7 @@ export const Core = {
 
             const container = document.createElement("div");
             container.className = "hege-checkbox-container";
+            if (isProfileList) container.classList.add('hege-profile-list-checkbox');
             container.dataset.username = username;
             container.style.cursor = 'pointer';
             container.style.zIndex = '100';
@@ -1068,8 +1123,13 @@ export const Core = {
             }
             container.addEventListener('click', Core.handleGlobalClick, true);
 
-            // 插在追蹤按鈕前面，避免重疊
-            if (followBtnContainer && followBtnContainer.parentElement === flexRow) {
+            if (isProfileList && followBtn && followBtn.parentElement) {
+                const host = followBtn.parentElement;
+                host.style.display = 'flex';
+                host.style.alignItems = 'center';
+                host.style.gap = host.style.gap || '8px';
+                host.insertBefore(container, followBtn);
+            } else if (followBtnContainer && followBtnContainer.parentElement === flexRow) {
                 flexRow.insertBefore(container, followBtnContainer);
             } else {
                 flexRow.appendChild(container);
@@ -1734,7 +1794,7 @@ export const Core = {
             btn.style.cursor = isUnblocking ? 'not-allowed' : 'pointer';
             // 貼文水庫按鈕的 title 有語意用途，不覆寫為空字串。
             if (btn.dataset.hegeRole === 'clean-list') {
-                btn.title = isUnblocking ? '正在解除封鎖，暫時無法清理名單' : '清理名單：同列全封、只檢舉、定點絕';
+                btn.title = isUnblocking ? '正在解除封鎖，暫時無法清理名單' : '清理名單：批次封鎖、只檢舉、定點絕';
             } else if (btn.dataset.hegeRole !== 'endless-sweep') {
                 btn.title = isUnblocking ? '正在解除封鎖，暫時無法封鎖' : '';
             } else if (isUnblocking) {
@@ -1747,7 +1807,7 @@ export const Core = {
             btn.style.opacity = isUnblocking ? '0.5' : '1';
             btn.style.filter = isUnblocking ? 'grayscale(1)' : 'none';
             btn.style.cursor = isUnblocking ? 'not-allowed' : 'pointer';
-            btn.title = isUnblocking ? '正在解除封鎖，暫時無法只檢舉' : '只檢舉：把目前按讚名單加入 REPORT_QUEUE，不封鎖';
+            btn.title = isUnblocking ? '正在解除封鎖，暫時無法只檢舉' : '只檢舉：把目前名單加入 REPORT_QUEUE，不封鎖';
         });
 
         // Mutex: Gray out Unblock Start if Blocking

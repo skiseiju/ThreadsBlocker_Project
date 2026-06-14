@@ -18,6 +18,10 @@ import './features/cockroach.js';
     Utils.initConsoleInterceptor();
     Storage.migratePlatformSyncConsent();
     console.log('[留友封] Extension Script Initializing...');
+    const versionAtBoot = Storage.get(CONFIG.KEYS.VERSION_CHECK, '');
+    const hadExistingInstallAtBoot = !!versionAtBoot;
+    const shouldShowReleaseNotes = hadExistingInstallAtBoot
+        && Storage.get(CONFIG.KEYS.RELEASE_NOTES_SEEN_VERSION, '') !== CONFIG.VERSION;
 
     function migratePostReservoirPhase2() {
         if (Storage.get(CONFIG.KEYS.RESERVOIR_PHASE2_MIGRATED) === 'true') {
@@ -438,7 +442,7 @@ import './features/cockroach.js';
                     const existing = Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []);
 
                     if (pending.length === 0 && existing.length === 0) {
-                        UI.showToast('請先勾選使用者，或在互動名單 dialog 點只檢舉');
+                        UI.showToast('請先勾選使用者，或在名單視窗點清理名單');
                         return;
                     }
 
@@ -558,6 +562,19 @@ import './features/cockroach.js';
             };
 
             const panel = UI.createPanel(callbacks);
+
+            if (shouldShowReleaseNotes) {
+                const tryShowReleaseNotes = (attempt = 0) => {
+                    if (!document.querySelector('.hege-manager-overlay')) {
+                        UI.showReleaseNotesModal();
+                        return;
+                    }
+                    if (attempt < 3) {
+                        setTimeout(() => tryShowReleaseNotes(attempt + 1), 1200);
+                    }
+                };
+                setTimeout(() => tryShowReleaseNotes(), 1200);
+            }
 
             const syncCompletedReportSelection = () => {
                 const completedUsers = Storage.getJSON(CONFIG.KEYS.REPORT_COMPLETED_USERS, []);

@@ -1,7 +1,10 @@
 export const CONFIG = {
-    VERSION: '2.6.6',
+    VERSION: '2.6.7',
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
+    DONATE_URL: 'https://api.payuni.com.tw/api/uop/receive_info/2/3/U012070036/885oqmRcNVU7OTwotE1HS',
+    DEVELOPER_SITE_URL: 'https://skiseiju.com',
+    OBSERVATION_PLATFORM_URL: 'https://threadsblocker.skiseiju.com/platform/',
     BUG_REPORT_URL: 'https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/reports/bug',
     BUG_REPORT_FALLBACK_URLS: [
         'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec'
@@ -57,6 +60,7 @@ export const CONFIG = {
         WORKER_STATS: 'hege_worker_stats',
         CONSOLE_LOGS: 'hege_web_console_logs',
         VERSION_CHECK: 'hege_version_check',
+        RELEASE_NOTES_SEEN_VERSION: 'hege_release_notes_seen_version',
         POS: 'hege_panel_pos',
         STATE: 'hege_panel_state',
         DISCLAIMER_AGREED: 'hege_disclaimer_agreed_v2_1',
@@ -183,12 +187,16 @@ export const CONFIG = {
     QUOTES_TEXTS: ['引用', '引用', 'Quotes', '引用', '인용', 'การอ้างอิง', 'Kutipan', 'Citas', 'Citations', 'Zitate', 'Citazioni', 'Citações', 'Цитаты', 'Cytaty', 'Alıntılar', 'Trích dẫn', 'اقتباسات', 'उद्धरण', 'Citaten', 'Mga Quote'],
     // 「轉發」對話框標題
     REPOSTS_TEXTS: ['轉發', '转发', 'Reposts', '再投稿', '리포스트', 'รีโพสต์', 'Repost', 'Republicaciones', 'Republications', 'Reposts', 'Ripubblicazioni', 'Republicações', 'Репосты', 'Reposty', 'Yeniden paylaşımlar', 'Đăng lại', 'إعادة النشر', 'रीपोस्ट', 'Reposts', 'Mga Repost'],
+    // 「粉絲」名單標題
+    FOLLOWERS_TEXTS: ['粉絲', '粉丝', 'Followers', 'フォロワー', '팔로워', 'ผู้ติดตาม', 'Pengikut', 'Seguidores', 'Abonnés', 'Follower', 'Follower', 'Seguidores', 'Подписчики', 'Obserwujący', 'Takipçiler', 'Người theo dõi', 'المتابعون', 'फ़ॉलोअर', 'Volgers', 'Mga Follower'],
+    // 「追蹤中」名單標題（避免使用單獨「追蹤」，以免誤吃 row 內 follow button）
+    FOLLOWING_TEXTS: ['追蹤中', '关注中', '正在追蹤', '正在关注', 'Following', 'フォロー中', '팔로잉', 'กำลังติดตาม', 'Mengikuti', 'Siguiendo', 'Abonnements', 'Gefolgt', 'Seguiti', 'Seguindo', 'Подписки', 'Obserwowani', 'Takip edilenler', 'Đang theo dõi', 'يتابع', 'फ़ॉलो कर रहे हैं', 'Volgend', 'Sinusubaybayan'],
     // 「活動/查看動態」按鈕
     ACTIVITY_TEXTS: ['查看動態', '查看动态', 'View activity', '活動', 'Activity', 'アクティビティを見る', 'アクティビティ', '활동 보기', '활동', 'ดูกิจกรรม', 'กิจกรรม', 'Lihat aktivitas', 'Aktivitas', 'Ver actividad', 'Actividad', 'Voir l\'activité', 'Activité', 'Aktivität ansehen', 'Aktivität', 'Visualizza attività', 'Attività', 'Ver atividade', 'Atividade', 'Посмотреть активность', 'Активность', 'Zobacz aktywność', 'Aktywność', 'Etkinliği gör', 'Etkinlik', 'Xem hoạt động', 'Hoạt động', 'عرض النشاط', 'النشاط', 'गतिविधि देखें', 'गतिविधि', 'Activiteit bekijken', 'Activiteit', 'Tingnan ang aktibidad', 'Aktibidad'],
     // 「按讚內容」分頁
     LIKES_TAB_TEXTS: ['按讚內容', '点赞内容', 'Likes', '讚', '赞', 'いいね', '좋아요', 'ถูกใจ', 'Suka', 'Me gusta', 'J\'aime', 'Gefällt mir', 'Mi piace', 'Curtidas', 'Нравится', 'Polubienia', 'Beğeni', 'Thích', 'إعجابات', 'पसंद', 'Vind-ik-leuks', 'Mga Like'],
     // 對話框標題關鍵字（判斷是否為互動面板）
-    DIALOG_HEADER_TEXTS: ['讚', '赞', '引用', '轉發', '转发', '貼文動態', '帖子动态', '活動', '活动', 'Likes', 'Quotes', 'Reposts', 'Activity', 'いいね', '引用', '再投稿', 'アクティビティ', '좋아요', '인용', '리포스트', '활동', 'ถูกใจ', 'การอ้างอิง', 'รีโพสต์', 'กิจกรรม', 'Suka', 'Kutipan', 'Repost', 'Aktivitas', 'Me gusta', 'Citas', 'Republicaciones', 'Actividad', 'J\'aime', 'Citations', 'Activité', 'Gefällt mir', 'Zitate', 'Aktivität', 'Mi piace', 'Citazioni', 'Attività', 'Curtidas', 'Citações', 'Republicações', 'Atividade', 'Нравится', 'Цитаты', 'Репосты', 'Активность', 'Polubienia', 'Cytaty', 'Aktywność', 'Beğeni', 'Alıntılar', 'Etkinlik', 'Thích', 'Trích dẫn', 'Đăng lại', 'Hoạt động', 'إعجابات', 'اقتباسات', 'إعادة النشر', 'النشاط', 'पसंद', 'उद्धरण', 'रीपोस्ट', 'गतिविधि', 'Vind-ik-leuks', 'Citaten', 'Activiteit', 'Mga Like', 'Mga Quote', 'Mga Repost', 'Aktibidad'],
+    DIALOG_HEADER_TEXTS: ['讚', '赞', '引用', '轉發', '转发', '貼文動態', '帖子动态', '活動', '活动', '粉絲', '粉丝', '追蹤中', '关注中', '正在追蹤', '正在关注', 'Likes', 'Quotes', 'Reposts', 'Activity', 'Followers', 'Following', 'いいね', '引用', '再投稿', 'アクティビティ', 'フォロワー', 'フォロー中', '좋아요', '인용', '리포스트', '활동', '팔로워', '팔로잉', 'ถูกใจ', 'การอ้างอิง', 'รีโพสต์', 'กิจกรรม', 'ผู้ติดตาม', 'กำลังติดตาม', 'Suka', 'Kutipan', 'Repost', 'Aktivitas', 'Pengikut', 'Mengikuti', 'Me gusta', 'Citas', 'Republicaciones', 'Actividad', 'Seguidores', 'Siguiendo', 'J\'aime', 'Citations', 'Activité', 'Abonnés', 'Abonnements', 'Gefällt mir', 'Zitate', 'Aktivität', 'Follower', 'Gefolgt', 'Mi piace', 'Citazioni', 'Attività', 'Follower', 'Seguiti', 'Curtidas', 'Citações', 'Republicações', 'Atividade', 'Seguidores', 'Seguindo', 'Нравится', 'Цитаты', 'Репосты', 'Активность', 'Подписчики', 'Подписки', 'Polubienia', 'Cytaty', 'Aktywność', 'Obserwujący', 'Obserwowani', 'Beğeni', 'Alıntılar', 'Etkinlik', 'Takipçiler', 'Takip edilenler', 'Thích', 'Trích dẫn', 'Đăng lại', 'Hoạt động', 'Người theo dõi', 'Đang theo dõi', 'إعجابات', 'اقتباسات', 'إعادة النشر', 'النشاط', 'المتابعون', 'يتابع', 'पसंद', 'उद्धरण', 'रीपोस्ट', 'गतिविधि', 'फ़ॉलोअर', 'फ़ॉलो कर रहे हैं', 'Vind-ik-leuks', 'Citaten', 'Activiteit', 'Volgers', 'Volgend', 'Mga Like', 'Mga Quote', 'Mga Repost', 'Aktibidad', 'Mga Follower', 'Sinusubaybayan'],
 
     SELECTORS: {
         MORE_SVG: 'svg[aria-label="更多"], svg[aria-label="更多"], svg[aria-label="More"], svg[aria-label="もっと見る"], svg[aria-label="더 보기"], svg[aria-label="เพิ่มเติม"], svg[aria-label="Lainnya"], svg[aria-label="Más"], svg[aria-label="Plus"], svg[aria-label="Mehr"], svg[aria-label="Altro"], svg[aria-label="Mais"], svg[aria-label="Ещё"], svg[aria-label="Więcej"], svg[aria-label="Diğer"], svg[aria-label="Thêm"], svg[aria-label="المزيد"], svg[aria-label="और"], svg[aria-label="Meer"], svg[aria-label="Higit pa"]',

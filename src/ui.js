@@ -74,6 +74,11 @@ export const UI = {
             .hege-checkbox-container.finished { opacity: 0.6; }
             .hege-checkbox-container.finished .hege-svg-icon { color: #555; }
             .hege-checkbox-container:active { transform: scale(0.85); }
+            .hege-profile-list-checkbox {
+                width: 30px; height: 30px; min-width: 30px;
+                margin-left: auto; margin-right: 8px;
+            }
+            .hege-profile-list-checkbox .hege-svg-icon { width: 18px; height: 18px; }
             
             .hege-block-all-btn {
                 display: flex; align-items: center; justify-content: center;
@@ -516,6 +521,83 @@ export const UI = {
         };
     },
 
+    showReleaseNotesModal: () => {
+        if (document.getElementById('hege-release-notes-overlay')) return;
+
+        const overlay = document.createElement('div');
+        overlay.id = 'hege-release-notes-overlay';
+        overlay.className = 'hege-manager-overlay';
+
+        Utils.setHTML(overlay, `
+            <div class="hege-manager-box" style="width:min(94vw,680px);max-width:680px;max-height:calc(100vh - 28px);max-height:calc(100dvh - 28px);">
+                <div class="hege-manager-header">
+                    <span class="hege-manager-title">留友封更新了</span>
+                    <span class="hege-manager-close" id="hege-release-notes-close">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+                    </span>
+                </div>
+                <div style="padding:20px 24px;overflow-y:auto;-webkit-overflow-scrolling:touch;font-size:13px;line-height:1.7;color:#d5d5d5;">
+                    <p style="margin:0 0 8px;color:#888;font-size:12px;">版本 ${Utils.escapeHTML(CONFIG.VERSION)}</p>
+                    <p style="margin:0 0 12px;color:#f2f2f2;font-weight:700;">重新跟大家介紹一下主要功能。</p>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-bottom:18px;">
+                        <div style="border:1px solid #303030;border-radius:8px;padding:11px 12px;background:#141414;">
+                            <div style="font-weight:700;color:#fff;margin-bottom:4px;">批次清理名單</div>
+                            <div style="font-size:12px;color:#aaa;line-height:1.55;">從互動名單、粉絲、追蹤中勾選帳號，加入封鎖或檢舉清單。</div>
+                        </div>
+                        <div style="border:1px solid #303030;border-radius:8px;padding:11px 12px;background:#141414;">
+                            <div style="font-weight:700;color:#fff;margin-bottom:4px;">背景自動執行</div>
+                            <div style="font-size:12px;color:#aaa;line-height:1.55;">桌面用背景分頁，iOS / iPadOS 用同分頁 worker，避免跳到 Threads App。</div>
+                        </div>
+                        <div style="border:1px solid #303030;border-radius:8px;padding:11px 12px;background:#141414;">
+                            <div style="font-weight:700;color:#fff;margin-bottom:4px;">冷卻與重試保護</div>
+                            <div style="font-size:12px;color:#aaa;line-height:1.55;">偵測平台限制時保存佇列，失敗帳號可重試，降低漏封風險。</div>
+                        </div>
+                        <div style="border:1px solid #303030;border-radius:8px;padding:11px 12px;background:#141414;">
+                            <div style="font-weight:700;color:#fff;margin-bottom:4px;">只檢舉流程</div>
+                            <div style="font-size:12px;color:#aaa;line-height:1.55;">可只把帳號送進檢舉佇列，和封鎖流程分開執行。</div>
+                        </div>
+                        <div style="border:1px solid #303030;border-radius:8px;padding:11px 12px;background:#141414;">
+                            <div style="font-weight:700;color:#fff;margin-bottom:4px;">定點絕與貼文水庫</div>
+                            <div style="font-size:12px;color:#aaa;line-height:1.55;">把指定貼文加入排程，定期回頭清理互動名單。</div>
+                        </div>
+                        <div style="border:1px solid #303030;border-radius:8px;padding:11px 12px;background:#141414;">
+                            <div style="font-weight:700;color:#fff;margin-bottom:4px;">本機分析與觀測</div>
+                            <div style="font-size:12px;color:#aaa;line-height:1.55;">本機整理來源、分類與趨勢；匿名上傳需同意，可隨時調整。</div>
+                        </div>
+                    </div>
+                    <p style="margin:0 0 10px;color:#f2f2f2;font-weight:700;">最近更新</p>
+                    <ul style="margin:0 0 14px;padding-left:18px;">
+                        <li style="margin-bottom:6px;"><b>粉絲 / 追蹤中清理</b>：可在自己的帳號名單中勾選粉絲或追蹤中帳號。</li>
+                        <li style="margin-bottom:6px;"><b>平台觀測資料鏈路</b>：整合 raw 保存、D1/R2 後端修復、文字指紋、時間桶與上傳同意延續。</li>
+                        <li style="margin-bottom:6px;"><b>定點絕定位修復</b>：掃描前先鎖定目標貼文，避免抓到錯誤互動名單。</li>
+                        <li style="margin-bottom:6px;"><b>長名單提醒修正</b>：大蟑螂回望提醒改成可捲動視窗，避免小視窗或長名單卡住。</li>
+                        <li><b>只檢舉與來源分析</b>：檢舉佇列、來源證據與本機分析面板整理成更完整的流程。</li>
+                    </ul>
+                    <div style="margin:0;padding:12px 14px;border:1px solid rgba(236,195,81,0.35);border-radius:10px;background:rgba(236,195,81,0.10);color:#f6df92;font-weight:700;line-height:1.55;">
+                        如果留友封有幫上你的忙，也歡迎贊助我喝咖啡。謝謝大家的支持。
+                    </div>
+                </div>
+                <div class="hege-manager-footer" style="gap:10px;flex-wrap:wrap;">
+                    <button class="hege-manager-btn secondary" id="hege-release-notes-later">知道了</button>
+                    <button class="hege-manager-btn primary" id="hege-release-notes-donate" style="background:#ecc351;color:#1b1300;">贊助我喝咖啡</button>
+                </div>
+            </div>
+        `);
+        document.body.appendChild(overlay);
+
+        const close = () => {
+            Storage.set(CONFIG.KEYS.RELEASE_NOTES_SEEN_VERSION, CONFIG.VERSION);
+            overlay.remove();
+        };
+        overlay.querySelector('#hege-release-notes-close').onclick = close;
+        overlay.querySelector('#hege-release-notes-later').onclick = close;
+        overlay.querySelector('#hege-release-notes-donate').onclick = () => {
+            Storage.set(CONFIG.KEYS.RELEASE_NOTES_SEEN_VERSION, CONFIG.VERSION);
+            window.open(CONFIG.DONATE_URL, '_blank', 'noopener,noreferrer');
+            overlay.remove();
+        };
+    },
+
     showPlatformSyncConsentModal: (options = {}) => {
         if (document.getElementById('hege-platform-sync-consent-overlay')) return;
         if (Storage.hasPlatformSyncConsentForCurrentVersion()) return;
@@ -829,12 +911,12 @@ export const UI = {
                     <button id="hege-clean-list-picker-close" style="background:transparent; border:0; color:#999; font-size:22px; line-height:1; cursor:pointer; padding:0 4px;">×</button>
                 </div>
                 <div style="display:flex; flex-direction:column; gap:12px; padding:16px;">
-                    <div style="font-size:11px;color:#777;font-weight:700;letter-spacing:1px;">整串互動名單</div>
+                    <div style="font-size:11px;color:#777;font-weight:700;letter-spacing:1px;">整串帳號名單</div>
                     <label style="display:flex; align-items:flex-start; gap:10px; padding:10px; border:1px solid #333; border-radius:8px; background:#111; cursor:pointer;">
                         <input type="checkbox" id="hege-clean-list-collect" style="width:16px;height:16px;margin-top:2px;">
                         <span style="display:flex; flex-direction:column; gap:3px;">
                             <span style="font-size:13px;font-weight:700;color:#fff;">收集整串名單做封鎖或檢舉</span>
-                            <span style="font-size:11px;color:#888;line-height:1.35;">自動捲完整個互動 dialog，把整串帳號同時加入封鎖選取與檢舉清單。</span>
+                            <span style="font-size:11px;color:#888;line-height:1.35;">自動捲完整個名單視窗，把整串帳號同時加入封鎖選取與檢舉清單。</span>
                         </span>
                     </label>
                     <div style="height:1px;background:#2a2a2a;"></div>
@@ -930,7 +1012,7 @@ export const UI = {
                         </div>
 
                         <div style="height:1px;background:#2a2a2a;"></div>
-                        <div style="display:flex;gap:6px;">
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:6px;">
                             <div class="hege-menu-item" id="hege-s-report" style="flex:1;border-bottom:none;">
                                 <span style="display:flex;align-items:center;gap:4px;font-size:12px;">
                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"></path></svg>
@@ -943,6 +1025,12 @@ export const UI = {
                             <div class="hege-menu-item" id="hege-s-sponsor" style="flex:1;color:#ecc351;border-bottom:none;">
                                 <span style="font-size:12px;">☕️ 贊助</span>
                             </div>
+                            <a id="hege-s-platform" href="${CONFIG.OBSERVATION_PLATFORM_URL}" target="_blank" rel="noopener noreferrer" title="留友封觀測平台" class="hege-menu-item" style="flex:1;color:#30d158;border-bottom:none;text-decoration:none;">
+                                <span style="font-size:12px;">📊 留友封觀測平台</span>
+                            </a>
+                            <a href="${CONFIG.DEVELOPER_SITE_URL}" target="_blank" rel="noopener noreferrer" class="hege-menu-item" style="flex:1;color:#8ab4f8;border-bottom:none;text-decoration:none;">
+                                <span style="font-size:12px;">🌐 開發者網站</span>
+                            </a>
                         </div>
                         <p style="color:#555;font-size:11px;text-align:right;margin:0;">v${CONFIG.VERSION}</p>
                     </div>
@@ -1178,8 +1266,7 @@ export const UI = {
         }
 
         bind('hege-s-sponsor', () => {
-            alert('目前還不急著收贊助，但歡迎來看看我還可以幫你解決什麼 → skiseiju.com');
-            window.open('https://skiseiju.com?utm_source=extension&utm_medium=popup', '_blank');
+            window.open(CONFIG.DONATE_URL, '_blank', 'noopener,noreferrer');
         });
 
     },
@@ -2040,7 +2127,7 @@ export const UI = {
             .slice(0, 40);
 
         // 原因 label
-        const reasonLabel = { likes: '👍 按讚名單', quotes: '💬 引用', reposts: '🔄 轉發', manual: '✋ 手動', unknown: '❓ 舊資料' };
+        const reasonLabel = { likes: '👍 按讚名單', quotes: '💬 引用', reposts: '🔄 轉發', followers: '👥 粉絲', following: '➕ 追蹤中', manual: '✋ 手動', unknown: '❓ 舊資料' };
         const miniStat = (value, label, color = '#f5f5f5', sub = '') => `
             <div style="background:#111;border-radius:8px;padding:12px;text-align:center;border:1px solid #2a2a2a;">
                 <div style="font-size:24px;font-weight:700;color:${color};">${value}</div>

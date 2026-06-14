@@ -103,13 +103,15 @@ location.reload();
 ### 清理名單 Picker (`handleCleanList`)
 
 **檔案**：`core.js:injectDialogBlockAll`
-**行為**：互動名單 dialog 只注入一顆「清理名單」，點擊後開啟多選 picker。
+**行為**：支援帳號名單 dialog（貼文互動名單、粉絲、追蹤中）只注入一顆「清理名單」，點擊後開啟多選 picker。
 
 Picker 目前包含兩個動作：
-- 收集整串名單做封鎖或檢舉：自動捲完整個互動 dialog，將整串使用者同時加入 `pendingUsers` 與 `REPORT_QUEUE`；不在 dialog 選檢舉項目，需回到面板點擊「開始檢舉」才會選路徑並啟動 worker
+- 收集整串名單做封鎖或檢舉：自動捲完整個名單 dialog，將整串使用者同時加入 `pendingUsers` 與 `REPORT_QUEUE`；不在 dialog 選檢舉項目，需回到面板點擊「開始檢舉」才會選路徑並啟動 worker
 - 定點絕（定期封鎖）：將目前貼文加入貼文水庫/定點絕排程
 
 「收集整串名單做封鎖或檢舉」只負責加入清單，不直接執行 worker；使用者需回到面板點擊「開始封鎖」或「開始檢舉」。
+
+粉絲 / 追蹤中清單的來源分類記為 `followers` / `following`。若該清單沒有來源貼文 URL，不會把 profile 清單 URL 當成貼文證據寫入 source evidence。
 
 #### iOS 觸控事件處理
 
@@ -181,6 +183,7 @@ Desktop: click(handleGlobalClick, capture: true) + ontouchend(stopPropagation)
 | `hege_block_timestamps` | localStorage (JSON) | 紀錄最近 50 筆封鎖歷史用於智慧回滾 |
 | `hege_verify_pending` | localStorage | Reload 驗證時暫存的待驗證使用者名稱 |
 | `hege_post_fallback` | localStorage | 貼文備案封鎖開關 (`true`/`false`，預設 `true`) |
+| `hege_release_notes_seen_version` | localStorage | 已看過新版更新摘要的版本；只控制 changelog / 贊助提示是否重複顯示，不影響佇列、同意或封鎖資料 |
 
 ---
 
