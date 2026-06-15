@@ -1,31 +1,26 @@
-/**
- * 留友封 — Service Worker (Background)
- *
- * 負責透過 chrome.scripting API 動態註冊 MAIN world interceptor，
- * 比 manifest 靜態宣告更穩定可靠。
- */
+// Beta/dev-only MV3 service worker.
+// build.sh only includes this file in beta builds.
 
-chrome.runtime.onInstalled.addListener(async () => {
-    // 先移除舊的動態註冊（避免重複）
-    try {
-        await chrome.scripting.unregisterContentScripts({ ids: ['hege-interceptor'] });
-    } catch(e) {
-        // 首次安裝時不存在，忽略
+const HEGE_DEV_THREADS_URL_PATTERN = /^https?:\/\/([^/]+\.)?threads\.(com|net)\//i;
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!message || message.type !== 'HEGE_DEV_RELOAD_EXTENSION') return false;
+
+    const senderUrl = sender?.url || sender?.tab?.url || '';
+    if (!HEGE_DEV_THREADS_URL_PATTERN.test(senderUrl)) {
+        sendResponse({ ok: false, error: 'invalid_sender' });
+        return false;
     }
 
-    // 動態註冊 MAIN world interceptor
-    await chrome.scripting.registerContentScripts([{
-        id: 'hege-interceptor',
-        matches: [
-            '*://*.threads.net/*',
-            '*://threads.net/*',
-            '*://*.threads.com/*',
-            '*://threads.com/*'
-        ],
-        js: ['interceptor.js'],
-        runAt: 'document_start',
-        world: 'MAIN'
-    }]);
+    try {
+        chrome.storage?.local?.set?.({
+            hegeDevReloadRequestedAt: Date.now(),
+            hegeDevReloadSource: String(message.source || 'unknown').slice(0, 80),
+            hegeDevReloadVersion: String(message.version || '').slice(0, 40),
+        });
+    } catch (e) {}
 
-    console.log('[留友封 SW] MAIN world interceptor registered via scripting API');
+    sendResponse({ ok: true, reloading: true });
+    setTimeout(() => chrome.runtime.reload(), 120);
+    return false;
 });

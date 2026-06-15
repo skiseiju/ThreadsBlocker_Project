@@ -185,6 +185,207 @@ export const Storage = {
         };
     },
 
+    getThreeNoScanResults: () => {
+        const raw = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_RESULTS, {});
+        const data = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+        const users = Array.isArray(data.users) ? data.users : [];
+        const cursorRaw = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_CURSOR, {});
+        const cursorUsers = Array.isArray(cursorRaw.scannedUsers) ? cursorRaw.scannedUsers : [];
+        const hasResumeCursor = cursorRaw && typeof cursorRaw === 'object'
+            && cursorRaw.reachedEnd !== true
+            && cursorUsers.length > 0;
+        const hasMore = (data.hasMore === true || data.limited === true) && hasResumeCursor;
+        return {
+            scanId: String(data.scanId || ''),
+            scanTargetOwner: String(data.scanTargetOwner || data.owner || ''),
+            scanDate: String(data.scanDate || ''),
+            status: String(data.status || ''),
+            startedAt: parseInt(data.startedAt || '0', 10) || 0,
+            completedAt: parseInt(data.completedAt || '0', 10) || 0,
+            checkedFollowersCount: parseInt(data.checkedFollowersCount || '0', 10) || 0,
+            batchCheckedFollowersCount: parseInt(data.batchCheckedFollowersCount || data.checkedFollowersCount || '0', 10) || 0,
+            candidateFollowersCount: parseInt(data.candidateFollowersCount || '0', 10) || 0,
+            triagedFollowersCount: parseInt(data.triagedFollowersCount || data.batchCheckedFollowersCount || '0', 10) || 0,
+            previousScannedCount: parseInt(data.previousScannedCount || '0', 10) || 0,
+            threeNoFollowersCount: parseInt(data.threeNoFollowersCount || users.length || '0', 10) || 0,
+            limited: hasMore,
+            hasMore,
+            batchSize: parseInt(data.batchSize || CONFIG.THREE_NO_SCAN_BATCH_SIZE || '200', 10) || 200,
+            autoBlockStarted: data.autoBlockStarted === true,
+            autoBlockQueuedCount: parseInt(data.autoBlockQueuedCount || '0', 10) || 0,
+            error: String(data.error || ''),
+            users: users
+                .filter(item => item && typeof item === 'object')
+                .map(item => ({
+                    username: String(item.username || '').trim(),
+                    profileUrl: String(item.profileUrl || ''),
+                    checkedAt: parseInt(item.checkedAt || '0', 10) || 0,
+                    firstSeenAt: parseInt(item.firstSeenAt || item.checkedAt || '0', 10) || 0,
+                    lastSeenAt: parseInt(item.lastSeenAt || item.checkedAt || '0', 10) || 0,
+                    scanDate: String(item.scanDate || data.scanDate || ''),
+                    scanDates: [...new Set((Array.isArray(item.scanDates) ? item.scanDates : [item.scanDate || data.scanDate])
+                        .map(v => String(v || '').trim())
+                        .filter(Boolean))],
+                    scanTargetOwner: String(item.scanTargetOwner || data.scanTargetOwner || data.owner || ''),
+                    targetOwners: [...new Set((Array.isArray(item.targetOwners) ? item.targetOwners : [item.scanTargetOwner || data.scanTargetOwner || data.owner])
+                        .map(v => String(v || '').trim())
+                        .filter(Boolean))],
+                    noAvatar: item.noAvatar === true,
+                    noBio: item.noBio === true,
+                    noPosts: item.noPosts === true,
+                    noReplies: item.noReplies === true,
+                    noReposts: item.noReposts === true,
+                    suspiciousUsername: item.suspiciousUsername === true,
+                    profileSignalsVersion: parseInt(item.profileSignalsVersion || '0', 10) || 0,
+                    noRepliesKnown: item.noRepliesKnown === true,
+                    noRepostsKnown: item.noRepostsKnown === true,
+                    followerCount: parseInt(item.followerCount || '0', 10) || 0,
+                    followerCountKnown: item.followerCountKnown === true,
+                    joinedAt: parseInt(item.joinedAt || '0', 10) || 0,
+                    accountAgeDays: parseInt(item.accountAgeDays || '0', 10) || 0,
+                    accountAgeBucket: String(item.accountAgeBucket || ''),
+                    isNewAccount: item.isNewAccount === true,
+                    locationLabel: String(item.locationLabel || ''),
+                    countryTag: String(item.countryTag || ''),
+                    regionShared: item.regionShared === true,
+                    metadataSource: String(item.metadataSource || ''),
+                    metadataDebug: item.metadataDebug && typeof item.metadataDebug === 'object' ? item.metadataDebug : {},
+                }))
+                .filter(item => item.username),
+        };
+    },
+    setThreeNoScanResults: (payload = {}) => {
+        const users = Array.isArray(payload.users) ? payload.users : [];
+        const normalized = {
+            scanId: String(payload.scanId || ''),
+            scanTargetOwner: String(payload.scanTargetOwner || payload.owner || ''),
+            scanDate: String(payload.scanDate || ''),
+            status: String(payload.status || ''),
+            startedAt: parseInt(payload.startedAt || '0', 10) || 0,
+            completedAt: parseInt(payload.completedAt || '0', 10) || 0,
+            checkedFollowersCount: parseInt(payload.checkedFollowersCount || '0', 10) || 0,
+            batchCheckedFollowersCount: parseInt(payload.batchCheckedFollowersCount || payload.checkedFollowersCount || '0', 10) || 0,
+            candidateFollowersCount: parseInt(payload.candidateFollowersCount || '0', 10) || 0,
+            triagedFollowersCount: parseInt(payload.triagedFollowersCount || payload.batchCheckedFollowersCount || '0', 10) || 0,
+            previousScannedCount: parseInt(payload.previousScannedCount || '0', 10) || 0,
+            threeNoFollowersCount: parseInt(payload.threeNoFollowersCount || users.length || '0', 10) || 0,
+            limited: payload.limited === true,
+            hasMore: payload.hasMore === true || payload.limited === true,
+            batchSize: parseInt(payload.batchSize || CONFIG.THREE_NO_SCAN_BATCH_SIZE || '200', 10) || 200,
+            autoBlockStarted: payload.autoBlockStarted === true,
+            autoBlockQueuedCount: parseInt(payload.autoBlockQueuedCount || '0', 10) || 0,
+            error: String(payload.error || ''),
+            users: users
+                .filter(item => item && typeof item === 'object')
+                .map(item => ({
+                    username: String(item.username || '').trim(),
+                    profileUrl: String(item.profileUrl || ''),
+                    checkedAt: parseInt(item.checkedAt || '0', 10) || 0,
+                    firstSeenAt: parseInt(item.firstSeenAt || item.checkedAt || '0', 10) || 0,
+                    lastSeenAt: parseInt(item.lastSeenAt || item.checkedAt || '0', 10) || 0,
+                    scanDate: String(item.scanDate || payload.scanDate || ''),
+                    scanDates: [...new Set((Array.isArray(item.scanDates) ? item.scanDates : [item.scanDate || payload.scanDate])
+                        .map(v => String(v || '').trim())
+                        .filter(Boolean))],
+                    scanTargetOwner: String(item.scanTargetOwner || payload.scanTargetOwner || payload.owner || ''),
+                    targetOwners: [...new Set((Array.isArray(item.targetOwners) ? item.targetOwners : [item.scanTargetOwner || payload.scanTargetOwner || payload.owner])
+                        .map(v => String(v || '').trim())
+                        .filter(Boolean))],
+                    noAvatar: item.noAvatar === true,
+                    noBio: item.noBio === true,
+                    noPosts: item.noPosts === true,
+                    noReplies: item.noReplies === true,
+                    noReposts: item.noReposts === true,
+                    suspiciousUsername: item.suspiciousUsername === true,
+                    profileSignalsVersion: parseInt(item.profileSignalsVersion || '0', 10) || 0,
+                    noRepliesKnown: item.noRepliesKnown === true,
+                    noRepostsKnown: item.noRepostsKnown === true,
+                    followerCount: parseInt(item.followerCount || '0', 10) || 0,
+                    followerCountKnown: item.followerCountKnown === true,
+                    joinedAt: parseInt(item.joinedAt || '0', 10) || 0,
+                    accountAgeDays: parseInt(item.accountAgeDays || '0', 10) || 0,
+                    accountAgeBucket: String(item.accountAgeBucket || ''),
+                    isNewAccount: item.isNewAccount === true,
+                    locationLabel: String(item.locationLabel || ''),
+                    countryTag: String(item.countryTag || ''),
+                    regionShared: item.regionShared === true,
+                    metadataSource: String(item.metadataSource || ''),
+                    metadataDebug: item.metadataDebug && typeof item.metadataDebug === 'object' ? item.metadataDebug : {},
+                }))
+                .filter(item => item.username),
+        };
+        Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_RESULTS, normalized);
+        return normalized;
+    },
+    getThreeNoScanCursor: () => {
+        const raw = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_CURSOR, {});
+        const data = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+        const scannedUsers = Array.isArray(data.scannedUsers) ? data.scannedUsers : [];
+        return {
+            owner: String(data.owner || '').trim(),
+            startedAt: parseInt(data.startedAt || '0', 10) || 0,
+            updatedAt: parseInt(data.updatedAt || '0', 10) || 0,
+            batchesCompleted: parseInt(data.batchesCompleted || '0', 10) || 0,
+            reachedEnd: data.reachedEnd === true,
+            scannedUsers: [...new Set(scannedUsers.map(v => String(v || '').trim()).filter(Boolean))],
+        };
+    },
+    setThreeNoScanCursor: (payload = {}) => {
+        const scannedUsers = Array.isArray(payload.scannedUsers) ? payload.scannedUsers : [];
+        const normalized = {
+            owner: String(payload.owner || '').trim(),
+            startedAt: parseInt(payload.startedAt || '0', 10) || 0,
+            updatedAt: parseInt(payload.updatedAt || Date.now(), 10) || Date.now(),
+            batchesCompleted: parseInt(payload.batchesCompleted || '0', 10) || 0,
+            reachedEnd: payload.reachedEnd === true,
+            scannedUsers: [...new Set(scannedUsers.map(v => String(v || '').trim()).filter(Boolean))],
+        };
+        Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_CURSOR, normalized);
+        return normalized;
+    },
+    resetThreeNoScanCursor: () => Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_CURSOR),
+    getThreeNoUnreadCount: () => parseInt(Storage.get(CONFIG.KEYS.THREE_NO_UNREAD_COUNT, '0') || '0', 10) || 0,
+    setThreeNoUnreadCount: (count = 0) => Storage.set(CONFIG.KEYS.THREE_NO_UNREAD_COUNT, String(Math.max(0, parseInt(count || '0', 10) || 0))),
+    clearThreeNoUnread: () => Storage.setThreeNoUnreadCount(0),
+    getThreeNoCandidateThreshold: () => {
+        const raw = parseInt(Storage.get(CONFIG.KEYS.THREE_NO_CANDIDATE_THRESHOLD, String(CONFIG.THREE_NO_SCAN_CANDIDATE_REPORT_THRESHOLD || 100)), 10);
+        const fallback = parseInt(CONFIG.THREE_NO_SCAN_CANDIDATE_REPORT_THRESHOLD || '100', 10) || 100;
+        return Math.max(10, Math.min(1000, Number.isFinite(raw) ? raw : fallback));
+    },
+    setThreeNoCandidateThreshold: (value) => {
+        const parsed = parseInt(value, 10);
+        const normalized = Math.max(10, Math.min(1000, Number.isFinite(parsed) ? parsed : (CONFIG.THREE_NO_SCAN_CANDIDATE_REPORT_THRESHOLD || 100)));
+        Storage.set(CONFIG.KEYS.THREE_NO_CANDIDATE_THRESHOLD, String(normalized));
+        return normalized;
+    },
+    isThreeNoAutoBlockEnabled: () => Storage.get(CONFIG.KEYS.THREE_NO_AUTO_BLOCK, 'false') === 'true',
+    setThreeNoAutoBlockEnabled: (enabled) => Storage.set(CONFIG.KEYS.THREE_NO_AUTO_BLOCK, enabled ? 'true' : 'false'),
+    getThreeNoIgnoredUsers: () => {
+        const raw = Storage.getJSON(CONFIG.KEYS.THREE_NO_IGNORED_USERS, {});
+        return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    },
+    ignoreThreeNoUser: (username, days = 7) => {
+        const u = String(username || '').trim();
+        if (!u) return false;
+        const ignored = Storage.getThreeNoIgnoredUsers();
+        ignored[u] = Date.now() + Math.max(1, parseInt(days || '7', 10) || 7) * 24 * 3600 * 1000;
+        Storage.setJSON(CONFIG.KEYS.THREE_NO_IGNORED_USERS, ignored);
+        return true;
+    },
+    isThreeNoUserIgnored: (username, now = Date.now()) => {
+        const u = String(username || '').trim();
+        if (!u) return false;
+        const ignored = Storage.getThreeNoIgnoredUsers();
+        const until = parseInt(ignored[u] || '0', 10) || 0;
+        if (until <= 0) return false;
+        if (until <= now) {
+            delete ignored[u];
+            Storage.setJSON(CONFIG.KEYS.THREE_NO_IGNORED_USERS, ignored);
+            return false;
+        }
+        return true;
+    },
+
     getBlockContextMap: () => {
         const raw = Storage.getJSON(CONFIG.KEYS.BLOCK_CONTEXT_MAP, {});
         return (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};

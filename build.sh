@@ -47,8 +47,10 @@ else
 fi
 
 STORE_VERSION="$APP_VERSION"
+IS_BETA_BUILD=false
 if [[ "$APP_VERSION" == *"-beta"* ]]; then
     STORE_VERSION=$(echo "$APP_VERSION" | sed -E 's/-beta/./g')
+    IS_BETA_BUILD=true
 fi
 
 echo "(function() {" > "$TEMP_BUNDLE"
@@ -65,6 +67,7 @@ FILES=(
     "features/post-reservoir-engine.js"
     "features/report-flow.js"
     "features/cockroach.js"
+    "features/three-no-watch.js"
     "worker.js"
     "main.js"
 )
@@ -120,10 +123,16 @@ rm -rf "$EXT_DIR"
 mkdir -p "$EXT_DIR"
 
 cp "$TEMP_BUNDLE" "$EXT_DIR/content.js"
+if [[ "$IS_BETA_BUILD" == "true" && -f "$SRC_DIR/background.js" ]]; then
+    cp "$SRC_DIR/background.js" "$EXT_DIR/background.js"
+fi
 
 if [ -f "$SRC_DIR/manifest.json" ]; then
     cp "$SRC_DIR/manifest.json" "$EXT_DIR/manifest.json"
     sed -i '' -E "s/\"version\": \"[^\"]+\"/\"version\": \"$STORE_VERSION\"/" "$EXT_DIR/manifest.json"
+    if [[ "$IS_BETA_BUILD" == "true" && -f "$SRC_DIR/background.js" ]]; then
+        /usr/bin/perl -0pi -e 's/"content_scripts":/"background": {\n    "service_worker": "background.js"\n  },\n  "content_scripts":/' "$EXT_DIR/manifest.json"
+    fi
 fi
 
 # Copy Icon for Chrome

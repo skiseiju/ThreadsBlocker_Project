@@ -308,17 +308,36 @@ export const Core = {
 
     hasVisibleDialogUserLinks: (ctx) => {
         if (!ctx || !ctx.querySelectorAll) return false;
-        return Array.from(ctx.querySelectorAll('a[href^="/@"]')).some(a => {
+        const users = new Set();
+        Array.from(ctx.querySelectorAll('a[href^="/@"]')).forEach(a => {
             const href = a.getAttribute('href') || '';
-            if (!href.match(/^\/@[^/?#]+/)) return false;
+            const match = href.match(/^\/@([^/?#]+)/);
+            if (!match || href.includes('/post/')) return;
             const rect = a.getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0;
+            if (rect.width > 0 && rect.height > 0) users.add(Core.normalizeUsername ? Core.normalizeUsername(match[1]) : String(match[1] || ''));
+        });
+        return users.size >= 2;
+    },
+
+    isReplyComposerDialog: (ctx) => {
+        if (!ctx || ctx === document.body) return false;
+        const text = (ctx.innerText || ctx.textContent || '').replace(/\s+/g, ' ').trim();
+        if (/回覆給|發佈回覆|新增回覆|撰寫回覆|Post your reply|Reply to|Add a reply/i.test(text)) return true;
+        return Array.from(ctx.querySelectorAll('textarea, [contenteditable="true"], [role="textbox"]')).some(el => {
+            const label = [
+                el.getAttribute('aria-label') || '',
+                el.getAttribute('placeholder') || '',
+                el.innerText || '',
+                el.textContent || '',
+            ].join(' ');
+            return /回覆|reply/i.test(label);
         });
     },
 
     getSupportedDialogTitle: (ctx) => {
         if (!ctx) return null;
         const isDialog = ctx !== document.body;
+        if (Core.isReplyComposerDialog(ctx)) return null;
         const isExcluded = (text) => ['回覆', '回文', 'Reply', 'Replies', '回應', '新串文', 'New thread', '發佈串文', 'Post', '編輯', 'Edit', '刪除', '删除', 'Delete', '確定刪除', '確認刪除'].some(t => text.includes(t));
         const isSupported = (text, allowAnyDialogHeader = false) => {
             const value = String(text || '').trim();
@@ -1668,6 +1687,78 @@ export const Core = {
                 retryItem.style.display = 'none';
                 retryItem.title = '';
             }
+        }
+
+        const threeNoResults = Storage.getThreeNoScanResults();
+        const threeNoVisibleCount = threeNoResults.autoBlockStarted ? 0 : (threeNoResults.users || [])
+            .filter(item => !Storage.isThreeNoUserIgnored(item.username))
+            .length;
+        const threeNoUnreadCount = Storage.getThreeNoUnreadCount();
+        const threeNoItem = document.getElementById('hege-three-no-item');
+        const threeNoLabel = document.getElementById('hege-three-no-label');
+        const threeNoCount = document.getElementById('hege-three-no-count');
+        const threeNoAlert = document.getElementById('hege-three-no-alert');
+        const profileThreeNoItem = document.getElementById('hege-three-no-profile-item');
+        const profileThreeNoCount = document.getElementById('hege-three-no-profile-count');
+        const currentProfile = Core.ThreeNoWatch?.getCurrentProfileUsername?.() || '';
+        const myUsername = Utils.getMyUsername ? Core.ThreeNoWatch?.normalizeUsername?.(Utils.getMyUsername() || '') : '';
+        const profileRootText = (document.querySelector('main, div[role="main"]')?.innerText || '').replace(/\s+/g, ' ').slice(0, 900);
+        const isOwnProfilePage = !!currentProfile && (currentProfile === myUsername || /編輯個人檔案|Edit profile/i.test(profileRootText));
+        const showProfileScan = !!currentProfile && !isOwnProfilePage && !Core.ThreeNoWatch?.isScanPage?.();
+        const getThreeNoProgressText = (scanState = {}) => {
+            const checked = parseInt(scanState.checkedFollowersCount || '0', 10) || 0;
+            const total = parseInt(scanState.candidateFollowersCount || '0', 10) || 0;
+            if (scanState.status === 'collecting_followers') return '收集中';
+            if (scanState.status === 'stopping') return '停止中';
+            if (total > 0) return `${Math.min(checked + 1, total)}/${total}`;
+            return '啟動中';
+        };
+        let scanState = {};
+        let scanRunning = false;
+        if (threeNoItem) {
+            scanState = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
+            const scanUpdatedAt = parseInt(scanState.updatedAt || '0', 10) || 0;
+            scanRunning = ['starting', 'running', 'collecting_followers', 'followers_collected', 'checking_profiles', 'stopping'].includes(scanState.status)
+                && scanUpdatedAt > 0
+                && Date.now() - scanUpdatedAt < 90 * 1000;
+            threeNoItem.style.display = showProfileScan ? 'none' : 'flex';
+            if (threeNoVisibleCount > 0 || threeNoUnreadCount > 0) {
+                threeNoItem.style.color = '#ff453a';
+                if (threeNoLabel) threeNoLabel.textContent = '管理三無追蹤者';
+                if (threeNoCount) threeNoCount.textContent = `${Math.max(threeNoVisibleCount, threeNoUnreadCount)} 位`;
+                threeNoItem.title = threeNoResults.completedAt
+                    ? `累計已掃 ${threeNoResults.checkedFollowersCount} 位；${threeNoResults.hasMore ? '可再掃下一批' : '已掃到底'}；上次掃描：${new Date(threeNoResults.completedAt).toLocaleString('zh-TW')}`
+                    : '';
+            } else if (scanRunning) {
+                threeNoItem.style.color = '#30d158';
+                if (threeNoLabel) threeNoLabel.textContent = '掃描三無追蹤者';
+                if (threeNoCount) threeNoCount.textContent = getThreeNoProgressText(scanState);
+                threeNoItem.title = scanState.current ? `正在檢查 @${scanState.current}` : '三無追蹤者掃描中';
+            } else {
+                threeNoItem.style.color = '#f5f5f5';
+                if (threeNoLabel) threeNoLabel.textContent = '掃描三無追蹤者';
+                if (threeNoCount) threeNoCount.textContent = '可手動';
+                threeNoItem.title = threeNoResults.completedAt
+                    ? `目前沒有未處理的三無管理名單；點擊會重新掃描自己的粉絲。上次掃描：${new Date(threeNoResults.completedAt).toLocaleString('zh-TW')}`
+                    : '手動掃描三無追蹤者';
+            }
+        }
+        if (threeNoAlert) {
+            threeNoAlert.classList.toggle('active', threeNoUnreadCount > 0);
+            threeNoAlert.title = threeNoUnreadCount > 0 ? `發現 ${threeNoUnreadCount} 位三無追蹤者` : '';
+        }
+
+        if (profileThreeNoItem) {
+            profileThreeNoItem.style.display = showProfileScan ? 'flex' : 'none';
+            profileThreeNoItem.style.color = scanRunning ? '#30d158' : '#8ab4f8';
+            profileThreeNoItem.title = showProfileScan
+                ? (scanRunning
+                    ? (scanState.current ? `正在檢查 @${scanState.current}` : '三無追蹤者掃描中')
+                    : `掃描 @${currentProfile} 的粉絲三無帳號`)
+                : '';
+            if (profileThreeNoCount) profileThreeNoCount.textContent = showProfileScan
+                ? (scanRunning ? getThreeNoProgressText(scanState) : `@${currentProfile}`)
+                : '';
         }
 
         // 檢舉計數：已在 REPORT_QUEUE + 目前勾選但尚未加入檢舉佇列的人

@@ -98,6 +98,57 @@ location.reload();
 
 ---
 
+## Chrome-only 手動三無追蹤者掃描
+
+**檔案**：`main.js` → `features/three-no-watch.js`
+**適用**：Chrome Extension
+**不適用**：Userscript / Safari / Firefox
+
+### 流程
+
+1. 使用者在 floating menu 點選「掃描三無追蹤者」後，`Core.ThreeNoWatch.startManualScan()` 檢查掃描鎖與背景 worker 是否忙碌。
+2. 若符合條件，content script 直接用 `window.open(...hege_bg=true&hege_three_no_scan=true...)` 開啟 Threads worker 分頁；在其他人的 profile 頁可使用「掃描此帳號粉絲三無」，此時 `hege_three_no_target_owner` 會指定掃描對象。
+3. worker 分頁先 bootstrap 自己的 Threads username，再進入自己的 profile，開啟粉絲 dialog 並以 `CONFIG.THREE_NO_SCAN_BATCH_SIZE` 位粉絲為單位自動續掃；已掃過帳號記錄在本機 cursor，同一個 worker 會持續往下收集，直到備選名單超過使用者設定的 `hege_three_no_candidate_threshold`（預設 `CONFIG.THREE_NO_SCAN_CANDIDATE_REPORT_THRESHOLD`）、掃到底，或遇到無法再前進的防呆狀態才產出報告。
+4. 粉絲列表會先做候選預篩：列表無可見頭像者優先進 profile 檢查；Threads / Instagram 匿名預設頭像（例如 `anonymous_profile_pic` / `ig_cache_key=YW5vbnltb3VzX3Byb2ZpbGVfcGlj` / static CDN fallback `5OTfmveiK1K.jpg`）必須視為無頭像；列表已有非預設可見頭像但 username 符合「動物字詞 + 數字亂碼」/ `a09xxxxxxxx` 台灣手機格式者，也會作為次要候選進 profile 檢查；列表已有非預設可見頭像且 username 正常者會寫入本批 cursor 但不進 profile。
+5. worker 進入 profile 後保守判斷：必須無大頭照，且同時符合「無自我介紹 / 無發文 / 無回文 / 無轉貼 / 命名可疑」任一項，才列入三無管理清單。worker 也會嘗試讀取「關於此個人檔案」中的加入時間與所在地點，供本機標籤與 filter 使用。
+6. 結果寫入同 origin `localStorage`，主分頁透過 storage sync / polling 更新 floating icon 與 menu，並在新的掃描結果完成時自動彈出報告；自動彈報告只允許出現在啟動掃描的原本 tab（以 `sessionStorage` / `window.name` 的 scan anchor 判定），避免使用者從報告點開帳號檢查時，新開 profile tab 又重複跳出報告；worker 會先自動續掃到備選門檻或掃到底，不會每一小批都要求使用者按「續掃下一批」。完成結果會以 username 合併到既有本機三無管理清單，不因下一次掃描覆蓋舊資料。
+7. 管理視窗讓使用者自行決定後續處理：可用多重 filter 依三無原因、加入時間、國家/地區、掃描來源與掃描日期縮小清單，再勾選加入清理名單、忽略或直接封鎖。若使用者在設定中開啟 `hege_three_no_auto_block`，掃描完成後會直接把本批新三無名單加入既有 `BG_QUEUE`，設定 `WORKER_MODE=block`，並讓同一個 worker 分頁轉入一般封鎖 worker；此路徑不新增 Chrome 權限。
+8. 掃描完成後，worker 分頁嘗試上傳匿名 aggregate 統計，寫入報告狀態，然後呼叫 `window.close()` 關閉自己。
+
+### 權限邊界
+
+- 三無掃描不使用 MV3 background service worker；必須由使用者點擊觸發 `window.open`，與一般 Desktop 背景分頁 Worker 模型一致。
+- 不使用 `chrome.scripting` 動態注入。
+- 不要求 `tabs` permission；不讀取 tab URL / title / favicon 等敏感欄位。
+- 三無名單與標籤只留在本機；平台 payload 只包含檢查人數、三無人數、掃描狀態等 aggregate。
+- 三無掃描不自動封鎖；使用者必須在報告中加入清理名單，或按「直接封鎖全部」並二次確認，才會啟動封鎖 worker。
+- 目前 cursor 只用於同一輪分批續掃；永久「只掃新粉絲」是未來可選設定，不是預設行為。
+- 測試版可在升版時清除未完成的三無掃描 state 方便重測；若已產生 completed report，升版不得清除 results/cursor，避免測試用報告資料消失。正式版不得因升版清除使用者既有三無掃描報告或 cursor。
+
+---
+
+## Chrome beta 開發版重新載入
+
+**檔案**：`main.js` → `background.js`（僅 beta build 由 `build.sh` 包入）
+**適用**：Chrome Extension beta / dev build
+**不適用**：正式版、Userscript、Safari、Firefox
+
+### 流程
+
+1. beta content script 在 Threads 頁面安裝 `hege:dev-reload-extension` DOM event bridge，並在設定 → 資料與工具顯示「重新載入開發版」。
+2. 觸發後 content script 先注入 page-world `setTimeout(location.reload)`，確保 extension reload 後目前 Threads tab 會重新載入新 content script。
+3. content script 送出 `HEGE_DEV_RELOAD_EXTENSION` message 給 beta-only MV3 service worker。
+4. service worker 驗證 sender URL 必須是 Threads 網域後呼叫 `chrome.runtime.reload()`。
+5. 正式 build 不會複製 `background.js`，也不會在 manifest 插入 `background.service_worker`，避免正式版多出開發入口或 background lifecycle。
+
+### 邊界
+
+- 此功能只解決「已安裝 beta helper 之後」的開發重載；第一次升到包含 helper 的 beta 仍需手動在 `chrome://extensions` reload 一次。
+- 不新增 `tabs` / `scripting` permissions，不讀 tab 清單、不動 `chrome://extensions`。
+- 不可用於正式版；release parity 檢查需確認正式版 manifest 不含 `background`，且 UI 不含「重新載入開發版」。
+
+---
+
 ## 其他觸發封鎖的入口
 
 ### 清理名單 Picker (`handleCleanList`)
@@ -184,6 +235,16 @@ Desktop: click(handleGlobalClick, capture: true) + ontouchend(stopPropagation)
 | `hege_verify_pending` | localStorage | Reload 驗證時暫存的待驗證使用者名稱 |
 | `hege_post_fallback` | localStorage | 貼文備案封鎖開關 (`true`/`false`，預設 `true`) |
 | `hege_release_notes_seen_version` | localStorage | 已看過新版更新摘要的版本；只控制 changelog / 贊助提示是否重複顯示，不影響佇列、同意或封鎖資料 |
+| `hege_three_no_last_scan_date` | localStorage | 最近一次三無掃描的本地日期 key |
+| `hege_three_no_scan_state` | localStorage (JSON) | 三無掃描目前狀態與進度摘要，不包含三無名單明細 |
+| `hege_three_no_scan_results` | localStorage (JSON) | 本機三無管理清單；包含本機顯示用 username、三無標籤、加入時間與地區標籤，但不會上傳到平台 |
+| `hege_three_no_scan_cursor` | localStorage (JSON) | 三無分批掃描 cursor；記錄本機已掃過的粉絲 username，用於下次手動掃描接續下一批，不會上傳到平台 |
+| `hege_three_no_scan_lock` | localStorage | 三無掃描鎖，避免多分頁同日重複啟動 |
+| `hege_three_no_unread_count` | localStorage | floating icon 紅色驚嘆號提醒數量 |
+| `hege_three_no_ignored_users` | localStorage (JSON) | 使用者忽略的三無帳號與過期時間 |
+| `hege_three_no_last_stats_upload_scan_id` | localStorage | 最近一次已上傳 aggregate 統計的三無掃描 ID |
+| `hege_three_no_candidate_threshold` | localStorage | 三無掃描備選名單門檻，預設 100，可在設定調整 |
+| `hege_three_no_auto_block` | localStorage | 三無掃描完成後是否直接加入封鎖佇列並啟動 worker |
 
 ---
 

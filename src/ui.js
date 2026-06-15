@@ -131,8 +131,28 @@ export const UI = {
                 cursor: pointer;
                 display: flex; align-items: center; justify-content: space-between;
                 box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+                position: relative;
             }
             #hege-toggle { font-size: 10px; opacity: 0.7; margin-left: 6px; }
+            #hege-three-no-alert {
+                position: absolute; top: -7px; right: -7px;
+                width: 17px; height: 17px; border-radius: 50%;
+                background: #ff3b30; color: #fff; border: 2px solid #101010;
+                font-size: 12px; line-height: 17px; text-align: center; font-weight: 900;
+                display: none; box-shadow: 0 0 0 2px rgba(255,59,48,0.22);
+                pointer-events: none;
+            }
+            #hege-three-no-alert.active {
+                display: block;
+                animation: hege-three-no-blink 0.9s ease-in-out infinite;
+            }
+            @keyframes hege-three-no-blink {
+                0%, 100% { transform: scale(1); opacity: 1; }
+                50% { transform: scale(1.18); opacity: 0.52; }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                #hege-three-no-alert.active { animation: none; }
+            }
 
             #hege-panel.minimized .hege-content { display: none; }
             
@@ -293,10 +313,11 @@ export const UI = {
             <div id="hege-header">
                 <div>留友封 <span id="hege-queue-badge" style="font-size:12px; color:#4cd964; margin-left:4px;"></span></div>
                 <span id="hege-toggle">${isMinimized ? '▼' : '▲'}</span>
+                <span id="hege-three-no-alert">!</span>
             </div>
             <div class="hege-content">
                 <div id="hege-bg-status">執行狀態...</div>
-                
+
                 <div class="hege-menu-item" id="hege-main-btn-item">
                     <span>開始封鎖</span>
                     <span class="status" id="hege-sel-count">0 選取</span>
@@ -319,6 +340,16 @@ export const UI = {
                 <div class="hege-menu-item" id="hege-endless-queue-item">
                     <span>貼文水庫</span>
                     <span class="status" id="hege-endless-queue-count">0 篇</span>
+                </div>
+
+                <div class="hege-menu-item" id="hege-three-no-item" style="color:#f5f5f5;">
+                    <span id="hege-three-no-label">掃描三無追蹤者</span>
+                    <span class="status" id="hege-three-no-count">可手動</span>
+                </div>
+
+                <div class="hege-menu-item" id="hege-three-no-profile-item" style="color:#8ab4f8;display:none;">
+                    <span id="hege-three-no-profile-label">掃描此帳號粉絲三無</span>
+                    <span class="status" id="hege-three-no-profile-count">目前頁</span>
                 </div>
 
                 <div class="hege-menu-item" id="hege-settings-item">
@@ -354,6 +385,8 @@ export const UI = {
         };
 
         bindClick('hege-main-btn-item', callbacks.onMainClick);
+        bindClick('hege-three-no-item', callbacks.onThreeNoFollowers);
+        bindClick('hege-three-no-profile-item', callbacks.onThreeNoProfileFollowers);
         bindClick('hege-report-btn-item', callbacks.onStartReport);
         bindClick('hege-clear-sel-item', callbacks.onClearSel);
         bindClick('hege-retry-failed-item', callbacks.onRetryFailed);
@@ -538,6 +571,15 @@ export const UI = {
                 </div>
                 <div style="padding:20px 24px;overflow-y:auto;-webkit-overflow-scrolling:touch;font-size:13px;line-height:1.7;color:#d5d5d5;">
                     <p style="margin:0 0 8px;color:#888;font-size:12px;">版本 ${Utils.escapeHTML(CONFIG.VERSION)}</p>
+                    <div style="margin:0 0 16px;padding:13px 14px;border:1px solid rgba(236,195,81,0.42);border-radius:10px;background:rgba(236,195,81,0.10);color:#f4e2a2;line-height:1.65;">
+                        <div style="font-weight:800;color:#ffe69a;margin-bottom:6px;">開發者近況提醒</div>
+                        <div style="color:#eadfbf;">
+                            這一版因為我的個人 Threads、Facebook，以及商業攝影帳號都已被 Meta 停用，沒辦法像以前一樣做完整實帳測試。核心功能目前在可測範圍內確認可用，但仍可能有我沒抓到的 bug，先請大家見諒。
+                        </div>
+                        <div style="margin-top:8px;color:#eadfbf;">
+                            接下來我會暫停開發一段時間，先處理本業帳號、Facebook 與申訴。如果你知道其他有效的 Meta / Threads / Facebook 申訴管道，歡迎提供給我；如果留友封有幫上忙，也可以用「贊助我喝咖啡」支持我。謝謝大家。
+                        </div>
+                    </div>
                     <p style="margin:0 0 12px;color:#f2f2f2;font-weight:700;">重新跟大家介紹一下主要功能。</p>
                     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-bottom:18px;">
                         <div style="border:1px solid #303030;border-radius:8px;padding:11px 12px;background:#141414;">
@@ -564,14 +606,19 @@ export const UI = {
                             <div style="font-weight:700;color:#fff;margin-bottom:4px;">本機分析與觀測</div>
                             <div style="font-size:12px;color:#aaa;line-height:1.55;">本機整理來源、分類與趨勢；匿名上傳需同意，可隨時調整。</div>
                         </div>
+                        <div style="border:1px solid #303030;border-radius:8px;padding:11px 12px;background:#141414;">
+                            <div style="font-weight:700;color:#fff;margin-bottom:4px;">三無追蹤者提醒</div>
+                            <div style="font-size:12px;color:#aaa;line-height:1.55;">Chrome 版可手動開啟掃描 worker，分批檢查無大頭照、無自介、無發文或命名可疑的追蹤者；預設只提醒與列名單。</div>
+                        </div>
                     </div>
                     <p style="margin:0 0 10px;color:#f2f2f2;font-weight:700;">最近更新</p>
                     <ul style="margin:0 0 14px;padding-left:18px;">
-                        <li style="margin-bottom:6px;"><b>粉絲 / 追蹤中清理</b>：可在自己的帳號名單中勾選粉絲或追蹤中帳號。</li>
+                        <li style="margin-bottom:6px;"><b>2.7.0 三無追蹤者掃描</b>：Chrome 版可手動掃自己或指定帳號的粉絲，掃完在原本分頁顯示報告，floating icon 會以紅色驚嘆號提醒。</li>
+                        <li style="margin-bottom:6px;"><b>候選與續掃修正</b>：無大頭照 / 預設大頭照優先檢查，命名可疑也會列入備選；掃描會用本機 cursor 跳過已檢查帳號，並修正過早判定掃到底的問題。</li>
+                        <li style="margin-bottom:6px;"><b>三無後續處理</b>：報告可逐筆加入清理名單，也可二次確認後直接封鎖全部；設定中可調整備選門檻，或開啟掃完後直接封鎖。</li>
+                        <li style="margin-bottom:6px;"><b>粉絲 / 追蹤中清理</b>：粉絲與追蹤中名單支援批次勾選，checkbox 固定在「追蹤對方」旁，確認視窗不再誤顯示清理入口。</li>
                         <li style="margin-bottom:6px;"><b>平台觀測資料鏈路</b>：整合 raw 保存、D1/R2 後端修復、文字指紋、時間桶與上傳同意延續。</li>
                         <li style="margin-bottom:6px;"><b>定點絕定位修復</b>：掃描前先鎖定目標貼文，避免抓到錯誤互動名單。</li>
-                        <li style="margin-bottom:6px;"><b>長名單提醒修正</b>：大蟑螂回望提醒改成可捲動視窗，避免小視窗或長名單卡住。</li>
-                        <li><b>只檢舉與來源分析</b>：檢舉佇列、來源證據與本機分析面板整理成更完整的流程。</li>
                     </ul>
                     <div style="margin:0;padding:12px 14px;border:1px solid rgba(236,195,81,0.35);border-radius:10px;background:rgba(236,195,81,0.10);color:#f6df92;font-weight:700;line-height:1.55;">
                         如果留友封有幫上你的忙，也歡迎贊助我喝咖啡。謝謝大家的支持。
@@ -629,7 +676,7 @@ export const UI = {
                         <p style="margin:0;">你的 Email、Google 帳號或真實姓名。</p>
                     </div>
                     <p style="margin:0 0 12px;color:#b8b8b8;">觀測結果只代表公開樣本中的行為模式，不是對任何個別帳號、個人或組織的法律判定，也不鼓勵騷擾、肉搜、威脅或私下攻擊任何人。</p>
-                    <p style="margin:0 0 12px;">資料只用於公開統計、濫用偵測與方法改進，不用於廣告、再行銷或出售。你可以先看看<a href="https://threadsblocker.skiseiju.com/platform/?mock=1" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">示範觀測平台</a>會長什麼樣子，再決定也可以；也可以選擇只手動上傳，之後隨時能在「來源分析報告」中更改。</p>
+                    <p style="margin:0 0 12px;">資料只用於公開統計、濫用偵測與方法改進，不用於廣告、再行銷或出售。新版會額外上傳三無追蹤者掃描的統計數量（例如檢查人數、符合三無人數），不包含三無名單、帳號、頭像網址或自介內容。你可以先看看<a href="https://threadsblocker.skiseiju.com/platform/?mock=1" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">示範觀測平台</a>會長什麼樣子，再決定也可以；也可以選擇只手動上傳，之後隨時能在「來源分析報告」中更改。</p>
                     <p style="margin:0;color:#8ab4f8;">維護者與成果預覽：<a href="https://www.threads.com/@skiseiju" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">Threads @skiseiju</a> / <a href="https://skiseiju.com" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">skiseiju.com</a> / <a href="https://github.com/skiseiju/ThreadsBlocker_Project" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">GitHub @skiseiju</a> / <a href="https://threadsblocker.skiseiju.com/platform/" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">正式觀測平台</a> / <a href="https://threadsblocker.skiseiju.com/platform/?mock=1" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">示範觀測平台</a></p>
                 </div>
                 <div class="hege-manager-footer">
@@ -976,12 +1023,345 @@ export const UI = {
         document.body.appendChild(overlay);
     },
 
+    showThreeNoFollowersModal: (callbacks = {}) => {
+        if (document.getElementById('hege-three-no-overlay')) return;
+        const results = Storage.getThreeNoScanResults();
+        const users = (results.users || []).filter(item => !Storage.isThreeNoUserIgnored(item.username));
+        const scanTargetOwner = String(results.scanTargetOwner || '').trim();
+        const overlay = document.createElement('div');
+        overlay.id = 'hege-three-no-overlay';
+        overlay.className = 'hege-manager-overlay';
+
+        const uniqueScanDates = [...new Set(users.flatMap(item => Array.isArray(item.scanDates) ? item.scanDates : [item.scanDate])
+            .map(v => String(v || '').trim())
+            .filter(Boolean))].sort().reverse();
+        const showDateFilter = uniqueScanDates.length > 1;
+        const isMissingRegion = (item = {}) => item.regionShared !== true
+            || /未分享|not shared|not available/i.test(String(item.countryTag || item.locationLabel || ''));
+        const getCountryTag = (item = {}) => {
+            const country = item.countryTag || (item.regionShared ? item.locationLabel : '');
+            return String(country || '').trim();
+        };
+        const uniqueCountries = [...new Set(users
+            .map(getCountryTag)
+            .filter(country => country && !/地區未分享|未分享|not shared|not available/i.test(country)))].sort();
+        const uniqueOwners = [...new Set(users.flatMap(item => Array.isArray(item.targetOwners) ? item.targetOwners : [item.scanTargetOwner])
+            .map(v => String(v || '').trim())
+            .filter(Boolean))].sort();
+        const tagStyle = (tone = 'red') => {
+            const colors = {
+                red: ['#ffb4ad', 'rgba(255,59,48,0.35)'],
+                blue: ['#9ad0ff', 'rgba(64,156,255,0.35)'],
+                green: ['#a8e6b0', 'rgba(48,209,88,0.35)'],
+                gray: ['#bbb', 'rgba(255,255,255,0.20)'],
+                gold: ['#f6df92', 'rgba(236,195,81,0.35)'],
+            };
+            const [color, border] = colors[tone] || colors.gray;
+            return `font-size:10px;color:${color};border:1px solid ${border};border-radius:999px;padding:2px 6px;`;
+        };
+        const checkedAtText = results.completedAt > 0
+            ? new Date(results.completedAt).toLocaleString('zh-TW')
+            : '尚未完成';
+        const statusText = results.status === 'completed'
+            ? `累計已檢查 ${scanTargetOwner ? `@${Utils.escapeHTML(scanTargetOwner)} 的 ` : ''}${results.checkedFollowersCount} 位粉絲，本批 ${results.batchCheckedFollowersCount} 位`
+            : (results.status ? `狀態：${Utils.escapeHTML(results.status)}` : '尚未掃描');
+        const limitedText = results.hasMore ? ' · 可續掃下一批' : ' · 已掃到底';
+        const autoBlockText = results.autoBlockStarted ? ` · 已自動加入封鎖佇列 ${results.autoBlockQueuedCount} 位` : '';
+        const titleText = '管理三無追蹤者';
+        const emptyText = results.completedAt > 0
+            ? '目前沒有未處理的三無追蹤者。'
+            : '目前沒有未處理的三無追蹤者。';
+
+        Utils.setHTML(overlay, `
+            <div class="hege-manager-box" style="width:min(94vw,820px);max-width:820px;max-height:calc(100vh - 28px);max-height:calc(100dvh - 28px);">
+                <div class="hege-manager-header">
+                    <span class="hege-manager-title">${Utils.escapeHTML(titleText)}</span>
+                    <span class="hege-manager-close">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+                    </span>
+                </div>
+                <div style="padding:14px 20px;border-bottom:1px solid #2a2a2a;color:#aaa;font-size:12px;line-height:1.45;">
+                    <div style="color:#f5f5f5;font-weight:700;margin-bottom:4px;">${users.length} 位三無追蹤者管理名單</div>
+                    <div>${statusText}${limitedText}${autoBlockText} · ${checkedAtText}</div>
+                    <div style="margin-top:6px;color:#888;">清單會累加保存；可先用多重篩選縮小範圍，再勾選加入清理、忽略或直接封鎖。</div>
+                    ${users.length > 0 ? `
+                        <div id="hege-three-no-filters" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center;">
+                            ${[
+                                ['noAvatar', '無頭貼'],
+                                ['noBio', '無自介'],
+                                ['noPosts', '無發文'],
+                                ['noReplies', '無回文'],
+                                ['noReposts', '無轉貼'],
+                                ['zeroFollowers', '粉絲為0'],
+                                ['followersUnder30', '粉絲低於30'],
+                                ['suspiciousUsername', '命名可疑'],
+                                ['isNewAccount', '新帳號'],
+                                ['regionMissing', '地區未分享'],
+                            ].map(([key, label]) => `
+                                <label style="display:flex;align-items:center;gap:4px;border:1px solid #333;border-radius:999px;padding:4px 8px;color:#ddd;background:#151515;">
+                                    <input type="checkbox" data-hege-filter-trait="${key}" style="margin:0;"> ${label}
+                                </label>
+                            `).join('')}
+                            <select id="hege-three-no-age-filter" style="background:#151515;color:#ddd;border:1px solid #333;border-radius:6px;padding:5px 8px;font-size:12px;">
+                                <option value="">帳號時間</option>
+                                <option value="93">低於3個月</option>
+                                <option value="186">低於半年</option>
+                                <option value="366">低於一年</option>
+                            </select>
+                            ${uniqueCountries.length > 0 ? `
+                                <select id="hege-three-no-country-filter" style="background:#151515;color:#ddd;border:1px solid #333;border-radius:6px;padding:5px 8px;font-size:12px;">
+                                    <option value="">國家/地區</option>
+                                    ${uniqueCountries.map(country => `<option value="${Utils.escapeHTML(country)}">${Utils.escapeHTML(country)}</option>`).join('')}
+                                </select>
+                            ` : ''}
+                            ${uniqueOwners.length > 1 ? `
+                                <select id="hege-three-no-owner-filter" style="background:#151515;color:#ddd;border:1px solid #333;border-radius:6px;padding:5px 8px;font-size:12px;">
+                                    <option value="">掃描來源</option>
+                                    ${uniqueOwners.map(owner => `<option value="${Utils.escapeHTML(owner)}">@${Utils.escapeHTML(owner)}</option>`).join('')}
+                                </select>
+                            ` : ''}
+                            ${showDateFilter ? `
+                                <select id="hege-three-no-date-filter" style="background:#151515;color:#ddd;border:1px solid #333;border-radius:6px;padding:5px 8px;font-size:12px;">
+                                    <option value="">掃描日期</option>
+                                    ${uniqueScanDates.map(date => `<option value="${Utils.escapeHTML(date)}">${Utils.escapeHTML(date)}</option>`).join('')}
+                                </select>
+                            ` : ''}
+                            <button class="hege-manager-btn secondary" id="hege-three-no-filter-reset" style="padding:5px 9px;font-size:12px;">清除篩選</button>
+                        </div>
+                        <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:10px;">
+                            <label style="display:flex;align-items:center;gap:6px;color:#ddd;">
+                                <input type="checkbox" id="hege-three-no-select-visible" style="margin:0;"> 勾選目前篩選結果
+                            </label>
+                            <span id="hege-three-no-filter-count" style="color:#888;">顯示 ${users.length} / ${users.length}</span>
+                        </div>
+                    ` : ''}
+                </div>
+                <div class="hege-manager-list" style="padding:0;min-height:120px;">
+                    ${users.length === 0 ? `
+                        <div style="padding:28px 22px;color:#888;text-align:center;font-size:13px;line-height:1.5;">
+                            ${Utils.escapeHTML(emptyText)}
+                            ${results.hasMore ? '<div style="margin-top:8px;color:#aaa;">可以續掃下一批。</div>' : ''}
+                        </div>
+                    ` : users.map(item => {
+                        const safeU = Utils.escapeHTML(item.username);
+                        const safeUrl = Utils.escapeHTML(item.profileUrl || `https://www.threads.com/@${item.username}`);
+                        const timeText = item.checkedAt ? new Date(item.checkedAt).toLocaleString('zh-TW') : '';
+                        const ownerText = (Array.isArray(item.targetOwners) && item.targetOwners.length > 0)
+                            ? item.targetOwners.map(owner => `@${owner}`).join(', ')
+                            : (item.scanTargetOwner ? `@${item.scanTargetOwner}` : '');
+                        const scanDates = Array.isArray(item.scanDates) ? item.scanDates : [item.scanDate].filter(Boolean);
+                        const countryTag = getCountryTag(item) || '地區未分享';
+                        const regionMissing = isMissingRegion(item);
+                        const noRepliesKnown = item.noRepliesKnown === true || (parseInt(item.profileSignalsVersion || '0', 10) || 0) >= 2;
+                        const noRepostsKnown = item.noRepostsKnown === true || (parseInt(item.profileSignalsVersion || '0', 10) || 0) >= 2;
+                        const followerCountKnown = item.followerCountKnown === true;
+                        const followerCount = parseInt(item.followerCount || '0', 10) || 0;
+                        const zeroFollowers = followerCountKnown && followerCount === 0;
+                        const followersUnder30 = followerCountKnown && followerCount < 30;
+                        const tags = [
+                            item.noAvatar ? ['無大頭照', 'red'] : null,
+                            item.noBio ? ['無自介', 'red'] : null,
+                            item.noPosts ? ['無發文', 'red'] : null,
+                            item.noReplies ? ['無回文', 'red'] : (!noRepliesKnown ? ['回文待重掃', 'gray'] : null),
+                            item.noReposts ? ['無轉貼', 'red'] : (!noRepostsKnown ? ['轉貼待重掃', 'gray'] : null),
+                            zeroFollowers ? ['粉絲 0', 'gold'] : null,
+                            (!zeroFollowers && followersUnder30) ? [`粉絲 ${followerCount}`, 'gold'] : null,
+                            item.suspiciousUsername ? ['命名可疑', 'gold'] : null,
+                            item.isNewAccount ? ['新帳號', 'blue'] : null,
+                            item.accountAgeBucket ? [item.accountAgeBucket, 'blue'] : null,
+                            countryTag ? [countryTag, regionMissing ? 'gray' : 'green'] : null,
+                        ].filter(Boolean);
+                        const traitValues = [
+                            item.noAvatar ? 'noAvatar' : '',
+                            item.noBio ? 'noBio' : '',
+                            item.noPosts ? 'noPosts' : '',
+                            item.noReplies ? 'noReplies' : '',
+                            item.noReposts ? 'noReposts' : '',
+                            zeroFollowers ? 'zeroFollowers' : '',
+                            followersUnder30 ? 'followersUnder30' : '',
+                            item.suspiciousUsername ? 'suspiciousUsername' : '',
+                            item.isNewAccount ? 'isNewAccount' : '',
+                            regionMissing ? 'regionMissing' : '',
+                        ].filter(Boolean).join(',');
+                        return `
+                            <div class="hege-manager-item hege-three-no-row"
+                                data-username="${safeU}"
+                                data-traits="${Utils.escapeHTML(traitValues)}"
+                                data-age-days="${item.accountAgeDays || ''}"
+                                data-country="${Utils.escapeHTML(countryTag || '')}"
+                                data-owners="${Utils.escapeHTML((item.targetOwners || []).join(','))}"
+                                data-scan-dates="${Utils.escapeHTML(scanDates.join(','))}"
+                                style="gap:10px;align-items:flex-start;">
+                                <input class="hege-three-no-select" type="checkbox" data-username="${safeU}" style="margin-top:8px;">
+                                <div class="user-info" style="min-width:0;">
+                                    <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="username" style="color:#f5f5f5;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">@${safeU}</a>
+                                    <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px;">
+                                        ${tags.map(([tag, tone]) => `<span style="${tagStyle(tone)}">${Utils.escapeHTML(tag)}</span>`).join('')}
+                                    </div>
+                                    <div style="font-size:11px;color:#777;margin-top:4px;">
+                                        ${ownerText ? `來源 ${Utils.escapeHTML(ownerText)} · ` : ''}${scanDates.length ? `掃描 ${Utils.escapeHTML(scanDates.join(', '))} · ` : ''}${timeText}
+                                    </div>
+                                </div>
+                                <button class="hege-three-no-add hege-manager-btn primary" data-username="${safeU}" style="font-size:12px;padding:7px 9px;white-space:nowrap;">加入清理</button>
+                                <button class="hege-three-no-ignore hege-manager-btn secondary" data-username="${safeU}" style="font-size:12px;padding:7px 9px;white-space:nowrap;">忽略</button>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+                <div class="hege-manager-footer">
+                    <span style="font-size:11px;color:#777;">名單只存在本機；平台只上傳統計數量。</span>
+                    ${results.hasMore ? '<button class="hege-manager-btn primary" id="hege-three-no-next-batch">續掃下一批</button>' : ''}
+                    ${users.length > 0 ? '<button class="hege-manager-btn secondary" id="hege-three-no-ignore-selected">忽略勾選</button>' : ''}
+                    ${users.length > 0 ? '<button class="hege-manager-btn primary" id="hege-three-no-add-selected">加入清理勾選</button>' : ''}
+                    ${users.length > 0 ? '<button class="hege-manager-btn primary" id="hege-three-no-block-now">直接封鎖勾選</button>' : ''}
+                    <button class="hege-manager-btn secondary" id="hege-three-no-close">關閉</button>
+                </div>
+            </div>
+        `);
+        document.body.appendChild(overlay);
+
+        const close = () => overlay.remove();
+        overlay.querySelector('.hege-manager-close').onclick = close;
+        overlay.querySelector('#hege-three-no-close').onclick = close;
+        const nextBatchBtn = overlay.querySelector('#hege-three-no-next-batch');
+        if (nextBatchBtn) {
+            nextBatchBtn.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                close();
+                if (callbacks.onStartNextBatch) callbacks.onStartNextBatch();
+            };
+        }
+        const blockNowBtn = overlay.querySelector('#hege-three-no-block-now');
+        if (blockNowBtn) {
+            blockNowBtn.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const selected = getSelectedUsers();
+                if (selected.length === 0) {
+                    UI.showToast('請先勾選要直接封鎖的帳號');
+                    return;
+                }
+                close();
+                if (callbacks.onBlockNow) callbacks.onBlockNow(selected, results);
+            };
+        }
+        const getVisibleRows = () => Array.from(overlay.querySelectorAll('.hege-three-no-row'))
+            .filter(row => row.style.display !== 'none');
+        const getSelectedUsers = () => Array.from(overlay.querySelectorAll('.hege-three-no-select:checked'))
+            .map(input => input.dataset.username)
+            .filter(Boolean);
+        const updateFilterCount = () => {
+            const countEl = overlay.querySelector('#hege-three-no-filter-count');
+            if (countEl) countEl.textContent = `顯示 ${getVisibleRows().length} / ${users.length}`;
+        };
+        const applyFilters = () => {
+            const traits = Array.from(overlay.querySelectorAll('[data-hege-filter-trait]:checked')).map(input => input.dataset.hegeFilterTrait);
+            const ageLimit = parseInt(overlay.querySelector('#hege-three-no-age-filter')?.value || '0', 10) || 0;
+            const country = overlay.querySelector('#hege-three-no-country-filter')?.value || '';
+            const owner = overlay.querySelector('#hege-three-no-owner-filter')?.value || '';
+            const date = overlay.querySelector('#hege-three-no-date-filter')?.value || '';
+            overlay.querySelectorAll('.hege-three-no-row').forEach(row => {
+                const traitSet = new Set(String(row.dataset.traits || '').split(',').filter(Boolean));
+                const ageDays = parseInt(row.dataset.ageDays || '0', 10) || 0;
+                const rowCountry = row.dataset.country || '';
+                const owners = String(row.dataset.owners || '').split(',').filter(Boolean);
+                const dates = String(row.dataset.scanDates || '').split(',').filter(Boolean);
+                const passTraits = traits.every(trait => traitSet.has(trait));
+                const passAge = !ageLimit || (ageDays > 0 && ageDays <= ageLimit);
+                const passCountry = !country || rowCountry === country;
+                const passOwner = !owner || owners.includes(owner);
+                const passDate = !date || dates.includes(date);
+                row.style.display = passTraits && passAge && passCountry && passOwner && passDate ? 'flex' : 'none';
+            });
+            updateFilterCount();
+        };
+        overlay.querySelectorAll('[data-hege-filter-trait], #hege-three-no-age-filter, #hege-three-no-country-filter, #hege-three-no-owner-filter, #hege-three-no-date-filter')
+            .forEach(el => el.addEventListener('change', applyFilters));
+        const resetFilters = overlay.querySelector('#hege-three-no-filter-reset');
+        if (resetFilters) {
+            resetFilters.onclick = () => {
+                overlay.querySelectorAll('[data-hege-filter-trait]').forEach(input => { input.checked = false; });
+                ['#hege-three-no-age-filter', '#hege-three-no-country-filter', '#hege-three-no-owner-filter', '#hege-three-no-date-filter']
+                    .forEach(selector => {
+                        const el = overlay.querySelector(selector);
+                        if (el) el.value = '';
+                    });
+                applyFilters();
+            };
+        }
+        const selectVisible = overlay.querySelector('#hege-three-no-select-visible');
+        if (selectVisible) {
+            selectVisible.onchange = () => {
+                getVisibleRows().forEach(row => {
+                    const input = row.querySelector('.hege-three-no-select');
+                    if (input) input.checked = selectVisible.checked;
+                });
+            };
+        }
+        const addSelected = overlay.querySelector('#hege-three-no-add-selected');
+        if (addSelected) {
+            addSelected.onclick = () => {
+                const selected = getSelectedUsers();
+                if (selected.length === 0) {
+                    UI.showToast('請先勾選要加入清理名單的帳號');
+                    return;
+                }
+                if (callbacks.onAddToCleanList) callbacks.onAddToCleanList(selected);
+            };
+        }
+        const ignoreSelected = overlay.querySelector('#hege-three-no-ignore-selected');
+        if (ignoreSelected) {
+            ignoreSelected.onclick = () => {
+                const selected = getSelectedUsers();
+                if (selected.length === 0) {
+                    UI.showToast('請先勾選要忽略的帳號');
+                    return;
+                }
+                const targets = selected;
+                targets.forEach(username => Storage.ignoreThreeNoUser(username, 7));
+                Storage.setThreeNoUnreadCount(Math.max(0, Storage.getThreeNoUnreadCount() - targets.length));
+                overlay.querySelectorAll('.hege-three-no-row').forEach(row => {
+                    if (targets.includes(row.dataset.username)) row.remove();
+                });
+                updateFilterCount();
+                UI.showToast(`已忽略 ${targets.length} 位三無追蹤者 7 天`);
+            };
+        }
+        overlay.querySelectorAll('.hege-three-no-add').forEach(btn => {
+            btn.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const username = btn.dataset.username;
+                if (callbacks.onAddToCleanList) callbacks.onAddToCleanList([username]);
+            };
+        });
+        overlay.querySelectorAll('.hege-three-no-ignore').forEach(btn => {
+            btn.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const username = btn.dataset.username;
+                Storage.ignoreThreeNoUser(username, 7);
+                Storage.setThreeNoUnreadCount(Math.max(0, Storage.getThreeNoUnreadCount() - 1));
+                const row = btn.closest('.hege-manager-item');
+                if (row) row.remove();
+                UI.showToast(`已忽略 @${username} 7 天`);
+                updateFilterCount();
+            };
+        });
+        applyFilters();
+    },
+
     showSettingsModal: (callbacks) => {
         if (document.getElementById('hege-settings-overlay')) return;
 
         const db = Storage.getBlockDB();
         const reportDebugExportId = Utils.isBetaBuild() ? ['hege', 's', 'export', 'report', 'debug'].join('-') : '';
         const reportDebugExportLabel = Utils.isBetaBuild() ? ['匯出', '檢舉', '診斷'].join('') : '';
+        const devReloadId = callbacks.onDevReloadExtension ? ['hege', 's', 'dev', 'reload'].join('-') : '';
+        const devReloadSectionLabel = callbacks.onDevReloadExtension ? ['開', '發', '版'].join('') : '';
+        const devReloadButtonLabel = callbacks.onDevReloadExtension ? ['重新', '載入', '開發', '版'].join('') : '';
+        const devReloadStatusLabel = callbacks.onDevReloadExtension ? ['beta', 'only'].join(' ') : '';
 
         const overlay = document.createElement('div');
         overlay.id = 'hege-settings-overlay';
@@ -1019,16 +1399,16 @@ export const UI = {
                                     回報問題
                                 </span>
                             </div>
-                            <a href="https://threadsblocker.skiseiju.com" target="_blank" class="hege-menu-item" style="flex:1;border-bottom:none;text-decoration:none;color:#5ac8fa;">
-                                <span style="font-size:12px;">📋 說明</span>
+                            <a href="https://threadsblocker.skiseiju.com" target="_blank" rel="noopener noreferrer" title="留友封產品說明" class="hege-menu-item" style="flex:1;border-bottom:none;text-decoration:none;color:#5ac8fa;">
+                                <span style="font-size:12px;">📋 產品說明</span>
                             </a>
-                            <div class="hege-menu-item" id="hege-s-sponsor" style="flex:1;color:#ecc351;border-bottom:none;">
-                                <span style="font-size:12px;">☕️ 贊助</span>
+                            <div class="hege-menu-item" id="hege-s-sponsor" title="贊助我喝咖啡" style="flex:1;color:#ecc351;border-bottom:none;">
+                                <span style="font-size:12px;">☕️ 贊助我喝咖啡</span>
                             </div>
                             <a id="hege-s-platform" href="${CONFIG.OBSERVATION_PLATFORM_URL}" target="_blank" rel="noopener noreferrer" title="留友封觀測平台" class="hege-menu-item" style="flex:1;color:#30d158;border-bottom:none;text-decoration:none;">
-                                <span style="font-size:12px;">📊 留友封觀測平台</span>
+                                <span style="font-size:12px;">📊 觀測平台</span>
                             </a>
-                            <a href="${CONFIG.DEVELOPER_SITE_URL}" target="_blank" rel="noopener noreferrer" class="hege-menu-item" style="flex:1;color:#8ab4f8;border-bottom:none;text-decoration:none;">
+                            <a href="${CONFIG.DEVELOPER_SITE_URL}" target="_blank" rel="noopener noreferrer" title="開發者網站" class="hege-menu-item" style="flex:1;color:#8ab4f8;border-bottom:none;text-decoration:none;">
                                 <span style="font-size:12px;">🌐 開發者網站</span>
                             </a>
                         </div>
@@ -1052,6 +1432,21 @@ export const UI = {
                             <span>貼文水庫</span>
                             <span class="status">${Storage.postReservoir.getAll().length}</span>
                         </div>
+                        <div style="font-size:11px;color:#666;font-weight:600;padding:6px 8px 0;letter-spacing:1px;">三無掃描</div>
+                        <div class="hege-menu-item" id="hege-s-three-no-threshold-row" style="display:flex; flex-direction:column; align-items:stretch; gap:5px;">
+                            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                                <span>備選名單門檻</span>
+                                <input id="hege-s-three-no-threshold" type="number" min="10" max="1000" step="10" value="${Storage.getThreeNoCandidateThreshold()}" style="width:82px;background:#1a1a1a;border:1px solid #444;color:#f5f5f5;padding:3px 6px;border-radius:4px;font-size:11px;text-align:right;">
+                            </div>
+                            <span style="color:#777;font-size:11px;line-height:1.35;">備選名單超過此數量後，開始進 profile 確認三無。</span>
+                        </div>
+                        <label class="hege-menu-item" id="hege-s-three-no-auto-block-row" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                            <span style="display:flex;flex-direction:column;gap:3px;">
+                                <span>掃完後直接封鎖</span>
+                                <span style="color:#777;font-size:11px;line-height:1.35;">開啟後不自動彈報告，掃描完成會直接加入封鎖佇列並啟動 worker。</span>
+                            </span>
+                            <input id="hege-s-three-no-auto-block" type="checkbox" style="width:18px;height:18px;flex:0 0 auto;">
+                        </label>
                         <div style="font-size:11px;color:#666;font-weight:600;padding:6px 8px 0;letter-spacing:1px;">資料移轉</div>
                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
                             <div class="hege-menu-item" id="hege-s-import" style="border-bottom:none;">
@@ -1072,6 +1467,13 @@ export const UI = {
                         <div style="font-size:11px;color:#666;font-weight:600;padding:6px 8px 0;letter-spacing:1px;">診斷</div>
                         <div class="hege-menu-item" id="${reportDebugExportId}">
                             <span>${reportDebugExportLabel}</span>
+                        </div>
+                        ` : ''}
+                        ${callbacks.onDevReloadExtension && devReloadId ? `
+                        <div style="font-size:11px;color:#666;font-weight:600;padding:6px 8px 0;letter-spacing:1px;">${devReloadSectionLabel}</div>
+                        <div class="hege-menu-item" id="${devReloadId}" style="color:#8ab4f8;">
+                            <span>${devReloadButtonLabel}</span>
+                            <span class="status">${devReloadStatusLabel}</span>
                         </div>
                         ` : ''}
                         <div style="font-size:11px;color:#666;font-weight:600;padding:6px 8px 0;letter-spacing:1px;">危險操作</div>
@@ -1173,6 +1575,7 @@ export const UI = {
         bind('hege-s-import', callbacks.onImport);
         bind('hege-s-export', callbacks.onExport);
         bind(reportDebugExportId, callbacks.onExportReportDebug);
+        bind(devReloadId, callbacks.onDevReloadExtension);
         bind('hege-s-clear-db', callbacks.onClearDB);
         bind('hege-s-report', callbacks.onReport);
         bind('hege-s-analytics', callbacks.onAnalytics);
@@ -1230,6 +1633,31 @@ export const UI = {
             };
             const dailyReportLimitRow = overlay.querySelector('#hege-s-daily-report-limit');
             if (dailyReportLimitRow) dailyReportLimitRow.onclick = (e) => e.stopPropagation();
+        }
+
+        const threeNoThresholdInput = overlay.querySelector('#hege-s-three-no-threshold');
+        if (threeNoThresholdInput) {
+            threeNoThresholdInput.value = String(Storage.getThreeNoCandidateThreshold());
+            const commitThreeNoThreshold = (e) => {
+                const val = Storage.setThreeNoCandidateThreshold(e.target.value);
+                e.target.value = String(val);
+                UI.showToast(`三無備選名單門檻已設為 ${val} 人`);
+            };
+            threeNoThresholdInput.onchange = commitThreeNoThreshold;
+            threeNoThresholdInput.onblur = commitThreeNoThreshold;
+            const threeNoThresholdRow = overlay.querySelector('#hege-s-three-no-threshold-row');
+            if (threeNoThresholdRow) threeNoThresholdRow.onclick = (e) => e.stopPropagation();
+        }
+
+        const threeNoAutoBlockToggle = overlay.querySelector('#hege-s-three-no-auto-block');
+        if (threeNoAutoBlockToggle) {
+            threeNoAutoBlockToggle.checked = Storage.isThreeNoAutoBlockEnabled();
+            threeNoAutoBlockToggle.onchange = (e) => {
+                Storage.setThreeNoAutoBlockEnabled(e.target.checked);
+                UI.showToast(e.target.checked ? '三無掃描完成後會直接封鎖' : '三無掃描完成後會顯示報告');
+            };
+            const threeNoAutoBlockRow = overlay.querySelector('#hege-s-three-no-auto-block-row');
+            if (threeNoAutoBlockRow) threeNoAutoBlockRow.onclick = (e) => e.stopPropagation();
         }
 
         const reportVisualDebugToggle = overlay.querySelector('#hege-s-report-visual-debug-toggle');
@@ -1290,6 +1718,36 @@ export const UI = {
     shouldShowManualUploadReminder: () => {
         const clientPlatform = Reporter.getClientPlatform();
         return clientPlatform === 'ios_userscript';
+    },
+
+    tryUploadThreeNoScanStats: async (options = {}) => {
+        if (Reporter.getClientPlatform() !== 'chrome_extension') return { code: 204, skipped: 'not_chrome_extension' };
+        if (!Storage.hasPlatformSyncConsentForCurrentVersion()) return { code: 204, skipped: 'pending_version_consent' };
+        if (!Storage.getPlatformSyncEnabled()) return { code: 204, skipped: 'disabled' };
+
+        const scan = Storage.getThreeNoScanResults();
+        const scanId = String(options.scanId || scan.scanId || '').trim();
+        if (!scanId || scan.status !== 'completed') return { code: 204, skipped: 'scan_not_completed' };
+        if ((scan.checkedFollowersCount || 0) <= 0 && (scan.threeNoFollowersCount || 0) <= 0) {
+            return { code: 204, skipped: 'empty_scan_stats' };
+        }
+        if (Storage.get(CONFIG.KEYS.THREE_NO_LAST_STATS_UPLOAD_SCAN_ID, '') === scanId) {
+            return { code: 204, skipped: 'scan_stats_already_uploaded' };
+        }
+
+        const exportPayload = UI.buildPlatformExportPayload({
+            platformSyncEnabled: true,
+            platformSyncLastAt: Storage.getPlatformSyncLastAt(),
+        });
+        const result = await Reporter.submitPlatformPayload(exportPayload, {
+            source: 'three_no_scan',
+            trigger: 'three_no_daily',
+            countDuplicateAsSync: false
+        });
+        if (Number(result?.code) === 200) {
+            Storage.set(CONFIG.KEYS.THREE_NO_LAST_STATS_UPLOAD_SCAN_ID, scanId);
+        }
+        return result;
     },
 
     normalizePlatformFingerprintText: (text) => {
@@ -1426,6 +1884,16 @@ export const UI = {
             ? (parseInt(options.platformSyncLastAt || '0', 10) || 0)
             : Storage.getPlatformSyncLastAt();
         const clientSignals = Storage.getPlatformClientSignals();
+        const threeNoScan = Storage.getThreeNoScanResults();
+        const threeNoFollowerScan = {
+            scanId: threeNoScan.scanId,
+            scanDate: threeNoScan.scanDate,
+            scanStatus: threeNoScan.status,
+            scannedAt: threeNoScan.completedAt || 0,
+            checkedFollowersCount: threeNoScan.checkedFollowersCount || 0,
+            threeNoFollowersCount: threeNoScan.threeNoFollowersCount || 0,
+            limited: threeNoScan.limited === true,
+        };
 
         const db = Storage.getBlockDB();
         const ts = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
@@ -1784,7 +2252,7 @@ export const UI = {
                 locale: (typeof navigator !== 'undefined' && navigator.language) ? navigator.language : '',
             },
             fieldSpec: {
-                root: ['clientSourceId', 'exportedAt', 'exporter', 'clientSignals', 'syncPreferences', 'fieldSpec', 'summary', 'accounts', 'events', 'sources', 'sourceEvidence', 'analysisSeeds'],
+                root: ['clientSourceId', 'exportedAt', 'exporter', 'clientSignals', 'syncPreferences', 'fieldSpec', 'summary', 'accounts', 'events', 'sources', 'sourceEvidence', 'analysisSeeds', 'threeNoFollowerScan'],
                 clientSignals: ['sourceCreatedAt', 'sourceAgeDays', 'firstSeenVersion', 'successfulUploadCount', 'manualUploadCount', 'autoUploadCount', 'activeUploadDayCount', 'firstSuccessfulUploadAt', 'lastSuccessfulUploadAt'],
                 accounts: ['accountId', 'profileUrl', 'blockEventCount', 'reportEventCount', 'totalEventCount', 'firstSeenAt', 'lastSeenAt', 'sourceUrlCount', 'sourceUrls', 'sourceOwners', 'blockReasons', 'reportPrimaryCategories', 'reportLeafCategories', 'platformReview'],
                 events: ['eventId', 'eventType', 'accountId', 'profileUrl', 'eventAt', 'timeBucket10m', 'timeBucket1h', 'sourceUrl', 'sourceOwner', 'sourceText', 'textFingerprint', 'textFingerprintVersion', 'sourceChannel', 'blockReasonCode', 'reportPath', 'reportPrimaryCategory', 'reportLeafCategory', 'reportTargetType', 'batchId'],
@@ -1817,6 +2285,8 @@ export const UI = {
                 suspiciousCandidateCount: suspiciousAccountSeeds.length,
                 campaignCandidateCount: campaignCandidates.length,
                 topTopicSeedCount: topicSeeds.length,
+                threeNoFollowersCheckedCount: threeNoFollowerScan.checkedFollowersCount,
+                threeNoFollowersCount: threeNoFollowerScan.threeNoFollowersCount,
             },
             accounts,
             events: unifiedEvents,
@@ -1830,6 +2300,7 @@ export const UI = {
                 temporalBuckets10m,
                 temporalBuckets1h,
             },
+            threeNoFollowerScan,
         };
     },
 
@@ -1867,7 +2338,9 @@ export const UI = {
                 platformSyncLastAt: lastSyncedAt,
             });
 
-            if ((exportPayload.summary?.totalEventCount || 0) <= 0) {
+            const hasThreeNoStats = (exportPayload.threeNoFollowerScan?.checkedFollowersCount || 0) > 0
+                || (exportPayload.threeNoFollowerScan?.threeNoFollowersCount || 0) > 0;
+            if ((exportPayload.summary?.totalEventCount || 0) <= 0 && !hasThreeNoStats) {
                 return { code: 204, skipped: 'no_events' };
             }
 
@@ -1903,7 +2376,9 @@ export const UI = {
                 platformSyncLastAt: lastSyncedAt,
             });
 
-            if ((exportPayload.summary?.totalEventCount || 0) <= 0) {
+            const hasThreeNoStats = (exportPayload.threeNoFollowerScan?.checkedFollowersCount || 0) > 0
+                || (exportPayload.threeNoFollowerScan?.threeNoFollowersCount || 0) > 0;
+            if ((exportPayload.summary?.totalEventCount || 0) <= 0 && !hasThreeNoStats) {
                 return { code: 204, skipped: 'no_events' };
             }
 

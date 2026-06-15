@@ -10,6 +10,7 @@ import { Worker } from './worker.js';
 import './features/post-reservoir-engine.js';
 import './features/report-flow.js';
 import './features/cockroach.js';
+import './features/three-no-watch.js';
 
 (function () {
     'use strict';
@@ -153,6 +154,34 @@ import './features/cockroach.js';
         Storage.remove(CONFIG.KEYS.REPORT_KEEP_BLOCK_SELECTION);
         Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
 
+        if (Utils.isBetaBuild()) {
+            const completedThreeNoResults = Storage.getThreeNoScanResults();
+            const shouldKeepCompletedThreeNoReport = completedThreeNoResults.status === 'completed'
+                && completedThreeNoResults.completedAt > 0;
+            const betaResetKeys = shouldKeepCompletedThreeNoReport
+                ? [
+                    CONFIG.KEYS.THREE_NO_LAST_SCAN_DATE,
+                    CONFIG.KEYS.THREE_NO_SCAN_STATE,
+                    CONFIG.KEYS.THREE_NO_SCAN_LOCK,
+                    CONFIG.KEYS.THREE_NO_SCAN_COMMAND,
+                    CONFIG.KEYS.THREE_NO_LAST_STATS_UPLOAD_SCAN_ID,
+                ]
+                : [
+                    CONFIG.KEYS.THREE_NO_LAST_SCAN_DATE,
+                    CONFIG.KEYS.THREE_NO_SCAN_STATE,
+                    CONFIG.KEYS.THREE_NO_SCAN_RESULTS,
+                    CONFIG.KEYS.THREE_NO_SCAN_CURSOR,
+                    CONFIG.KEYS.THREE_NO_SCAN_LOCK,
+                    CONFIG.KEYS.THREE_NO_SCAN_COMMAND,
+                    CONFIG.KEYS.THREE_NO_UNREAD_COUNT,
+                    CONFIG.KEYS.THREE_NO_LAST_STATS_UPLOAD_SCAN_ID,
+                ];
+            betaResetKeys.forEach(key => Storage.remove(key));
+            console.log(shouldKeepCompletedThreeNoReport
+                ? '[留友封] Three-no beta reset preserved completed report'
+                : '[留友封] Three-no scan state reset for beta build');
+        }
+
         // 清除歷史遺留 key
         localStorage.removeItem('hege_ios_active');
         localStorage.removeItem('hege_mac_mode');
@@ -242,17 +271,83 @@ import './features/cockroach.js';
         alert('緊急清除完成，請重新整理頁面。');
     }
 
-    const isBgPage = new URLSearchParams(window.location.search).get('hege_bg') === 'true';
+    function canRequestDevExtensionReload() {
+        return Utils.isBetaBuild()
+            && typeof chrome !== 'undefined'
+            && !!chrome.runtime
+            && typeof chrome.runtime.sendMessage === 'function';
+    }
+
+    function schedulePageReloadAfterDevExtensionReload() {
+        setTimeout(() => {
+            try { window.location.reload(); } catch (err) {}
+        }, 1800);
+
+        try {
+            const script = document.createElement('script');
+            script.textContent = `setTimeout(function(){ try { window.location.reload(); } catch (e) {} }, 1400);`;
+            (document.head || document.documentElement || document.body).appendChild(script);
+            script.remove();
+        } catch (e) {
+            setTimeout(() => {
+                try { window.location.reload(); } catch (err) {}
+            }, 1600);
+        }
+    }
+
+    function requestDevExtensionReload(source = 'unknown') {
+        return new Promise((resolve) => {
+            if (!canRequestDevExtensionReload()) {
+                resolve({ ok: false, error: 'dev_reload_unavailable' });
+                return;
+            }
+
+            schedulePageReloadAfterDevExtensionReload();
+            chrome.runtime.sendMessage({
+                type: 'HEGE_DEV_RELOAD_EXTENSION',
+                version: CONFIG.VERSION,
+                source,
+                requestedAt: Date.now(),
+            }, (response) => {
+                const lastError = chrome.runtime.lastError?.message;
+                if (lastError) {
+                    resolve({ ok: false, error: lastError });
+                    return;
+                }
+                resolve(response || { ok: true, reloading: true });
+            });
+        });
+    }
+
+    function installDevReloadBridge() {
+        if (!canRequestDevExtensionReload() || window.__hegeDevReloadBridgeInstalled) return;
+        window.__hegeDevReloadBridgeInstalled = true;
+        const requestEvent = ['hege', 'dev', 'reload-extension'].join(':');
+        const resultEvent = ['hege', 'dev', 'reload-extension-result'].join(':');
+        document.addEventListener(requestEvent, async (event) => {
+            const result = await requestDevExtensionReload(event?.detail?.source || 'dom_event');
+            document.dispatchEvent(new CustomEvent(resultEvent, { detail: result }));
+        });
+        console.log(['[留友封][Dev]', 'Beta', 'extension', 'reload', 'bridge', 'ready'].join(' '));
+    }
+
+    const bootParams = new URLSearchParams(window.location.search);
+    const isBgPage = bootParams.get('hege_bg') === 'true';
+    const isThreeNoScanPage = bootParams.get('hege_three_no_scan') === 'true';
 
     // Initialize
     function main() {
-        if (isBgPage) {
+        if (isThreeNoScanPage && Core.ThreeNoWatch?.isChromeExtension()) {
+            UI.injectStyles();
+            Core.ThreeNoWatch.runScanPage();
+        } else if (isBgPage) {
             Worker.init();
         } else {
             // Prevent running in iframes for Controller (Beta46 logic)
             if (window.top !== window.self) return;
 
             UI.injectStyles();
+            installDevReloadBridge();
             
             // Phase 2: Check for SweepDriver resumption
             const sweepState = sessionStorage.getItem('hege_sweep_state');
@@ -346,6 +441,177 @@ import './features/cockroach.js';
                 }
             }, 2000);
 
+            const launchBlockWorker = (options = {}) => {
+                const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
+                const running = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
+                if (running && !options.force) {
+                    UI.showToast('封鎖 worker 已在執行，已更新背景佇列');
+                    return;
+                }
+                Storage.remove(CONFIG.KEYS.BG_CMD);
+                Storage.set(CONFIG.KEYS.WORKER_MODE, 'block');
+                if (Utils.isMobile()) {
+                    Core.runSameTabWorker();
+                    return;
+                }
+                const workerWindow = Utils.openWorkerWindow();
+                if (!workerWindow || workerWindow.closed) {
+                    UI.showToast('彈出視窗被阻擋，改用目前視窗執行。');
+                    Core.runSameTabWorker();
+                }
+            };
+
+            const startBlockUserList = (usernames = [], options = {}) => {
+                const targets = [...new Set((Array.isArray(usernames) ? usernames : [])
+                    .map(u => String(u || '').trim().replace(/^@/, ''))
+                    .filter(Boolean))];
+                if (targets.length === 0) {
+                    UI.showToast('沒有可封鎖的帳號');
+                    return { ok: false, added: 0, skipped: 0 };
+                }
+
+                const enqueueAndLaunch = () => {
+                    Storage.invalidate(CONFIG.KEYS.BG_QUEUE);
+                    const db = new Set(Storage.getBlockDB());
+                    const cdq = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
+                    const currentQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+                    const queued = new Set(currentQueue);
+                    const toAdd = targets.filter(u => !db.has(u) && !cdq.has(u) && !queued.has(u));
+                    if (toAdd.length === 0 && currentQueue.length === 0) {
+                        UI.showToast('這批三無名單已封鎖或已在佇列中');
+                        return { ok: false, added: 0, skipped: targets.length };
+                    }
+
+                    if (toAdd.length > 0) {
+                        Core.setBlockContext(toAdd, {
+                            reason: 'three_no_follower_report',
+                            batch: options.scanId || '',
+                        }, { preserveExisting: true });
+                        Storage.setJSON(CONFIG.KEYS.BG_QUEUE, [...new Set([...currentQueue, ...toAdd])]);
+                        Core.clearPendingUsers(toAdd);
+                    }
+                    Core.updateControllerUI();
+                    UI.showToast(toAdd.length > 0
+                        ? `已將 ${toAdd.length} 位三無追蹤者加入封鎖佇列，啟動 worker`
+                        : '三無名單已在封鎖佇列中，啟動 worker');
+                    launchBlockWorker();
+                    return { ok: true, added: toAdd.length, skipped: targets.length - toAdd.length };
+                };
+
+                const cooldownUntil = parseInt(Storage.get(CONFIG.KEYS.COOLDOWN) || '0', 10) || 0;
+                if (cooldownUntil > Date.now()) {
+                    const remainHrs = Math.ceil((cooldownUntil - Date.now()) / (1000 * 60 * 60));
+                    const dailyLimit = Storage.getDailyBlockLimit();
+                    const blocks24h = Storage.getBlocksLast24h();
+                    UI.showConfirm(
+                        `⚠️ 目前處於冷卻保護中（約 ${remainHrs} 小時後自動解除）\n\n仍要把這批三無追蹤者加入封鎖佇列並強制繼續嗎？\n\n最近 24 小時紀錄：${blocks24h}/${dailyLimit}。`,
+                        () => {
+                            const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
+                            const currentQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+                            if (cooldownQueue.length > 0) {
+                                Storage.setJSON(CONFIG.KEYS.BG_QUEUE, [...new Set([...currentQueue, ...cooldownQueue])]);
+                            }
+                            Storage.remove(CONFIG.KEYS.COOLDOWN_QUEUE);
+                            Storage.remove(CONFIG.KEYS.COOLDOWN);
+                            Storage.invalidate(CONFIG.KEYS.COOLDOWN);
+                            Storage.invalidate(CONFIG.KEYS.COOLDOWN_QUEUE);
+                            Storage.invalidate(CONFIG.KEYS.BG_QUEUE);
+                            enqueueAndLaunch();
+                        },
+                        null,
+                        { confirm: '仍要封鎖', cancel: '取消' }
+                    );
+                    return { ok: false, added: 0, skipped: 0, pendingConfirm: true };
+                }
+
+                return enqueueAndLaunch();
+            };
+
+            const startThreeNoScan = async (options = {}) => {
+                UI.showToast('正在開啟三無掃描 worker');
+                const targetOwner = Core.ThreeNoWatch?.normalizeUsername?.(options.targetOwner || '') || '';
+                const result = await Core.ThreeNoWatch?.startManualScan({ source: targetOwner ? 'profile_menu' : 'manual_menu', targetOwner });
+                if (result?.ok) {
+                    if (result.scanId) {
+                        sessionStorage.setItem('hege_three_no_auto_report_anchor', result.scanId);
+                        sessionStorage.removeItem('hege_three_no_auto_report_seen');
+                        try { window.name = `HegeThreeNoReportAnchor:${result.scanId}`; } catch (_) {}
+                    }
+                    UI.showToast(targetOwner
+                        ? `已啟動 @${targetOwner} 粉絲三無掃描，完成後會顯示報告`
+                        : '三無掃描 worker 已啟動，完成後會顯示報告');
+                } else {
+                    const reason = result?.skipped || result?.message || 'unknown';
+                    const textMap = {
+                        not_chrome_extension: '三無掃描目前只支援 Chrome 擴充功能版',
+                        scan_in_flight: '三無掃描已在執行中',
+                        worker_busy: '背景任務執行中，稍後再掃描',
+                        owner_unknown: '找不到自己的 Threads 帳號，請先打開個人頁或重新整理',
+                        popup_blocked: '彈出視窗被阻擋，請允許 Threads 開啟 worker 分頁後再試一次',
+                        worker_start_failed: '三無掃描 worker 啟動失敗',
+                    };
+                    UI.showToast(textMap[reason] || `無法開始掃描：${reason}`);
+                }
+                Core.updateControllerUI();
+            };
+
+            const showThreeNoReport = (options = {}) => {
+                const results = Storage.getThreeNoScanResults();
+                const visibleCount = (results.users || []).filter(item => !Storage.isThreeNoUserIgnored(item.username)).length;
+                const unreadCount = Storage.getThreeNoUnreadCount();
+                if (visibleCount <= 0 && unreadCount <= 0) return false;
+                if (options.auto && document.querySelector('.hege-manager-overlay:not(#hege-panel)')) return false;
+
+                Storage.clearThreeNoUnread();
+                UI.showThreeNoFollowersModal({
+                    onStartNextBatch: () => startThreeNoScan({ targetOwner: results.scanTargetOwner || '' }),
+                    onAddToCleanList: (users) => {
+                        const added = Core.restorePendingUsers(users);
+                        if (added > 0) UI.showToast(`已加入清理名單：${users.map(u => '@' + u).join(', ')}`);
+                        else UI.showToast('已在清理名單、背景佇列或封鎖紀錄中');
+                        Core.updateControllerUI();
+                    },
+                    onBlockNow: (users, scan) => {
+                        const targets = [...new Set((Array.isArray(users) ? users : []).map(u => String(u || '').trim()).filter(Boolean))];
+                        if (targets.length === 0) {
+                            UI.showToast('沒有可直接封鎖的三無帳號');
+                            return;
+                        }
+                        UI.showConfirm(
+                            `確定要直接封鎖 ${targets.length} 位三無追蹤者嗎？\n\n這會把名單加入背景封鎖佇列並啟動 worker。`,
+                            () => startBlockUserList(targets, { scanId: scan?.scanId || results.scanId || '' }),
+                            null,
+                            { confirm: '直接封鎖', cancel: '先不要' }
+                        );
+                    }
+                });
+                Core.updateControllerUI();
+                return true;
+            };
+
+            const getThreeNoReportKey = (results) => [
+                results.scanId || '',
+                results.completedAt || 0,
+                results.checkedFollowersCount || 0,
+                results.threeNoFollowersCount || 0,
+            ].join(':');
+
+            const maybeAutoShowThreeNoReport = () => {
+                const results = Storage.getThreeNoScanResults();
+                if (!results.completedAt || results.status !== 'completed') return;
+                if (results.autoBlockStarted) return;
+                const key = getThreeNoReportKey(results);
+                if (!key || sessionStorage.getItem('hege_three_no_auto_report_seen') === key) return;
+                const anchor = sessionStorage.getItem('hege_three_no_auto_report_anchor') || '';
+                const windowAnchor = String(window.name || '').startsWith('HegeThreeNoReportAnchor:')
+                    ? String(window.name || '').slice('HegeThreeNoReportAnchor:'.length)
+                    : '';
+                if (results.scanId && anchor !== results.scanId && windowAnchor !== results.scanId) return;
+                if (showThreeNoReport({ auto: true })) {
+                    sessionStorage.setItem('hege_three_no_auto_report_seen', key);
+                }
+            };
+
             const handleMainButton = () => {
                 const pending = Core.pendingUsers;
                 const cooldownUntil = parseInt(Storage.get(CONFIG.KEYS.COOLDOWN) || '0');
@@ -375,19 +641,7 @@ import './features/cockroach.js';
                             Core.updateControllerUI();
                             UI.showToast(`已恢復佇列，共 ${merged.length} 筆，開始執行`);
 
-                            // Directly start worker with restored queue
-                            Storage.remove(CONFIG.KEYS.BG_CMD);
-                            Storage.set(CONFIG.KEYS.WORKER_MODE, 'block');
-                            if (Utils.isMobile()) {
-                                Core.runSameTabWorker();
-                            } else {
-                                // window.open must be called directly in the click handler to preserve user gesture
-                                const workerWindow = Utils.openWorkerWindow();
-                                if (!workerWindow || workerWindow.closed) {
-                                    UI.showToast('彈出視窗被阻擋，改用目前視窗執行。');
-                                    Core.runSameTabWorker();
-                                }
-                            }
+                            launchBlockWorker();
                         }
                     );
                     return;
@@ -413,13 +667,7 @@ import './features/cockroach.js';
                     const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
                     const running = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
                     if (!running) {
-                        Storage.remove(CONFIG.KEYS.BG_CMD);
-                        Storage.set(CONFIG.KEYS.WORKER_MODE, 'block');
-                        const workerWindow = Utils.openWorkerWindow();
-                        if (!workerWindow || workerWindow.closed) {
-                            UI.showToast('彈出視窗被阻擋，改用目前視窗執行。');
-                            Core.runSameTabWorker();
-                        }
+                        launchBlockWorker();
                     }
                 }
             };
@@ -534,6 +782,18 @@ import './features/cockroach.js';
                 onEndlessQueue: () => UI.showPostReservoir({
                     onStart: () => Core.SweepDriver.startNow()
                 }),
+                onThreeNoFollowers: async () => {
+                    if (showThreeNoReport()) return;
+                    await startThreeNoScan();
+                },
+                onThreeNoProfileFollowers: async () => {
+                    const targetOwner = Core.ThreeNoWatch?.getCurrentProfileUsername?.() || '';
+                    if (!targetOwner) {
+                        UI.showToast('目前頁面不是可掃描的 Threads 個人檔案');
+                        return;
+                    }
+                    await startThreeNoScan({ targetOwner });
+                },
                 onSettings: () => {
                     const openSettings = (initialView = 'home') => {
                         UI.showSettingsModal({
@@ -549,6 +809,15 @@ import './features/cockroach.js';
                             }),
                             onReport: () => Core.showReportDialog(),
                             onAnalytics: () => UI.showAnalyticsReport({ onBack: () => openSettings('data') }),
+                            onDevReloadExtension: canRequestDevExtensionReload() ? (async () => {
+                                UI.showToast(['正在重新載入', '開發版', 'extension'].join(''));
+                                const result = await requestDevExtensionReload('settings_button');
+                                if (!result?.ok) {
+                                    UI.showToast(`${['開發版', '重新載入失敗'].join('')}：${result?.error || 'unknown'}`);
+                                    return;
+                                }
+                                UI.showToast('已送出重新載入，Threads 頁面會自動刷新');
+                            }) : null,
                         });
                     };
                     openSettings();
@@ -604,6 +873,8 @@ import './features/cockroach.js';
                         syncCompletedReportSelection();
                     } else if (e.key === CONFIG.KEYS.REPORT_RESTORE_PENDING) {
                         syncReportRestorePending();
+                    } else if (e.key === CONFIG.KEYS.THREE_NO_SCAN_RESULTS) {
+                        maybeAutoShowThreeNoReport();
                     }
                     Core.updateControllerUI();
                 }
@@ -612,6 +883,7 @@ import './features/cockroach.js';
                 Storage.invalidateMulti(CONFIG.SYNC_KEYS);
                 syncReportRestorePending();
                 syncCompletedReportSelection();
+                maybeAutoShowThreeNoReport();
                 Core.updateControllerUI();
             }, 2000); // Polling backup
 
