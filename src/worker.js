@@ -1467,16 +1467,122 @@ export const Worker = {
     },
 
     findMoreButton: async (timeout = 5000) => {
-        return await Utils.pollUntil(() => {
-            const moreSvgs = document.querySelectorAll(CONFIG.SELECTORS.MORE_SVG);
-            for (let svg of moreSvgs) {
-                if (svg.querySelector('circle') && svg.querySelectorAll('path').length >= 3) {
-                    const btn = svg.closest('div[role="button"]');
-                    if (btn) return btn;
-                }
+        const textOf = (el) => {
+            if (!el) return '';
+            const attrs = [
+                el.getAttribute?.('aria-label') || '',
+                el.getAttribute?.('title') || '',
+                el.getAttribute?.('alt') || '',
+            ];
+            const descendantAttrs = Array.from(el.querySelectorAll?.('[aria-label], [title], img[alt], svg[aria-label]') || [])
+                .map(node => [
+                    node.getAttribute?.('aria-label') || '',
+                    node.getAttribute?.('title') || '',
+                    node.getAttribute?.('alt') || '',
+                ].join(' '))
+                .join(' ');
+            return [...attrs, descendantAttrs, el.innerText || '', el.textContent || '']
+                .join(' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+        };
+        const clickableAncestor = (el) => {
+            let node = el;
+            for (let depth = 0; node && depth < 8; depth++) {
+                if (node.matches?.('button, div[role="button"], [tabindex="0"]')) return node;
+                node = node.parentElement;
             }
-            if (moreSvgs.length > 0) return moreSvgs[0].closest('div[role="button"]');
-            return null;
+            return el.closest?.('button, div[role="button"], [tabindex="0"]') || el;
+        };
+        const contextTextOf = (el) => {
+            const pieces = [];
+            let node = el;
+            for (let depth = 0; node && depth < 8 && node !== document.body; depth++) {
+                const rect = node.getBoundingClientRect?.();
+                const text = (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
+                if (text && rect && rect.width <= Math.min(window.innerWidth, 760) && rect.height <= 340) {
+                    pieces.push(text);
+                }
+                node = node.parentElement;
+            }
+            return pieces.join(' ');
+        };
+        const isVisible = (el) => {
+            const rect = el?.getBoundingClientRect?.();
+            return !!rect && rect.width > 0 && rect.height > 0
+                && rect.bottom > 0 && rect.top < window.innerHeight
+                && rect.right > 0 && rect.left < window.innerWidth;
+        };
+        const looksLikeMoreSvg = (svg) => {
+            if (!svg) return false;
+            const text = textOf(svg);
+            const circleCount = svg.querySelectorAll('circle').length;
+            const pathCount = svg.querySelectorAll('path').length;
+            return /更多|More|もっと見る|더 보기|เพิ่มเติม|Lainnya|Más|Plus|Mehr|Altro|Mais|Ещё|Więcej|Diğer|Thêm|المزيد|और|Meer|Higit pa/i.test(text)
+                || (circleCount === 3 && pathCount === 0)
+                || (circleCount >= 1 && pathCount >= 3);
+        };
+
+        return await Utils.pollUntil(() => {
+            const main = document.querySelector('main, div[role="main"]') || document.body;
+            const mainRect = main.getBoundingClientRect?.() || { left: 0, right: window.innerWidth, top: 0, bottom: window.innerHeight, width: window.innerWidth };
+            const rawNodes = Array.from(document.querySelectorAll([
+                'button',
+                'div[role="button"]',
+                '[tabindex="0"]',
+                CONFIG.SELECTORS.MORE_SVG,
+                'svg[aria-label]',
+            ].join(',')));
+            const seen = new Set();
+            const candidates = [];
+
+            rawNodes.forEach(node => {
+                const btn = clickableAncestor(node);
+                if (!btn || seen.has(btn) || !isVisible(btn)) return;
+                seen.add(btn);
+                if (btn.closest('[role="dialog"], [role="menu"], #hege-panel, .hege-manager-overlay, #hege-three-no-worker-overlay')) return;
+
+                const svg = btn.matches?.('svg') ? btn : (btn.querySelector?.(CONFIG.SELECTORS.MORE_SVG) || btn.querySelector?.('svg[aria-label]'));
+                const text = textOf(btn);
+                const hasMoreText = /更多|More|もっと見る|더 보기|เพิ่มเติม|Lainnya|Más|Plus|Mehr|Altro|Mais|Ещё|Więcej|Diğer|Thêm|المزيد|और|Meer|Higit pa/i.test(text);
+                if (!hasMoreText && !looksLikeMoreSvg(svg)) return;
+
+                const rect = btn.getBoundingClientRect();
+                const contextText = contextTextOf(btn);
+                const inMainColumn = rect.left >= mainRect.left - 12 && rect.right <= mainRect.right + 12;
+                const nearProfileHeader = rect.top >= Math.max(0, mainRect.top - 12) && rect.top < Math.min(window.innerHeight, mainRect.top + 430);
+                const profileContext = /Instagram|IG|粉絲|位粉絲|Followers|追蹤|Follow|發送訊息|Message|提及|Mention|回覆|Replies/i.test(contextText);
+                const globalMenuContext = /外觀|設定|已讀|封存|登出|Appearance|Settings|Archive|Log out/i.test(contextText);
+                const compactButton = rect.width <= 128 && rect.height <= 128;
+                const circleCount = svg?.querySelectorAll?.('circle').length || 0;
+                const pathCount = svg?.querySelectorAll?.('path').length || 0;
+                let score = 100;
+                if (inMainColumn) score -= 24;
+                if (nearProfileHeader) score -= 22;
+                if (profileContext) score -= 28;
+                if (compactButton) score -= 8;
+                if (circleCount >= 1 && pathCount >= 3) score -= 8;
+                if (circleCount === 3 && pathCount === 0) score -= 4;
+                if (rect.left < 72) score += 80;
+                if (globalMenuContext) score += 70;
+                if (!inMainColumn) score += 25;
+                if (!nearProfileHeader) score += 18;
+                score += Math.max(0, rect.top) * 0.02;
+                score -= Math.max(0, rect.left) * 0.002;
+                candidates.push({ btn, score, rect, text, contextText });
+            });
+
+            candidates.sort((a, b) => a.score - b.score || b.rect.left - a.rect.left || a.rect.top - b.rect.top);
+            if (window.hegeLog && candidates.length > 0) {
+                const debug = candidates.slice(0, 5).map(item => ({
+                    score: Math.round(item.score),
+                    rect: Worker.summarizeRect(item.btn),
+                    text: item.text.slice(0, 40),
+                    context: item.contextText.slice(0, 60),
+                }));
+                window.hegeLog(`[DIAG] 更多按鈕候選: ${JSON.stringify(debug)}`);
+            }
+            return candidates[0]?.btn || null;
         }, timeout, 200);
     },
 

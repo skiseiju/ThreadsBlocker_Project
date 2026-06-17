@@ -1,3 +1,124 @@
+## v2.7.1 — 三無管理與新版 Threads 介面修正正式版
+
+*   **TL;DR：2.7.1 修正新版 Threads 介面下的三無掃描、檢舉 worker、更新通知與管理清單流程，並把三無後續處理收斂成「清除 / 安全名單 / 加入封鎖清單」的本機管理模式。**
+*   **三無 profile 判斷**：改用 profile 主頁、`/replies`、`/reposts` canonical probe 分層判斷；帳號不公開只顯示「帳號不公開」，不再同時標為無發文、無回文或無轉貼。
+*   **三無管理清單**：移除掃完後直接封鎖；新增安全名單、清除勾選、加入封鎖清單、掃描來源 / 日期 filter，國家/地區下拉也可直接選「未分享」。
+*   **關於資訊與 debug**：「加速三無」改為使用 Threads about metadata 作為加入時間與所在地補充來源，失敗會退回一般流程；三無 debug 以固定 ring log 保存並可在 beta 匯出，正式版不顯示手動 debug 入口。
+*   **只檢舉與新版選單**：支援新版 profile / post / dialog 三點選單與檢舉 dialog 載入等待，失敗清單可選擇重試或只清除。
+*   **更新通知與 announcement**：新版通知改為「功能介紹」，只介紹 2.7 大功能；新增 announcement feed 與 fallback，避免遠端尚未部署時噴 JSON 解析錯誤。
+*   **Storage / 隱私**：新增 `hege_three_no_safe_users`、`hege_three_no_scan_debug_log`、`hege_three_no_accelerated_profile_enabled`、`hege_three_no_profile_metadata_cache_v1` 與 announcement cache keys；平台同步同意仍使用 `platform-sync-v2`，單純升版不重置既有同意或上傳偏好。
+
+## v2.7.1-beta14 — Announcement feed fallback 收尾
+
+*   **TL;DR：遠端 `announcements.json` 尚未部署成 JSON 時，留友封改用內建 announcement fallback，不再在 live tab 噴 HTML 解析錯誤。**
+*   **Fallback 策略**：announcement feed 先嘗試遠端；若 content-type 不是 JSON 或遠端失敗，改用內建 feed 與本機 cache。
+*   **Beta 穩定性**：避免 unpacked/live 測試頁因遠端 route 尚未上線而持續出現 `Unexpected token '<'` 警告。
+
+## v2.7.1-beta12 — 三無 debug 固定記錄與匯出
+
+*   **TL;DR：三無掃描 debug 改成固定 localStorage ring log，掃完後可用「匯出三無診斷」輸出 JSON 給開發者分析。**
+*   **固定位置**：三無 debug 會寫入 `hege_three_no_scan_debug_log`，保留最近 600 筆 step，包含 probe、private gate、API retry/fallback 與目前 URL。
+*   **結果保存**：掃描完成時會把 `debugLog` 一起保存進三無掃描結果，避免即時 overlay 被下一步覆蓋後無法追查。
+*   **匯出工具**：beta 設定頁的診斷區新增「匯出三無診斷」，輸出 scan state、results、cursor、runtime backup、固定 debug log 與最近 console log。
+
+## v2.7.1-beta11 — Canonical probe 跳過原因收窄
+
+*   **TL;DR：修正 public profile 可能被過寬 private 字串誤判，導致直接跳過 `/replies`、`/reposts` canonical probe 的問題。**
+*   **Private gate**：帳號不公開只接受 profile 明確文案，例如「此個人檔案不公開。」或 `This profile/account is private`；不再使用「帳號不公開 / 私人帳號」這類過寬字串。
+*   **Probe debug**：三無 worker debug 會顯示 `probesCompleted`、`privateSignalReason`、`privateSignalMatchedText`，用來確認是否真的因 private gate 跳過 canonical probes。
+*   **Storage**：三無結果保留 private signal debug 欄位，方便重開管理清單後追查跳過原因。
+
+## v2.7.1-beta10 — 加速三無 API retry debug
+
+*   **TL;DR：加速三無會先重試 private about API 3 次，仍失敗才退回三點選單，避免大量帳號直接走慢速三點流程。**
+*   **Retry 流程**：`加速三無` 開啟時，每個 profile metadata 會最多嘗試 3 次 active about request；每次等待短暫間隔後再重試。
+*   **Debug 呈現**：三無 worker debug 會顯示 `activeAboutAttempt`、`activeAboutAttempts`、最後 `status/error`，以及 `fallbackNext=about_menu_three_dots`。
+*   **成功來源**：成功時 metadata debug 會保留 `activeAboutAttempts` 與 attempt count，方便確認不是直接走三點。
+
+## v2.7.1-beta9 — 三無 worker 手動關閉停止修正
+
+*   **TL;DR：修正手動關掉「掃描此帳號粉絲三無」worker 分頁後，主頁仍誤判掃描中、無法停止或重新啟動的問題。**
+*   **Worker heartbeat**：三無 worker 執行期間會寫入 heartbeat；主頁若偵測 heartbeat 中斷，會清除殘留 scan lock / stop command，避免 profile 掃描入口卡住。
+*   **停止鈕**：主面板的「停止」現在也會送出三無掃描停止指令；若 worker 已被手動關閉，會直接清理 stale 狀態。
+*   **掃描入口**：`掃描此帳號粉絲三無` 改用 heartbeat freshness 判斷是否真的有 worker 正在跑，不再依賴 90 秒內的舊 updatedAt。
+
+## v2.7.1-beta8 — 加速三無設定
+
+*   **TL;DR：新增「加速三無」設定，開啟後只用 Threads 網頁 about endpoint 加速讀取所在地與加入時間；三無成立條件仍由主頁、回覆、轉發頁面判斷。**
+*   **設定邊界**：「加速三無」預設關閉，使用者開啟後才會嘗試主動讀取 about metadata；封鎖、檢舉、無自介、無頭貼、無發文、無回文、無轉發判斷不改用此 endpoint。
+*   **快取策略**：about metadata 快取統一縮短為 1 天；抓不到必要參數、被限流或 endpoint 失敗時會自動回到原本三點選單流程。
+*   **隱私邊界**：只保留解析後的加入時間、所在地、驗證狀態與來源標記；不保存 token、cookie 或 private API 原始回應。
+
+## v2.7.1-beta7 — 檢舉重試回到上一版行為
+
+*   **TL;DR：回退 beta5 的檢舉失敗 context/path 還原與新版檢舉對象 chooser 包裝，避免重新檢舉時選單正常但檢舉項目沒有被選到。**
+*   **檢舉重試**：失敗清單重試只把帳號重新加入檢舉佇列，不再自動還原失敗時保存的 report path / source context。
+*   **檢舉對象選擇**：回到上一版的文字選項搜尋路徑，保留新版三點按鈕相容候選器與空白 dialog 等待修正。
+*   **失敗清單**：「只清除」仍保留，可清掉多次失敗後殘留的封鎖 / 檢舉失敗紀錄。
+
+## v2.7.1-beta6 — 三無 canonical probe 與 about metadata 加速
+
+*   **TL;DR：三無掃描改成主頁先判斷 private / 自介 / 頭像，再用 canonical `/replies`、`/reposts` 判斷內容；about 資訊新增原創被動解析與快取，不主動呼叫 Threads 私有 API。**
+*   **Private gate**：帳號不公開時會保留無自介 / 無頭貼 / about metadata，但跳過無發文、無回文、無轉貼與粉絲數判斷，不再顯示「粉絲 0」或內容類三無標籤。
+*   **內容判斷**：timeout、路徑不符或 skeleton 未穩定時改成 unknown，管理清單顯示待重掃，不再直接標成無內容。
+*   **Metadata 加速**：新增被動 about profile 回應 parser 與本機快取，只在 Threads 自然載入「關於此個人檔案」資料時解析，並保留 `bioSignalReason`、`contentProbeSkippedReason`、`metadataSourcePage` 等 debug 欄位。
+
+## v2.7.1-beta5 — 重試檢舉路徑與三無誤判修正
+
+*   **TL;DR：修正重試檢舉會遺失原檢舉項目、檢舉對象選擇層沒有成功點選，以及三無「帳號不公開 / 無回文」誤判。**
+*   **重試檢舉**：失敗時會保存原本的檢舉路徑與來源 context；從失敗清單重試時會恢復該 path，不再只剩 username 後回到預設項目。
+*   **檢舉對象選擇**：「檢舉貼文、訊息或留言 / 檢舉帳號」改用更寬的 dialog 文字節點定位，避免 Threads 新介面選項不是標準 button role 時沒有點到。
+*   **帳號不公開**：只在 profile 出現「此個人檔案不公開。」等明確 profile-private 文案時才標記，不再用過寬的「帳號不公開」字串。
+*   **無回文判斷**：`replies/reposts` 先以實際 `/post/` 連結與貼文容器判斷有內容；有內容時不會被空狀態文字誤判為無回文。
+
+## v2.7.1-beta4 — 三無回覆標籤重掃修正
+
+*   **TL;DR：修正三無清單中「無回文 / 無回覆」舊誤判會被永久保留，導致重掃後仍顯示錯誤標籤的問題。**
+*   **無回覆判斷**：實測 `@qagynessq/replies` 有明確回覆內容與貼文連結，現行頁面 selector 可判斷為有回覆。
+*   **三無結果合併**：本輪有重新檢查到的帳號，會用本輪 profile 訊號覆蓋舊訊號，不再用 OR 把舊的 `noReplies: true` 黏住。
+*   **清單校正**：本輪已檢查但不再符合三無條件的帳號，會從三無管理清單移除，避免舊錯誤結果一直殘留。
+
+## v2.7.1-beta3 — 檢舉視窗載入等待修正
+
+*   **TL;DR：修正新版 Threads 檢舉流程中，空白載入中的檢舉 dialog 會被太早判定失敗，導致檢舉直接跳過的問題。**
+*   **檢舉 worker**：點「檢舉」後若 Threads 先顯示空白 / 載入中的檢舉視窗，現在會等待視窗穩定載入，不會立刻把該帳號加入檢舉失敗清單。
+*   **檢舉目標選擇**：「檢舉貼文、訊息或留言 / 檢舉帳號」只會在 Threads 的可見檢舉 dialog 內尋找，避免誤把留友封自己的可視化面板或 toast 文字當成可點選項。
+*   **錯誤判定**：只有檢舉 dialog 連續維持空白超過等待門檻後，才會判定為 Meta 視窗未載入。
+
+## v2.7.1-beta2 — 更新文案、設定視覺與三無標籤修正
+
+*   **TL;DR：修正 2.7.1 更新通知文案結構、設定頁 section header 視覺、回覆 tab 載入等待，並新增「帳號不公開」三無標籤。**
+*   **更新通知**：開發者近況只放帳號恢復與公共倡議；正式內文改為本次修正、已知限制與 2.7 大功能介紹；最近更新只列正式版。
+*   **設定頁視覺**：section header 改成低飽和深色樣式，靠字重、間距、細線與 subtle background 分區，不再使用突兀藍色側邊條。
+*   **無回文判斷**：點擊「回覆」tab 後延長等待，先確認路徑切到 `/replies`，再等待內容或空狀態穩定後判斷。
+*   **三無標籤**：profile 檢查新增 `accountPrivate` 訊號，管理清單會顯示與篩選「帳號不公開」。
+
+## v2.7.1-beta1 — 三無判斷、檢舉 worker 與設定清理
+
+*   **TL;DR：2.7.1 線修正新版 Threads 介面下的無自介 / 無回文誤判、只檢舉 worker 三點選單、失敗清單清除與設定頁分區；同時移除三無「掃完後直接封鎖」設定。**
+*   **更新通知**：更新視窗改為開發者近況、正式內文、最近更新三區；開發者帳號已恢復，請 follow `@skiseiju`。
+*   **三無 profile 判斷**：無自介改忽略頂部 sticky username，只從 profile card 的 handle 後、粉絲 / tab 前取自介候選；無回文 / 無轉貼會點擊對應 tab，並確認進到 `/@user/replies` 或 `/@user/reposts` 後才判斷內容。
+*   **失敗清單**：重試失敗清單新增「只清除」選項，可清掉多次失敗後殘留的封鎖 / 檢舉失敗紀錄，不強制重送 worker。
+*   **三無設定**：移除「掃完後直接封鎖」設定與自動啟動封鎖 worker 行為；後續封鎖只能從三無管理清單加入封鎖清單後，由使用者手動執行。
+*   **設定頁**：各設定分區改為更明顯的 section header，避免資料與工具頁裡的項目看起來混成同一區。
+*   **已知限制**：粉絲數極大的帳號，Threads 網頁可能只載入前 50 位粉絲；留友封只能掃目前網頁實際顯示出的名單。
+
+## v2.7.0-beta12 — 三無 profile 訊號與檢舉 worker 新介面修正
+
+*   **TL;DR：修正三無掃描在新 Threads 介面下的無回文與無自介誤判，並讓只檢舉 worker 支援新版 profile / post / dialog 三點選單。**
+*   **無回文判斷**：`replies` 檢查現在必須確認目前路徑為 `/@user/replies`，避免把主頁或錯誤的「回覆」按鈕文字誤當成回文分頁內容。
+*   **無自介判斷**：改用 `getProfileBioCandidates()` 過濾 profile header 文字，排除追蹤、粉絲、回覆、分頁、按鈕、metadata 與數字計數，降低新介面把 UI 文案判為自介的機率。
+*   **只檢舉 worker**：profile 檢舉共用新版 profile 三點候選器，dialog row 與來源貼文檢舉也改用多語 aria、SVG shape 與 button wrapper fallback，不再只吃舊版 `MORE_SVG`。
+
+## v2.7.0-beta11 — 三無管理改版與最新消息 feed
+
+*   **TL;DR：三無管理底部改成「續掃 / 清除勾選名單 / 加入安全名單 / 加入封鎖清單 / 關閉」，並新增不綁升版的最新消息 announcement feed。**
+*   **三無管理流程**：「加入封鎖清單」只排入正常封鎖佇列，使用者仍需回主面板按「開始封鎖」執行；不再從管理視窗直接啟動 worker。
+*   **安全名單 storage**：新增本機 `hege_three_no_safe_users`，被標為安全的帳號會視為正常使用者，之後續掃或重掃也不再回到三無管理清單。
+*   **清單清除語意**：「清除勾選名單」只把勾選帳號從未處理三無清單移除，不加入安全名單；加入封鎖清單與加入安全名單都會同步移出未處理三無清單，避免處理完仍殘留。
+*   **新舊 Threads 介面相容**：profile 三點按鈕改用候選評分，兼容舊版圓框三點、新版裸三點、不同 DOM 包裝與 profile header / profile card 位置，降低誤點左側或標題列選單的機率。
+*   **Announcement feed**：新增 `https://threadsblocker.skiseiju.com/announcements.json` 檢查與已讀 id 記錄，未來可像更新視窗一樣跳「最新消息」，但不需要每次升版。
+
 ## v2.7.0 — 三無追蹤者掃描與粉絲清理正式版
 
 *   **TL;DR：2.7.0 正式加入 Chrome 手動三無追蹤者掃描，可掃自己的粉絲或指定帳號粉絲，並修正 profile about 資訊、停止補標籤、filter 與粉絲 / 追蹤中清理流程。**

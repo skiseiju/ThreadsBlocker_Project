@@ -7,9 +7,23 @@
     "*://*.threads.net/*",
     "*://threads.net/*",
     "*://*.threads.com/*",
-    "*://threads.com/*"
+    "*://threads.com/*",
+    "https://threadsblocker.skiseiju.com/*"
   ],
   "content_scripts": [
+    {
+      "matches": [
+        "*://*.threads.net/*",
+        "*://threads.net/*",
+        "*://*.threads.com/*",
+        "*://threads.com/*"
+      ],
+      "js": [
+        "page-bridge.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
     {
       "matches": [
         "*://*.threads.net/*",

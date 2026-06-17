@@ -64,6 +64,8 @@ Object.assign(Core, {
         _running: false,
         _cooldownTimer: null,
         _dialogContext: null,
+        _blankDialogFirstSeenAt: 0,
+        _blankDialogSignature: '',
 
         rememberDialogContext(ctx) {
             if (ctx && ctx !== document.body && ctx.isConnected) {
@@ -153,6 +155,7 @@ Object.assign(Core, {
             const nodes = root.querySelectorAll('div[role="menuitem"], div[role="button"], button, span[dir="auto"], a[role="link"]');
             for (const node of nodes) {
                 const target = node.closest('div[role="menuitem"], div[role="button"], button, a[role="link"]') || node;
+                if (Core.ReportDriver.isHegeUiElement(target)) continue;
                 if (visibleOnly && !Core.ReportDriver.isElementVisible(target)) continue;
                 const nodeText = (node.innerText || node.textContent || '').trim();
                 const matched = exact ? nodeText === text : nodeText.includes(text);
@@ -172,7 +175,7 @@ Object.assign(Core, {
                     node,
                     text: (node.innerText || node.textContent || '').trim(),
                 }))
-                .filter(item => item.text.length > 0);
+                .filter(item => item.text.length > 0 && !Core.ReportDriver.isHegeUiElement(item.node));
         },
 
         getStepAliases(step) {
@@ -400,39 +403,103 @@ Object.assign(Core, {
             return link.closest('div') || link;
         },
 
+        getMoreButtonText(el) {
+            if (!el) return '';
+            const descendantAttrs = Array.from(el.querySelectorAll?.('[aria-label], [title], img[alt], svg[aria-label]') || [])
+                .map(node => [
+                    node.getAttribute?.('aria-label') || '',
+                    node.getAttribute?.('title') || '',
+                    node.getAttribute?.('alt') || '',
+                ].join(' '))
+                .join(' ');
+            return [
+                el.getAttribute?.('aria-label') || '',
+                el.getAttribute?.('title') || '',
+                el.getAttribute?.('alt') || '',
+                descendantAttrs,
+                el.innerText || '',
+                el.textContent || '',
+            ].join(' ').replace(/\s+/g, ' ').trim();
+        },
+
+        getMoreButtonClickable(el) {
+            let node = el;
+            for (let depth = 0; node && depth < 8; depth++) {
+                if (node.matches?.('button, div[role="button"], [role="menuitem"], [tabindex="0"]')) return node;
+                node = node.parentElement;
+            }
+            return el?.closest?.('button, div[role="button"], [role="menuitem"], [tabindex="0"]') || el;
+        },
+
+        looksLikeMoreButton(el) {
+            if (!el) return false;
+            const svg = el.matches?.('svg') ? el : (el.querySelector?.(CONFIG.SELECTORS.MORE_SVG) || el.querySelector?.('svg[aria-label]'));
+            const text = [
+                Core.ReportDriver.getMoreButtonText(el),
+                Core.ReportDriver.getMoreButtonText(svg),
+            ].join(' ');
+            const circleCount = svg?.querySelectorAll?.('circle').length || 0;
+            const pathCount = svg?.querySelectorAll?.('path').length || 0;
+            return /更多|More|もっと見る|더 보기|เพิ่มเติม|Lainnya|Más|Plus|Mehr|Altro|Mais|Ещё|Więcej|Diğer|Thêm|المزيد|और|Meer|Higit pa/i.test(text)
+                || (circleCount === 3 && pathCount === 0)
+                || (circleCount >= 1 && pathCount >= 3);
+        },
+
+        findMoreButtonCandidates(root = document, mode = 'row') {
+            const seen = new Set();
+            const rootRect = root?.getBoundingClientRect?.() || { left: 0, right: window.innerWidth, top: 0, bottom: window.innerHeight };
+            return Array.from((root || document).querySelectorAll([
+                'button',
+                'div[role="button"]',
+                '[tabindex="0"]',
+                CONFIG.SELECTORS.MORE_SVG,
+                'svg[aria-label]',
+            ].join(',')))
+                .map(node => Core.ReportDriver.getMoreButtonClickable(node))
+                .filter(el => {
+                    if (!el || seen.has(el)) return false;
+                    seen.add(el);
+                    if (el.closest('#hege-panel, #hege-worker-cover, #hege-three-no-worker-overlay')) return false;
+                    if (mode !== 'row' && el.closest('[role="dialog"], [role="menu"]')) return false;
+                    return Core.ReportDriver.isElementVisible(el) && Core.ReportDriver.looksLikeMoreButton(el);
+                })
+                .map(el => {
+                    const rect = el.getBoundingClientRect();
+                    const text = Core.ReportDriver.getMoreButtonText(el);
+                    const contextText = Core.ReportDriver.compactDebugText(el.closest('article, [role="article"], [data-pressable-container], [role="listitem"], main, div[role="main"]')?.innerText || '', 260);
+                    let score = 100;
+                    if (mode === 'profile') {
+                        const inProfileColumn = rect.left >= rootRect.left - 8 && rect.right <= rootRect.right + 8;
+                        const nearProfileHeader = rect.top >= Math.max(0, rootRect.top - 8) && rect.top < Math.min(430, rootRect.top + 370);
+                        if (inProfileColumn) score -= 24;
+                        if (nearProfileHeader) score -= 22;
+                        if (/Instagram|IG|粉絲|位粉絲|Followers|追蹤|Follow|發送訊息|Message|提及|Mention|回覆|Replies/i.test(contextText)) score -= 18;
+                        if (/外觀|設定|已讀|封存|登出|Appearance|Settings|Archive|Log out/i.test(contextText) || rect.left < 72) score += 80;
+                    } else if (mode === 'post') {
+                        if (el.closest('article, [role="article"], [data-pressable-container], [role="listitem"]')) score -= 34;
+                        if (rect.top < 90) score += 32;
+                        if (/讚|回覆|轉發|分享|Like|Reply|Repost|Share/i.test(contextText)) score -= 12;
+                    } else {
+                        score -= Math.max(0, rect.left - rootRect.left) / 100;
+                    }
+                    if (/更多|More/i.test(text)) score -= 6;
+                    return { el, rect, score };
+                })
+                .sort((a, b) => a.score - b.score || a.rect.top - b.rect.top);
+        },
+
         findRowMoreButton(row) {
             if (!row) return null;
-            const svg = row.querySelector(CONFIG.SELECTORS.MORE_SVG);
-            return svg ? svg.closest('div[role="button"]') : null;
+            return Core.ReportDriver.findMoreButtonCandidates(row, 'row')[0]?.el || null;
         },
 
         findProfileMoreButton() {
-            return Utils.pollUntil(() => {
-                const moreSvgs = document.querySelectorAll(CONFIG.SELECTORS.MORE_SVG);
-                for (let svg of moreSvgs) {
-                    if (svg.querySelector('circle') && svg.querySelectorAll('path').length >= 3) {
-                        const btn = svg.closest('div[role="button"]');
-                        if (btn) return btn;
-                    }
-                }
-                if (moreSvgs.length > 0) return moreSvgs[0].closest('div[role="button"]');
-                return null;
-            }, 12000, 150);
+            if (Worker?.findMoreButton) return Worker.findMoreButton(12000);
+            return Utils.pollUntil(() => Core.ReportDriver.findMoreButtonCandidates(document, 'profile')[0]?.el || null, 12000, 150);
         },
 
         findPostContentMoreButton() {
-            return Utils.pollUntil(() => {
-                const moreSvgs = document.querySelectorAll(CONFIG.SELECTORS.MORE_SVG);
-                for (let svg of moreSvgs) {
-                    const circleCount = svg.querySelectorAll('circle').length;
-                    const pathCount = svg.querySelectorAll('path').length;
-                    if (circleCount >= 3 && pathCount === 0) {
-                        const btn = svg.closest('div[role="button"]');
-                        if (btn) return btn;
-                    }
-                }
-                return null;
-            }, 12000, 150);
+            return Utils.pollUntil(() => Core.ReportDriver.findMoreButtonCandidates(document, 'post')[0]?.el || null, 12000, 150);
         },
 
         findConfirmationButton() {
@@ -453,6 +520,10 @@ Object.assign(Core, {
             if (!style || style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
             const rect = el.getBoundingClientRect();
             return rect.width > 0 && rect.height > 0;
+        },
+
+        isHegeUiElement(el) {
+            return !!el?.closest?.('#hege-panel, #hege-worker-cover, #hege-three-no-worker-overlay, #hege-toast');
         },
 
         getVisibleDialogs() {
@@ -490,12 +561,32 @@ Object.assign(Core, {
                 dialog.buttons.length === 0 &&
                 dialog.userLinks.length === 0
             );
-            if (dialogs.length === 0 || blankDialogs.length !== dialogs.length) return null;
+            if (dialogs.length === 0 || blankDialogs.length !== dialogs.length) {
+                Core.ReportDriver._blankDialogFirstSeenAt = 0;
+                Core.ReportDriver._blankDialogSignature = '';
+                return null;
+            }
             const visibleOptions = Core.ReportDriver.getVisibleReportOptionTexts();
-            if (visibleOptions.length > 0) return null;
+            if (visibleOptions.length > 0) {
+                Core.ReportDriver._blankDialogFirstSeenAt = 0;
+                Core.ReportDriver._blankDialogSignature = '';
+                return null;
+            }
+            const signature = rawDialogs.map(dialog => {
+                const rect = dialog.getBoundingClientRect();
+                return `${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.width)},${Math.round(rect.height)}`;
+            }).join('|');
+            const now = Date.now();
+            if (Core.ReportDriver._blankDialogSignature !== signature) {
+                Core.ReportDriver._blankDialogSignature = signature;
+                Core.ReportDriver._blankDialogFirstSeenAt = now;
+                return null;
+            }
+            if (now - Core.ReportDriver._blankDialogFirstSeenAt < 7000) return null;
             return {
                 dialogs,
                 blankCount: blankDialogs.length,
+                blankForMs: now - Core.ReportDriver._blankDialogFirstSeenAt,
             };
         },
 

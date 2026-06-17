@@ -1690,8 +1690,9 @@ export const Core = {
         }
 
         const threeNoResults = Storage.getThreeNoScanResults();
-        const threeNoVisibleCount = threeNoResults.autoBlockStarted ? 0 : (threeNoResults.users || [])
+        const threeNoVisibleCount = (threeNoResults.users || [])
             .filter(item => !Storage.isThreeNoUserIgnored(item.username))
+            .filter(item => !Storage.isThreeNoUserSafe(item.username))
             .length;
         const threeNoUnreadCount = Storage.getThreeNoUnreadCount();
         const threeNoItem = document.getElementById('hege-three-no-item');
@@ -1717,10 +1718,10 @@ export const Core = {
         let scanRunning = false;
         if (threeNoItem) {
             scanState = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
-            const scanUpdatedAt = parseInt(scanState.updatedAt || '0', 10) || 0;
-            scanRunning = ['starting', 'running', 'collecting_followers', 'followers_collected', 'checking_profiles', 'stopping'].includes(scanState.status)
-                && scanUpdatedAt > 0
-                && Date.now() - scanUpdatedAt < 90 * 1000;
+            if (Core.ThreeNoWatch?.clearStaleScanIfNeeded?.('stale_scan_cleared_from_panel')) {
+                scanState = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
+            }
+            scanRunning = Core.ThreeNoWatch?.isFreshRunningState?.(scanState) === true;
             threeNoItem.style.display = showProfileScan ? 'none' : 'flex';
             if (threeNoVisibleCount > 0 || threeNoUnreadCount > 0) {
                 threeNoItem.style.color = '#ff453a';
@@ -1861,6 +1862,7 @@ export const Core = {
                 badgeText = `${bgq.size}${bgEta ? ' (' + bgEta + ')' : ''}`;
             }
         }
+        if (scanRunning) shouldShowStop = true;
 
         const badge = document.getElementById('hege-queue-badge');
         if (badge) badge.textContent = badgeText;
@@ -2224,6 +2226,108 @@ export const Core = {
         return true;
     },
 
+    buildThreeNoDebugExport: () => {
+        Storage.invalidateMulti([
+            CONFIG.KEYS.THREE_NO_SCAN_STATE,
+            CONFIG.KEYS.THREE_NO_SCAN_RESULTS,
+            CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG,
+            CONFIG.KEYS.THREE_NO_SCAN_CURSOR,
+            CONFIG.KEYS.THREE_NO_SCAN_LOCK,
+            CONFIG.KEYS.THREE_NO_SCAN_COMMAND,
+        ]);
+        let runtimeBackup = {};
+        try {
+            const raw = localStorage.getItem(Core.ThreeNoWatch?.runtimeBackupKey || 'hege_three_no_scan_runtime_backup');
+            runtimeBackup = raw ? JSON.parse(raw) : {};
+        } catch (_) {
+            runtimeBackup = {};
+        }
+        const scanState = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
+        const scanResults = Storage.getThreeNoScanResults();
+        const debugLog = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, []);
+        const scanId = String(scanResults.scanId || scanState.scanId || runtimeBackup.scanId || '');
+        const normalizedDebugLog = (() => {
+            const rows = Array.isArray(debugLog) ? debugLog : [];
+            const filtered = scanId ? rows.filter(row => row?.scanId === scanId) : rows;
+            const seen = new Set();
+            return filtered
+                .slice()
+                .sort((a, b) => (parseInt(a?.ts || '0', 10) || 0) - (parseInt(b?.ts || '0', 10) || 0))
+                .filter(row => {
+                    const key = [
+                        row?.scanId || '',
+                        row?.ts || '',
+                        row?.step || '',
+                        row?.current || '',
+                        row?.url || '',
+                    ].join('|');
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                })
+                .map((row, index) => ({
+                    ...row,
+                    seq: parseInt(row?.seq || `${index + 1}`, 10) || index + 1,
+                    scanElapsedMs: parseInt(row?.scanElapsedMs || '0', 10) || 0,
+                }))
+                .slice(-600);
+        })();
+        const exportScanState = scanState && typeof scanState === 'object' && !Array.isArray(scanState)
+            ? { ...scanState, debugLog: normalizedDebugLog }
+            : scanState;
+        return {
+            type: 'three_no_debug_export',
+            exportedAt: Date.now(),
+            exportedAtISO: new Date().toISOString(),
+            version: CONFIG.VERSION,
+            url: window.location.href,
+            scanId,
+            fixedStorageKey: CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG,
+            summary: {
+                stateStatus: scanState.status || '',
+                resultStatus: scanResults.status || '',
+                current: scanState.current || '',
+                scanTargetOwner: scanResults.scanTargetOwner || scanState.scanTargetOwner || runtimeBackup.scanTargetOwner || '',
+                checkedFollowersCount: scanResults.checkedFollowersCount || 0,
+                candidateFollowersCount: scanResults.candidateFollowersCount || 0,
+                threeNoFollowersCount: scanResults.threeNoFollowersCount || 0,
+                debugLogCount: normalizedDebugLog.length,
+                lastDebugStep: normalizedDebugLog.length ? normalizedDebugLog[normalizedDebugLog.length - 1].step : '',
+            },
+            scanState: exportScanState,
+            scanResults,
+            scanCursor: Storage.getThreeNoScanCursor(),
+            scanCommand: Storage.get(CONFIG.KEYS.THREE_NO_SCAN_COMMAND, ''),
+            scanLock: Storage.get(CONFIG.KEYS.THREE_NO_SCAN_LOCK, ''),
+            runtimeBackup,
+            debugLog: normalizedDebugLog,
+            consoleLogs: Utils.getRecentLogs().slice(-80),
+        };
+    },
+
+    exportThreeNoDebug: () => {
+        if (!Utils.isBetaBuild()) {
+            UI.showToast(['正式版已停用', '三無', '診斷', '匯出'].join(''));
+            return false;
+        }
+        const payload = Core.buildThreeNoDebugExport();
+        const id = payload.scanId || `three-no-debug-${Date.now()}`;
+        const safeId = String(id).replace(/[^\w.-]+/g, '_').slice(0, 90);
+        const filename = `${safeId || 'three-no-debug'}.json`;
+        const text = JSON.stringify(payload, null, 2);
+        const downloaded = Core.downloadTextFile(filename, text);
+        if (downloaded) {
+            UI.showToast(`${['已匯出', '三無', '診斷'].join('')}：${filename}`);
+            return true;
+        }
+        navigator.clipboard.writeText(text).then(() => {
+            UI.showToast('三無診斷 JSON 已複製到剪貼簿');
+        }).catch(() => {
+            prompt('無法直接下載，請手動複製三無診斷 JSON：', text);
+        });
+        return true;
+    },
+
     exportHistory: () => {
         const db = Storage.getBlockDB();
         if (db.length === 0) { UI.showToast('歷史資料庫是空的'); return; }
@@ -2232,15 +2336,30 @@ export const Core = {
     },
 
     retryFailedQueue: () => {
-        const failedUsers = Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []);
-        const reportFailedUsers = Storage.getJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, []);
+        Storage.invalidateMulti([CONFIG.KEYS.FAILED_QUEUE, CONFIG.KEYS.REPORT_FAILED_QUEUE]);
+        const failedUsers = [...new Set(Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, [])
+            .map(user => String(user || '').trim())
+            .filter(Boolean))];
+        const reportFailedUsers = [...new Set(Storage.getJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, [])
+            .map(user => String(user || '').trim())
+            .filter(Boolean))];
         const totalFailed = failedUsers.length + reportFailedUsers.length;
         if (totalFailed === 0) {
+            Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, []);
+            Storage.setJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, []);
             UI.showToast('沒有失敗紀錄可重試');
+            Core.updateControllerUI();
             return;
         }
 
-        UI.showConfirm(`發現封鎖失敗 ${failedUsers.length} 筆、檢舉失敗 ${reportFailedUsers.length} 筆。\n確定要重新加入佇列重試嗎？`, () => {
+        const clearFailedQueues = () => {
+            Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, []);
+            Storage.setJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, []);
+            Core.updateControllerUI();
+            UI.showToast(`已清除封鎖失敗 ${failedUsers.length} 筆、檢舉失敗 ${reportFailedUsers.length} 筆`);
+        };
+
+        UI.showConfirm(`發現封鎖失敗 ${failedUsers.length} 筆、檢舉失敗 ${reportFailedUsers.length} 筆。\n\n按「重試」會重新加入佇列並清除失敗紀錄。\n按「只清除」會只清掉失敗紀錄，不啟動 worker。`, () => {
             let activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
             const combinedQueue = [...new Set([...activeQueue, ...failedUsers])];
             Storage.setJSON(CONFIG.KEYS.BG_QUEUE, combinedQueue);
@@ -2268,7 +2387,7 @@ export const Core = {
                     }
                 }
             }
-        });
+        }, clearFailedQueues, { confirm: '重試', cancel: '只清除' });
     },
 
     importList: () => {

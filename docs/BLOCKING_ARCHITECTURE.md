@@ -112,7 +112,7 @@ location.reload();
 4. 粉絲列表會先做候選預篩：列表無可見頭像者優先進 profile 檢查；Threads / Instagram 匿名預設頭像（例如 `anonymous_profile_pic` / `ig_cache_key=YW5vbnltb3VzX3Byb2ZpbGVfcGlj` / static CDN fallback `5OTfmveiK1K.jpg`）必須視為無頭像；列表已有非預設可見頭像但 username 符合「動物字詞 + 數字亂碼」/ `a09xxxxxxxx` 台灣手機格式者，也會作為次要候選進 profile 檢查；列表已有非預設可見頭像且 username 正常者會寫入本批 cursor 但不進 profile。
 5. worker 進入 profile 後保守判斷：必須無大頭照，且同時符合「無自我介紹 / 無發文 / 無回文 / 無轉貼 / 命名可疑」任一項，才列入三無管理清單。worker 也會嘗試讀取「關於此個人檔案」中的加入時間與所在地點，供本機標籤與 filter 使用。
 6. 結果寫入同 origin `localStorage`，主分頁透過 storage sync / polling 更新 floating icon 與 menu，並在新的掃描結果完成時自動彈出報告；自動彈報告只允許出現在啟動掃描的原本 tab（以 `sessionStorage` / `window.name` 的 scan anchor 判定），避免使用者從報告點開帳號檢查時，新開 profile tab 又重複跳出報告；worker 會先自動續掃到備選門檻或掃到底，不會每一小批都要求使用者按「續掃下一批」。完成結果會以 username 合併到既有本機三無管理清單，不因下一次掃描覆蓋舊資料。
-7. 管理視窗讓使用者自行決定後續處理：可用多重 filter 依三無原因、加入時間、國家/地區、掃描來源與掃描日期縮小清單，再勾選加入清理名單、忽略或直接封鎖。若使用者在設定中開啟 `hege_three_no_auto_block`，掃描完成後會直接把本批新三無名單加入既有 `BG_QUEUE`，設定 `WORKER_MODE=block`，並讓同一個 worker 分頁轉入一般封鎖 worker；此路徑不新增 Chrome 權限。
+7. 管理視窗讓使用者自行決定後續處理：可用多重 filter 依三無原因、加入時間、國家/地區、掃描來源與掃描日期縮小清單，再勾選清除、加入安全名單或加入封鎖清單。加入封鎖清單只會排入正常封鎖佇列，使用者仍必須回主面板按「開始封鎖」執行；三無掃描完成後不得自動啟動封鎖 worker。
 8. 掃描完成後，worker 分頁嘗試上傳匿名 aggregate 統計，寫入報告狀態，然後呼叫 `window.close()` 關閉自己。
 
 ### 權限邊界
@@ -121,7 +121,7 @@ location.reload();
 - 不使用 `chrome.scripting` 動態注入。
 - 不要求 `tabs` permission；不讀取 tab URL / title / favicon 等敏感欄位。
 - 三無名單與標籤只留在本機；平台 payload 只包含檢查人數、三無人數、掃描狀態等 aggregate。
-- 三無掃描不自動封鎖；使用者必須在報告中加入清理名單，或按「直接封鎖全部」並二次確認，才會啟動封鎖 worker。
+- 三無掃描不自動封鎖；使用者必須在報告中加入封鎖清單，再回主面板按「開始封鎖」才會啟動封鎖 worker。
 - 目前 cursor 只用於同一輪分批續掃；永久「只掃新粉絲」是未來可選設定，不是預設行為。
 - 測試版可在升版時清除未完成的三無掃描 state 方便重測；若已產生 completed report，升版不得清除 results/cursor，避免測試用報告資料消失。正式版不得因升版清除使用者既有三無掃描報告或 cursor。
 
@@ -181,7 +181,11 @@ cleanListBtn.addEventListener('click', handleCleanList);
 ### 重試失敗清單 (`retryFailedQueue`)
 
 **檔案**：`core.js`
-**行為**：將 `FAILED_QUEUE` 中的使用者移回 `BG_QUEUE`，然後：
+**行為**：讀取 `FAILED_QUEUE` 與 `REPORT_FAILED_QUEUE` 後讓使用者選擇：
+- 「重試」：將封鎖失敗移回 `BG_QUEUE`、檢舉失敗移回 `REPORT_QUEUE`，清空兩個 failed queue，然後依下一個佇列類型啟動 worker
+- 「只清除」：只清空 `FAILED_QUEUE` 與 `REPORT_FAILED_QUEUE`，不啟動 worker
+
+重試時：
 - Mobile → `Core.runSameTabWorker()`
 - Desktop → `window.open(...)`
 
@@ -244,7 +248,6 @@ Desktop: click(handleGlobalClick, capture: true) + ontouchend(stopPropagation)
 | `hege_three_no_ignored_users` | localStorage (JSON) | 使用者忽略的三無帳號與過期時間 |
 | `hege_three_no_last_stats_upload_scan_id` | localStorage | 最近一次已上傳 aggregate 統計的三無掃描 ID |
 | `hege_three_no_candidate_threshold` | localStorage | 三無掃描備選名單門檻，預設 100，可在設定調整 |
-| `hege_three_no_auto_block` | localStorage | 三無掃描完成後是否直接加入封鎖佇列並啟動 worker |
 
 ---
 

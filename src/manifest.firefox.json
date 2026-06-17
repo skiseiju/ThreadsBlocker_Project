@@ -24,7 +24,8 @@
     "*://*.threads.net/*",
     "*://threads.net/*",
     "*://*.threads.com/*",
-    "*://threads.com/*"
+    "*://threads.com/*",
+    "https://threadsblocker.skiseiju.com/*"
   ],
   "content_scripts": [
     {

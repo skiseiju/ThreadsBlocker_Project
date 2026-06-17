@@ -211,46 +211,60 @@ export const Storage = {
             limited: hasMore,
             hasMore,
             batchSize: parseInt(data.batchSize || CONFIG.THREE_NO_SCAN_BATCH_SIZE || '200', 10) || 200,
-            autoBlockStarted: data.autoBlockStarted === true,
-            autoBlockQueuedCount: parseInt(data.autoBlockQueuedCount || '0', 10) || 0,
+            autoBlockStarted: false,
+            autoBlockQueuedCount: 0,
             error: String(data.error || ''),
+            debug: data.debug && typeof data.debug === 'object' && !Array.isArray(data.debug) ? { ...data.debug } : {},
+            debugLog: Array.isArray(data.debugLog) ? data.debugLog.slice(-600) : [],
             users: users
                 .filter(item => item && typeof item === 'object')
-                .map(item => ({
-                    username: String(item.username || '').trim(),
-                    profileUrl: String(item.profileUrl || ''),
-                    checkedAt: parseInt(item.checkedAt || '0', 10) || 0,
-                    firstSeenAt: parseInt(item.firstSeenAt || item.checkedAt || '0', 10) || 0,
-                    lastSeenAt: parseInt(item.lastSeenAt || item.checkedAt || '0', 10) || 0,
-                    scanDate: String(item.scanDate || data.scanDate || ''),
-                    scanDates: [...new Set((Array.isArray(item.scanDates) ? item.scanDates : [item.scanDate || data.scanDate])
-                        .map(v => String(v || '').trim())
-                        .filter(Boolean))],
-                    scanTargetOwner: String(item.scanTargetOwner || data.scanTargetOwner || data.owner || ''),
-                    targetOwners: [...new Set((Array.isArray(item.targetOwners) ? item.targetOwners : [item.scanTargetOwner || data.scanTargetOwner || data.owner])
-                        .map(v => String(v || '').trim())
-                        .filter(Boolean))],
-                    noAvatar: item.noAvatar === true,
-                    noBio: item.noBio === true,
-                    noPosts: item.noPosts === true,
-                    noReplies: item.noReplies === true,
-                    noReposts: item.noReposts === true,
-                    suspiciousUsername: item.suspiciousUsername === true,
-                    profileSignalsVersion: parseInt(item.profileSignalsVersion || '0', 10) || 0,
-                    noRepliesKnown: item.noRepliesKnown === true,
-                    noRepostsKnown: item.noRepostsKnown === true,
-                    followerCount: parseInt(item.followerCount || '0', 10) || 0,
-                    followerCountKnown: item.followerCountKnown === true,
-                    joinedAt: parseInt(item.joinedAt || '0', 10) || 0,
-                    accountAgeDays: parseInt(item.accountAgeDays || '0', 10) || 0,
-                    accountAgeBucket: String(item.accountAgeBucket || ''),
-                    isNewAccount: item.isNewAccount === true,
-                    locationLabel: String(item.locationLabel || ''),
-                    countryTag: String(item.countryTag || ''),
-                    regionShared: item.regionShared === true,
-                    metadataSource: String(item.metadataSource || ''),
-                    metadataDebug: item.metadataDebug && typeof item.metadataDebug === 'object' ? item.metadataDebug : {},
-                }))
+                .map(item => {
+                    const accountPrivate = item.accountPrivate === true;
+                    return {
+                        username: String(item.username || '').trim(),
+                        profileUrl: String(item.profileUrl || ''),
+                        checkedAt: parseInt(item.checkedAt || '0', 10) || 0,
+                        firstSeenAt: parseInt(item.firstSeenAt || item.checkedAt || '0', 10) || 0,
+                        lastSeenAt: parseInt(item.lastSeenAt || item.checkedAt || '0', 10) || 0,
+                        scanDate: String(item.scanDate || data.scanDate || ''),
+                        scanDates: [...new Set((Array.isArray(item.scanDates) ? item.scanDates : [item.scanDate || data.scanDate])
+                            .map(v => String(v || '').trim())
+                            .filter(Boolean))],
+                        scanTargetOwner: String(item.scanTargetOwner || data.scanTargetOwner || data.owner || ''),
+                        targetOwners: [...new Set((Array.isArray(item.targetOwners) ? item.targetOwners : [item.scanTargetOwner || data.scanTargetOwner || data.owner])
+                            .map(v => String(v || '').trim())
+                            .filter(Boolean))],
+                        noAvatar: item.noAvatar === true,
+                        noBio: item.noBio === true,
+                        noPosts: accountPrivate ? false : item.noPosts === true,
+                        noReplies: accountPrivate ? false : item.noReplies === true,
+                        noReposts: accountPrivate ? false : item.noReposts === true,
+                        accountPrivate,
+                        suspiciousUsername: item.suspiciousUsername === true,
+                        profileSignalsVersion: parseInt(item.profileSignalsVersion || '0', 10) || 0,
+                        noPostsKnown: accountPrivate ? false : item.noPostsKnown === true,
+                        noRepliesKnown: accountPrivate ? false : item.noRepliesKnown === true,
+                        noRepostsKnown: accountPrivate ? false : item.noRepostsKnown === true,
+                        followerCount: accountPrivate ? 0 : (parseInt(item.followerCount || '0', 10) || 0),
+                        followerCountKnown: accountPrivate ? false : item.followerCountKnown === true,
+                        bioSignalReason: String(item.bioSignalReason || ''),
+                        contentProbeSkippedReason: accountPrivate ? 'private_profile' : String(item.contentProbeSkippedReason || ''),
+                        privateDetectedAt: String(item.privateDetectedAt || ''),
+                        privateSignalReason: String(item.privateSignalReason || ''),
+                        privateSignalMatchedText: String(item.privateSignalMatchedText || ''),
+                        followerCountSkippedReason: accountPrivate ? 'private_profile' : String(item.followerCountSkippedReason || ''),
+                        joinedAt: parseInt(item.joinedAt || '0', 10) || 0,
+                        accountAgeDays: parseInt(item.accountAgeDays || '0', 10) || 0,
+                        accountAgeBucket: String(item.accountAgeBucket || ''),
+                        isNewAccount: item.isNewAccount === true,
+                        locationLabel: String(item.locationLabel || ''),
+                        countryTag: String(item.countryTag || ''),
+                        regionShared: item.regionShared === true,
+                        metadataSource: String(item.metadataSource || ''),
+                        metadataSourcePage: String(item.metadataSourcePage || ''),
+                        metadataDebug: item.metadataDebug && typeof item.metadataDebug === 'object' ? item.metadataDebug : {},
+                    };
+                })
                 .filter(item => item.username),
         };
     },
@@ -272,46 +286,60 @@ export const Storage = {
             limited: payload.limited === true,
             hasMore: payload.hasMore === true || payload.limited === true,
             batchSize: parseInt(payload.batchSize || CONFIG.THREE_NO_SCAN_BATCH_SIZE || '200', 10) || 200,
-            autoBlockStarted: payload.autoBlockStarted === true,
-            autoBlockQueuedCount: parseInt(payload.autoBlockQueuedCount || '0', 10) || 0,
+            autoBlockStarted: false,
+            autoBlockQueuedCount: 0,
             error: String(payload.error || ''),
+            debug: payload.debug && typeof payload.debug === 'object' && !Array.isArray(payload.debug) ? { ...payload.debug } : {},
+            debugLog: Array.isArray(payload.debugLog) ? payload.debugLog.slice(-600) : [],
             users: users
                 .filter(item => item && typeof item === 'object')
-                .map(item => ({
-                    username: String(item.username || '').trim(),
-                    profileUrl: String(item.profileUrl || ''),
-                    checkedAt: parseInt(item.checkedAt || '0', 10) || 0,
-                    firstSeenAt: parseInt(item.firstSeenAt || item.checkedAt || '0', 10) || 0,
-                    lastSeenAt: parseInt(item.lastSeenAt || item.checkedAt || '0', 10) || 0,
-                    scanDate: String(item.scanDate || payload.scanDate || ''),
-                    scanDates: [...new Set((Array.isArray(item.scanDates) ? item.scanDates : [item.scanDate || payload.scanDate])
-                        .map(v => String(v || '').trim())
-                        .filter(Boolean))],
-                    scanTargetOwner: String(item.scanTargetOwner || payload.scanTargetOwner || payload.owner || ''),
-                    targetOwners: [...new Set((Array.isArray(item.targetOwners) ? item.targetOwners : [item.scanTargetOwner || payload.scanTargetOwner || payload.owner])
-                        .map(v => String(v || '').trim())
-                        .filter(Boolean))],
-                    noAvatar: item.noAvatar === true,
-                    noBio: item.noBio === true,
-                    noPosts: item.noPosts === true,
-                    noReplies: item.noReplies === true,
-                    noReposts: item.noReposts === true,
-                    suspiciousUsername: item.suspiciousUsername === true,
-                    profileSignalsVersion: parseInt(item.profileSignalsVersion || '0', 10) || 0,
-                    noRepliesKnown: item.noRepliesKnown === true,
-                    noRepostsKnown: item.noRepostsKnown === true,
-                    followerCount: parseInt(item.followerCount || '0', 10) || 0,
-                    followerCountKnown: item.followerCountKnown === true,
-                    joinedAt: parseInt(item.joinedAt || '0', 10) || 0,
-                    accountAgeDays: parseInt(item.accountAgeDays || '0', 10) || 0,
-                    accountAgeBucket: String(item.accountAgeBucket || ''),
-                    isNewAccount: item.isNewAccount === true,
-                    locationLabel: String(item.locationLabel || ''),
-                    countryTag: String(item.countryTag || ''),
-                    regionShared: item.regionShared === true,
-                    metadataSource: String(item.metadataSource || ''),
-                    metadataDebug: item.metadataDebug && typeof item.metadataDebug === 'object' ? item.metadataDebug : {},
-                }))
+                .map(item => {
+                    const accountPrivate = item.accountPrivate === true;
+                    return {
+                        username: String(item.username || '').trim(),
+                        profileUrl: String(item.profileUrl || ''),
+                        checkedAt: parseInt(item.checkedAt || '0', 10) || 0,
+                        firstSeenAt: parseInt(item.firstSeenAt || item.checkedAt || '0', 10) || 0,
+                        lastSeenAt: parseInt(item.lastSeenAt || item.checkedAt || '0', 10) || 0,
+                        scanDate: String(item.scanDate || payload.scanDate || ''),
+                        scanDates: [...new Set((Array.isArray(item.scanDates) ? item.scanDates : [item.scanDate || payload.scanDate])
+                            .map(v => String(v || '').trim())
+                            .filter(Boolean))],
+                        scanTargetOwner: String(item.scanTargetOwner || payload.scanTargetOwner || payload.owner || ''),
+                        targetOwners: [...new Set((Array.isArray(item.targetOwners) ? item.targetOwners : [item.scanTargetOwner || payload.scanTargetOwner || payload.owner])
+                            .map(v => String(v || '').trim())
+                            .filter(Boolean))],
+                        noAvatar: item.noAvatar === true,
+                        noBio: item.noBio === true,
+                        noPosts: accountPrivate ? false : item.noPosts === true,
+                        noReplies: accountPrivate ? false : item.noReplies === true,
+                        noReposts: accountPrivate ? false : item.noReposts === true,
+                        accountPrivate,
+                        suspiciousUsername: item.suspiciousUsername === true,
+                        profileSignalsVersion: parseInt(item.profileSignalsVersion || '0', 10) || 0,
+                        noPostsKnown: accountPrivate ? false : item.noPostsKnown === true,
+                        noRepliesKnown: accountPrivate ? false : item.noRepliesKnown === true,
+                        noRepostsKnown: accountPrivate ? false : item.noRepostsKnown === true,
+                        followerCount: accountPrivate ? 0 : (parseInt(item.followerCount || '0', 10) || 0),
+                        followerCountKnown: accountPrivate ? false : item.followerCountKnown === true,
+                        bioSignalReason: String(item.bioSignalReason || ''),
+                        contentProbeSkippedReason: accountPrivate ? 'private_profile' : String(item.contentProbeSkippedReason || ''),
+                        privateDetectedAt: String(item.privateDetectedAt || ''),
+                        privateSignalReason: String(item.privateSignalReason || ''),
+                        privateSignalMatchedText: String(item.privateSignalMatchedText || ''),
+                        followerCountSkippedReason: accountPrivate ? 'private_profile' : String(item.followerCountSkippedReason || ''),
+                        joinedAt: parseInt(item.joinedAt || '0', 10) || 0,
+                        accountAgeDays: parseInt(item.accountAgeDays || '0', 10) || 0,
+                        accountAgeBucket: String(item.accountAgeBucket || ''),
+                        isNewAccount: item.isNewAccount === true,
+                        locationLabel: String(item.locationLabel || ''),
+                        countryTag: String(item.countryTag || ''),
+                        regionShared: item.regionShared === true,
+                        metadataSource: String(item.metadataSource || ''),
+                        metadataSourcePage: String(item.metadataSourcePage || ''),
+                        metadataDebug: item.metadataDebug && typeof item.metadataDebug === 'object' ? item.metadataDebug : {},
+                    };
+                })
                 .filter(item => item.username),
         };
         Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_RESULTS, normalized);
@@ -358,11 +386,59 @@ export const Storage = {
         Storage.set(CONFIG.KEYS.THREE_NO_CANDIDATE_THRESHOLD, String(normalized));
         return normalized;
     },
-    isThreeNoAutoBlockEnabled: () => Storage.get(CONFIG.KEYS.THREE_NO_AUTO_BLOCK, 'false') === 'true',
-    setThreeNoAutoBlockEnabled: (enabled) => Storage.set(CONFIG.KEYS.THREE_NO_AUTO_BLOCK, enabled ? 'true' : 'false'),
+    getThreeNoAcceleratedProfileEnabled: () => Storage.get(CONFIG.KEYS.THREE_NO_ACCELERATED_PROFILE_ENABLED, 'false') === 'true',
+    setThreeNoAcceleratedProfileEnabled: (enabled) => {
+        Storage.set(CONFIG.KEYS.THREE_NO_ACCELERATED_PROFILE_ENABLED, enabled ? 'true' : 'false');
+        return enabled === true;
+    },
     getThreeNoIgnoredUsers: () => {
         const raw = Storage.getJSON(CONFIG.KEYS.THREE_NO_IGNORED_USERS, {});
         return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    },
+    getThreeNoSafeUsers: () => {
+        const raw = Storage.getJSON(CONFIG.KEYS.THREE_NO_SAFE_USERS, {});
+        return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    },
+    addThreeNoSafeUsers: (usernames = []) => {
+        const targets = (Array.isArray(usernames) ? usernames : [usernames])
+            .map(u => String(u || '').trim().replace(/^@+/, ''))
+            .filter(Boolean);
+        if (targets.length === 0) return 0;
+        const safe = Storage.getThreeNoSafeUsers();
+        const now = Date.now();
+        let added = 0;
+        targets.forEach(username => {
+            if (!safe[username]) added++;
+            safe[username] = {
+                addedAt: now,
+                reason: 'three_no_marked_safe',
+            };
+        });
+        Storage.setJSON(CONFIG.KEYS.THREE_NO_SAFE_USERS, safe);
+        return added;
+    },
+    isThreeNoUserSafe: (username) => {
+        const u = String(username || '').trim().replace(/^@+/, '');
+        if (!u) return false;
+        return !!Storage.getThreeNoSafeUsers()[u];
+    },
+    removeThreeNoUsersFromResults: (usernames = []) => {
+        const targets = new Set((Array.isArray(usernames) ? usernames : [usernames])
+            .map(u => String(u || '').trim().replace(/^@+/, ''))
+            .filter(Boolean));
+        if (targets.size === 0) return 0;
+        const results = Storage.getThreeNoScanResults();
+        const before = Array.isArray(results.users) ? results.users : [];
+        const after = before.filter(item => !targets.has(String(item.username || '').trim().replace(/^@+/, '')));
+        const removed = before.length - after.length;
+        if (removed <= 0) return 0;
+        Storage.setThreeNoScanResults({
+            ...results,
+            users: after,
+            threeNoFollowersCount: after.length,
+        });
+        Storage.setThreeNoUnreadCount(Math.max(0, Storage.getThreeNoUnreadCount() - removed));
+        return removed;
     },
     ignoreThreeNoUser: (username, days = 7) => {
         const u = String(username || '').trim();

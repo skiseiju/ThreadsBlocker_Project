@@ -574,51 +574,31 @@ export const UI = {
                     <div style="margin:0 0 16px;padding:13px 14px;border:1px solid rgba(236,195,81,0.42);border-radius:10px;background:rgba(236,195,81,0.10);color:#f4e2a2;line-height:1.65;">
                         <div style="font-weight:800;color:#ffe69a;margin-bottom:6px;">開發者近況提醒</div>
                         <div style="color:#eadfbf;">
-                            這一版因為我的個人 Threads、Facebook，以及商業攝影帳號都已被 Meta 停用，沒辦法像以前一樣做完整實帳測試。核心功能目前在可測範圍內確認可用，但仍可能有我沒抓到的 bug，先請大家見諒。
+                            開發者帳號回來了。之後會恢復用真實 Threads 介面做回歸測試，也歡迎 follow <a href="https://www.threads.com/@skiseiju" target="_blank" rel="noopener noreferrer" style="color:#ffe69a;">@skiseiju</a> 追蹤後續修正。
                         </div>
                         <div style="margin-top:8px;color:#eadfbf;">
-                            接下來我會暫停開發一段時間，先處理本業帳號、Facebook 與申訴。如果你知道其他有效的 Meta / Threads / Facebook 申訴管道，歡迎提供給我；如果留友封有幫上忙，也可以用「贊助我喝咖啡」支持我。謝謝大家。
+                            也希望大家可以因為這次 Meta 大封鎖，去附議「推動跨境數位平台設立臺灣實體據點法定代理人與常駐真人客服申訴機制」，讓大家以後不會被平台綁架又求助無門。<a href="https://join.gov.tw/idea/detail/78f0ba59-bcde-42e2-9920-43d9f293fa0c#endorses" target="_blank" rel="noopener noreferrer" style="color:#ffe69a;">前往附議</a>
                         </div>
                     </div>
-                    <p style="margin:0 0 12px;color:#f2f2f2;font-weight:700;">重新跟大家介紹一下主要功能。</p>
+                    <p style="margin:0 0 12px;color:#f2f2f2;font-weight:700;">功能介紹</p>
                     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-bottom:18px;">
-                        <div style="border:1px solid #303030;border-radius:8px;padding:11px 12px;background:#141414;">
-                            <div style="font-weight:700;color:#fff;margin-bottom:4px;">批次清理名單</div>
-                            <div style="font-size:12px;color:#aaa;line-height:1.55;">從互動名單、粉絲、追蹤中勾選帳號，加入封鎖或檢舉清單。</div>
+                        <div style="border:1px solid #303030;border-radius:8px;padding:12px 13px;background:#141414;">
+                            <div style="font-weight:700;color:#fff;margin-bottom:4px;">2.7 大功能：三無追蹤者掃描</div>
+                            <div style="font-size:12px;color:#aaa;line-height:1.55;">Chrome 版可掃自己或指定帳號粉絲，找出疑似三無帳號，結果只存在本機。</div>
                         </div>
-                        <div style="border:1px solid #303030;border-radius:8px;padding:11px 12px;background:#141414;">
-                            <div style="font-weight:700;color:#fff;margin-bottom:4px;">背景自動執行</div>
-                            <div style="font-size:12px;color:#aaa;line-height:1.55;">桌面用背景分頁，iOS / iPadOS 用同分頁 worker，避免跳到 Threads App。</div>
+                        <div style="border:1px solid #303030;border-radius:8px;padding:12px 13px;background:#141414;">
+                            <div style="font-weight:700;color:#fff;margin-bottom:4px;">三無管理流程</div>
+                            <div style="font-size:12px;color:#aaa;line-height:1.55;">掃描後可續掃、清除、加入安全名單或加入封鎖清單；不會自動封鎖。</div>
                         </div>
-                        <div style="border:1px solid #303030;border-radius:8px;padding:11px 12px;background:#141414;">
-                            <div style="font-weight:700;color:#fff;margin-bottom:4px;">冷卻與重試保護</div>
-                            <div style="font-size:12px;color:#aaa;line-height:1.55;">偵測平台限制時保存佇列，失敗帳號可重試，降低漏封風險。</div>
-                        </div>
-                        <div style="border:1px solid #303030;border-radius:8px;padding:11px 12px;background:#141414;">
-                            <div style="font-weight:700;color:#fff;margin-bottom:4px;">只檢舉流程</div>
-                            <div style="font-size:12px;color:#aaa;line-height:1.55;">可只把帳號送進檢舉佇列，和封鎖流程分開執行。</div>
-                        </div>
-                        <div style="border:1px solid #303030;border-radius:8px;padding:11px 12px;background:#141414;">
-                            <div style="font-weight:700;color:#fff;margin-bottom:4px;">定點絕與貼文水庫</div>
-                            <div style="font-size:12px;color:#aaa;line-height:1.55;">把指定貼文加入排程，定期回頭清理互動名單。</div>
-                        </div>
-                        <div style="border:1px solid #303030;border-radius:8px;padding:11px 12px;background:#141414;">
-                            <div style="font-weight:700;color:#fff;margin-bottom:4px;">本機分析與觀測</div>
-                            <div style="font-size:12px;color:#aaa;line-height:1.55;">本機整理來源、分類與趨勢；匿名上傳需同意，可隨時調整。</div>
-                        </div>
-                        <div style="border:1px solid #303030;border-radius:8px;padding:11px 12px;background:#141414;">
-                            <div style="font-weight:700;color:#fff;margin-bottom:4px;">三無追蹤者提醒</div>
-                            <div style="font-size:12px;color:#aaa;line-height:1.55;">Chrome 版可手動開啟掃描 worker，分批檢查無大頭照、無自介、無發文或命名可疑的追蹤者；預設只提醒與列名單。</div>
+                        <div style="border:1px solid #303030;border-radius:8px;padding:12px 13px;background:#141414;">
+                            <div style="font-weight:700;color:#fff;margin-bottom:4px;">目前限制</div>
+                            <div style="font-size:12px;color:#aaa;line-height:1.55;">大型帳號可能只載入部分粉絲；留友封只判斷 Threads 當下顯示出的名單。</div>
                         </div>
                     </div>
                     <p style="margin:0 0 10px;color:#f2f2f2;font-weight:700;">最近更新</p>
                     <ul style="margin:0 0 14px;padding-left:18px;">
-                        <li style="margin-bottom:6px;"><b>2.7.0 三無追蹤者掃描</b>：Chrome 版可手動掃自己或指定帳號的粉絲，掃完在原本分頁顯示報告，floating icon 會以紅色驚嘆號提醒。</li>
-                        <li style="margin-bottom:6px;"><b>候選與續掃修正</b>：無大頭照 / 預設大頭照優先檢查，命名可疑也會列入備選；掃描會用本機 cursor 跳過已檢查帳號，並修正過早判定掃到底的問題。</li>
-                        <li style="margin-bottom:6px;"><b>三無後續處理</b>：報告可逐筆加入清理名單，也可二次確認後直接封鎖全部；設定中可調整備選門檻，或開啟掃完後直接封鎖。</li>
-                        <li style="margin-bottom:6px;"><b>粉絲 / 追蹤中清理</b>：粉絲與追蹤中名單支援批次勾選，checkbox 固定在「追蹤對方」旁，確認視窗不再誤顯示清理入口。</li>
-                        <li style="margin-bottom:6px;"><b>平台觀測資料鏈路</b>：整合 raw 保存、D1/R2 後端修復、文字指紋、時間桶與上傳同意延續。</li>
-                        <li style="margin-bottom:6px;"><b>定點絕定位修復</b>：掃描前先鎖定目標貼文，避免抓到錯誤互動名單。</li>
+                        <li style="margin-bottom:6px;"><b>2.7.1</b>：修正三無判斷、新版三點選單、失敗清單清除與設定分區。</li>
+                        <li style="margin-bottom:6px;"><b>2.7.0</b>：加入 Chrome 三無追蹤者掃描，可掃自己或指定帳號粉絲並用本機清單管理。</li>
                     </ul>
                     <div style="margin:0;padding:12px 14px;border:1px solid rgba(236,195,81,0.35);border-radius:10px;background:rgba(236,195,81,0.10);color:#f6df92;font-weight:700;line-height:1.55;">
                         如果留友封有幫上你的忙，也歡迎贊助我喝咖啡。謝謝大家的支持。
@@ -643,6 +623,67 @@ export const UI = {
             window.open(CONFIG.DONATE_URL, '_blank', 'noopener,noreferrer');
             overlay.remove();
         };
+    },
+
+    showAnnouncementModal: (announcement = {}) => {
+        if (document.getElementById('hege-announcement-overlay')) return;
+        const id = String(announcement.id || '').trim();
+        if (!id) return;
+
+        const title = String(announcement.title || '留友封最新消息').trim();
+        const subtitle = String(announcement.subtitle || announcement.publishedAt || '').trim();
+        const body = String(announcement.body || '').trim();
+        const items = Array.isArray(announcement.items)
+            ? announcement.items.map(item => String(item || '').trim()).filter(Boolean).slice(0, 8)
+            : [];
+        const cta = announcement.cta && typeof announcement.cta === 'object' ? announcement.cta : null;
+        const ctaLabel = String(cta?.label || '').trim();
+        const ctaUrl = String(cta?.url || '').trim();
+        const hasCta = ctaLabel && /^https?:\/\//i.test(ctaUrl);
+
+        const overlay = document.createElement('div');
+        overlay.id = 'hege-announcement-overlay';
+        overlay.className = 'hege-manager-overlay';
+
+        Utils.setHTML(overlay, `
+            <div class="hege-manager-box" style="width:min(92vw,620px);max-width:620px;max-height:calc(100vh - 28px);max-height:calc(100dvh - 28px);">
+                <div class="hege-manager-header">
+                    <span class="hege-manager-title">${Utils.escapeHTML(title)}</span>
+                    <span class="hege-manager-close" id="hege-announcement-close">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+                    </span>
+                </div>
+                <div style="padding:20px 24px;overflow-y:auto;-webkit-overflow-scrolling:touch;font-size:13px;line-height:1.75;color:#d5d5d5;">
+                    ${subtitle ? `<p style="margin:0 0 10px;color:#888;font-size:12px;">${Utils.escapeHTML(subtitle)}</p>` : ''}
+                    ${body ? `<p style="margin:0 0 14px;white-space:pre-wrap;">${Utils.escapeHTML(body)}</p>` : ''}
+                    ${items.length > 0 ? `
+                        <ul style="margin:0;padding-left:18px;">
+                            ${items.map(item => `<li style="margin-bottom:7px;">${Utils.escapeHTML(item)}</li>`).join('')}
+                        </ul>
+                    ` : ''}
+                </div>
+                <div class="hege-manager-footer" style="gap:10px;flex-wrap:wrap;">
+                    <button class="hege-manager-btn secondary" id="hege-announcement-later">知道了</button>
+                    ${hasCta ? `<button class="hege-manager-btn primary" id="hege-announcement-cta">${Utils.escapeHTML(ctaLabel)}</button>` : ''}
+                </div>
+            </div>
+        `);
+        document.body.appendChild(overlay);
+
+        const close = () => {
+            Storage.set(CONFIG.KEYS.ANNOUNCEMENT_SEEN_ID, id);
+            overlay.remove();
+        };
+        overlay.querySelector('#hege-announcement-close').onclick = close;
+        overlay.querySelector('#hege-announcement-later').onclick = close;
+        const ctaBtn = overlay.querySelector('#hege-announcement-cta');
+        if (ctaBtn) {
+            ctaBtn.onclick = () => {
+                Storage.set(CONFIG.KEYS.ANNOUNCEMENT_SEEN_ID, id);
+                window.open(ctaUrl, '_blank', 'noopener,noreferrer');
+                overlay.remove();
+            };
+        }
     },
 
     showPlatformSyncConsentModal: (options = {}) => {
@@ -1026,7 +1067,9 @@ export const UI = {
     showThreeNoFollowersModal: (callbacks = {}) => {
         if (document.getElementById('hege-three-no-overlay')) return;
         const results = Storage.getThreeNoScanResults();
-        const users = (results.users || []).filter(item => !Storage.isThreeNoUserIgnored(item.username));
+        const users = (results.users || [])
+            .filter(item => !Storage.isThreeNoUserIgnored(item.username))
+            .filter(item => !Storage.isThreeNoUserSafe(item.username));
         const scanTargetOwner = String(results.scanTargetOwner || '').trim();
         const overlay = document.createElement('div');
         overlay.id = 'hege-three-no-overlay';
@@ -1042,6 +1085,7 @@ export const UI = {
             const country = item.countryTag || (item.regionShared ? item.locationLabel : '');
             return String(country || '').trim();
         };
+        const hasMissingRegion = users.some(isMissingRegion);
         const uniqueCountries = [...new Set(users
             .map(getCountryTag)
             .filter(country => country && !/地區未分享|未分享|not shared|not available/i.test(country)))].sort();
@@ -1066,7 +1110,6 @@ export const UI = {
             ? `累計已檢查 ${scanTargetOwner ? `@${Utils.escapeHTML(scanTargetOwner)} 的 ` : ''}${results.checkedFollowersCount} 位粉絲，本批 ${results.batchCheckedFollowersCount} 位`
             : (results.status ? `狀態：${Utils.escapeHTML(results.status)}` : '尚未掃描');
         const limitedText = results.hasMore ? ' · 可續掃下一批' : ' · 已掃到底';
-        const autoBlockText = results.autoBlockStarted ? ` · 已自動加入封鎖佇列 ${results.autoBlockQueuedCount} 位` : '';
         const titleText = '管理三無追蹤者';
         const emptyText = results.completedAt > 0
             ? '目前沒有未處理的三無追蹤者。'
@@ -1082,8 +1125,8 @@ export const UI = {
                 </div>
                 <div style="padding:14px 20px;border-bottom:1px solid #2a2a2a;color:#aaa;font-size:12px;line-height:1.45;">
                     <div style="color:#f5f5f5;font-weight:700;margin-bottom:4px;">${users.length} 位三無追蹤者管理名單</div>
-                    <div>${statusText}${limitedText}${autoBlockText} · ${checkedAtText}</div>
-                    <div style="margin-top:6px;color:#888;">清單會累加保存；可先用多重篩選縮小範圍，再勾選加入清理、忽略或直接封鎖。</div>
+                    <div>${statusText}${limitedText} · ${checkedAtText}</div>
+                    <div style="margin-top:6px;color:#888;">清單會累加保存；可先用多重篩選縮小範圍，再勾選清除、加入安全名單或加入封鎖清單。</div>
                     ${users.length > 0 ? `
                         <div id="hege-three-no-filters" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center;">
                             ${[
@@ -1092,6 +1135,7 @@ export const UI = {
                                 ['noPosts', '無發文'],
                                 ['noReplies', '無回文'],
                                 ['noReposts', '無轉貼'],
+                                ['accountPrivate', '帳號不公開'],
                                 ['zeroFollowers', '粉絲為0'],
                                 ['followersUnder30', '粉絲低於30'],
                                 ['suspiciousUsername', '命名可疑'],
@@ -1108,9 +1152,10 @@ export const UI = {
                                 <option value="186">低於半年</option>
                                 <option value="366">低於一年</option>
                             </select>
-                            ${uniqueCountries.length > 0 ? `
+                            ${(uniqueCountries.length > 0 || hasMissingRegion) ? `
                                 <select id="hege-three-no-country-filter" style="background:#151515;color:#ddd;border:1px solid #333;border-radius:6px;padding:5px 8px;font-size:12px;">
                                     <option value="">國家/地區</option>
+                                    ${hasMissingRegion ? '<option value="地區未分享">未分享</option>' : ''}
                                     ${uniqueCountries.map(country => `<option value="${Utils.escapeHTML(country)}">${Utils.escapeHTML(country)}</option>`).join('')}
                                 </select>
                             ` : ''}
@@ -1152,18 +1197,29 @@ export const UI = {
                         const scanDates = Array.isArray(item.scanDates) ? item.scanDates : [item.scanDate].filter(Boolean);
                         const countryTag = getCountryTag(item) || '地區未分享';
                         const regionMissing = isMissingRegion(item);
-                        const noRepliesKnown = item.noRepliesKnown === true || (parseInt(item.profileSignalsVersion || '0', 10) || 0) >= 2;
-                        const noRepostsKnown = item.noRepostsKnown === true || (parseInt(item.profileSignalsVersion || '0', 10) || 0) >= 2;
-                        const followerCountKnown = item.followerCountKnown === true;
+                        const profileSignalsVersion = parseInt(item.profileSignalsVersion || '0', 10) || 0;
+                        const isPrivate = item.accountPrivate === true;
+                        const noPostsKnown = isPrivate
+                            ? false
+                            : (item.noPostsKnown === true || (profileSignalsVersion > 0 && profileSignalsVersion < 8));
+                        const noRepliesKnown = isPrivate
+                            ? false
+                            : (item.noRepliesKnown === true || (profileSignalsVersion >= 2 && profileSignalsVersion < 8));
+                        const noRepostsKnown = isPrivate
+                            ? false
+                            : (item.noRepostsKnown === true || (profileSignalsVersion >= 2 && profileSignalsVersion < 8));
+                        const followerCountKnown = !isPrivate && item.followerCountKnown === true;
                         const followerCount = parseInt(item.followerCount || '0', 10) || 0;
                         const zeroFollowers = followerCountKnown && followerCount === 0;
                         const followersUnder30 = followerCountKnown && followerCount < 30;
                         const tags = [
                             item.noAvatar ? ['無大頭照', 'red'] : null,
                             item.noBio ? ['無自介', 'red'] : null,
-                            item.noPosts ? ['無發文', 'red'] : null,
-                            item.noReplies ? ['無回文', 'red'] : (!noRepliesKnown ? ['回文待重掃', 'gray'] : null),
-                            item.noReposts ? ['無轉貼', 'red'] : (!noRepostsKnown ? ['轉貼待重掃', 'gray'] : null),
+                            (!isPrivate && noPostsKnown && item.noPosts) ? ['無發文', 'red'] : (!isPrivate && !noPostsKnown ? ['發文待重掃', 'gray'] : null),
+                            (!isPrivate && noRepliesKnown && item.noReplies) ? ['無回文', 'red'] : (!isPrivate && !noRepliesKnown ? ['回文待重掃', 'gray'] : null),
+                            (!isPrivate && noRepostsKnown && item.noReposts) ? ['無轉貼', 'red'] : (!isPrivate && !noRepostsKnown ? ['轉貼待重掃', 'gray'] : null),
+                            isPrivate ? ['帳號不公開', 'gray'] : null,
+                            isPrivate && item.contentProbeSkippedReason === 'private_profile' ? ['已跳過內容檢查', 'gray'] : null,
                             zeroFollowers ? ['粉絲 0', 'gold'] : null,
                             (!zeroFollowers && followersUnder30) ? [`粉絲 ${followerCount}`, 'gold'] : null,
                             item.suspiciousUsername ? ['命名可疑', 'gold'] : null,
@@ -1174,9 +1230,10 @@ export const UI = {
                         const traitValues = [
                             item.noAvatar ? 'noAvatar' : '',
                             item.noBio ? 'noBio' : '',
-                            item.noPosts ? 'noPosts' : '',
-                            item.noReplies ? 'noReplies' : '',
-                            item.noReposts ? 'noReposts' : '',
+                            (!isPrivate && noPostsKnown && item.noPosts) ? 'noPosts' : '',
+                            (!isPrivate && noRepliesKnown && item.noReplies) ? 'noReplies' : '',
+                            (!isPrivate && noRepostsKnown && item.noReposts) ? 'noReposts' : '',
+                            isPrivate ? 'accountPrivate' : '',
                             zeroFollowers ? 'zeroFollowers' : '',
                             followersUnder30 ? 'followersUnder30' : '',
                             item.suspiciousUsername ? 'suspiciousUsername' : '',
@@ -1202,18 +1259,16 @@ export const UI = {
                                         ${ownerText ? `來源 ${Utils.escapeHTML(ownerText)} · ` : ''}${scanDates.length ? `掃描 ${Utils.escapeHTML(scanDates.join(', '))} · ` : ''}${timeText}
                                     </div>
                                 </div>
-                                <button class="hege-three-no-add hege-manager-btn primary" data-username="${safeU}" style="font-size:12px;padding:7px 9px;white-space:nowrap;">加入清理</button>
-                                <button class="hege-three-no-ignore hege-manager-btn secondary" data-username="${safeU}" style="font-size:12px;padding:7px 9px;white-space:nowrap;">忽略</button>
                             </div>
                         `;
                     }).join('')}
                 </div>
                 <div class="hege-manager-footer">
                     <span style="font-size:11px;color:#777;">名單只存在本機；平台只上傳統計數量。</span>
-                    ${results.hasMore ? '<button class="hege-manager-btn primary" id="hege-three-no-next-batch">續掃下一批</button>' : ''}
-                    ${users.length > 0 ? '<button class="hege-manager-btn secondary" id="hege-three-no-ignore-selected">忽略勾選</button>' : ''}
-                    ${users.length > 0 ? '<button class="hege-manager-btn primary" id="hege-three-no-add-selected">加入清理勾選</button>' : ''}
-                    ${users.length > 0 ? '<button class="hege-manager-btn primary" id="hege-three-no-block-now">直接封鎖勾選</button>' : ''}
+                    <button class="hege-manager-btn primary" id="hege-three-no-next-batch">續掃</button>
+                    ${users.length > 0 ? '<button class="hege-manager-btn secondary" id="hege-three-no-clear-selected">清除勾選名單</button>' : ''}
+                    ${users.length > 0 ? '<button class="hege-manager-btn secondary" id="hege-three-no-safe-selected">加入安全名單</button>' : ''}
+                    ${users.length > 0 ? '<button class="hege-manager-btn primary" id="hege-three-no-enqueue-block">加入封鎖清單</button>' : ''}
                     <button class="hege-manager-btn secondary" id="hege-three-no-close">關閉</button>
                 </div>
             </div>
@@ -1232,28 +1287,22 @@ export const UI = {
                 if (callbacks.onStartNextBatch) callbacks.onStartNextBatch();
             };
         }
-        const blockNowBtn = overlay.querySelector('#hege-three-no-block-now');
-        if (blockNowBtn) {
-            blockNowBtn.onclick = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const selected = getSelectedUsers();
-                if (selected.length === 0) {
-                    UI.showToast('請先勾選要直接封鎖的帳號');
-                    return;
-                }
-                close();
-                if (callbacks.onBlockNow) callbacks.onBlockNow(selected, results);
-            };
-        }
+        const getAllRows = () => Array.from(overlay.querySelectorAll('.hege-three-no-row'));
         const getVisibleRows = () => Array.from(overlay.querySelectorAll('.hege-three-no-row'))
             .filter(row => row.style.display !== 'none');
         const getSelectedUsers = () => Array.from(overlay.querySelectorAll('.hege-three-no-select:checked'))
             .map(input => input.dataset.username)
             .filter(Boolean);
+        const removeSelectedRows = (targets = []) => {
+            const targetSet = new Set(targets);
+            getAllRows().forEach(row => {
+                if (targetSet.has(row.dataset.username)) row.remove();
+            });
+            updateFilterCount();
+        };
         const updateFilterCount = () => {
             const countEl = overlay.querySelector('#hege-three-no-filter-count');
-            if (countEl) countEl.textContent = `顯示 ${getVisibleRows().length} / ${users.length}`;
+            if (countEl) countEl.textContent = `顯示 ${getVisibleRows().length} / ${getAllRows().length}`;
         };
         const applyFilters = () => {
             const traits = Array.from(overlay.querySelectorAll('[data-hege-filter-trait]:checked')).map(input => input.dataset.hegeFilterTrait);
@@ -1299,56 +1348,54 @@ export const UI = {
                 });
             };
         }
-        const addSelected = overlay.querySelector('#hege-three-no-add-selected');
-        if (addSelected) {
-            addSelected.onclick = () => {
+        const clearSelected = overlay.querySelector('#hege-three-no-clear-selected');
+        if (clearSelected) {
+            clearSelected.onclick = () => {
                 const selected = getSelectedUsers();
                 if (selected.length === 0) {
-                    UI.showToast('請先勾選要加入清理名單的帳號');
+                    UI.showToast('請先勾選要清除的帳號');
                     return;
                 }
-                if (callbacks.onAddToCleanList) callbacks.onAddToCleanList(selected);
+                const removed = Storage.removeThreeNoUsersFromResults(selected);
+                removeSelectedRows(selected);
+                UI.showToast(removed > 0 ? `已從三無清單清除 ${removed} 位` : '勾選帳號已不在三無清單中');
             };
         }
-        const ignoreSelected = overlay.querySelector('#hege-three-no-ignore-selected');
-        if (ignoreSelected) {
-            ignoreSelected.onclick = () => {
+        const safeSelected = overlay.querySelector('#hege-three-no-safe-selected');
+        if (safeSelected) {
+            safeSelected.onclick = () => {
                 const selected = getSelectedUsers();
                 if (selected.length === 0) {
-                    UI.showToast('請先勾選要忽略的帳號');
+                    UI.showToast('請先勾選要加入安全名單的帳號');
                     return;
                 }
-                const targets = selected;
-                targets.forEach(username => Storage.ignoreThreeNoUser(username, 7));
-                Storage.setThreeNoUnreadCount(Math.max(0, Storage.getThreeNoUnreadCount() - targets.length));
-                overlay.querySelectorAll('.hege-three-no-row').forEach(row => {
-                    if (targets.includes(row.dataset.username)) row.remove();
-                });
-                updateFilterCount();
-                UI.showToast(`已忽略 ${targets.length} 位三無追蹤者 7 天`);
+                const added = Storage.addThreeNoSafeUsers(selected);
+                const removed = Storage.removeThreeNoUsersFromResults(selected);
+                removeSelectedRows(selected);
+                UI.showToast(`已加入安全名單 ${added} 位，從三無清單移除 ${removed} 位`);
             };
         }
-        overlay.querySelectorAll('.hege-three-no-add').forEach(btn => {
-            btn.onclick = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const username = btn.dataset.username;
-                if (callbacks.onAddToCleanList) callbacks.onAddToCleanList([username]);
+        const enqueueBlock = overlay.querySelector('#hege-three-no-enqueue-block');
+        if (enqueueBlock) {
+            enqueueBlock.onclick = () => {
+                const selected = getSelectedUsers();
+                if (selected.length === 0) {
+                    UI.showToast('請先勾選要加入封鎖清單的帳號');
+                    return;
+                }
+                const result = callbacks.onEnqueueBlockList
+                    ? callbacks.onEnqueueBlockList(selected, results)
+                    : null;
+                const shouldRemove = !result || result.ok !== false || result.added > 0 || result.skipped > 0;
+                if (shouldRemove) {
+                    const removed = Storage.removeThreeNoUsersFromResults(selected);
+                    removeSelectedRows(selected);
+                    if (removed > 0 && (!result || !result.messageShown)) {
+                        UI.showToast(`已加入封鎖清單並移除 ${removed} 位三無項目`);
+                    }
+                }
             };
-        });
-        overlay.querySelectorAll('.hege-three-no-ignore').forEach(btn => {
-            btn.onclick = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const username = btn.dataset.username;
-                Storage.ignoreThreeNoUser(username, 7);
-                Storage.setThreeNoUnreadCount(Math.max(0, Storage.getThreeNoUnreadCount() - 1));
-                const row = btn.closest('.hege-manager-item');
-                if (row) row.remove();
-                UI.showToast(`已忽略 @${username} 7 天`);
-                updateFilterCount();
-            };
-        });
+        }
         applyFilters();
     },
 
@@ -1358,10 +1405,14 @@ export const UI = {
         const db = Storage.getBlockDB();
         const reportDebugExportId = Utils.isBetaBuild() ? ['hege', 's', 'export', 'report', 'debug'].join('-') : '';
         const reportDebugExportLabel = Utils.isBetaBuild() ? ['匯出', '檢舉', '診斷'].join('') : '';
+        const threeNoDebugExportId = Utils.isBetaBuild() ? ['hege', 's', 'export', 'three', 'no', 'debug'].join('-') : '';
+        const threeNoDebugExportLabel = Utils.isBetaBuild() ? ['匯出', '三無', '診斷'].join('') : '';
         const devReloadId = callbacks.onDevReloadExtension ? ['hege', 's', 'dev', 'reload'].join('-') : '';
         const devReloadSectionLabel = callbacks.onDevReloadExtension ? ['開', '發', '版'].join('') : '';
         const devReloadButtonLabel = callbacks.onDevReloadExtension ? ['重新', '載入', '開發', '版'].join('') : '';
         const devReloadStatusLabel = callbacks.onDevReloadExtension ? ['beta', 'only'].join(' ') : '';
+        const settingsSectionTitleStyle = 'margin:10px 0 0;padding:7px 10px;border:1px solid #2e2e2e;border-radius:7px;background:linear-gradient(180deg,#171717,#121212);color:#d8d8d8;font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;box-shadow:inset 0 1px 0 rgba(255,255,255,0.04);';
+        const settingsDangerTitleStyle = 'margin:10px 0 0;padding:7px 10px;border:1px solid #443030;border-radius:7px;background:linear-gradient(180deg,#1b1414,#141010);color:#f0caca;font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;box-shadow:inset 0 1px 0 rgba(255,255,255,0.035);';
 
         const overlay = document.createElement('div');
         overlay.id = 'hege-settings-overlay';
@@ -1419,7 +1470,7 @@ export const UI = {
                         <div class="hege-menu-item" data-hege-settings-back style="border-bottom:none;color:#aaa;">
                             <span>← 返回</span>
                         </div>
-                        <div style="font-size:11px;color:#666;font-weight:600;padding:2px 8px;letter-spacing:1px;">名單與水庫</div>
+                        <div style="${settingsSectionTitleStyle}">名單與水庫</div>
                         <div class="hege-menu-item" id="hege-s-manage">
                             <span>管理已封鎖</span>
                             <span class="status">${db.length}</span>
@@ -1432,7 +1483,7 @@ export const UI = {
                             <span>貼文水庫</span>
                             <span class="status">${Storage.postReservoir.getAll().length}</span>
                         </div>
-                        <div style="font-size:11px;color:#666;font-weight:600;padding:6px 8px 0;letter-spacing:1px;">三無掃描</div>
+                        <div style="${settingsSectionTitleStyle}">三無掃描</div>
                         <div class="hege-menu-item" id="hege-s-three-no-threshold-row" style="display:flex; flex-direction:column; align-items:stretch; gap:5px;">
                             <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
                                 <span>備選名單門檻</span>
@@ -1440,14 +1491,14 @@ export const UI = {
                             </div>
                             <span style="color:#777;font-size:11px;line-height:1.35;">備選名單超過此數量後，開始進 profile 確認三無。</span>
                         </div>
-                        <label class="hege-menu-item" id="hege-s-three-no-auto-block-row" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-                            <span style="display:flex;flex-direction:column;gap:3px;">
-                                <span>掃完後直接封鎖</span>
-                                <span style="color:#777;font-size:11px;line-height:1.35;">開啟後不自動彈報告，掃描完成會直接加入封鎖佇列並啟動 worker。</span>
-                            </span>
-                            <input id="hege-s-three-no-auto-block" type="checkbox" style="width:18px;height:18px;flex:0 0 auto;">
-                        </label>
-                        <div style="font-size:11px;color:#666;font-weight:600;padding:6px 8px 0;letter-spacing:1px;">資料移轉</div>
+                        <div class="hege-menu-item" id="hege-s-three-no-accelerated-row" style="display:flex; flex-direction:column; align-items:stretch; gap:5px;">
+                            <label style="display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer;">
+                                <span>加速三無</span>
+                                <input id="hege-s-three-no-accelerated" type="checkbox" style="width:16px;height:16px;">
+                            </label>
+                            <span style="color:#777;font-size:11px;line-height:1.35;">只加速「關於此個人檔案」的地區與加入時間；快取 1 天，遇到限制會退回一般三點流程。</span>
+                        </div>
+                        <div style="${settingsSectionTitleStyle}">資料移轉</div>
                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
                             <div class="hege-menu-item" id="hege-s-import" style="border-bottom:none;">
                                 <span>匯入名單</span>
@@ -1456,27 +1507,34 @@ export const UI = {
                                 <span>匯出紀錄</span>
                             </div>
                         </div>
-                        <div style="font-size:11px;color:#666;font-weight:600;padding:6px 8px 0;letter-spacing:1px;">觀測與上傳</div>
+                        <div style="${settingsSectionTitleStyle}">觀測與上傳</div>
                         <div class="hege-menu-item" id="hege-s-analytics" style="color: #5ac8fa;">
                             <span style="display:flex; align-items:center; gap:6px;">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="12" width="4" height="9"/><rect x="10" y="7" width="4" height="14"/><rect x="17" y="3" width="4" height="18"/></svg>
                                 來源分析報告
                             </span>
                         </div>
+                        ${(callbacks.onExportReportDebug || callbacks.onExportThreeNoDebug) ? `
+                        <div style="${settingsSectionTitleStyle}">診斷</div>
+                        ${callbacks.onExportThreeNoDebug && threeNoDebugExportId ? `
+                        <div class="hege-menu-item" id="${threeNoDebugExportId}">
+                            <span>${threeNoDebugExportLabel}</span>
+                        </div>
+                        ` : ''}
                         ${callbacks.onExportReportDebug && reportDebugExportId ? `
-                        <div style="font-size:11px;color:#666;font-weight:600;padding:6px 8px 0;letter-spacing:1px;">診斷</div>
                         <div class="hege-menu-item" id="${reportDebugExportId}">
                             <span>${reportDebugExportLabel}</span>
                         </div>
                         ` : ''}
+                        ` : ''}
                         ${callbacks.onDevReloadExtension && devReloadId ? `
-                        <div style="font-size:11px;color:#666;font-weight:600;padding:6px 8px 0;letter-spacing:1px;">${devReloadSectionLabel}</div>
+                        <div style="${settingsSectionTitleStyle}">${devReloadSectionLabel}</div>
                         <div class="hege-menu-item" id="${devReloadId}" style="color:#8ab4f8;">
                             <span>${devReloadButtonLabel}</span>
                             <span class="status">${devReloadStatusLabel}</span>
                         </div>
                         ` : ''}
-                        <div style="font-size:11px;color:#666;font-weight:600;padding:6px 8px 0;letter-spacing:1px;">危險操作</div>
+                        <div style="${settingsDangerTitleStyle}">危險操作</div>
                         <div class="hege-menu-item danger" id="hege-s-clear-db" style="border-bottom: none;">
                             <span>清除所有歷史</span>
                         </div>
@@ -1486,7 +1544,7 @@ export const UI = {
                         <div class="hege-menu-item" data-hege-settings-back style="border-bottom:none;color:#aaa;">
                             <span>← 返回</span>
                         </div>
-                        <div style="font-size:11px;color:#666;font-weight:600;padding:2px 8px;letter-spacing:1px;">通用設定</div>
+                        <div style="${settingsSectionTitleStyle}">通用設定</div>
                         <div class="hege-menu-item" id="hege-s-speed">
                             <span>速度模式</span>
                             <span class="status" id="hege-s-speed-status">🧠 智慧</span>
@@ -1575,6 +1633,7 @@ export const UI = {
         bind('hege-s-import', callbacks.onImport);
         bind('hege-s-export', callbacks.onExport);
         bind(reportDebugExportId, callbacks.onExportReportDebug);
+        bind(threeNoDebugExportId, callbacks.onExportThreeNoDebug);
         bind(devReloadId, callbacks.onDevReloadExtension);
         bind('hege-s-clear-db', callbacks.onClearDB);
         bind('hege-s-report', callbacks.onReport);
@@ -1649,15 +1708,15 @@ export const UI = {
             if (threeNoThresholdRow) threeNoThresholdRow.onclick = (e) => e.stopPropagation();
         }
 
-        const threeNoAutoBlockToggle = overlay.querySelector('#hege-s-three-no-auto-block');
-        if (threeNoAutoBlockToggle) {
-            threeNoAutoBlockToggle.checked = Storage.isThreeNoAutoBlockEnabled();
-            threeNoAutoBlockToggle.onchange = (e) => {
-                Storage.setThreeNoAutoBlockEnabled(e.target.checked);
-                UI.showToast(e.target.checked ? '三無掃描完成後會直接封鎖' : '三無掃描完成後會顯示報告');
+        const threeNoAcceleratedToggle = overlay.querySelector('#hege-s-three-no-accelerated');
+        if (threeNoAcceleratedToggle) {
+            threeNoAcceleratedToggle.checked = Storage.getThreeNoAcceleratedProfileEnabled();
+            threeNoAcceleratedToggle.onchange = (e) => {
+                const enabled = Storage.setThreeNoAcceleratedProfileEnabled(e.target.checked);
+                UI.showToast(enabled ? '加速三無已開啟' : '加速三無已關閉');
             };
-            const threeNoAutoBlockRow = overlay.querySelector('#hege-s-three-no-auto-block-row');
-            if (threeNoAutoBlockRow) threeNoAutoBlockRow.onclick = (e) => e.stopPropagation();
+            const threeNoAcceleratedRow = overlay.querySelector('#hege-s-three-no-accelerated-row');
+            if (threeNoAcceleratedRow) threeNoAcceleratedRow.onclick = (e) => e.stopPropagation();
         }
 
         const reportVisualDebugToggle = overlay.querySelector('#hege-s-report-visual-debug-toggle');

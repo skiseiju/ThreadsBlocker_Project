@@ -16,6 +16,10 @@ Object.assign(Core, {
 
         isStopRequested: () => Storage.get(CONFIG.KEYS.THREE_NO_SCAN_COMMAND, '') === 'stop',
 
+        runningStatuses: ['starting', 'running', 'collecting_followers', 'followers_collected', 'checking_profiles', 'stopping'],
+
+        isRunningStatus: (status = '') => Core.ThreeNoWatch.runningStatuses.includes(String(status || '')),
+
         requestStop: () => {
             Storage.set(CONFIG.KEYS.THREE_NO_SCAN_COMMAND, 'stop');
             Core.ThreeNoWatch.setScanState({
@@ -43,13 +47,151 @@ Object.assign(Core, {
 
         profileUrl: (username) => `${window.location.origin}/@${encodeURIComponent(Core.ThreeNoWatch.normalizeUsername(username))}`,
 
+        profileProbeUrl: (username, probeKind = 'base') => {
+            const normalized = Core.ThreeNoWatch.normalizeUsername(username);
+            const suffix = probeKind === 'replies'
+                ? '/replies'
+                : (probeKind === 'reposts' ? '/reposts' : '');
+            return `${window.location.origin}/@${encodeURIComponent(normalized)}${suffix}`;
+        },
+
+        isOnProfileProbePath: (username = '', probeKind = 'base') => {
+            const normalized = Core.ThreeNoWatch.normalizeUsername(username).toLowerCase();
+            if (!normalized) return false;
+            const suffix = probeKind === 'replies'
+                ? '/replies'
+                : (probeKind === 'reposts' ? '/reposts' : '');
+            const path = decodeURIComponent(window.location.pathname || '').replace(/\/+$/, '').toLowerCase();
+            return path === `/@${normalized}${suffix}`;
+        },
+
+        getProfileSignalsVersion: () => 9,
+
         getBatchSize: () => Math.max(1, parseInt(CONFIG.THREE_NO_SCAN_BATCH_SIZE || '200', 10) || 200),
 
         isFreshRunningState: (state = {}, now = Date.now()) => {
             const status = String(state.status || '');
-            if (!['starting', 'running', 'collecting_followers', 'followers_collected', 'checking_profiles', 'stopping'].includes(status)) return false;
+            if (!Core.ThreeNoWatch.isRunningStatus(status)) return false;
             const updatedAt = parseInt(state.updatedAt || '0', 10) || 0;
-            return updatedAt > 0 && now - updatedAt < 90 * 1000;
+            const heartbeatAt = parseInt(state.workerHeartbeatAt || '0', 10) || 0;
+            if (heartbeatAt > 0) return now - heartbeatAt < 25 * 1000;
+            return updatedAt > 0 && now - updatedAt < 30 * 1000;
+        },
+
+        sanitizeDebugValue: (value, depth = 0) => {
+            if (value === null || value === undefined) return value;
+            if (typeof value === 'number' || typeof value === 'boolean') return value;
+            if (typeof value === 'string') return value.slice(0, 500);
+            if (Array.isArray(value)) {
+                return value.slice(0, 30).map(item => Core.ThreeNoWatch.sanitizeDebugValue(item, depth + 1));
+            }
+            if (typeof value === 'object') {
+                if (depth >= 4) return '[object]';
+                return Object.fromEntries(Object.entries(value)
+                    .slice(0, 40)
+                    .map(([key, item]) => [key, Core.ThreeNoWatch.sanitizeDebugValue(item, depth + 1)]));
+            }
+            return String(value).slice(0, 500);
+        },
+
+        getScanDebugLog: (scanId = '') => {
+            const raw = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, []);
+            const rows = Array.isArray(raw) ? raw : [];
+            const target = String(scanId || '').trim();
+            return target ? rows.filter(row => row?.scanId === target) : rows;
+        },
+
+        resetScanDebugLog: (scanId = '') => {
+            const target = String(scanId || '').trim();
+            if (!target) {
+                Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, []);
+                return;
+            }
+            const rows = Core.ThreeNoWatch.getScanDebugLog()
+                .filter(row => row?.scanId !== target);
+            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, rows.slice(-600));
+        },
+
+        appendScanDebugLog: (state = {}) => {
+            const debug = state.debug && typeof state.debug === 'object' ? state.debug : null;
+            if (!debug || !debug.step) return;
+            const scanId = String(state.scanId || debug.scanId || '').trim();
+            const rows = Core.ThreeNoWatch.getScanDebugLog();
+            const now = Date.now();
+            const scanRows = scanId ? rows.filter(row => row?.scanId === scanId) : rows;
+            const previousSeq = scanRows.reduce((max, row) => {
+                const seq = parseInt(row?.seq || '0', 10) || 0;
+                return seq > max ? seq : max;
+            }, 0);
+            const startedAt = parseInt(state.startedAt || debug.startedAt || '0', 10) || 0;
+            const entry = {
+                seq: previousSeq + 1,
+                ts: now,
+                iso: new Date(now).toISOString(),
+                scanElapsedMs: startedAt > 0 ? Math.max(0, now - startedAt) : 0,
+                scanId,
+                status: String(state.status || ''),
+                current: String(state.current || debug.username || ''),
+                index: Number.isFinite(parseInt(debug.index || state.checkedFollowersCount || '0', 10))
+                    ? (parseInt(debug.index || state.checkedFollowersCount || '0', 10) || 0)
+                    : 0,
+                step: String(debug.step || ''),
+                url: String(debug.url || window.location.href || '').slice(0, 500),
+                debug: Core.ThreeNoWatch.sanitizeDebugValue(debug),
+            };
+            rows.push(entry);
+            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, rows.slice(-600));
+        },
+
+        clearStaleScanIfNeeded: (reason = 'stale_scan_worker_missing') => {
+            const state = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
+            if (!Core.ThreeNoWatch.isRunningStatus(state.status)) return false;
+            if (Core.ThreeNoWatch.isFreshRunningState(state)) return false;
+            Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_LOCK);
+            Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_COMMAND);
+            try {
+                localStorage.removeItem(Core.ThreeNoWatch.runtimeBackupKey);
+            } catch (_) {}
+            Core.ThreeNoWatch.setScanState({
+                ...state,
+                status: 'stopped',
+                completedAt: Date.now(),
+                error: '',
+                debug: {
+                    ...(state.debug && typeof state.debug === 'object' ? state.debug : {}),
+                    step: reason,
+                    stalePreviousStatus: state.status || '',
+                    staleUpdatedAt: state.updatedAt || 0,
+                    staleWorkerHeartbeatAt: state.workerHeartbeatAt || 0,
+                },
+            });
+            return true;
+        },
+
+        startWorkerHeartbeat: () => {
+            if (!Core.ThreeNoWatch.isScanPage()) return;
+            if (window.__hegeThreeNoWorkerHeartbeat) return;
+            const tick = () => {
+                if (!Core.ThreeNoWatch.isScanPage()) {
+                    clearInterval(window.__hegeThreeNoWorkerHeartbeat);
+                    window.__hegeThreeNoWorkerHeartbeat = null;
+                    return;
+                }
+                const state = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
+                if (!Core.ThreeNoWatch.isRunningStatus(state.status)) {
+                    clearInterval(window.__hegeThreeNoWorkerHeartbeat);
+                    window.__hegeThreeNoWorkerHeartbeat = null;
+                    return;
+                }
+                const now = Date.now();
+                Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {
+                    ...state,
+                    workerHeartbeatAt: now,
+                    updatedAt: now,
+                });
+            };
+            window.__hegeThreeNoWorkerHeartbeat = setInterval(tick, 5000);
+            tick();
         },
 
         setScanState: (state = {}) => {
@@ -63,6 +205,7 @@ Object.assign(Core, {
                 next.error = '';
             }
             Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, next);
+            Core.ThreeNoWatch.appendScanDebugLog(next);
             Core.ThreeNoWatch.renderWorkerOverlay(next);
         },
 
@@ -224,18 +367,7 @@ Object.assign(Core, {
             const freshScanState = Core.ThreeNoWatch.isFreshRunningState(scanState, now);
             if (lock > 0 && now - lock < 20 * 60 * 1000 && freshScanState) return { skipped: 'scan_in_flight' };
             if (lock > 0 && !freshScanState) {
-                Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_LOCK);
-                Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_COMMAND);
-                Core.ThreeNoWatch.setScanState({
-                    ...scanState,
-                    status: 'stale',
-                    error: '',
-                    debug: {
-                        step: 'stale_scan_lock_cleared',
-                        previousStatus: scanState.status || '',
-                        previousUpdatedAt: scanState.updatedAt || 0,
-                    },
-                });
+                Core.ThreeNoWatch.clearStaleScanIfNeeded('stale_scan_lock_cleared_before_start');
             }
 
             const bgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
@@ -246,6 +378,7 @@ Object.assign(Core, {
             const scanId = targetOwner
                 ? `three-no:target:${targetOwner}:${today}:${now}`
                 : `three-no:manual:${today}:${now}`;
+            Core.ThreeNoWatch.resetScanDebugLog(scanId);
             Storage.set(CONFIG.KEYS.THREE_NO_SCAN_LOCK, String(now));
             Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_COMMAND);
             Core.ThreeNoWatch.setScanState({
@@ -289,6 +422,7 @@ Object.assign(Core, {
 
         runScanPage: async () => {
             if (!Core.ThreeNoWatch.isChromeExtension()) return;
+            Core.ThreeNoWatch.startWorkerHeartbeat();
             const params = new URLSearchParams(window.location.search);
             const phase = params.get('hege_three_no_phase') || 'followers';
             try {
@@ -657,6 +791,17 @@ Object.assign(Core, {
                 });
             }
 
+            const probeKind = ['base', 'replies', 'reposts'].includes(runtime.profileProbeKind)
+                ? runtime.profileProbeKind
+                : 'base';
+            const probeResults = runtime.profileProbeResults && typeof runtime.profileProbeResults === 'object'
+                ? runtime.profileProbeResults
+                : {};
+            if (!Core.ThreeNoWatch.isOnProfileProbePath(username, probeKind)) {
+                await Core.ThreeNoWatch.navigateToProfileProbe(index, probeKind, probeResults);
+                return;
+            }
+
             Core.ThreeNoWatch.setScanState({
                 scanId: runtime.scanId || '',
                 scanDate: runtime.scanDate || Core.ThreeNoWatch.getLocalDayKey(),
@@ -670,10 +815,11 @@ Object.assign(Core, {
                 previousScannedCount: runtime.previousScannedCount || 0,
                 hasMore: runtime.hasMore === true,
                 debug: {
-                    step: 'profile_check_start',
+                    step: 'profile_probe_start',
                     index,
                     total: usernames.length,
                     username,
+                    probeKind,
                     previousScannedCount: runtime.previousScannedCount || 0,
                     findingsCount: Array.isArray(runtime.findings) ? runtime.findings.length : 0,
                     url: window.location.href,
@@ -683,7 +829,55 @@ Object.assign(Core, {
             await Utils.safeSleep(CONFIG.THREE_NO_SCAN_PROFILE_DELAY_MS || 1800);
             window.scrollTo(0, 0);
             await Utils.safeSleep(500);
-            const result = await Core.ThreeNoWatch.evaluateCurrentProfile(username);
+
+            const probeResult = await Core.ThreeNoWatch.evaluateCurrentProfileProbe(username, probeKind);
+            const nextProbeResults = {
+                ...probeResults,
+                [probeKind]: probeResult,
+            };
+            const baseResult = nextProbeResults.base || {};
+            const nextProbeKind = probeKind === 'base'
+                ? (baseResult.accountPrivate === true ? '' : 'replies')
+                : (probeKind === 'replies' ? 'reposts' : '');
+            if (nextProbeKind) {
+                Core.ThreeNoWatch.setRuntime({
+                    ...runtime,
+                    profileProbeKind: nextProbeKind,
+                    profileProbeResults: nextProbeResults,
+                    stopAfterCurrentCandidates,
+                    stopRequestedAt: runtime.stopRequestedAt || (stopRequested ? Date.now() : 0),
+                });
+                Core.ThreeNoWatch.setScanState({
+                    scanId: runtime.scanId || '',
+                    scanDate: runtime.scanDate || Core.ThreeNoWatch.getLocalDayKey(),
+                    status: 'checking_profiles',
+                    startedAt: runtime.startedAt || 0,
+                    checkedFollowersCount: index,
+                    threeNoFollowersCount: Array.isArray(runtime.findings) ? runtime.findings.length : 0,
+                    current: username,
+                    candidateFollowersCount: usernames.length,
+                    batchSize: runtime.batchSize || Core.ThreeNoWatch.getBatchSize(),
+                    previousScannedCount: runtime.previousScannedCount || 0,
+                    hasMore: runtime.hasMore === true,
+                    debug: {
+                        step: 'profile_probe_continue',
+                        index,
+                        total: usernames.length,
+                        username,
+                        probeKind,
+                        nextProbeKind,
+                        probesCompleted: Object.keys(nextProbeResults).join(','),
+                        accountPrivate: baseResult.accountPrivate === true,
+                        privateSignalReason: baseResult.privateSignalReason || '',
+                        privateSignalMatchedText: baseResult.privateSignalMatchedText || '',
+                        url: window.location.href,
+                    },
+                });
+                await Core.ThreeNoWatch.navigateToProfileProbe(index, nextProbeKind, nextProbeResults);
+                return;
+            }
+
+            const result = Core.ThreeNoWatch.buildProfileResultFromProbes(username, nextProbeResults);
             const findings = Array.isArray(runtime.findings) ? runtime.findings : [];
             if (result.isThreeNo && !Storage.isThreeNoUserIgnored(result.username)) {
                 findings.push({
@@ -698,12 +892,20 @@ Object.assign(Core, {
                     noPosts: result.noPosts,
                     noReplies: result.noReplies,
                     noReposts: result.noReposts,
+                    accountPrivate: result.accountPrivate,
                     suspiciousUsername: result.suspiciousUsername,
                     profileSignalsVersion: result.profileSignalsVersion,
+                    noPostsKnown: result.noPostsKnown,
                     noRepliesKnown: result.noRepliesKnown,
                     noRepostsKnown: result.noRepostsKnown,
                     followerCount: result.followerCount,
                     followerCountKnown: result.followerCountKnown,
+                    bioSignalReason: result.bioSignalReason,
+                    contentProbeSkippedReason: result.contentProbeSkippedReason,
+                    privateDetectedAt: result.privateDetectedAt,
+                    privateSignalReason: result.privateSignalReason,
+                    privateSignalMatchedText: result.privateSignalMatchedText,
+                    followerCountSkippedReason: result.followerCountSkippedReason,
                     joinedAt: result.joinedAt,
                     accountAgeDays: result.accountAgeDays,
                     accountAgeBucket: result.accountAgeBucket,
@@ -712,6 +914,7 @@ Object.assign(Core, {
                     countryTag: result.countryTag,
                     regionShared: result.regionShared,
                     metadataSource: result.metadataSource,
+                    metadataSourcePage: result.metadataSourcePage,
                     metadataDebug: result.metadataDebug,
                 });
             }
@@ -738,19 +941,29 @@ Object.assign(Core, {
                     noPosts: result.noPosts,
                     noReplies: result.noReplies,
                     noReposts: result.noReposts,
+                    accountPrivate: result.accountPrivate,
                     suspiciousUsername: result.suspiciousUsername,
                     profileSignalsVersion: result.profileSignalsVersion,
+                    noPostsKnown: result.noPostsKnown,
                     noRepliesKnown: result.noRepliesKnown,
                     noRepostsKnown: result.noRepostsKnown,
                     followerCount: result.followerCount,
                     followerCountKnown: result.followerCountKnown,
+                    bioSignalReason: result.bioSignalReason,
+                    contentProbeSkippedReason: result.contentProbeSkippedReason,
+                    privateDetectedAt: result.privateDetectedAt,
+                    privateSignalReason: result.privateSignalReason,
+                    privateSignalMatchedText: result.privateSignalMatchedText,
+                    followerCountSkippedReason: result.followerCountSkippedReason,
                     joinedAt: result.joinedAt,
                     accountAgeDays: result.accountAgeDays,
                     accountAgeBucket: result.accountAgeBucket,
                     locationLabel: result.locationLabel,
                     countryTag: result.countryTag,
                     metadataSource: result.metadataSource,
+                    metadataSourcePage: result.metadataSourcePage,
                     metadataDebug: result.metadataDebug,
+                    probesCompleted: Object.keys(nextProbeResults).join(','),
                     isThreeNo: result.isThreeNo,
                     findingsCount: findings.length,
                     url: window.location.href,
@@ -761,6 +974,8 @@ Object.assign(Core, {
                 ...runtime,
                 findings,
                 index: index + 1,
+                profileProbeKind: 'base',
+                profileProbeResults: {},
                 stopAfterCurrentCandidates,
                 stopRequestedAt: runtime.stopRequestedAt || (stopRequested ? Date.now() : 0),
             };
@@ -1332,6 +1547,10 @@ Object.assign(Core, {
         },
 
         navigateToProfile: async (index) => {
+            await Core.ThreeNoWatch.navigateToProfileProbe(index, 'base', {});
+        },
+
+        navigateToProfileProbe: async (index, probeKind = 'base', profileProbeResults = {}) => {
             const runtime = Core.ThreeNoWatch.getRuntime();
             const username = (Array.isArray(runtime.usernames) ? runtime.usernames : [])[index];
             if (!username) {
@@ -1351,98 +1570,194 @@ Object.assign(Core, {
                 previousScannedCount: runtime.previousScannedCount || 0,
                 hasMore: runtime.hasMore === true,
                 debug: {
-                    step: 'navigate_to_profile',
+                    step: 'navigate_to_profile_probe',
                     index,
                     username,
+                    probeKind,
                     previousScannedCount: runtime.previousScannedCount || 0,
-                    nextUrl: Core.ThreeNoWatch.profileUrl(username),
+                    nextUrl: Core.ThreeNoWatch.profileProbeUrl(username, probeKind),
                     runtimeUsersCount: Array.isArray(runtime.usernames) ? runtime.usernames.length : 0,
                 },
             });
-            const url = new URL(Core.ThreeNoWatch.profileUrl(username));
+            Core.ThreeNoWatch.setRuntime({
+                ...runtime,
+                index,
+                profileProbeKind: ['base', 'replies', 'reposts'].includes(probeKind) ? probeKind : 'base',
+                profileProbeResults: profileProbeResults && typeof profileProbeResults === 'object' ? profileProbeResults : {},
+            });
+            const url = new URL(Core.ThreeNoWatch.profileProbeUrl(username, probeKind));
             url.searchParams.set('hege_bg', 'true');
             url.searchParams.set('hege_popup', 'true');
             url.searchParams.set('hege_three_no_scan', 'true');
             url.searchParams.set('hege_three_no_phase', 'profile');
+            url.searchParams.set('hege_three_no_probe', probeKind);
             url.searchParams.set('hege_three_no_run', runtime.scanId || '');
             location.assign(url.toString());
         },
 
-        enqueueAutoBlock: (payload = {}) => {
-            const users = Array.isArray(payload.users) ? payload.users : [];
-            const targets = [...new Set(users
-                .map(item => Core.ThreeNoWatch.normalizeUsername(item?.username || item || ''))
-                .filter(Boolean))];
-            if (targets.length === 0) return { ok: false, added: 0, skipped: 0, reason: 'empty_targets' };
-
-            const db = new Set(Storage.getBlockDB());
-            const cooldownQueue = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
-            const currentQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
-            const queued = new Set(currentQueue);
-            const toAdd = targets.filter(username => !db.has(username) && !cooldownQueue.has(username) && !queued.has(username));
-            if (toAdd.length > 0) {
-                Core.setBlockContext(toAdd, {
-                    reason: 'three_no_follower_auto_block',
-                    batch: payload.scanId || '',
-                    sourceOwner: payload.scanTargetOwner || payload.owner || '',
-                }, { preserveExisting: true });
-                Storage.setJSON(CONFIG.KEYS.BG_QUEUE, [...new Set([...currentQueue, ...toAdd])]);
-            }
-            Storage.remove(CONFIG.KEYS.BG_CMD);
-            Storage.set(CONFIG.KEYS.WORKER_MODE, 'block');
-            Storage.remove('hege_worker_stats');
-            return { ok: true, added: toAdd.length, skipped: targets.length - toAdd.length };
+        evaluateCurrentProfile: async (username) => {
+            const base = await Core.ThreeNoWatch.evaluateCurrentProfileProbe(username, 'base');
+            return Core.ThreeNoWatch.buildProfileResultFromProbes(username, { base });
         },
 
-        evaluateCurrentProfile: async (username) => {
+        evaluateCurrentProfileProbe: async (username, probeKind = 'base') => {
             const u = Core.ThreeNoWatch.normalizeUsername(username || window.location.pathname.replace(/^\/@/, ''));
             const main = document.querySelector('main, div[role="main"]') || document.body;
-            await Utils.pollUntil(() => main.querySelector('a, img, span[dir="auto"], div[dir="auto"]'), 8000, 250);
-            window.scrollTo(0, Math.min(420, document.body.scrollHeight || 0));
-            await Utils.safeSleep(500);
-            window.scrollTo(0, 0);
+            const startedAt = Date.now();
+            const probe = ['base', 'replies', 'reposts'].includes(probeKind) ? probeKind : 'base';
+            await Utils.pollUntil(() => main.querySelector('a, img, span[dir="auto"], div[dir="auto"]'), 9000, 250).catch(() => null);
+            if (!Core.ThreeNoWatch.isOnProfileProbePath(u, probe)) {
+                return {
+                    kind: probe,
+                    username: u,
+                    known: false,
+                    reason: 'path_mismatch',
+                    path: window.location.pathname,
+                    elapsedMs: Date.now() - startedAt,
+                };
+            }
+            window.scrollTo(0, probe === 'base' ? Math.min(420, document.body.scrollHeight || 0) : Math.min(760, document.body.scrollHeight || 0));
+            await Utils.safeSleep(probe === 'base' ? 650 : 1100);
+            if (probe === 'base') window.scrollTo(0, 0);
 
+            if (probe !== 'base') {
+                const signal = await Core.ThreeNoWatch.waitForProfileContentSignal(main, u, probe);
+                return {
+                    kind: probe,
+                    username: u,
+                    ...signal,
+                    elapsedMs: Date.now() - startedAt,
+                };
+            }
+
+            const bioDebug = {};
+            const bioCandidates = Core.ThreeNoWatch.getProfileBioCandidates(main, u, bioDebug);
+            const hasBio = bioCandidates.length > 0;
             const profileTopText = Core.ThreeNoWatch.getProfileTopText(main, u);
-            const hasBio = profileTopText.length > 1;
-            const hasPosts = Core.ThreeNoWatch.profileHasPosts(main, u);
-            const followerCount = Core.ThreeNoWatch.parseProfileFollowerCount(main);
-            const metadata = await Core.ThreeNoWatch.extractProfileMetadata(main);
-            const hasReplies = await Core.ThreeNoWatch.profileTabHasContent(main, u, ['回覆', '回文', 'Replies', 'Reply'], 'replies');
-            const hasReposts = await Core.ThreeNoWatch.profileTabHasContent(main, u, ['轉發', '转发', 'Reposts', 'Repost'], 'reposts');
+            const privateSignal = Core.ThreeNoWatch.readProfilePrivateSignal(main);
+            const accountPrivate = privateSignal.private === true;
+            const followerCount = accountPrivate ? null : Core.ThreeNoWatch.parseProfileFollowerCount(main);
+            const postsSignal = accountPrivate
+                ? { known: false, hasContent: false, reason: 'private_profile' }
+                : await Core.ThreeNoWatch.waitForProfileContentSignal(main, u, 'base');
+            const metadata = await Core.ThreeNoWatch.extractProfileMetadata(main, u);
             const hasAvatar = Core.ThreeNoWatch.profileHasAvatar(main);
-            const noAvatar = !hasAvatar;
-            const noBio = !hasBio;
-            const noPosts = !hasPosts;
-            const noReplies = !hasReplies;
-            const noReposts = !hasReposts;
-            const suspiciousUsername = Core.ThreeNoWatch.usernameMatchesSuspiciousThreeNoCandidate(u);
+            return {
+                kind: 'base',
+                username: u,
+                checkedAt: Date.now(),
+                hasAvatar,
+                noAvatar: !hasAvatar,
+                hasBio,
+                noBio: !hasBio,
+                bioSignalReason: hasBio ? 'profile_header_bio_candidate' : 'no_profile_header_bio_candidate',
+                bioCandidates,
+                bioDebug,
+                profileTopText,
+                accountPrivate,
+                privateDetectedAt: accountPrivate ? 'base_profile' : '',
+                privateSignalReason: privateSignal.reason || '',
+                privateSignalMatchedText: privateSignal.matchedText || '',
+                postsSignal,
+                followerCount: Number.isFinite(followerCount) ? followerCount : 0,
+                followerCountKnown: accountPrivate ? false : Number.isFinite(followerCount),
+                followerCountSkippedReason: accountPrivate ? 'private_profile' : '',
+                suspiciousUsername: Core.ThreeNoWatch.usernameMatchesSuspiciousThreeNoCandidate(u),
+                metadata,
+                metadataSourcePage: 'base_profile',
+                contentProbeSkippedReason: accountPrivate ? 'private_profile' : '',
+                elapsedMs: Date.now() - startedAt,
+            };
+        },
+
+        buildProfileResultFromProbes: (username, probes = {}) => {
+            const u = Core.ThreeNoWatch.normalizeUsername(username);
+            const base = probes.base || {};
+            const replies = probes.replies || {};
+            const reposts = probes.reposts || {};
+            const isPrivate = base.accountPrivate === true;
+            const postsKnown = isPrivate ? false : base.postsSignal?.known === true;
+            const repliesKnown = isPrivate ? false : replies.known === true;
+            const repostsKnown = isPrivate ? false : reposts.known === true;
+            const noPosts = postsKnown ? base.postsSignal?.hasContent !== true : false;
+            const noReplies = repliesKnown ? replies.hasContent !== true : false;
+            const noReposts = repostsKnown ? reposts.hasContent !== true : false;
+            const metadata = base.metadata || {};
+            const noAvatar = base.noAvatar === true;
+            const noBio = base.noBio === true;
+            const suspiciousUsername = base.suspiciousUsername === true;
             return {
                 username: u,
                 profileUrl: `https://www.threads.com/@${u}`,
-                checkedAt: Date.now(),
+                checkedAt: base.checkedAt || Date.now(),
                 noAvatar,
                 noBio,
                 noPosts,
                 noReplies,
                 noReposts,
+                accountPrivate: isPrivate,
                 suspiciousUsername,
-                profileSignalsVersion: 3,
-                noRepliesKnown: true,
-                noRepostsKnown: true,
-                followerCount: Number.isFinite(followerCount) ? followerCount : 0,
-                followerCountKnown: Number.isFinite(followerCount),
-                joinedAt: metadata.joinedAt,
-                accountAgeDays: metadata.accountAgeDays,
-                accountAgeBucket: metadata.accountAgeBucket,
-                isNewAccount: metadata.isNewAccount,
-                locationLabel: metadata.locationLabel,
-                countryTag: metadata.countryTag,
-                regionShared: metadata.regionShared,
+                profileSignalsVersion: Core.ThreeNoWatch.getProfileSignalsVersion(),
+                noPostsKnown: postsKnown,
+                noRepliesKnown: repliesKnown,
+                noRepostsKnown: repostsKnown,
+                followerCount: isPrivate ? 0 : (parseInt(base.followerCount || '0', 10) || 0),
+                followerCountKnown: isPrivate ? false : base.followerCountKnown === true,
+                bioSignalReason: base.bioSignalReason || '',
+                contentProbeSkippedReason: isPrivate ? 'private_profile' : '',
+                privateDetectedAt: isPrivate ? 'base_profile' : '',
+                privateSignalReason: isPrivate ? (base.privateSignalReason || 'profile_private_phrase') : '',
+                privateSignalMatchedText: isPrivate ? (base.privateSignalMatchedText || '') : '',
+                followerCountSkippedReason: isPrivate ? 'private_profile' : '',
+                joinedAt: metadata.joinedAt || 0,
+                accountAgeDays: metadata.accountAgeDays || 0,
+                accountAgeBucket: metadata.accountAgeBucket || '',
+                isNewAccount: metadata.isNewAccount === true,
+                locationLabel: metadata.locationLabel || '',
+                countryTag: metadata.countryTag || '',
+                regionShared: metadata.regionShared === true,
                 metadataSource: metadata.source || '',
-                metadataDebug: metadata.debug || {},
-                isThreeNo: noAvatar && (noBio || noPosts || noReplies || noReposts || suspiciousUsername),
+                metadataSourcePage: base.metadataSourcePage || 'base_profile',
+                metadataDebug: {
+                    ...(metadata.debug || {}),
+                    baseElapsedMs: base.elapsedMs || 0,
+                    bioCandidates: Array.isArray(base.bioCandidates) ? base.bioCandidates.slice(0, 8) : [],
+                    bioDebug: base.bioDebug && typeof base.bioDebug === 'object' ? base.bioDebug : {},
+                    profileTopText: Array.isArray(base.profileTopText) ? base.profileTopText.slice(0, 8) : [],
+                    postsSignalReason: base.postsSignal?.reason || '',
+                    repliesSignalReason: replies.reason || '',
+                    repostsSignalReason: reposts.reason || '',
+                    privateSignalReason: base.privateSignalReason || '',
+                    privateSignalMatchedText: base.privateSignalMatchedText || '',
+                    probesCompleted: Object.keys(probes).join(','),
+                },
+                isThreeNo: noAvatar && (noBio || noPosts || noReplies || noReposts || suspiciousUsername || isPrivate),
             };
         },
+
+        readProfilePrivateSignal: (root) => {
+            const text = (root?.innerText || root?.textContent || '').replace(/\s+/g, ' ').trim();
+            const phrases = [
+                '此個人檔案不公開。',
+                '此個人檔案不公開',
+                '這個個人檔案不公開。',
+                '這個個人檔案不公開',
+                '此個人檔案為不公開',
+                '這個個人檔案為不公開',
+                'This profile is private',
+                'This profile is private.',
+                'This account is private',
+                'This account is private.',
+            ];
+            const matchedText = phrases.find(phrase => text.includes(phrase)) || '';
+            return {
+                private: !!matchedText,
+                reason: matchedText ? 'profile_private_phrase' : '',
+                matchedText,
+            };
+        },
+
+        profileIsPrivate: (root) => Core.ThreeNoWatch.readProfilePrivateSignal(root).private === true,
 
         getProfileTopText: (root, username) => {
             const skip = new Set([
@@ -1465,6 +1780,116 @@ Object.assign(Core, {
                 .filter(text => !/^https?:\/\//i.test(text))
                 .filter(text => !/已加入\s*\d{4}年|Joined\s+\w+\s+\d{4}/i.test(text))
                 .slice(0, 5);
+        },
+
+        getProfileBioCandidates: (root, username, debug = null) => {
+            const normalizedUser = Core.ThreeNoWatch.normalizeUsername(username).toLowerCase();
+            const isBareUsernameLike = (text = '') => {
+                const compact = String(text || '').replace(/\s+/g, '').trim();
+                return /^[a-z0-9][a-z0-9._]{2,29}$/i.test(compact) && /[._0-9]/.test(compact);
+            };
+            const isUiText = (text = '') => {
+                const compact = String(text || '').replace(/\s+/g, ' ').trim();
+                const noSpace = compact.replace(/\s+/g, '');
+                if (!compact) return true;
+                if (compact.toLowerCase() === normalizedUser || compact.toLowerCase() === `@${normalizedUser}`) return true;
+                if (compact === '+' || compact === '＋') return true;
+                if (/^@[\w.-]+$/i.test(compact)) return true;
+                if (/^https?:\/\//i.test(compact)) return true;
+                if (/^[\d,.\s萬万KMBkmb]+$/.test(compact)) return true;
+                if (/^[\d,.\s萬万KMBkmb]+\s*(位)?粉絲$/i.test(compact)) return true;
+                if (/^[\d,.\sKMBkmb]+\s*followers$/i.test(compact)) return true;
+                if (/^(追蹤|追蹤中|粉絲|回覆|回文|串文|轉發|轉貼|分享|更多|發送訊息|提及|所在地點|關於此個人檔案|為你推薦|推薦給你|你可能認識)$/i.test(compact)) return true;
+                if (/^(Follow|Following|Followers|Replies|Reply|Threads|Reposts|Repost|Share|More|Message|Mention|Location|About this profile|Recommended for you|Suggested for you|For you|People you may know)$/i.test(compact)) return true;
+                if (/^(Instagram|Threads|threads\.net)$/i.test(compact)) return true;
+                if (/已加入\s*\d{4}年|Joined\s+\w+\s+\d{4}|帳號建立|Account created|所在地點|Location/i.test(compact)) return true;
+                return ['追蹤中', '追蹤', '粉絲', '回覆', '串文', '轉發', '為你推薦', '推薦給你', '你可能認識'].includes(noSpace);
+            };
+            const isBoundaryText = (text = '') => {
+                const compact = String(text || '').replace(/\s+/g, ' ').trim();
+                return /粉絲|followers|回覆|Replies|串文|Threads|轉發|Reposts|發送訊息|Message|所在地點|Location/i.test(compact);
+            };
+            const isDisqualifyingInteractiveAncestor = (el) => {
+                const interactive = el.closest('a, button, [role="tab"], [role="menuitem"]');
+                if (interactive) return true;
+                const roleButton = el.closest('div[role="button"]');
+                if (!roleButton) return false;
+                const roleText = (roleButton.innerText || roleButton.textContent || '').replace(/\s+/g, ' ').trim();
+                return /^(追蹤|追蹤中|發送訊息|更多|分享|Follow|Following|Message|More|Share)$/i.test(roleText);
+            };
+            const nodes = Array.from((root || document.body).querySelectorAll('span[dir="auto"], div[dir="auto"], h1, h2'))
+                .filter(el => !el.closest('[role="dialog"]'))
+                .filter(el => !isDisqualifyingInteractiveAncestor(el))
+                .filter(el => !el.matches('[tabindex="0"]'))
+                .map(el => {
+                    const rect = el.getBoundingClientRect();
+                    const rawText = (el.innerText || el.textContent || '').trim();
+                    const text = rawText.replace(/\s+/g, ' ').trim();
+                    const style = String(el.getAttribute('style') || '');
+                    const className = String(el.getAttribute('class') || '');
+                    const translate = String(el.getAttribute('translate') || '');
+                    return { el, rect, text, rawText, style, className, translate };
+                })
+                .filter(item => item.text && item.rect.width > 0 && item.rect.height > 0 && item.rect.top >= 70 && item.rect.top < 560)
+                .sort((a, b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left);
+
+            let seenHandle = false;
+            const candidates = [];
+            const seenText = new Set();
+            const rejected = [];
+            for (const item of nodes) {
+                const text = item.text;
+                const lower = text.toLowerCase();
+                if (lower === normalizedUser || lower === `@${normalizedUser}` || lower.includes(`@${normalizedUser}`)) {
+                    seenHandle = true;
+                    continue;
+                }
+                const lineClampBioLike = item.el.matches('span[dir="auto"]') && /line-clamp|lineHeight/i.test(item.style);
+                if (!seenHandle) {
+                    if (rejected.length < 8) rejected.push({ text, reason: 'before_handle', top: Math.round(item.rect.top) });
+                    continue;
+                }
+                if (item.el.matches('h1, h2')) {
+                    if (rejected.length < 8) rejected.push({ text, reason: 'heading_text', top: Math.round(item.rect.top) });
+                    continue;
+                }
+                if (item.translate.toLowerCase() === 'no' && isBareUsernameLike(text)) {
+                    if (rejected.length < 8) rejected.push({ text, reason: 'translate_no_username_like', top: Math.round(item.rect.top) });
+                    continue;
+                }
+                if (isBoundaryText(text)) {
+                    if (lineClampBioLike && !isUiText(text) && text.length <= 220 && !seenText.has(text)) {
+                        seenText.add(text);
+                        candidates.push(text);
+                    }
+                    break;
+                }
+                if (isUiText(text)) {
+                    if (rejected.length < 8) rejected.push({ text, reason: 'ui_text', top: Math.round(item.rect.top) });
+                    continue;
+                }
+                if (text.length > 220) {
+                    if (rejected.length < 8) rejected.push({ text: text.slice(0, 120), reason: 'too_long', top: Math.round(item.rect.top) });
+                    continue;
+                }
+                if (seenText.has(text)) continue;
+                seenText.add(text);
+                candidates.push(text);
+            }
+            if (debug && typeof debug === 'object') {
+                debug.seenHandle = seenHandle;
+                debug.nodeCount = nodes.length;
+                debug.rejected = rejected;
+                debug.nodeSamples = nodes.slice(0, 10).map(item => ({
+                    text: item.text.slice(0, 120),
+                    top: Math.round(item.rect.top),
+                    left: Math.round(item.rect.left),
+                    tag: item.el.tagName.toLowerCase(),
+                    translate: item.translate,
+                    lineClampStyle: /line-clamp|lineHeight/i.test(item.style),
+                }));
+            }
+            return candidates.slice(0, 4);
         },
 
         parseProfileFollowerCount: (root) => {
@@ -1503,6 +1928,22 @@ Object.assign(Core, {
             return null;
         },
 
+        getProfileTabPath: (username = '', kind = '') => {
+            const normalizedUser = Core.ThreeNoWatch.normalizeUsername(username);
+            if (!normalizedUser) return '';
+            const kindPath = kind === 'replies'
+                ? '/replies'
+                : (kind === 'reposts' ? '/reposts' : '');
+            return `/@${normalizedUser}${kindPath}`;
+        },
+
+        isOnProfileTabPath: (username = '', kind = '') => {
+            const expected = Core.ThreeNoWatch.getProfileTabPath(username, kind);
+            if (!expected) return false;
+            const current = decodeURIComponent(window.location.pathname || '').replace(/\/+$/, '').toLowerCase();
+            return current === expected.toLowerCase();
+        },
+
         findProfileTab: (labels = [], kind = '', username = '') => {
             const normalizedLabels = labels.map(label => String(label || '').toLowerCase());
             const normalizedUser = Core.ThreeNoWatch.normalizeUsername(username);
@@ -1530,9 +1971,10 @@ Object.assign(Core, {
                         const href = el.getAttribute('href') || '';
                         try {
                             const url = new URL(href, window.location.origin);
-                            const path = decodeURIComponent(url.pathname);
+                            const path = decodeURIComponent(url.pathname).toLowerCase();
+                            const lowerUser = normalizedUser.toLowerCase();
                             return path.endsWith(kindPath)
-                                && (!normalizedUser || path.includes(`/@${normalizedUser}`) || path.includes(`/@${encodeURIComponent(normalizedUser)}`));
+                                && (!normalizedUser || path.includes(`/@${lowerUser}`) || path.includes(`/@${encodeURIComponent(lowerUser)}`));
                         } catch (_) {
                             return href.includes(kindPath);
                         }
@@ -1556,37 +1998,173 @@ Object.assign(Core, {
             const kindPath = kind === 'replies'
                 ? '/replies'
                 : (kind === 'reposts' ? '/reposts' : '');
-            const alreadyOnKindPath = kindPath && decodeURIComponent(window.location.pathname).endsWith(kindPath);
+            const alreadyOnKindPath = kindPath && Core.ThreeNoWatch.isOnProfileTabPath(username, kind);
             const tab = Core.ThreeNoWatch.findProfileTab(labels, kind, username);
             if (!tab && !alreadyOnKindPath) return false;
             const beforeText = (root.innerText || '').slice(0, 1400);
             const beforePath = window.location.pathname;
             if (tab) Utils.simClick(tab);
-            await Utils.safeSleep(1100);
+            await Utils.safeSleep(900);
             await Utils.pollUntil(() => {
                 const freshRoot = document.querySelector('main, div[role="main"]') || document.body;
                 const current = (freshRoot.innerText || '').slice(0, 1400);
-                const pathChangedToKind = kindPath && decodeURIComponent(window.location.pathname).endsWith(kindPath);
+                const pathChangedToKind = kindPath && Core.ThreeNoWatch.isOnProfileTabPath(username, kind);
+                if (kindPath) {
+                    return pathChangedToKind
+                        || (alreadyOnKindPath && (
+                            current !== beforeText
+                            || Core.ThreeNoWatch.profileSectionHasExplicitEmpty(freshRoot, kind)
+                        ));
+                }
                 return pathChangedToKind
                     || window.location.pathname !== beforePath
                     || current !== beforeText
                     || Core.ThreeNoWatch.profileSectionHasExplicitEmpty(freshRoot, kind);
-            }, 3000, 250).catch(() => null);
+            }, kind === 'replies' ? 6500 : 5000, 250).catch(() => null);
             const freshRoot = document.querySelector('main, div[role="main"]') || document.body;
-            return Core.ThreeNoWatch.profileSectionHasContent(freshRoot, username, kind);
+            if (kindPath && !Core.ThreeNoWatch.isOnProfileTabPath(username, kind)) return false;
+            await Utils.safeSleep(kind === 'replies' ? 2200 : 1400);
+            await Utils.pollUntil(() => {
+                const settledRoot = document.querySelector('main, div[role="main"]') || document.body;
+                return Core.ThreeNoWatch.profileSectionHasExplicitEmpty(settledRoot, kind)
+                    || Core.ThreeNoWatch.profileSectionHasContent(settledRoot, username, kind);
+            }, kind === 'replies' ? 8000 : 5000, 300).catch(() => null);
+            const settledRoot = document.querySelector('main, div[role="main"]') || document.body;
+            if (kindPath && !Core.ThreeNoWatch.isOnProfileTabPath(username, kind)) return false;
+            return Core.ThreeNoWatch.profileSectionHasContent(settledRoot, username, kind);
         },
 
-        profileSectionHasExplicitEmpty: (root, kind = '') => {
-            const text = (root.innerText || '').replace(/\s+/g, ' ');
-            const common = ['尚無貼文', '還沒有貼文', '沒有貼文', 'No posts yet', 'No threads yet'];
-            const replies = ['尚無回覆', '還沒有回覆', '沒有回覆', 'No replies yet', 'No replies'];
-            const reposts = ['尚無轉發', '還沒有轉發', '沒有轉發', '尚無轉貼', '還沒有轉貼', '沒有轉貼', 'No reposts yet', 'No reposts'];
-            const phrases = kind === 'replies' ? replies : (kind === 'reposts' ? reposts : common);
-            return phrases.some(t => text.includes(t)) || (kind === '' && common.some(t => text.includes(t)));
+        readProfileContentSignal: (root, username, kind = 'base', options = {}) => {
+            const probeKind = kind === 'replies' || kind === 'reposts' ? kind : 'base';
+            const allowExplicitEmpty = options.allowExplicitEmpty !== false;
+            if (!Core.ThreeNoWatch.isOnProfileProbePath(username, probeKind)) {
+                return {
+                    known: false,
+                    hasContent: false,
+                    reason: 'path_mismatch',
+                };
+            }
+            const emptySignal = Core.ThreeNoWatch.readProfileExplicitEmptySignal(root, probeKind);
+            if (emptySignal.empty) {
+                if (!allowExplicitEmpty) {
+                    return {
+                        known: false,
+                        hasContent: false,
+                        reason: `explicit_empty_waiting_for_stability:${emptySignal.matchedText}`,
+                        emptyMatchedText: emptySignal.matchedText,
+                    };
+                }
+                return {
+                    known: true,
+                    hasContent: false,
+                    reason: `explicit_empty:${emptySignal.matchedText}`,
+                    emptyMatchedText: emptySignal.matchedText,
+                };
+            }
+            if (Core.ThreeNoWatch.profileSectionHasContent(root, username, probeKind)) {
+                return {
+                    known: true,
+                    hasContent: true,
+                    reason: 'content_found',
+                };
+            }
+            const text = (root?.innerText || root?.textContent || '').replace(/\s+/g, ' ').trim();
+            const hasSkeleton = Array.from((root || document.body).querySelectorAll('[aria-busy="true"], [role="progressbar"], div'))
+                .some(el => {
+                    const rect = el.getBoundingClientRect?.();
+                    const style = window.getComputedStyle?.(el);
+                    return rect
+                        && rect.width > 40
+                        && rect.height > 8
+                        && rect.top >= 80
+                        && rect.top < window.innerHeight
+                        && /animation|pulse|skeleton|loading/i.test(`${el.className || ''} ${style?.animationName || ''}`);
+                });
+            return {
+                known: false,
+                hasContent: false,
+                reason: hasSkeleton || !text ? 'loading_or_skeleton' : 'no_stable_signal',
+            };
         },
+
+        waitForProfileContentSignal: async (root, username, kind = 'base') => {
+            const timeout = kind === 'replies' ? 17000 : (kind === 'reposts' ? 13000 : 9000);
+            const startedAt = Date.now();
+            let emptyFirstSeenAt = 0;
+            let emptyLastReason = '';
+            let lastReason = '';
+            let finalKnown = null;
+            while (Date.now() - startedAt < timeout) {
+                const freshRoot = document.querySelector('main, div[role="main"]') || document.body || root;
+                const contentSignal = Core.ThreeNoWatch.readProfileContentSignal(freshRoot, username, kind, { allowExplicitEmpty: false });
+                lastReason = contentSignal.reason || '';
+                if (contentSignal.known && contentSignal.hasContent === true) {
+                    finalKnown = {
+                        ...contentSignal,
+                        waitedMs: Date.now() - startedAt,
+                        emptyObservedMs: emptyFirstSeenAt ? Date.now() - emptyFirstSeenAt : 0,
+                    };
+                    break;
+                }
+                const explicitEmpty = Core.ThreeNoWatch.profileSectionHasExplicitEmpty(freshRoot, kind);
+                if (explicitEmpty) {
+                    if (!emptyFirstSeenAt) emptyFirstSeenAt = Date.now();
+                    const emptySignal = Core.ThreeNoWatch.readProfileExplicitEmptySignal(freshRoot, kind);
+                    const emptyElapsed = Date.now() - emptyFirstSeenAt;
+                    emptyLastReason = `explicit_empty:${emptySignal.matchedText || kind || 'unknown'}`;
+                    finalKnown = {
+                        known: true,
+                        hasContent: false,
+                        reason: `explicit_empty:${emptySignal.matchedText || kind}`,
+                        emptyMatchedText: emptySignal.matchedText || '',
+                        waitedMs: Date.now() - startedAt,
+                        emptyObservedMs: emptyElapsed,
+                    };
+                    break;
+                } else {
+                    emptyFirstSeenAt = 0;
+                    emptyLastReason = '';
+                }
+                await Utils.safeSleep(300);
+            }
+            if (finalKnown) return finalKnown;
+            const finalRoot = document.querySelector('main, div[role="main"]') || document.body || root;
+            const signal = Core.ThreeNoWatch.readProfileContentSignal(finalRoot, username, kind, {
+                allowExplicitEmpty: kind === 'base',
+            });
+            if (signal.known) return {
+                ...signal,
+                waitedMs: Date.now() - startedAt,
+                emptyObservedMs: emptyFirstSeenAt ? Date.now() - emptyFirstSeenAt : 0,
+            };
+            return {
+                known: false,
+                hasContent: false,
+                reason: emptyFirstSeenAt
+                    ? `timeout_after_unstable_empty:${emptyLastReason || lastReason || signal.reason || 'unknown'}`
+                    : (signal.reason || lastReason || 'timeout_unknown'),
+                waitedMs: Date.now() - startedAt,
+                emptyObservedMs: emptyFirstSeenAt ? Date.now() - emptyFirstSeenAt : 0,
+            };
+        },
+
+        readProfileExplicitEmptySignal: (root, kind = '') => {
+            const text = (root?.innerText || root?.textContent || '').replace(/\s+/g, ' ').trim();
+            const common = ['尚無任何串文。', '尚無任何串文', 'No threads yet', 'No posts yet'];
+            const replies = ['尚無回覆。', '尚無回覆', 'No replies yet'];
+            const reposts = ['尚未轉發內容。', '尚未轉發內容', 'No reposts yet'];
+            const phrases = kind === 'replies' ? replies : (kind === 'reposts' ? reposts : common);
+            const matchedText = phrases.find(phrase => text.includes(phrase)) || '';
+            return {
+                empty: !!matchedText,
+                matchedText,
+                kind: kind || 'base',
+            };
+        },
+
+        profileSectionHasExplicitEmpty: (root, kind = '') => Core.ThreeNoWatch.readProfileExplicitEmptySignal(root, kind).empty === true,
 
         profileSectionHasContent: (root, username, kind = '') => {
-            if (Core.ThreeNoWatch.profileSectionHasExplicitEmpty(root, kind)) return false;
             const postLinks = Array.from(root.querySelectorAll('a[href*="/post/"]'))
                 .filter(a => !a.closest('[role="dialog"]'))
                 .filter(a => {
@@ -1594,8 +2172,9 @@ Object.assign(Core, {
                     return rect.width > 0 && rect.height > 0 && rect.top >= 120;
                 });
             if (postLinks.length > 0) return true;
+            if (Core.ThreeNoWatch.profileSectionHasExplicitEmpty(root, kind)) return false;
             if (kind === 'replies' || kind === 'reposts') {
-                const articles = Array.from(root.querySelectorAll('article, [role="article"]'))
+                const articles = Array.from(root.querySelectorAll('article, [role="article"], [data-pressable-container="true"]'))
                     .filter(el => !el.closest('[role="dialog"]'))
                     .filter(el => {
                         const rect = el.getBoundingClientRect();
@@ -1617,6 +2196,579 @@ Object.assign(Core, {
             return activityButtons.length >= 2;
         },
 
+        installAboutProfilePassiveBridge: () => {
+            if (window.__hegeAboutProfilePassiveBridgeInstalled) {
+                window.dispatchEvent(new CustomEvent('hege:threads-about-profile-bridge-ping'));
+                return;
+            }
+            window.__hegeAboutProfilePassiveBridgeInstalled = true;
+            window.__hegeAboutProfilePassiveBridgeStatus = {
+                ready: false,
+                source: '',
+                checkedAt: Date.now(),
+                error: '',
+            };
+            window.addEventListener('hege:threads-about-profile', (event) => {
+                const detail = event?.detail && typeof event.detail === 'object' ? event.detail : {};
+                const username = Core.ThreeNoWatch.normalizeUsername(detail.username || Core.ThreeNoWatch.getCurrentProfileUsername() || '');
+                if (!username && !detail.joined && !detail.location) return;
+                Core.ThreeNoWatch.writeProfileMetadataCache(username, {
+                    username,
+                    displayName: String(detail.displayName || ''),
+                    joined: String(detail.joined || ''),
+                    location: String(detail.location || ''),
+                    isVerified: detail.isVerified === true,
+                    source: String(detail.source || 'passive_about_api'),
+                    capturedAt: Date.now(),
+                });
+            });
+            window.addEventListener('hege:threads-about-profile-bridge-status', (event) => {
+                const detail = event?.detail && typeof event.detail === 'object' ? event.detail : {};
+                window.__hegeAboutProfilePassiveBridgeStatus = {
+                    ready: detail.ready === true,
+                    source: String(detail.source || ''),
+                    href: String(detail.href || window.location.href || '').slice(0, 500),
+                    hasFetch: detail.hasFetch === true,
+                    hasXhr: detail.hasXhr === true,
+                    hasFbDtsg: detail.hasFbDtsg === true,
+                    knownUserIds: parseInt(detail.knownUserIds || '0', 10) || 0,
+                    sessionKeys: String(detail.sessionKeys || '').slice(0, 200),
+                    checkedAt: Date.now(),
+                    error: String(detail.error || ''),
+                };
+            });
+
+            const bridgeSource = `(() => {
+                if (window.__hegeThreadsAboutPassiveBridge) return;
+                window.__hegeThreadsAboutPassiveBridge = true;
+                const DEFAULT_ABOUT_PROFILE_BKV = '22713cafbb647b89c4e9c1acdea97d89c8c2046e2f4b18729760e9b1ae0724f7';
+                const stripPrefix = text => String(text || '').startsWith('for (;;);') ? String(text || '').slice(9) : String(text || '');
+                const clean = value => String(value || '').replace(/\\\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16))).replace(/\\s+/g, ' ').trim();
+                const readBoundText = value => {
+                    const text = clean(value);
+                    const match = text.match(/"([^"]*)"\\s*,\\s*"([^"]+)"/);
+                    return match ? clean(match[1] || match[2]) : text;
+                };
+                const walk = (node, state) => {
+                    if (!node || typeof node !== 'object') return;
+                    const textNode = node['bk.components.Text'];
+                    if (textNode && typeof textNode === 'object') {
+                        const labelish = clean(textNode.text || readBoundText(textNode.on_bind || ''));
+                        const style = clean(textNode.text_style || '');
+                        if (style === 'semibold' && labelish) state.lastLabel = labelish;
+                        else if (style === 'normal' && labelish && state.lastLabel) {
+                            state.pairs.push({ label: state.lastLabel, value: labelish });
+                            state.lastLabel = '';
+                        }
+                    }
+                    const rich = node['bk.components.RichText'];
+                    if (rich && Array.isArray(rich.children)) {
+                        const joined = rich.children.map(child => clean(child?.['bk.components.TextSpan']?.text || '')).join('').trim();
+                        const profile = joined.match(/^(.+?)\\s*[（(]@([\\w.]+)[)）]?/) || joined.match(/@([\\w.]+)/);
+                        if (profile) {
+                            if (profile[2]) {
+                                state.displayName = clean(profile[1]);
+                                state.username = clean(profile[2]);
+                            } else {
+                                state.username = clean(profile[1]);
+                            }
+                        }
+                    }
+                    Object.values(node).forEach(value => {
+                        if (Array.isArray(value)) value.forEach(child => walk(child, state));
+                        else if (value && typeof value === 'object') walk(value, state);
+                    });
+                };
+                const labelIn = (label, values) => values.some(value => clean(label).toLowerCase() === value.toLowerCase());
+                const parseAbout = text => {
+                    let parsed;
+                    try { parsed = JSON.parse(stripPrefix(text)); } catch (_) { return null; }
+                    const state = { pairs: [], lastLabel: '', username: '', displayName: '' };
+                    walk(parsed, state);
+                    if (!state.pairs.length && !state.username) return null;
+                    const joinedLabels = ['Joined', '已加入', '參加日', '参加日', '가입일', '가입 날짜'];
+                    const locationLabels = ['Based in', '所在地點', '所在地', '位置', '거주지'];
+                    const verifiedLabels = ['Verified by Meta', 'Meta 驗證', 'Meta 验证', 'Meta認証', 'Meta 인증'];
+                    const relevant = state.pairs.filter(pair => !labelIn(pair.label, ['Name', '名稱', '名称', '名前', '이름', 'Former usernames', 'Previous usernames', '先前的使用者名稱', '先前的用戶名稱', '以前のユーザーネーム', '이전 사용자 이름']));
+                    const joined = relevant.find(pair => labelIn(pair.label, joinedLabels));
+                    const location = relevant.find(pair => labelIn(pair.label, locationLabels));
+                    const verified = relevant.find(pair => labelIn(pair.label, verifiedLabels));
+                    return {
+                        username: state.username,
+                        displayName: state.displayName,
+                        joined: clean((joined || relevant[0] || {}).value || ''),
+                        location: clean((location || relevant[1] || {}).value || ''),
+                        isVerified: !!verified,
+                    };
+                };
+                const session = {};
+                const userIds = new Map();
+                const rememberToken = (key, value) => {
+                    const cleanValue = clean(value);
+                    if (key && cleanValue && cleanValue !== 'null' && cleanValue !== 'undefined') session[key] = cleanValue;
+                };
+                const rememberText = (text) => {
+                    const source = String(text || '');
+                    if (!source) return;
+                    [
+                        ['fb_dtsg', /"fb_dtsg"\\s*:\\s*"([^"]+)"/],
+                        ['fb_dtsg', /"DTSGInitialData"[\\s\\S]{0,800}?"token"\\s*:\\s*"([^"]+)"/],
+                        ['fb_dtsg', /\\["DTSGInitData",\\[\\],\\{"token":"([^"]+)"/],
+                        ['lsd', /"lsd"\\s*:\\s*"([^"]+)"/],
+                        ['lsd', /"LSD"[\\s\\S]{0,500}?"token"\\s*:\\s*"([^"]+)"/],
+                        ['jazoest', /(?:^|[?&"'\\s])jazoest(?:=|["']?\\s*:\\s*["'])([^&"'\\s]+)["']?/],
+                        ['__user', /(?:^|[?&"'\\s])__user(?:=|["']?\\s*:\\s*["'])(\\d+)/],
+                        ['__user', /"USER_ID"\\s*:\\s*"(\\d{4,})"/],
+                        ['__user', /"viewer_id"\\s*:\\s*"?(\\d{4,})"?/],
+                        ['__hs', /(?:^|[?&"'\\s])__hs(?:=|["']?\\s*:\\s*["'])([^&"'\\s]+)["']?/],
+                        ['__hsi', /(?:^|[?&"'\\s])__hsi(?:=|["']?\\s*:\\s*["'])([^&"'\\s]+)["']?/],
+                        ['__comet_req', /(?:^|[?&"'\\s])__comet_req(?:=|["']?\\s*:\\s*["'])([^&"'\\s]+)["']?/],
+                        ['__ccg', /(?:^|[?&"'\\s])__ccg(?:=|["']?\\s*:\\s*["'])([^&"'\\s]+)["']?/],
+                        ['__a', /(?:^|[?&"'\\s])__a(?:=|["']?\\s*:\\s*["'])([^&"'\\s]+)["']?/],
+                        ['__d', /(?:^|[?&"'\\s])__d(?:=|["']?\\s*:\\s*["'])([^&"'\\s]+)["']?/],
+                        ['__spin_r', /(?:^|[?&"'\\s])__spin_r(?:=|["']?\\s*:\\s*["'])(\\d+)/],
+                        ['__spin_b', /(?:^|[?&"'\\s])__spin_b(?:=|["']?\\s*:\\s*["'])([^&"'\\s]+)["']?/],
+                        ['__spin_t', /(?:^|[?&"'\\s])__spin_t(?:=|["']?\\s*:\\s*["'])(\\d+)/],
+                        ['__dyn', /(?:^|[?&"'\\s])__dyn(?:=|["']?\\s*:\\s*["'])([^&"'\\s]+)["']?/],
+                        ['__csr', /(?:^|[?&"'\\s])__csr(?:=|["']?\\s*:\\s*["'])([^&"'\\s]+)["']?/],
+                        ['__rev', /(?:^|[?&"'\\s])__rev(?:=|["']?\\s*:\\s*["'])(\\d+)/],
+                        ['__s', /(?:^|[?&"'\\s])__s(?:=|["']?\\s*:\\s*["'])([^&"'\\s]+)["']?/],
+                    ].forEach(([key, pattern]) => {
+                        const match = source.match(pattern);
+                        if (match) rememberToken(key, decodeURIComponent(match[1] || ''));
+                    });
+                    const rawForm = source.includes('%') ? source.replace(/\\+/g, ' ') : source;
+                    ['fb_dtsg', 'lsd', 'jazoest', '__user', '__a', '__hs', '__hsi', '__spin_r', '__spin_b', '__spin_t', '__dyn', '__csr', '__rev', '__s', '__comet_req', '__ccg', '__d'].forEach(key => {
+                        const match = rawForm.match(new RegExp('(?:^|&)' + key.replace(/_/g, '\\\\_') + '=([^&]+)'));
+                        if (match) rememberToken(key, decodeURIComponent(match[1] || ''));
+                    });
+                };
+                const rememberUser = (username, id) => {
+                    const uname = clean(username).replace(/^@+/, '').toLowerCase();
+                    const uid = clean(id).replace(/\\D+/g, '');
+                    if (uname && uid.length >= 4) userIds.set(uname, uid);
+                };
+                const collectUsers = (node, depth = 0) => {
+                    if (!node || depth > 12) return;
+                    if (Array.isArray(node)) {
+                        node.forEach(child => collectUsers(child, depth + 1));
+                        return;
+                    }
+                    if (typeof node !== 'object') return;
+                    const username = node.username || node.user_name || node.profile_username || node.handle || node.display_username;
+                    const id = node.id || node.pk || node.user_id || node.profile_user_id || node.strong_id__;
+                    if (username && id) rememberUser(username, id);
+                    Object.values(node).forEach(value => collectUsers(value, depth + 1));
+                };
+                const findUserIdNearUsername = (username, text) => {
+                    const uname = clean(username).replace(/^@+/, '').toLowerCase();
+                    if (!uname || !text) return '';
+                    const lower = String(text).toLowerCase();
+                    const idx = lower.indexOf(uname);
+                    if (idx < 0) return '';
+                    const slice = String(text).slice(Math.max(0, idx - 1800), idx + 2400);
+                    const patterns = [
+                        /"(?:id|pk|user_id|profile_user_id|strong_id__)"\\s*:\\s*"?([0-9]{4,})"?/g,
+                        /(?:id|pk|user_id|profile_user_id)=([0-9]{4,})/g,
+                    ];
+                    for (const pattern of patterns) {
+                        let match;
+                        while ((match = pattern.exec(slice))) {
+                            if (match[1]) return match[1];
+                        }
+                    }
+                    return '';
+                };
+                const scanDocumentState = (username = '') => {
+                    Array.from(document.querySelectorAll('script')).forEach(script => {
+                        const text = script.textContent || script.src || '';
+                        if (!text) return;
+                        rememberText(text);
+                        const foundId = findUserIdNearUsername(username, text);
+                        if (foundId) rememberUser(username, foundId);
+                        if ((text.trim().startsWith('{') || text.trim().startsWith('[') || text.startsWith('for (;;);')) && text.length < 600000) {
+                            try { collectUsers(JSON.parse(stripPrefix(text))); } catch (_) {}
+                        }
+                    });
+                };
+                const findBkv = () => {
+                    const sources = [
+                        location.href,
+                        ...Array.from(document.querySelectorAll('script[src], link[href]')).map(el => el.src || el.href || ''),
+                        ...Array.from(document.querySelectorAll('script')).slice(0, 25).map(el => el.textContent || ''),
+                    ];
+                    for (const source of sources) {
+                        const text = String(source || '');
+                        const byUrl = text.match(/[?&]__bkv=([^&"'\\s]+)/);
+                        if (byUrl) return clean(decodeURIComponent(byUrl[1]));
+                        const byJson = text.match(/"__bkv"\\s*:\\s*"([^"]+)"/);
+                        if (byJson) return clean(byJson[1]);
+                    }
+                    return DEFAULT_ABOUT_PROFILE_BKV;
+                };
+                const resolveUserId = (username) => {
+                    const uname = clean(username).replace(/^@+/, '').toLowerCase();
+                    scanDocumentState(uname);
+                    if (userIds.has(uname)) return userIds.get(uname);
+                    const profileMatch = location.pathname.match(new RegExp('/(@[A-Za-z0-9_.]+)'));
+                    if (profileMatch && clean(profileMatch[1]).replace(/^@+/, '').toLowerCase() === uname) {
+                        const bodyId = findUserIdNearUsername(uname, document.documentElement?.innerHTML || '');
+                        if (bodyId) rememberUser(uname, bodyId);
+                    }
+                    return userIds.get(uname) || '';
+                };
+                const emitActiveResponse = (requestId, detail) => {
+                    window.dispatchEvent(new CustomEvent('hege:threads-about-profile-fetch-response', {
+                        detail: { requestId, ...detail },
+                    }));
+                };
+                const fetchActiveAbout = async (requestId, username) => {
+                    try {
+                        const targetUserId = resolveUserId(username);
+                        const bkv = findBkv();
+                        if (!targetUserId) return emitActiveResponse(requestId, { ok: false, error: 'missing_user_id' });
+                        if (!session.fb_dtsg) return emitActiveResponse(requestId, { ok: false, error: 'missing_fb_dtsg' });
+                        const form = new URLSearchParams();
+                        form.set('av', session.__user || '0');
+                        form.set('__user', session.__user || '0');
+                        form.set('__a', session.__a || '1');
+                        form.set('__req', 'hege_about');
+                        form.set('__hs', session.__hs || '');
+                        form.set('dpr', String(window.devicePixelRatio || 1));
+                        form.set('__ccg', session.__ccg || 'EXCELLENT');
+                        form.set('__comet_req', session.__comet_req || '29');
+                        form.set('__d', session.__d || 'www');
+                        ['__rev', '__s', '__hsi', '__dyn', '__csr', '__spin_r', '__spin_b', '__spin_t', 'jazoest', 'lsd'].forEach(key => {
+                            if (session[key]) form.set(key, session[key]);
+                        });
+                        form.set('fb_dtsg', session.fb_dtsg);
+                        form.set('params', JSON.stringify({
+                            atpTriggerSessionID: crypto.randomUUID?.() || (Date.now() + '_' + Math.random().toString(36).slice(2)),
+                            referer_type: 'TextPostAppProfileOverflow',
+                            target_user_id: targetUserId,
+                        }));
+                        const headers = {
+                            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                            'X-FB-Friendly-Name': 'BarcelonaProfileAboutThisProfileAsyncActionQuery',
+                        };
+                        if (session.lsd) headers['X-FB-LSD'] = session.lsd;
+                        const url = '/async/wbloks/fetch/?appid=com.bloks.www.text_post_app.about_this_profile_async_action&type=app&__bkv=' + encodeURIComponent(bkv);
+                        const response = await fetch(url, {
+                            method: 'POST',
+                            credentials: 'include',
+                            headers,
+                            body: form.toString(),
+                        });
+                        const body = await response.text();
+                        rememberText(body);
+                        if (response.status === 429) return emitActiveResponse(requestId, { ok: false, status: response.status, error: 'rate_limited' });
+                        if (!response.ok) return emitActiveResponse(requestId, { ok: false, status: response.status, error: 'http_' + response.status });
+                        const data = parseAbout(body);
+                        if (data && (data.username || data.joined || data.location)) {
+                            if (!data.username) data.username = clean(username).replace(/^@+/, '');
+                            window.dispatchEvent(new CustomEvent('hege:threads-about-profile', { detail: { ...data, source: 'accelerated_about_api' } }));
+                            return emitActiveResponse(requestId, { ok: true, status: response.status, data });
+                        }
+                        return emitActiveResponse(requestId, { ok: false, status: response.status, error: 'empty_about_payload' });
+                    } catch (error) {
+                        return emitActiveResponse(requestId, { ok: false, error: String(error?.message || error || 'active_about_error') });
+                    }
+                };
+                const publish = (body) => {
+                    rememberText(body);
+                    const data = parseAbout(body);
+                    if (data && (data.username || data.joined || data.location)) {
+                        window.dispatchEvent(new CustomEvent('hege:threads-about-profile', { detail: data }));
+                    }
+                };
+                window.addEventListener('hege:threads-about-profile-fetch-request', (event) => {
+                    const detail = event?.detail || {};
+                    const requestId = clean(detail.requestId || '');
+                    const username = clean(detail.username || '');
+                    if (!requestId || !username) return;
+                    fetchActiveAbout(requestId, username);
+                });
+                const originalFetch = window.fetch;
+                if (typeof originalFetch === 'function') {
+                    window.fetch = async function(...args) {
+                        const url = String(args[0]?.url || args[0] || '');
+                        rememberText(String(args[1]?.body || ''));
+                        const response = await originalFetch.apply(this, args);
+                        if (url.includes('about_this_profile_async_action')) {
+                            response.clone().text().then(publish).catch(() => {});
+                        } else if (/graphql|bulk-route|api/i.test(url)) {
+                            response.clone().text().then(body => {
+                                rememberText(body);
+                                if (body && body.length < 600000) {
+                                    try { collectUsers(JSON.parse(stripPrefix(body))); } catch (_) {}
+                                }
+                            }).catch(() => {});
+                        }
+                        return response;
+                    };
+                }
+                const originalOpen = XMLHttpRequest.prototype.open;
+                const originalSend = XMLHttpRequest.prototype.send;
+                XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+                    this.__hegeAboutUrl = String(url || '');
+                    return originalOpen.call(this, method, url, ...rest);
+                };
+                XMLHttpRequest.prototype.send = function(...args) {
+                    rememberText(String(args[0] || ''));
+                    if (this.__hegeAboutUrl && this.__hegeAboutUrl.includes('about_this_profile_async_action')) {
+                        this.addEventListener('load', function() { publish(this.responseText || ''); });
+                    }
+                    return originalSend.apply(this, args);
+                };
+                scanDocumentState();
+            })();`;
+            const script = document.createElement('script');
+            script.textContent = bridgeSource;
+            script.addEventListener('error', () => {
+                window.__hegeAboutProfilePassiveBridgeStatus = {
+                    ...(window.__hegeAboutProfilePassiveBridgeStatus || {}),
+                    ready: false,
+                    source: 'inline_script_error',
+                    checkedAt: Date.now(),
+                    error: 'script_error',
+                };
+            });
+            (document.documentElement || document.head || document.body).appendChild(script);
+            script.remove();
+            window.dispatchEvent(new CustomEvent('hege:threads-about-profile-bridge-ping'));
+        },
+
+        getAboutProfileBridgeStatus: () => {
+            const status = window.__hegeAboutProfilePassiveBridgeStatus;
+            if (!status || typeof status !== 'object') {
+                return { ready: false, source: '', error: 'no_status' };
+            }
+            return {
+                ready: status.ready === true,
+                source: String(status.source || ''),
+                href: String(status.href || ''),
+                hasFetch: status.hasFetch === true,
+                hasXhr: status.hasXhr === true,
+                hasFbDtsg: status.hasFbDtsg === true,
+                knownUserIds: parseInt(status.knownUserIds || '0', 10) || 0,
+                sessionKeys: String(status.sessionKeys || ''),
+                checkedAt: parseInt(status.checkedAt || '0', 10) || 0,
+                error: String(status.error || ''),
+            };
+        },
+
+        getProfileMetadataCache: () => {
+            const cache = Storage.getJSON(CONFIG.KEYS.THREE_NO_PROFILE_METADATA_CACHE, {});
+            return cache && typeof cache === 'object' && !Array.isArray(cache) ? cache : {};
+        },
+
+        readProfileMetadataCache: (username = '') => {
+            const normalized = Core.ThreeNoWatch.normalizeUsername(username).toLowerCase();
+            if (!normalized) return null;
+            const item = Core.ThreeNoWatch.getProfileMetadataCache()[normalized];
+            if (!item || typeof item !== 'object') return null;
+            const capturedAt = parseInt(item.capturedAt || '0', 10) || 0;
+            const maxAge = 24 * 3600 * 1000;
+            if (!capturedAt || Date.now() - capturedAt > maxAge) return null;
+            return item;
+        },
+
+        writeProfileMetadataCache: (username = '', payload = {}) => {
+            const normalized = Core.ThreeNoWatch.normalizeUsername(username || payload.username || '').toLowerCase();
+            if (!normalized) return;
+            const cache = Core.ThreeNoWatch.getProfileMetadataCache();
+            cache[normalized] = {
+                username: normalized,
+                displayName: String(payload.displayName || ''),
+                joined: String(payload.joined || ''),
+                location: String(payload.location || ''),
+                isVerified: payload.isVerified === true,
+                source: String(payload.source || 'passive_about_api'),
+                capturedAt: parseInt(payload.capturedAt || `${Date.now()}`, 10) || Date.now(),
+            };
+            const entries = Object.entries(cache)
+                .sort((a, b) => (parseInt(b[1]?.capturedAt || '0', 10) || 0) - (parseInt(a[1]?.capturedAt || '0', 10) || 0))
+                .slice(0, 500);
+            Storage.setJSON(CONFIG.KEYS.THREE_NO_PROFILE_METADATA_CACHE, Object.fromEntries(entries));
+        },
+
+        waitForPassiveAboutMetadata: async (username = '', timeoutMs = 1600) => {
+            const normalized = Core.ThreeNoWatch.normalizeUsername(username).toLowerCase();
+            if (!normalized) return null;
+            const before = Core.ThreeNoWatch.readProfileMetadataCache(normalized);
+            if (before) return before;
+            await Utils.pollUntil(() => Core.ThreeNoWatch.readProfileMetadataCache(normalized), timeoutMs, 150).catch(() => null);
+            return Core.ThreeNoWatch.readProfileMetadataCache(normalized);
+        },
+
+        requestActiveAboutMetadataOnce: async (username = '', timeoutMs = 3500, attempt = 1) => {
+            const normalized = Core.ThreeNoWatch.normalizeUsername(username).toLowerCase();
+            if (!normalized || !Storage.getThreeNoAcceleratedProfileEnabled?.()) {
+                return { ok: false, attempt, error: 'accelerated_disabled' };
+            }
+            Core.ThreeNoWatch.installAboutProfilePassiveBridge();
+            window.dispatchEvent(new CustomEvent('hege:threads-about-profile-bridge-ping'));
+            await Utils.safeSleep(120);
+            const bridgeStatus = Core.ThreeNoWatch.getAboutProfileBridgeStatus();
+            if (bridgeStatus.ready !== true) {
+                return {
+                    ok: false,
+                    attempt,
+                    error: 'bridge_not_ready',
+                    bridgeStatus,
+                };
+            }
+            const requestId = `hege_about_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+            return new Promise(resolve => {
+                let settled = false;
+                const cleanup = () => {
+                    settled = true;
+                    clearTimeout(timer);
+                    window.removeEventListener('hege:threads-about-profile-fetch-response', handler);
+                };
+                const finish = (value) => {
+                    if (settled) return;
+                    cleanup();
+                    resolve(value);
+                };
+                const timer = setTimeout(() => {
+                    finish({ ok: false, attempt, error: 'timeout' });
+                }, timeoutMs);
+                const handler = (event) => {
+                    const detail = event?.detail && typeof event.detail === 'object' ? event.detail : {};
+                    if (detail.requestId !== requestId) return;
+                    if (!detail.ok) {
+                        finish({
+                            ok: false,
+                            attempt,
+                            status: detail.status || 0,
+                            error: String(detail.error || 'unknown'),
+                            bridgeStatus: Core.ThreeNoWatch.getAboutProfileBridgeStatus(),
+                        });
+                        return;
+                    }
+                    const data = detail.data && typeof detail.data === 'object' ? detail.data : {};
+                    Core.ThreeNoWatch.writeProfileMetadataCache(normalized, {
+                        username: normalized,
+                        displayName: String(data.displayName || ''),
+                        joined: String(data.joined || ''),
+                        location: String(data.location || ''),
+                        isVerified: data.isVerified === true,
+                        source: 'accelerated_about_api',
+                        capturedAt: Date.now(),
+                    });
+                    const cached = Core.ThreeNoWatch.readProfileMetadataCache(normalized);
+                    if (cached) cached.activeAboutAttempt = attempt;
+                    finish({
+                        ok: true,
+                        attempt,
+                        status: detail.status || 200,
+                        item: cached,
+                        bridgeStatus: Core.ThreeNoWatch.getAboutProfileBridgeStatus(),
+                    });
+                };
+                window.addEventListener('hege:threads-about-profile-fetch-response', handler);
+                window.dispatchEvent(new CustomEvent('hege:threads-about-profile-fetch-request', {
+                    detail: { requestId, username: normalized },
+                }));
+            });
+        },
+
+        summarizeActiveAboutAttempts: (attempts = []) => attempts
+            .map(item => {
+                const status = item.status ? `:${item.status}` : '';
+                return `${item.attempt}/${item.maxAttempts || attempts.length}:${item.ok ? 'ok' : (item.error || 'failed')}${status}`;
+            })
+            .join(' | '),
+
+        requestActiveAboutMetadata: async (username = '', options = {}) => {
+            const normalized = Core.ThreeNoWatch.normalizeUsername(username).toLowerCase();
+            if (!normalized || !Storage.getThreeNoAcceleratedProfileEnabled?.()) return null;
+            const maxAttempts = Math.max(1, Math.min(5, parseInt(options.maxAttempts || '3', 10) || 3));
+            const timeoutMs = Math.max(1200, Math.min(8000, parseInt(options.timeoutMs || '3500', 10) || 3500));
+            const attempts = [];
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                Core.ThreeNoWatch.setScanState({
+                    debug: {
+                        step: 'accelerated_about_attempt',
+                        username: normalized,
+                        activeAboutAttempt: `${attempt}/${maxAttempts}`,
+                        activeAboutAttempts: Core.ThreeNoWatch.summarizeActiveAboutAttempts(attempts),
+                        url: window.location.href,
+                    },
+                });
+                const result = await Core.ThreeNoWatch.requestActiveAboutMetadataOnce(normalized, timeoutMs, attempt);
+                const record = {
+                    attempt,
+                    maxAttempts,
+                    ok: result?.ok === true,
+                    status: result?.status || 0,
+                    error: result?.ok ? '' : String(result?.error || 'unknown'),
+                    bridgeStatus: result?.bridgeStatus || Core.ThreeNoWatch.getAboutProfileBridgeStatus(),
+                };
+                attempts.push(record);
+                const summary = Core.ThreeNoWatch.summarizeActiveAboutAttempts(attempts);
+                if (result?.ok && result.item && (result.item.joined || result.item.location)) {
+                    result.item.activeAboutAttempts = summary;
+                    result.item.activeAboutAttemptCount = attempt;
+                    Core.ThreeNoWatch.setScanState({
+                        debug: {
+                            step: 'accelerated_about_success',
+                            username: normalized,
+                            activeAboutAttempt: `${attempt}/${maxAttempts}`,
+                            activeAboutAttempts: summary,
+                            status: result.status || 200,
+                            url: window.location.href,
+                        },
+                    });
+                    return result.item;
+                }
+                Core.ThreeNoWatch.setScanState({
+                    debug: {
+                        step: attempt < maxAttempts ? 'accelerated_about_retry_wait' : 'accelerated_about_fallback_after_retries',
+                        username: normalized,
+                        activeAboutAttempt: `${attempt}/${maxAttempts}`,
+                        activeAboutAttempts: summary,
+                        status: record.status,
+                        error: record.error,
+                        bridgeStatus: record.bridgeStatus,
+                        fallbackNext: attempt >= maxAttempts ? 'about_menu_three_dots' : '',
+                        url: window.location.href,
+                    },
+                });
+                if (attempt < maxAttempts) {
+                    await Utils.safeSleep(Math.min(1200, 350 + attempt * 250));
+                }
+            }
+            return null;
+        },
+
+        buildMetadataFromCachedAbout: (item = {}, source = 'passive_about_api_cache') => {
+            const joinedAt = Core.ThreeNoWatch.parseJoinedAt(item.joined || '');
+            const locationLabel = String(item.location || '').trim();
+            const accountAgeDays = joinedAt > 0
+                ? Math.max(0, Math.floor((Date.now() - joinedAt) / (24 * 3600 * 1000)))
+                : 0;
+            return {
+                joinedAt,
+                accountAgeDays,
+                accountAgeBucket: Core.ThreeNoWatch.getAccountAgeBucket(accountAgeDays, joinedAt),
+                isNewAccount: joinedAt > 0 && accountAgeDays <= 93,
+                locationLabel,
+                countryTag: Core.ThreeNoWatch.getCountryTag(locationLabel),
+                regionShared: !!locationLabel && !/未分享|not shared|not available/i.test(locationLabel),
+                source,
+                debug: {
+                    cacheSource: item.source || '',
+                    cachedAt: item.capturedAt || 0,
+                    passiveJoined: item.joined || '',
+                    passiveLocation: item.location || '',
+                    activeAboutAttempts: item.activeAboutAttempts || '',
+                    activeAboutAttemptCount: item.activeAboutAttemptCount || 0,
+                },
+            };
+        },
+
         profileHasPosts: (root, username) => {
             const pattern = `/@${username}/post/`;
             const posts = Array.from(root.querySelectorAll('a[href*="/post/"]'))
@@ -1635,7 +2787,9 @@ Object.assign(Core, {
             return !explicitEmpty && posts.length > 0;
         },
 
-        extractProfileMetadata: async (root) => {
+        extractProfileMetadata: async (root, username = '') => {
+            const normalizedUser = Core.ThreeNoWatch.normalizeUsername(username || Core.ThreeNoWatch.getCurrentProfileUsername()).toLowerCase();
+            Core.ThreeNoWatch.installAboutProfilePassiveBridge();
             const parseFromText = (text = '', source = '') => {
                 const joinedAt = Core.ThreeNoWatch.parseJoinedAt(text);
                 const locationLabel = Core.ThreeNoWatch.parseLocationLabel(text);
@@ -1653,6 +2807,19 @@ Object.assign(Core, {
                     source,
                 };
             };
+            const cached = Core.ThreeNoWatch.readProfileMetadataCache(normalizedUser);
+            if (cached && (cached.joined || cached.location)) {
+                return Core.ThreeNoWatch.buildMetadataFromCachedAbout(cached, 'passive_about_api_cache');
+            }
+            if (Storage.getThreeNoAcceleratedProfileEnabled?.()) {
+                const active = await Core.ThreeNoWatch.requestActiveAboutMetadata(normalizedUser, {
+                    maxAttempts: 3,
+                    timeoutMs: 3500,
+                });
+                if (active && (active.joined || active.location)) {
+                    return Core.ThreeNoWatch.buildMetadataFromCachedAbout(active, 'accelerated_about_api');
+                }
+            }
             const clickableAncestor = (el) => {
                 let node = el;
                 for (let depth = 0; node && depth < 10; depth++) {
@@ -1741,26 +2908,68 @@ Object.assign(Core, {
                     }
                     return pieces.join(' ');
                 };
-                return Array.from(document.querySelectorAll('button, div[role="button"], [tabindex="0"]'))
+                const clickableAncestorForButton = (el) => {
+                    let node = el;
+                    for (let depth = 0; node && depth < 8; depth++) {
+                        if (node.matches?.('button, div[role="button"], [tabindex="0"]')) return node;
+                        node = node.parentElement;
+                    }
+                    return el.closest?.('button, div[role="button"], [tabindex="0"]') || el;
+                };
+                const looksLikeMoreSvg = (svg) => {
+                    if (!svg) return false;
+                    const circleCount = svg.querySelectorAll?.('circle').length || 0;
+                    const pathCount = svg.querySelectorAll?.('path').length || 0;
+                    return /更多|More|もっと見る|더 보기|เพิ่มเติม|Lainnya|Más|Plus|Mehr|Altro|Mais|Ещё|Więcej|Diğer|Thêm|المزيد|और|Meer|Higit pa/i.test(textOf(svg))
+                        || (circleCount === 3 && pathCount === 0)
+                        || (circleCount >= 1 && pathCount >= 3);
+                };
+                const seen = new Set();
+                return Array.from(document.querySelectorAll([
+                    'button',
+                    'div[role="button"]',
+                    '[tabindex="0"]',
+                    CONFIG.SELECTORS.MORE_SVG,
+                    'svg[aria-label]',
+                ].join(',')))
+                    .map(clickableAncestorForButton)
+                    .filter(el => {
+                        if (!el || seen.has(el)) return false;
+                        seen.add(el);
+                        return true;
+                    })
                     .filter(el => !el.closest('[role="dialog"], [role="menu"]'))
                     .filter(isVisible)
                     .map(el => {
                         const rect = el.getBoundingClientRect();
                         const text = textOf(el);
                         const contextText = contextTextOf(el);
+                        const svg = el.matches?.('svg') ? el : (el.querySelector?.(CONFIG.SELECTORS.MORE_SVG) || el.querySelector?.('svg[aria-label]'));
                         const inProfileColumn = rect.left >= rootRect.left - 8 && rect.right <= rootRect.right + 8;
                         const nearProfileHeader = rect.top >= Math.max(0, rootRect.top - 8) && rect.top < Math.min(420, rootRect.top + 360);
                         const looksLikeIconButton = rect.width <= 120 && rect.height <= 120;
                         const likelyProfileAction = /Instagram|IG|粉絲|位粉絲|Followers|追蹤|Follow|提及|Mention/i.test(contextText);
                         const likelyColumnTitle = /直欄標題|column title/i.test(contextText);
+                        const likelyGlobalMenu = /外觀|設定|已讀|封存|登出|Appearance|Settings|Archive|Log out/i.test(contextText);
+                        const circleCount = svg?.querySelectorAll?.('circle').length || 0;
+                        const pathCount = svg?.querySelectorAll?.('path').length || 0;
+                        let score = 100;
+                        if (inProfileColumn) score -= 24;
+                        if (nearProfileHeader) score -= 22;
+                        if (likelyProfileAction) score -= 28;
+                        if (looksLikeIconButton) score -= 8;
+                        if (circleCount >= 1 && pathCount >= 3) score -= 8;
+                        if (circleCount === 3 && pathCount === 0) score -= 4;
+                        if (likelyColumnTitle || rect.top <= rootRect.top + 48) score += 16;
+                        if (likelyGlobalMenu || rect.left < 72) score += 70;
                         return {
                             el,
                             rect,
-                            score: likelyProfileAction ? 0 : (likelyColumnTitle || rect.top <= rootRect.top + 48 ? 2 : 1),
+                            score,
                             valid: inProfileColumn
                             && nearProfileHeader
                             && looksLikeIconButton
-                            && /更多|More/i.test(text),
+                            && (/更多|More/i.test(text) || looksLikeMoreSvg(svg)),
                         };
                     })
                     .filter(item => item.valid)
@@ -1806,6 +3015,20 @@ Object.assign(Core, {
                 });
                 Utils.simClick(target);
                 await Utils.safeSleep(900);
+                const passive = await Core.ThreeNoWatch.waitForPassiveAboutMetadata(normalizedUser, 2200);
+                if (passive && (passive.joined || passive.location)) {
+                    const parsedPassive = Core.ThreeNoWatch.buildMetadataFromCachedAbout(passive, 'passive_about_api');
+                    parsedPassive.debug = {
+                        ...(parsedPassive.debug || {}),
+                        aboutClicked: true,
+                        aboutMenuOpened: menuOpened,
+                        moreButtonFound: !!moreTarget,
+                        aboutTargetTag: target.tagName?.toLowerCase?.() || '',
+                        aboutTargetRole: target.getAttribute?.('role') || '',
+                        aboutTargetText: textOf(target).slice(0, 80),
+                    };
+                    return parsedPassive;
+                }
                 const dialog = await Utils.pollUntil(findAboutDialog, 4000, 250).catch(() => null);
                 Core.ThreeNoWatch.setScanState({
                     debug: {
@@ -1864,17 +3087,20 @@ Object.assign(Core, {
 
         parseJoinedAt: (text = '') => {
             const value = String(text || '').replace(/\s+/g, ' ');
-            const zh = value.match(/已加入\s*(\d{4})年\s*(\d{1,2})月/);
+            const zh = value.match(/(?:已加入|加入|參加日|参加日)?\s*(\d{4})年\s*(\d{1,2})月/);
             if (zh) return new Date(parseInt(zh[1], 10), parseInt(zh[2], 10) - 1, 1).getTime();
+            const ko = value.match(/(\d{4})년\s*(\d{1,2})월/);
+            if (ko) return new Date(parseInt(ko[1], 10), parseInt(ko[2], 10) - 1, 1).getTime();
             const en = value.match(/Joined\s+([A-Za-z]+)\s+(\d{4})/i);
-            if (en) {
+            const enLoose = en || value.match(/\b([A-Za-z]+)\s+(\d{4})\b/i);
+            if (enLoose) {
                 const months = {
                     january: 0, jan: 0, february: 1, feb: 1, march: 2, mar: 2, april: 3, apr: 3,
                     may: 4, june: 5, jun: 5, july: 6, jul: 6, august: 7, aug: 7, september: 8, sep: 8,
                     sept: 8, october: 9, oct: 9, november: 10, nov: 10, december: 11, dec: 11,
                 };
-                const month = months[String(en[1] || '').toLowerCase()];
-                const year = parseInt(en[2], 10);
+                const month = months[String(enLoose[1] || '').toLowerCase()];
+                const year = parseInt(enLoose[2], 10);
                 if (Number.isFinite(month) && Number.isFinite(year)) return new Date(year, month, 1).getTime();
             }
             return 0;
@@ -1970,11 +3196,28 @@ Object.assign(Core, {
                 : baseScannedUsers;
             const previousResults = Storage.getThreeNoScanResults();
             const previousFindings = shouldPersistFindings ? (previousResults.users || []) : [];
+            const scanProgressUserSet = new Set(scanProgressUsers
+                .map(u => Core.ThreeNoWatch.normalizeUsername(u))
+                .filter(Boolean));
+            const currentFindingUsers = new Set(findings
+                .map(item => Core.ThreeNoWatch.normalizeUsername(item?.username || ''))
+                .filter(Boolean));
+            const currentFindingItems = new Set(findings);
+            const previousFindingsToMerge = previousFindings.filter(item => {
+                const username = Core.ThreeNoWatch.normalizeUsername(item?.username || '');
+                if (!username) return false;
+                return !(scanProgressUserSet.has(username) && !currentFindingUsers.has(username));
+            });
             const findingsByUser = new Map();
-            [...previousFindings, ...findings].forEach(item => {
+            [...previousFindingsToMerge, ...findings].forEach(item => {
                 const username = Core.ThreeNoWatch.normalizeUsername(item?.username || '');
                 if (!username) return;
                 const existing = findingsByUser.get(username);
+                const itemIsFreshFinding = currentFindingItems.has(item);
+                const mergeBooleanSignal = (key) => itemIsFreshFinding
+                    ? item?.[key] === true
+                    : (existing?.[key] === true || item?.[key] === true);
+                const accountPrivate = mergeBooleanSignal('accountPrivate');
                 const scanDates = [...new Set([
                     ...(existing?.scanDates || []),
                     ...(Array.isArray(item.scanDates) ? item.scanDates : []),
@@ -2005,42 +3248,69 @@ Object.assign(Core, {
                     scanDates,
                     scanTargetOwner: item.scanTargetOwner || owner,
                     targetOwners,
-                    noAvatar: existing?.noAvatar === true || item.noAvatar === true,
-                    noBio: existing?.noBio === true || item.noBio === true,
-                    noPosts: existing?.noPosts === true || item.noPosts === true,
-                    noReplies: existing?.noReplies === true || item.noReplies === true,
-                    noReposts: existing?.noReposts === true || item.noReposts === true,
-                    suspiciousUsername: existing?.suspiciousUsername === true || item.suspiciousUsername === true,
+                    noAvatar: mergeBooleanSignal('noAvatar'),
+                    noBio: mergeBooleanSignal('noBio'),
+                    noPosts: accountPrivate ? false : (itemIsFreshFinding
+                        ? (item.noPostsKnown === true && item.noPosts === true)
+                        : (existing?.noPostsKnown === true && existing?.noPosts === true)),
+                    noReplies: accountPrivate ? false : (itemIsFreshFinding
+                        ? (item.noRepliesKnown === true && item.noReplies === true)
+                        : (existing?.noRepliesKnown === true && existing?.noReplies === true)),
+                    noReposts: accountPrivate ? false : (itemIsFreshFinding
+                        ? (item.noRepostsKnown === true && item.noReposts === true)
+                        : (existing?.noRepostsKnown === true && existing?.noReposts === true)),
+                    accountPrivate,
+                    suspiciousUsername: mergeBooleanSignal('suspiciousUsername'),
                     profileSignalsVersion: Math.max(
                         parseInt(existing?.profileSignalsVersion || '0', 10) || 0,
                         parseInt(item.profileSignalsVersion || '0', 10) || 0
                     ),
-                    noRepliesKnown: existing?.noRepliesKnown === true || item.noRepliesKnown === true,
-                    noRepostsKnown: existing?.noRepostsKnown === true || item.noRepostsKnown === true,
-                    followerCount: item.followerCountKnown === true
+                    noPostsKnown: accountPrivate ? false : (itemIsFreshFinding
+                        ? item.noPostsKnown === true
+                        : (existing?.noPostsKnown === true || item.noPostsKnown === true)),
+                    noRepliesKnown: accountPrivate ? false : (itemIsFreshFinding
+                        ? item.noRepliesKnown === true
+                        : (existing?.noRepliesKnown === true || item.noRepliesKnown === true)),
+                    noRepostsKnown: accountPrivate ? false : (itemIsFreshFinding
+                        ? item.noRepostsKnown === true
+                        : (existing?.noRepostsKnown === true || item.noRepostsKnown === true)),
+                    followerCount: itemIsFreshFinding
                         ? (parseInt(item.followerCount || '0', 10) || 0)
-                        : (parseInt(existing?.followerCount || '0', 10) || 0),
-                    followerCountKnown: existing?.followerCountKnown === true || item.followerCountKnown === true,
+                        : (item.followerCountKnown === true
+                            ? (parseInt(item.followerCount || '0', 10) || 0)
+                            : (parseInt(existing?.followerCount || '0', 10) || 0)),
+                    followerCountKnown: itemIsFreshFinding
+                        ? item.followerCountKnown === true
+                        : (existing?.followerCountKnown === true || item.followerCountKnown === true),
+                    bioSignalReason: String(item.bioSignalReason || existing?.bioSignalReason || ''),
+                    contentProbeSkippedReason: String(item.contentProbeSkippedReason || existing?.contentProbeSkippedReason || ''),
+                    privateDetectedAt: String(item.privateDetectedAt || existing?.privateDetectedAt || ''),
+                    privateSignalReason: String(item.privateSignalReason || existing?.privateSignalReason || ''),
+                    privateSignalMatchedText: String(item.privateSignalMatchedText || existing?.privateSignalMatchedText || ''),
+                    followerCountSkippedReason: String(item.followerCountSkippedReason || existing?.followerCountSkippedReason || ''),
                     joinedAt: parseInt(item.joinedAt || existing?.joinedAt || '0', 10) || 0,
                     accountAgeDays: parseInt(item.accountAgeDays || existing?.accountAgeDays || '0', 10) || 0,
                     accountAgeBucket: String(item.accountAgeBucket || existing?.accountAgeBucket || ''),
-                    isNewAccount: existing?.isNewAccount === true || item.isNewAccount === true,
+                    isNewAccount: mergeBooleanSignal('isNewAccount'),
                     locationLabel: String(item.locationLabel || existing?.locationLabel || ''),
                     countryTag: String(item.countryTag || existing?.countryTag || ''),
-                    regionShared: existing?.regionShared === true || item.regionShared === true,
+                    regionShared: mergeBooleanSignal('regionShared'),
                     metadataSource: String(item.metadataSource || existing?.metadataSource || ''),
+                    metadataSourcePage: String(item.metadataSourcePage || existing?.metadataSourcePage || ''),
                     metadataDebug: item.metadataDebug && typeof item.metadataDebug === 'object'
                         ? item.metadataDebug
                         : (existing?.metadataDebug && typeof existing.metadataDebug === 'object' ? existing.metadataDebug : {}),
                 });
             });
-            const mergedFindings = Array.from(findingsByUser.values());
+            const mergedFindings = Array.from(findingsByUser.values())
+                .filter(item => !Storage.isThreeNoUserSafe(item.username));
             const previousUsernames = new Set(previousFindings.map(item => Core.ThreeNoWatch.normalizeUsername(item?.username || '')).filter(Boolean));
             const newUnignoredFindings = findings
                 .map(item => Core.ThreeNoWatch.normalizeUsername(item?.username || ''))
                 .filter(Boolean)
                 .filter(username => !previousUsernames.has(username))
-                .filter(username => !Storage.isThreeNoUserIgnored(username));
+                .filter(username => !Storage.isThreeNoUserIgnored(username))
+                .filter(username => !Storage.isThreeNoUserSafe(username));
             const hasMore = stopped ? true : (completed ? runtime.hasMore === true : runtime.hasMore === true);
             const batchSize = parseInt(runtime.batchSize || CONFIG.THREE_NO_SCAN_BATCH_SIZE || '200', 10) || 200;
             if (shouldPersistFindings && owner) {
@@ -2054,14 +3324,7 @@ Object.assign(Core, {
                 });
             }
             const scanId = runtime.scanId || patch.scanId || `three-no:${scanDate}:${completedAt}`;
-            const autoBlockRequested = completed && status === 'completed' && Storage.isThreeNoAutoBlockEnabled && Storage.isThreeNoAutoBlockEnabled();
-            const autoBlockResult = autoBlockRequested
-                ? Core.ThreeNoWatch.enqueueAutoBlock({
-                    scanId,
-                    scanTargetOwner: owner,
-                    users: findings,
-                })
-                : { ok: false, added: 0, skipped: 0 };
+            const debugLog = Core.ThreeNoWatch.getScanDebugLog(scanId);
             const payload = Storage.setThreeNoScanResults({
                 scanId,
                 scanTargetOwner: owner,
@@ -2078,16 +3341,15 @@ Object.assign(Core, {
                 limited: hasMore,
                 hasMore,
                 batchSize,
-                autoBlockStarted: autoBlockRequested && autoBlockResult.ok === true,
-                autoBlockQueuedCount: autoBlockRequested ? autoBlockResult.added : 0,
                 error: patch.error || '',
                 debug: patch.debug || {},
+                debugLog,
                 users: shouldPersistFindings ? mergedFindings : findings,
             });
             Storage.set(CONFIG.KEYS.THREE_NO_LAST_SCAN_DATE, scanDate);
             Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_LOCK);
             Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_COMMAND);
-            Storage.setThreeNoUnreadCount(payload.autoBlockStarted ? 0 : Math.max(Storage.getThreeNoUnreadCount(), newUnignoredFindings.length || payload.threeNoFollowersCount));
+            Storage.setThreeNoUnreadCount(Math.max(Storage.getThreeNoUnreadCount(), newUnignoredFindings.length || payload.threeNoFollowersCount));
             sessionStorage.removeItem(Core.ThreeNoWatch.stateKey);
             localStorage.removeItem(Core.ThreeNoWatch.runtimeBackupKey);
             Core.ThreeNoWatch.setScanState({
@@ -2095,8 +3357,8 @@ Object.assign(Core, {
                 users: undefined,
                 debug: {
                     ...(patch.debug || {}),
-                    autoBlockStarted: payload.autoBlockStarted,
-                    autoBlockQueuedCount: payload.autoBlockQueuedCount,
+                    debugLogCount: debugLog.length,
+                    autoBlockRemoved: true,
                 },
             });
             if (completed) {
@@ -2105,15 +3367,6 @@ Object.assign(Core, {
                 } catch (err) {
                     if (CONFIG.DEBUG_MODE) console.warn('[留友封][ThreeNo] stats upload skipped/failed', err);
                 }
-            }
-            if (payload.autoBlockStarted && payload.autoBlockQueuedCount > 0) {
-                setTimeout(() => {
-                    const url = new URL(`${window.location.origin}/`);
-                    url.searchParams.set('hege_bg', 'true');
-                    url.searchParams.set('hege_popup', 'true');
-                    location.assign(url.toString());
-                }, 900);
-                return;
             }
             if (Utils.isBetaBuild() || stopped) {
                 return;

@@ -4,6 +4,7 @@ import { Utils } from './utils.js';
 import { UI } from './ui.js';
 import { Core } from './core.js';
 import { Worker } from './worker.js';
+import { BUNDLED_ANNOUNCEMENT_FEED } from './announcements.js';
 
 // Side-effect imports: feature files attach methods to Core via Object.assign
 // (Build strips imports and concatenates; this matters for direct ESM dev mode)
@@ -319,6 +320,88 @@ import './features/three-no-watch.js';
         });
     }
 
+    function normalizeAnnouncementFeed(raw) {
+        const feed = raw && typeof raw === 'object' ? raw : {};
+        const list = Array.isArray(feed.announcements)
+            ? feed.announcements
+            : (Array.isArray(raw) ? raw : []);
+        const now = Date.now();
+        return list
+            .filter(item => item && typeof item === 'object')
+            .filter(item => item.active !== false)
+            .filter(item => {
+                const startsAt = item.startsAt ? Date.parse(item.startsAt) : 0;
+                const endsAt = item.endsAt ? Date.parse(item.endsAt) : 0;
+                return (!startsAt || startsAt <= now) && (!endsAt || endsAt > now);
+            })
+            .sort((a, b) => {
+                const ap = Date.parse(a.publishedAt || a.startsAt || '') || 0;
+                const bp = Date.parse(b.publishedAt || b.startsAt || '') || 0;
+                return bp - ap;
+            })[0] || null;
+    }
+
+    function getBundledAnnouncement() {
+        return normalizeAnnouncementFeed(BUNDLED_ANNOUNCEMENT_FEED);
+    }
+
+    async function fetchLatestAnnouncement() {
+        const cached = Storage.getJSON(CONFIG.KEYS.ANNOUNCEMENT_CACHE, null);
+        const lastCheckAt = parseInt(Storage.get(CONFIG.KEYS.ANNOUNCEMENT_LAST_CHECK_AT, '0') || '0', 10) || 0;
+        const interval = parseInt(CONFIG.ANNOUNCEMENT_FEED_CHECK_INTERVAL_MS || '21600000', 10) || 21600000;
+        if (cached && typeof cached === 'object' && Date.now() - lastCheckAt < interval) {
+            return cached;
+        }
+
+        try {
+            Storage.set(CONFIG.KEYS.ANNOUNCEMENT_LAST_CHECK_AT, String(Date.now()));
+            const response = await fetch(CONFIG.ANNOUNCEMENT_FEED_URL, {
+                method: 'GET',
+                cache: 'no-store',
+                credentials: 'omit',
+                redirect: 'follow',
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+            if (!contentType.includes('json')) {
+                const bundled = getBundledAnnouncement();
+                if (bundled?.id) {
+                    Storage.setJSON(CONFIG.KEYS.ANNOUNCEMENT_CACHE, bundled);
+                    return bundled;
+                }
+                return cached && typeof cached === 'object' ? cached : null;
+            }
+            const raw = await response.json();
+            const announcement = normalizeAnnouncementFeed(raw);
+            if (announcement?.id) {
+                Storage.setJSON(CONFIG.KEYS.ANNOUNCEMENT_CACHE, announcement);
+                return announcement;
+            }
+        } catch (err) {
+            console.warn('[留友封] Announcement feed check failed:', err);
+        }
+        if (cached && typeof cached === 'object') return cached;
+        return getBundledAnnouncement();
+    }
+
+    function scheduleAnnouncementFeedCheck(delay = 2200) {
+        setTimeout(async () => {
+            if (document.querySelector('.hege-manager-overlay')) {
+                setTimeout(() => scheduleAnnouncementFeedCheck(900), 900);
+                return;
+            }
+            const announcement = await fetchLatestAnnouncement();
+            const id = String(announcement?.id || '').trim();
+            if (!id) return;
+            if (Storage.get(CONFIG.KEYS.ANNOUNCEMENT_SEEN_ID, '') === id) return;
+            if (document.querySelector('.hege-manager-overlay')) {
+                setTimeout(() => scheduleAnnouncementFeedCheck(900), 900);
+                return;
+            }
+            UI.showAnnouncementModal(announcement);
+        }, delay);
+    }
+
     function installDevReloadBridge() {
         if (!canRequestDevExtensionReload() || window.__hegeDevReloadBridgeInstalled) return;
         window.__hegeDevReloadBridgeInstalled = true;
@@ -465,12 +548,13 @@ import './features/three-no-watch.js';
                 const targets = [...new Set((Array.isArray(usernames) ? usernames : [])
                     .map(u => String(u || '').trim().replace(/^@/, ''))
                     .filter(Boolean))];
+                const shouldLaunch = options.launch !== false;
                 if (targets.length === 0) {
                     UI.showToast('沒有可封鎖的帳號');
                     return { ok: false, added: 0, skipped: 0 };
                 }
 
-                const enqueueAndLaunch = () => {
+                const enqueueTargets = () => {
                     Storage.invalidate(CONFIG.KEYS.BG_QUEUE);
                     const db = new Set(Storage.getBlockDB());
                     const cdq = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
@@ -491,15 +575,24 @@ import './features/three-no-watch.js';
                         Core.clearPendingUsers(toAdd);
                     }
                     Core.updateControllerUI();
-                    UI.showToast(toAdd.length > 0
-                        ? `已將 ${toAdd.length} 位三無追蹤者加入封鎖佇列，啟動 worker`
-                        : '三無名單已在封鎖佇列中，啟動 worker');
-                    launchBlockWorker();
-                    return { ok: true, added: toAdd.length, skipped: targets.length - toAdd.length };
+                    if (shouldLaunch) {
+                        UI.showToast(toAdd.length > 0
+                            ? `已將 ${toAdd.length} 位三無追蹤者加入封鎖佇列，啟動 worker`
+                            : '三無名單已在封鎖佇列中，啟動 worker');
+                        launchBlockWorker();
+                    } else {
+                        UI.showToast(toAdd.length > 0
+                            ? `已將 ${toAdd.length} 位三無追蹤者加入封鎖清單，請再按「開始封鎖」執行`
+                            : '勾選帳號已在封鎖清單、封鎖紀錄或冷卻佇列中');
+                    }
+                    return { ok: true, added: toAdd.length, skipped: targets.length - toAdd.length, messageShown: true };
                 };
 
                 const cooldownUntil = parseInt(Storage.get(CONFIG.KEYS.COOLDOWN) || '0', 10) || 0;
                 if (cooldownUntil > Date.now()) {
+                    if (!shouldLaunch) {
+                        return enqueueTargets();
+                    }
                     const remainHrs = Math.ceil((cooldownUntil - Date.now()) / (1000 * 60 * 60));
                     const dailyLimit = Storage.getDailyBlockLimit();
                     const blocks24h = Storage.getBlocksLast24h();
@@ -516,7 +609,7 @@ import './features/three-no-watch.js';
                             Storage.invalidate(CONFIG.KEYS.COOLDOWN);
                             Storage.invalidate(CONFIG.KEYS.COOLDOWN_QUEUE);
                             Storage.invalidate(CONFIG.KEYS.BG_QUEUE);
-                            enqueueAndLaunch();
+                            enqueueTargets();
                         },
                         null,
                         { confirm: '仍要封鎖', cancel: '取消' }
@@ -524,7 +617,7 @@ import './features/three-no-watch.js';
                     return { ok: false, added: 0, skipped: 0, pendingConfirm: true };
                 }
 
-                return enqueueAndLaunch();
+                return enqueueTargets();
             };
 
             const startThreeNoScan = async (options = {}) => {
@@ -557,7 +650,10 @@ import './features/three-no-watch.js';
 
             const showThreeNoReport = (options = {}) => {
                 const results = Storage.getThreeNoScanResults();
-                const visibleCount = (results.users || []).filter(item => !Storage.isThreeNoUserIgnored(item.username)).length;
+                const visibleCount = (results.users || [])
+                    .filter(item => !Storage.isThreeNoUserIgnored(item.username))
+                    .filter(item => !Storage.isThreeNoUserSafe(item.username))
+                    .length;
                 const unreadCount = Storage.getThreeNoUnreadCount();
                 if (visibleCount <= 0 && unreadCount <= 0) return false;
                 if (options.auto && document.querySelector('.hege-manager-overlay:not(#hege-panel)')) return false;
@@ -565,24 +661,16 @@ import './features/three-no-watch.js';
                 Storage.clearThreeNoUnread();
                 UI.showThreeNoFollowersModal({
                     onStartNextBatch: () => startThreeNoScan({ targetOwner: results.scanTargetOwner || '' }),
-                    onAddToCleanList: (users) => {
-                        const added = Core.restorePendingUsers(users);
-                        if (added > 0) UI.showToast(`已加入清理名單：${users.map(u => '@' + u).join(', ')}`);
-                        else UI.showToast('已在清理名單、背景佇列或封鎖紀錄中');
-                        Core.updateControllerUI();
-                    },
-                    onBlockNow: (users, scan) => {
+                    onEnqueueBlockList: (users, scan) => {
                         const targets = [...new Set((Array.isArray(users) ? users : []).map(u => String(u || '').trim()).filter(Boolean))];
                         if (targets.length === 0) {
-                            UI.showToast('沒有可直接封鎖的三無帳號');
-                            return;
+                            UI.showToast('沒有可加入封鎖清單的三無帳號');
+                            return { ok: false, added: 0, skipped: 0, messageShown: true };
                         }
-                        UI.showConfirm(
-                            `確定要直接封鎖 ${targets.length} 位三無追蹤者嗎？\n\n這會把名單加入背景封鎖佇列並啟動 worker。`,
-                            () => startBlockUserList(targets, { scanId: scan?.scanId || results.scanId || '' }),
-                            null,
-                            { confirm: '直接封鎖', cancel: '先不要' }
-                        );
+                        return startBlockUserList(targets, {
+                            scanId: scan?.scanId || results.scanId || '',
+                            launch: false,
+                        });
                     }
                 });
                 Core.updateControllerUI();
@@ -599,7 +687,6 @@ import './features/three-no-watch.js';
             const maybeAutoShowThreeNoReport = () => {
                 const results = Storage.getThreeNoScanResults();
                 if (!results.completedAt || results.status !== 'completed') return;
-                if (results.autoBlockStarted) return;
                 const key = getThreeNoReportKey(results);
                 if (!key || sessionStorage.getItem('hege_three_no_auto_report_seen') === key) return;
                 const anchor = sessionStorage.getItem('hege_three_no_auto_report_anchor') || '';
@@ -802,6 +889,7 @@ import './features/three-no-watch.js';
                             onImport: () => Core.importList(),
                             onExport: () => Core.exportHistory(),
                             onExportReportDebug: Utils.isBetaBuild() ? (() => Core.exportLastReportDebug()) : null,
+                            onExportThreeNoDebug: Utils.isBetaBuild() ? (() => Core.exportThreeNoDebug()) : null,
                             onClearDB: confirmClearDB,
                             onCockroach: () => Core.openCockroachManager(() => openSettings()),
                             onReservoir: () => UI.showPostReservoir({
@@ -823,10 +911,20 @@ import './features/three-no-watch.js';
                     openSettings();
                 },
                 onRetryFailed: () => Core.retryFailedQueue(),
-                onStop: () => { UI.showConfirm('確定要停止背景執行？', () => {
+                onStop: () => { UI.showConfirm('確定要停止目前背景執行或三無掃描？', () => {
+                    const scanState = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
+                    if (Core.ThreeNoWatch?.isRunningStatus?.(scanState.status)) {
+                        if (Core.ThreeNoWatch?.isFreshRunningState?.(scanState)) {
+                            Core.ThreeNoWatch.requestStop();
+                            UI.showToast('已送出三無掃描停止指令');
+                        } else if (Core.ThreeNoWatch?.clearStaleScanIfNeeded?.('stale_scan_cleared_from_stop_button')) {
+                            UI.showToast('已清除已關閉的三無掃描 worker 狀態');
+                        }
+                    }
                     Storage.set(CONFIG.KEYS.BG_CMD, 'stop');
                     Storage.set('hege_sweep_stopped', 'true');
                     Storage.remove('hege_sweep_worker_standby');
+                    Core.updateControllerUI();
                 }); }
             };
 
@@ -844,6 +942,7 @@ import './features/three-no-watch.js';
                 };
                 setTimeout(() => tryShowReleaseNotes(), 1200);
             }
+            scheduleAnnouncementFeedCheck(shouldShowReleaseNotes ? 2600 : 1400);
 
             const syncCompletedReportSelection = () => {
                 const completedUsers = Storage.getJSON(CONFIG.KEYS.REPORT_COMPLETED_USERS, []);
