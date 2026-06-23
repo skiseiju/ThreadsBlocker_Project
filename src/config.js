@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.7.1',
+    VERSION: '2.7.2-beta19',
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     DONATE_URL: 'https://api.payuni.com.tw/api/uop/receive_info/2/3/U012070036/885oqmRcNVU7OTwotE1HS',
@@ -37,7 +37,10 @@ export const CONFIG = {
     THREE_NO_SCAN_BATCH_SIZE: 200,
     THREE_NO_SCAN_CANDIDATE_REPORT_THRESHOLD: 100,
     THREE_NO_SCAN_PREFILTER_AVATAR: true,
-    THREE_NO_SCAN_PROFILE_DELAY_MS: 1800,
+    THREE_NO_SCAN_PROFILE_DELAY_MS: 1400,
+    THREE_NO_ABOUT_PASSIVE_WAIT_MS: 700,
+    THREE_NO_ABOUT_ACTIVE_TIMEOUT_MS: 2200,
+    THREE_NO_ABOUT_TEMPLATE_MAX_AGE_MS: 12 * 3600 * 1000,
 
     // 貼文水庫 SPA polling 時序（毫秒；單位 ms = millisec）
     SWEEP_POLL_INTERVAL_MS: 500,        // 每次 polling 等待間隔
@@ -71,6 +74,7 @@ export const CONFIG = {
         THREE_NO_SCAN_STATE: 'hege_three_no_scan_state',
         THREE_NO_SCAN_RESULTS: 'hege_three_no_scan_results',
         THREE_NO_SCAN_DEBUG_LOG: 'hege_three_no_scan_debug_log',
+        THREE_NO_SCAN_DEBUG_SCHEMA: 'hege_three_no_scan_debug_schema',
         THREE_NO_SCAN_CURSOR: 'hege_three_no_scan_cursor',
         THREE_NO_SCAN_COMMAND: 'hege_three_no_scan_command',
         THREE_NO_SCAN_LOCK: 'hege_three_no_scan_lock',
@@ -81,6 +85,8 @@ export const CONFIG = {
         THREE_NO_CANDIDATE_THRESHOLD: 'hege_three_no_candidate_threshold',
         THREE_NO_ACCELERATED_PROFILE_ENABLED: 'hege_three_no_accelerated_profile_enabled',
         THREE_NO_PROFILE_METADATA_CACHE: 'hege_three_no_profile_metadata_cache_v1',
+        THREE_NO_PROFILE_USER_ID_CACHE: 'hege_three_no_profile_user_id_cache_v1',
+        THREE_NO_ABOUT_REQUEST_TEMPLATE: 'hege_three_no_about_request_template_v1',
         ANNOUNCEMENT_SEEN_ID: 'hege_announcement_seen_id',
         ANNOUNCEMENT_LAST_CHECK_AT: 'hege_announcement_last_check_at',
         ANNOUNCEMENT_CACHE: 'hege_announcement_cache',
@@ -202,6 +208,7 @@ export const CONFIG = {
         'hege_three_no_scan_state', // THREE_NO_SCAN_STATE
         'hege_three_no_scan_results', // THREE_NO_SCAN_RESULTS
         'hege_three_no_scan_debug_log', // THREE_NO_SCAN_DEBUG_LOG
+        'hege_three_no_scan_debug_schema', // THREE_NO_SCAN_DEBUG_SCHEMA
         'hege_three_no_scan_cursor', // THREE_NO_SCAN_CURSOR
         'hege_three_no_scan_command', // THREE_NO_SCAN_COMMAND
         'hege_three_no_unread_count', // THREE_NO_UNREAD_COUNT

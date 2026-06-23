@@ -20,6 +20,7 @@ import './features/three-no-watch.js';
     Utils.initConsoleInterceptor();
     Storage.migratePlatformSyncConsent();
     console.log('[留友封] Extension Script Initializing...');
+    Core.ThreeNoWatch?.installNetworkDiscoveryListener?.();
     const versionAtBoot = Storage.get(CONFIG.KEYS.VERSION_CHECK, '');
     const hadExistingInstallAtBoot = !!versionAtBoot;
     const shouldShowReleaseNotes = hadExistingInstallAtBoot
@@ -171,12 +172,14 @@ import './features/three-no-watch.js';
                     CONFIG.KEYS.THREE_NO_LAST_SCAN_DATE,
                     CONFIG.KEYS.THREE_NO_SCAN_STATE,
                     CONFIG.KEYS.THREE_NO_SCAN_RESULTS,
-                    CONFIG.KEYS.THREE_NO_SCAN_CURSOR,
-                    CONFIG.KEYS.THREE_NO_SCAN_LOCK,
-                    CONFIG.KEYS.THREE_NO_SCAN_COMMAND,
-                    CONFIG.KEYS.THREE_NO_UNREAD_COUNT,
-                    CONFIG.KEYS.THREE_NO_LAST_STATS_UPLOAD_SCAN_ID,
-                ];
+	                    CONFIG.KEYS.THREE_NO_SCAN_CURSOR,
+	                    CONFIG.KEYS.THREE_NO_SCAN_LOCK,
+	                    CONFIG.KEYS.THREE_NO_SCAN_COMMAND,
+	                    CONFIG.KEYS.THREE_NO_UNREAD_COUNT,
+	                    CONFIG.KEYS.THREE_NO_LAST_STATS_UPLOAD_SCAN_ID,
+	                    CONFIG.KEYS.THREE_NO_PROFILE_USER_ID_CACHE,
+	                    CONFIG.KEYS.THREE_NO_ABOUT_REQUEST_TEMPLATE,
+	                ];
             betaResetKeys.forEach(key => Storage.remove(key));
             console.log(shouldKeepCompletedThreeNoReport
                 ? '[留友封] Three-no beta reset preserved completed report'
@@ -270,6 +273,79 @@ import './features/three-no-watch.js';
         localStorage.removeItem('hege_block_timestamps');
         localStorage.removeItem('hege_worker_stats');
         alert('緊急清除完成，請重新整理頁面。');
+    }
+
+    const forceThreeNoReset = new URLSearchParams(window.location.search).get('hege_three_no_reset');
+    if (forceThreeNoReset === 'true' && Utils.isBetaBuild()) {
+        const localKeys = [
+            CONFIG.KEYS.THREE_NO_LAST_SCAN_DATE,
+            CONFIG.KEYS.THREE_NO_SCAN_STATE,
+            CONFIG.KEYS.THREE_NO_SCAN_RESULTS,
+            CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG,
+            CONFIG.KEYS.THREE_NO_SCAN_DEBUG_SCHEMA,
+            CONFIG.KEYS.THREE_NO_SCAN_CURSOR,
+            CONFIG.KEYS.THREE_NO_SCAN_COMMAND,
+            CONFIG.KEYS.THREE_NO_SCAN_LOCK,
+            CONFIG.KEYS.THREE_NO_UNREAD_COUNT,
+            CONFIG.KEYS.THREE_NO_IGNORED_USERS,
+            CONFIG.KEYS.THREE_NO_SAFE_USERS,
+            CONFIG.KEYS.THREE_NO_LAST_STATS_UPLOAD_SCAN_ID,
+	            CONFIG.KEYS.THREE_NO_CANDIDATE_THRESHOLD,
+	            CONFIG.KEYS.THREE_NO_ACCELERATED_PROFILE_ENABLED,
+	            CONFIG.KEYS.THREE_NO_PROFILE_METADATA_CACHE,
+	            CONFIG.KEYS.THREE_NO_PROFILE_USER_ID_CACHE,
+	            CONFIG.KEYS.THREE_NO_ABOUT_REQUEST_TEMPLATE,
+	            'hege_three_no_scan_runtime_backup',
+	        ].filter(Boolean);
+        const sessionKeys = [
+            'hege_three_no_scan_runtime',
+            'hege_three_no_auto_report_anchor',
+            'hege_three_no_auto_report_seen',
+        ];
+        const backupLocalKeys = localKeys.filter(key => ![
+	            CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG,
+	            CONFIG.KEYS.THREE_NO_SCAN_DEBUG_SCHEMA,
+	            CONFIG.KEYS.THREE_NO_PROFILE_METADATA_CACHE,
+	            CONFIG.KEYS.THREE_NO_PROFILE_USER_ID_CACHE,
+	            CONFIG.KEYS.THREE_NO_ABOUT_REQUEST_TEMPLATE,
+	        ].includes(key));
+        const backupKey = `hege_three_no_reset_backup_${Date.now()}`;
+        const backup = {
+            schema: 'hege_three_no_reset_backup.v1',
+            createdAt: Date.now(),
+            version: CONFIG.VERSION,
+            url: window.location.href,
+            localStorage: Object.fromEntries(backupLocalKeys.map(key => [key, localStorage.getItem(key)])),
+            sessionStorage: Object.fromEntries(sessionKeys.map(key => [key, sessionStorage.getItem(key)])),
+            omittedLocalKeys: [
+	                CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG,
+	                CONFIG.KEYS.THREE_NO_SCAN_DEBUG_SCHEMA,
+	                CONFIG.KEYS.THREE_NO_PROFILE_METADATA_CACHE,
+	                CONFIG.KEYS.THREE_NO_PROFILE_USER_ID_CACHE,
+	                CONFIG.KEYS.THREE_NO_ABOUT_REQUEST_TEMPLATE,
+	            ].filter(Boolean),
+        };
+        try {
+            localStorage.setItem(backupKey, JSON.stringify(backup));
+        } catch (e) {
+            const minimalBackup = {
+                schema: 'hege_three_no_reset_backup.minimal.v1',
+                createdAt: backup.createdAt,
+                version: CONFIG.VERSION,
+                url: window.location.href,
+                error: String(e?.message || e || 'backup_failed').slice(0, 300),
+                scanResults: localStorage.getItem(CONFIG.KEYS.THREE_NO_SCAN_RESULTS),
+                scanCursor: localStorage.getItem(CONFIG.KEYS.THREE_NO_SCAN_CURSOR),
+                safeUsers: localStorage.getItem(CONFIG.KEYS.THREE_NO_SAFE_USERS),
+                ignoredUsers: localStorage.getItem(CONFIG.KEYS.THREE_NO_IGNORED_USERS),
+            };
+            localStorage.setItem(backupKey, JSON.stringify(minimalBackup));
+        }
+        localKeys.forEach(key => localStorage.removeItem(key));
+        sessionKeys.forEach(key => sessionStorage.removeItem(key));
+        if (String(window.name || '').startsWith('HegeThreeNoReportAnchor:')) window.name = '';
+        console.log(`[留友封] Three-no reset complete. Backup key: ${backupKey}`);
+        alert(`三無掃描資料已重置。\n備份 key：${backupKey}`);
     }
 
     function canRequestDevExtensionReload() {

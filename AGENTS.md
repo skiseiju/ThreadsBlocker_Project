@@ -2,7 +2,7 @@
 
 ## 🚨 封鎖機制修改規範
 
-在修改以下任何檔案之前，**必須先閱讀** [`BLOCKING_ARCHITECTURE.md`](./BLOCKING_ARCHITECTURE.md)：
+在修改以下任何檔案之前，**必須先閱讀** [`docs/BLOCKING_ARCHITECTURE.md`](./docs/BLOCKING_ARCHITECTURE.md)：
 
 - `src/core.js`
 - `src/worker.js`
@@ -20,7 +20,7 @@
 ## 📦 版本與建置規範
 
 - 每一次程式碼修改後，都必須在 `src/config.js` 中 **遞增 beta 版號**（例如 `2.0.7-beta22` → `2.0.7-beta23`）。
-- **iOS/iPad 相容性規範**：必須包含廣泛的 `@match` 與 `@include` 規則（包含 `http` 與 `*://`），否則 iOS Userscripts 應用程式會顯示「無匹配腳本」。規範詳見 `build.sh` 與 `BLOCKING_ARCHITECTURE.md`。
+- **iOS/iPad 相容性規範**：必須包含廣泛的 `@match` 與 `@include` 規則（包含 `http` 與 `*://`），否則 iOS Userscripts 應用程式會顯示「無匹配腳本」。規範詳見 `build.sh` 與 `docs/BLOCKING_ARCHITECTURE.md`。
 - 使用 `./build.sh --no-bump` 進行建置（避免 build script 自行跳號）。
 - **每次出新版都必須檢查穩定使用者偏好不會被版號誤重置**：資料上傳同意、每日自動/手動上傳偏好、以及其他非功能實驗偏好，不得只因 `CONFIG.VERSION` 或 manifest 版本變更而重新詢問或重置。若需要重新取得同意，必須使用獨立的政策/資料範圍版本（例如 `PLATFORM_SYNC_CONSENT_POLICY_VERSION`）並確認是資料範圍或同意文案實質變更。
 - **每次出新版都必須做 artifact parity 檢查**：確認 `src/config.js`、`dist/extension/content.js`、`dist/extension/manifest.json`、`dist/extension.zip`、`dist/threads_blocker_chrome.zip`、版本化 Chrome zip、Userscript header 版本一致，避免使用 stale zip 或錯分支包。

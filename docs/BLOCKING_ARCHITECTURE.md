@@ -248,6 +248,9 @@ Desktop: click(handleGlobalClick, capture: true) + ontouchend(stopPropagation)
 | `hege_three_no_ignored_users` | localStorage (JSON) | 使用者忽略的三無帳號與過期時間 |
 | `hege_three_no_last_stats_upload_scan_id` | localStorage | 最近一次已上傳 aggregate 統計的三無掃描 ID |
 | `hege_three_no_candidate_threshold` | localStorage | 三無掃描備選名單門檻，預設 100，可在設定調整 |
+| `hege_three_no_profile_metadata_cache_v1` | localStorage (JSON) | 本機三無掃描 about profile metadata cache；保存加入時間/地區等解析結果，不上傳平台 |
+| `hege_three_no_profile_user_id_cache_v1` | localStorage (JSON) | 本機三無掃描加速用 username → user id cache；只用於 about profile request context，不上傳平台 |
+| `hege_three_no_about_request_template_v1` | localStorage (JSON) | 本機三無掃描加速用 about request 模板；不保存 token/cookie，只保存已觀察到的 endpoint/參數形狀，不上傳平台 |
 
 ---
 

@@ -9,6 +9,7 @@ Object.assign(Core, {
     ThreeNoWatch: {
         stateKey: 'hege_three_no_scan_runtime',
         runtimeBackupKey: 'hege_three_no_scan_runtime_backup',
+        networkContentHints: {},
 
         isChromeExtension: () => Reporter.getClientPlatform() === 'chrome_extension',
 
@@ -19,6 +20,19 @@ Object.assign(Core, {
         runningStatuses: ['starting', 'running', 'collecting_followers', 'followers_collected', 'checking_profiles', 'stopping'],
 
         isRunningStatus: (status = '') => Core.ThreeNoWatch.runningStatuses.includes(String(status || '')),
+
+        getDebugSchemaVersion: () => 'network-discovery-v6',
+
+        resetOldDebugSchemaIfNeeded: () => {
+            if (!Utils.isBetaBuild()) return false;
+            const key = CONFIG.KEYS.THREE_NO_SCAN_DEBUG_SCHEMA || 'hege_three_no_scan_debug_schema';
+            const next = Core.ThreeNoWatch.getDebugSchemaVersion();
+            const previous = Storage.get(key, '');
+            if (previous === next) return false;
+            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, []);
+            Storage.set(key, next);
+            return true;
+        },
 
         requestStop: () => {
             Storage.set(CONFIG.KEYS.THREE_NO_SCAN_COMMAND, 'stop');
@@ -141,6 +155,130 @@ Object.assign(Core, {
             };
             rows.push(entry);
             Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, rows.slice(-600));
+        },
+
+        appendNetworkDiscoveryLog: (detail = {}) => {
+            if (!Utils.isBetaBuild()) return;
+            const state = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
+            Core.ThreeNoWatch.recordNetworkContentHint(detail, state);
+            const rows = Core.ThreeNoWatch.getScanDebugLog();
+            const now = Date.now();
+            const scanId = String(state.scanId || '').trim();
+            const scanRows = scanId ? rows.filter(row => row?.scanId === scanId) : rows;
+            const previousSeq = scanRows.reduce((max, row) => {
+                const seq = parseInt(row?.seq || '0', 10) || 0;
+                return seq > max ? seq : max;
+            }, 0);
+            const startedAt = parseInt(state.startedAt || '0', 10) || 0;
+            rows.push({
+                seq: previousSeq + 1,
+                ts: now,
+                iso: new Date(now).toISOString(),
+                scanElapsedMs: startedAt > 0 ? Math.max(0, now - startedAt) : 0,
+                scanId,
+                status: String(state.status || ''),
+                current: String(state.current || ''),
+                index: parseInt(state.checkedFollowersCount || '0', 10) || 0,
+                step: 'network_discovery',
+                url: String(window.location.href || '').slice(0, 500),
+                debug: Core.ThreeNoWatch.sanitizeDebugValue({
+                    source: 'passive_page_bridge',
+                    schema: Core.ThreeNoWatch.getDebugSchemaVersion(),
+                    workerMode: Storage.get(CONFIG.KEYS.WORKER_MODE, ''),
+                    blockQueueLength: Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []).length,
+                    reportQueueLength: Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []).length,
+                    ...detail,
+                }),
+            });
+            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, rows.slice(-600));
+        },
+
+        networkHrefKindToProbeKind: (hrefKind = '') => {
+            if (hrefKind === 'profile_replies') return 'replies';
+            if (hrefKind === 'profile_reposts') return 'reposts';
+            if (hrefKind === 'profile_base') return 'base';
+            return '';
+        },
+
+        recordNetworkContentHint: (detail = {}, state = {}) => {
+            if (detail?.url?.kind !== 'bulk_route') return false;
+            const routePosts = parseInt(detail?.request?.routeUrls?.posts || '0', 10) || 0;
+            if (routePosts <= 0) return false;
+            const probeKind = Core.ThreeNoWatch.networkHrefKindToProbeKind(detail.hrefKind || '');
+            if (!probeKind) return false;
+            const username = Core.ThreeNoWatch.normalizeUsername(state.current || Core.ThreeNoWatch.getCurrentProfileUsername?.() || '').toLowerCase();
+            if (!username) return false;
+            const key = `${username}:${probeKind}`;
+            Core.ThreeNoWatch.networkContentHints[key] = {
+                hasContent: true,
+                reason: `private_route_posts:${routePosts}`,
+                routePosts,
+                hrefKind: detail.hrefKind || '',
+                capturedAt: Date.now(),
+            };
+            const entries = Object.entries(Core.ThreeNoWatch.networkContentHints);
+            if (entries.length > 80) {
+                Core.ThreeNoWatch.networkContentHints = Object.fromEntries(entries.slice(-80));
+            }
+            return true;
+        },
+
+        getNetworkContentHint: (username = '', kind = 'base', maxAgeMs = 20000) => {
+            const normalized = Core.ThreeNoWatch.normalizeUsername(username).toLowerCase();
+            const probeKind = kind === 'replies' || kind === 'reposts' ? kind : 'base';
+            const hint = Core.ThreeNoWatch.networkContentHints[`${normalized}:${probeKind}`];
+            if (!hint || hint.hasContent !== true) return null;
+            if (Date.now() - (parseInt(hint.capturedAt || '0', 10) || 0) > maxAgeMs) return null;
+            return hint;
+        },
+
+        appendNetworkActionMarker: (kind = '', detail = {}) => {
+            if (!Utils.isBetaBuild()) return;
+            const state = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
+            const rows = Core.ThreeNoWatch.getScanDebugLog();
+            const now = Date.now();
+            const scanId = String(state.scanId || '').trim();
+            const scanRows = scanId ? rows.filter(row => row?.scanId === scanId) : rows;
+            const previousSeq = scanRows.reduce((max, row) => {
+                const seq = parseInt(row?.seq || '0', 10) || 0;
+                return seq > max ? seq : max;
+            }, 0);
+            const startedAt = parseInt(state.startedAt || '0', 10) || 0;
+            rows.push({
+                seq: previousSeq + 1,
+                ts: now,
+                iso: new Date(now).toISOString(),
+                scanElapsedMs: startedAt > 0 ? Math.max(0, now - startedAt) : 0,
+                scanId,
+                status: String(state.status || ''),
+                current: String(detail.user || state.current || ''),
+                index: parseInt(state.checkedFollowersCount || '0', 10) || 0,
+                step: 'network_action_marker',
+                url: String(window.location.href || '').slice(0, 500),
+                debug: Core.ThreeNoWatch.sanitizeDebugValue({
+                    source: 'content_action_marker',
+                    schema: Core.ThreeNoWatch.getDebugSchemaVersion(),
+                    kind,
+                    workerMode: Storage.get(CONFIG.KEYS.WORKER_MODE, ''),
+                    blockQueueLength: Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []).length,
+                    reportQueueLength: Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []).length,
+                    ...detail,
+                }),
+            });
+            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, rows.slice(-600));
+        },
+
+        installNetworkDiscoveryListener: () => {
+            if (window.__hegeThreeNoNetworkDiscoveryInstalled) return;
+            window.__hegeThreeNoNetworkDiscoveryInstalled = true;
+            Core.ThreeNoWatch.resetOldDebugSchemaIfNeeded();
+            window.addEventListener('hege:threads-network-discovery', (event) => {
+                const detail = event?.detail && typeof event.detail === 'object' ? event.detail : {};
+                Core.ThreeNoWatch.appendNetworkDiscoveryLog(detail);
+            });
+            window.dispatchEvent(new CustomEvent('hege:threads-network-discovery-toggle', {
+                detail: { enabled: Utils.isBetaBuild() === true },
+            }));
         },
 
         clearStaleScanIfNeeded: (reason = 'stale_scan_worker_missing') => {
@@ -827,8 +965,10 @@ Object.assign(Core, {
             });
 
             await Utils.safeSleep(CONFIG.THREE_NO_SCAN_PROFILE_DELAY_MS || 1800);
-            window.scrollTo(0, 0);
-            await Utils.safeSleep(500);
+            if ((window.scrollY || window.pageYOffset || 0) > 80) {
+                window.scrollTo(0, 0);
+                await Utils.safeSleep(150);
+            }
 
             const probeResult = await Core.ThreeNoWatch.evaluateCurrentProfileProbe(username, probeKind);
             const nextProbeResults = {
@@ -1616,12 +1756,17 @@ Object.assign(Core, {
                     elapsedMs: Date.now() - startedAt,
                 };
             }
-            window.scrollTo(0, probe === 'base' ? Math.min(420, document.body.scrollHeight || 0) : Math.min(760, document.body.scrollHeight || 0));
-            await Utils.safeSleep(probe === 'base' ? 650 : 1100);
-            if (probe === 'base') window.scrollTo(0, 0);
+            const firstVisibleSignal = Core.ThreeNoWatch.readProfileContentSignal(main, u, probe, { allowExplicitEmpty: true });
+            if (!firstVisibleSignal.known) await Utils.safeSleep(probe === 'base' ? 350 : 550);
 
             if (probe !== 'base') {
-                const signal = await Core.ThreeNoWatch.waitForProfileContentSignal(main, u, probe);
+                const signal = firstVisibleSignal.known
+                    ? {
+                        ...firstVisibleSignal,
+                        waitedMs: 0,
+                        emptyObservedMs: firstVisibleSignal.hasContent === false ? 0 : 0,
+                    }
+                    : await Core.ThreeNoWatch.waitForProfileContentSignal(main, u, probe);
                 return {
                     kind: probe,
                     username: u,
@@ -1639,7 +1784,9 @@ Object.assign(Core, {
             const followerCount = accountPrivate ? null : Core.ThreeNoWatch.parseProfileFollowerCount(main);
             const postsSignal = accountPrivate
                 ? { known: false, hasContent: false, reason: 'private_profile' }
-                : await Core.ThreeNoWatch.waitForProfileContentSignal(main, u, 'base');
+                : (firstVisibleSignal.known
+                    ? { ...firstVisibleSignal, waitedMs: 0, emptyObservedMs: 0 }
+                    : await Core.ThreeNoWatch.waitForProfileContentSignal(main, u, 'base'));
             const metadata = await Core.ThreeNoWatch.extractProfileMetadata(main, u);
             const hasAvatar = Core.ThreeNoWatch.profileHasAvatar(main);
             return {
@@ -1872,6 +2019,10 @@ Object.assign(Core, {
                     if (rejected.length < 8) rejected.push({ text: text.slice(0, 120), reason: 'too_long', top: Math.round(item.rect.top) });
                     continue;
                 }
+                if (!lineClampBioLike) {
+                    if (rejected.length < 8) rejected.push({ text, reason: 'not_bio_shape', top: Math.round(item.rect.top) });
+                    continue;
+                }
                 if (seenText.has(text)) continue;
                 seenText.add(text);
                 candidates.push(text);
@@ -2044,6 +2195,9 @@ Object.assign(Core, {
                     reason: 'path_mismatch',
                 };
             }
+            // bulk-route-definitions may include prefetched or adjacent post routes that are
+            // not owned by the profile currently being probed. Keep those events as debug
+            // evidence only; visible DOM or explicit empty text must decide content state.
             const emptySignal = Core.ThreeNoWatch.readProfileExplicitEmptySignal(root, probeKind);
             if (emptySignal.empty) {
                 if (!allowExplicitEmpty) {
@@ -2088,7 +2242,7 @@ Object.assign(Core, {
         },
 
         waitForProfileContentSignal: async (root, username, kind = 'base') => {
-            const timeout = kind === 'replies' ? 17000 : (kind === 'reposts' ? 13000 : 9000);
+            const timeout = kind === 'replies' ? 9000 : (kind === 'reposts' ? 8000 : 6000);
             const startedAt = Date.now();
             let emptyFirstSeenAt = 0;
             let emptyLastReason = '';
@@ -2125,7 +2279,7 @@ Object.assign(Core, {
                     emptyFirstSeenAt = 0;
                     emptyLastReason = '';
                 }
-                await Utils.safeSleep(300);
+                await Utils.safeSleep(220);
             }
             if (finalKnown) return finalKnown;
             const finalRoot = document.querySelector('main, div[role="main"]') || document.body || root;
@@ -2198,6 +2352,7 @@ Object.assign(Core, {
 
         installAboutProfilePassiveBridge: () => {
             if (window.__hegeAboutProfilePassiveBridgeInstalled) {
+                Core.ThreeNoWatch.seedAboutProfileBridgeCaches();
                 window.dispatchEvent(new CustomEvent('hege:threads-about-profile-bridge-ping'));
                 return;
             }
@@ -2222,6 +2377,18 @@ Object.assign(Core, {
                     capturedAt: Date.now(),
                 });
             });
+            window.addEventListener('hege:threads-profile-user-id', (event) => {
+                const detail = event?.detail && typeof event.detail === 'object' ? event.detail : {};
+                Core.ThreeNoWatch.writeProfileUserIdCache(detail.username || '', {
+                    userId: detail.userId || detail.id || '',
+                    source: detail.source || 'passive_payload',
+                    capturedAt: detail.capturedAt || Date.now(),
+                });
+            });
+            window.addEventListener('hege:threads-about-profile-template', (event) => {
+                const detail = event?.detail && typeof event.detail === 'object' ? event.detail : {};
+                Core.ThreeNoWatch.writeAboutRequestTemplateCache(detail);
+            });
             window.addEventListener('hege:threads-about-profile-bridge-status', (event) => {
                 const detail = event?.detail && typeof event.detail === 'object' ? event.detail : {};
                 window.__hegeAboutProfilePassiveBridgeStatus = {
@@ -2232,7 +2399,6 @@ Object.assign(Core, {
                     hasXhr: detail.hasXhr === true,
                     hasFbDtsg: detail.hasFbDtsg === true,
                     knownUserIds: parseInt(detail.knownUserIds || '0', 10) || 0,
-                    sessionKeys: String(detail.sessionKeys || '').slice(0, 200),
                     checkedAt: Date.now(),
                     error: String(detail.error || ''),
                 };
@@ -2241,7 +2407,7 @@ Object.assign(Core, {
             const bridgeSource = `(() => {
                 if (window.__hegeThreadsAboutPassiveBridge) return;
                 window.__hegeThreadsAboutPassiveBridge = true;
-                const DEFAULT_ABOUT_PROFILE_BKV = '22713cafbb647b89c4e9c1acdea97d89c8c2046e2f4b18729760e9b1ae0724f7';
+                const ABOUT_TEMPLATE_MAX_AGE_MS = 12 * 3600 * 1000;
                 const stripPrefix = text => String(text || '').startsWith('for (;;);') ? String(text || '').slice(9) : String(text || '');
                 const clean = value => String(value || '').replace(/\\\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16))).replace(/\\s+/g, ' ').trim();
                 const readBoundText = value => {
@@ -2296,13 +2462,15 @@ Object.assign(Core, {
                     return {
                         username: state.username,
                         displayName: state.displayName,
-                        joined: clean((joined || relevant[0] || {}).value || ''),
-                        location: clean((location || relevant[1] || {}).value || ''),
+                        joined: clean((joined || {}).value || ''),
+                        location: clean((location || {}).value || ''),
                         isVerified: !!verified,
                     };
                 };
                 const session = {};
                 const userIds = new Map();
+                const publishedUserIds = new Set();
+                let aboutRequestTemplate = null;
                 const rememberToken = (key, value) => {
                     const cleanValue = clean(value);
                     if (key && cleanValue && cleanValue !== 'null' && cleanValue !== 'undefined') session[key] = cleanValue;
@@ -2343,10 +2511,21 @@ Object.assign(Core, {
                         if (match) rememberToken(key, decodeURIComponent(match[1] || ''));
                     });
                 };
-                const rememberUser = (username, id) => {
+                const publishUserId = (uname, uid, source = 'passive_payload') => {
+                    const key = uname + ':' + uid;
+                    if (publishedUserIds.has(key)) return;
+                    publishedUserIds.add(key);
+                    window.dispatchEvent(new CustomEvent('hege:threads-profile-user-id', {
+                        detail: { username: uname, userId: uid, source, capturedAt: Date.now() },
+                    }));
+                };
+                const rememberUser = (username, id, source = 'passive_payload') => {
                     const uname = clean(username).replace(/^@+/, '').toLowerCase();
                     const uid = clean(id).replace(/\\D+/g, '');
-                    if (uname && uid.length >= 4) userIds.set(uname, uid);
+                    if (uname && uid.length >= 4) {
+                        userIds.set(uname, uid);
+                        publishUserId(uname, uid, source);
+                    }
                 };
                 const collectUsers = (node, depth = 0) => {
                     if (!node || depth > 12) return;
@@ -2385,7 +2564,7 @@ Object.assign(Core, {
                         if (!text) return;
                         rememberText(text);
                         const foundId = findUserIdNearUsername(username, text);
-                        if (foundId) rememberUser(username, foundId);
+                        if (foundId) rememberUser(username, foundId, 'document_state');
                         if ((text.trim().startsWith('{') || text.trim().startsWith('[') || text.startsWith('for (;;);')) && text.length < 600000) {
                             try { collectUsers(JSON.parse(stripPrefix(text))); } catch (_) {}
                         }
@@ -2404,30 +2583,83 @@ Object.assign(Core, {
                         const byJson = text.match(/"__bkv"\\s*:\\s*"([^"]+)"/);
                         if (byJson) return clean(byJson[1]);
                     }
-                    return DEFAULT_ABOUT_PROFILE_BKV;
+                    return '';
                 };
-                const resolveUserId = (username) => {
+                const resolveUserId = (username, seededTargetUserId = '') => {
                     const uname = clean(username).replace(/^@+/, '').toLowerCase();
+                    const seeded = clean(seededTargetUserId).replace(/\\D+/g, '');
+                    if (seeded) return seeded;
                     scanDocumentState(uname);
                     if (userIds.has(uname)) return userIds.get(uname);
                     const profileMatch = location.pathname.match(new RegExp('/(@[A-Za-z0-9_.]+)'));
                     if (profileMatch && clean(profileMatch[1]).replace(/^@+/, '').toLowerCase() === uname) {
                         const bodyId = findUserIdNearUsername(uname, document.documentElement?.innerHTML || '');
-                        if (bodyId) rememberUser(uname, bodyId);
+                        if (bodyId) rememberUser(uname, bodyId, 'document_state');
                     }
                     return userIds.get(uname) || '';
+                };
+                const templateIsFresh = template => !!template && template.capturedAt && Date.now() - template.capturedAt <= ABOUT_TEMPLATE_MAX_AGE_MS;
+                const sanitizeAboutTemplate = (transport, rawUrl = '', body = '', headers = {}) => {
+                    let parsedUrl;
+                    try { parsedUrl = new URL(String(rawUrl || ''), location.origin); } catch (_) { return null; }
+                    if (!parsedUrl.href.includes('about_this_profile_async_action')) return null;
+                    let params = null;
+                    try { params = new URLSearchParams(String(body || '')); } catch (_) { params = null; }
+                    let bloksParams = {};
+                    if (params?.get('params')) {
+                        try { bloksParams = JSON.parse(params.get('params') || '{}') || {}; } catch (_) { bloksParams = {}; }
+                    }
+                    const headerValue = name => {
+                        const lower = String(name || '').toLowerCase();
+                        if (!headers || typeof headers !== 'object') return '';
+                        if (typeof headers.get === 'function') return clean(headers.get(name) || headers.get(lower) || '');
+                        const entry = Object.entries(headers).find(([key]) => String(key || '').toLowerCase() === lower);
+                        return entry ? clean(entry[1]) : '';
+                    };
+                    const template = {
+                        capturedAt: Date.now(),
+                        source: 'passive_' + (transport || 'network'),
+                        path: parsedUrl.pathname,
+                        appid: clean(parsedUrl.searchParams.get('appid') || 'com.bloks.www.text_post_app.about_this_profile_async_action'),
+                        type: clean(parsedUrl.searchParams.get('type') || 'app'),
+                        bkv: clean(parsedUrl.searchParams.get('__bkv') || ''),
+                        friendlyName: headerValue('X-FB-Friendly-Name') || clean(params?.get('fb_api_req_friendly_name') || 'BarcelonaProfileAboutThisProfileAsyncActionQuery'),
+                        refererType: clean(bloksParams.referer_type || 'TextPostAppProfileOverflow'),
+                        paramKeys: Object.keys(bloksParams).slice(0, 20),
+                        formKeys: params ? Array.from(new Set(Array.from(params.keys()))).filter(key => !['fb_dtsg', 'lsd', 'jazoest'].includes(key)).slice(0, 40) : [],
+                    };
+                    aboutRequestTemplate = template;
+                    window.dispatchEvent(new CustomEvent('hege:threads-about-profile-template', { detail: template }));
+                    return template;
+                };
+                const seedAboutTemplate = (detail = {}) => {
+                    const capturedAt = parseInt(detail.capturedAt || '0', 10) || 0;
+                    if (!detail.path || !detail.appid || !capturedAt || Date.now() - capturedAt > ABOUT_TEMPLATE_MAX_AGE_MS) return;
+                    aboutRequestTemplate = {
+                        capturedAt,
+                        source: clean(detail.source || 'content_cache'),
+                        path: clean(detail.path || '/async/wbloks/fetch/'),
+                        appid: clean(detail.appid || 'com.bloks.www.text_post_app.about_this_profile_async_action'),
+                        type: clean(detail.type || 'app'),
+                        bkv: clean(detail.bkv || ''),
+                        friendlyName: clean(detail.friendlyName || 'BarcelonaProfileAboutThisProfileAsyncActionQuery'),
+                        refererType: clean(detail.refererType || 'TextPostAppProfileOverflow'),
+                    };
                 };
                 const emitActiveResponse = (requestId, detail) => {
                     window.dispatchEvent(new CustomEvent('hege:threads-about-profile-fetch-response', {
                         detail: { requestId, ...detail },
                     }));
                 };
-                const fetchActiveAbout = async (requestId, username) => {
+                const fetchActiveAbout = async (requestId, username, seededTargetUserId = '') => {
                     try {
-                        const targetUserId = resolveUserId(username);
-                        const bkv = findBkv();
+                        const template = templateIsFresh(aboutRequestTemplate) ? aboutRequestTemplate : null;
+                        const targetUserId = resolveUserId(username, seededTargetUserId);
+                        const bkv = findBkv() || template?.bkv || '';
+                        if (!template) return emitActiveResponse(requestId, { ok: false, error: 'missing_about_template' });
                         if (!targetUserId) return emitActiveResponse(requestId, { ok: false, error: 'missing_user_id' });
                         if (!session.fb_dtsg) return emitActiveResponse(requestId, { ok: false, error: 'missing_fb_dtsg' });
+                        if (!bkv) return emitActiveResponse(requestId, { ok: false, error: 'missing_bkv' });
                         const form = new URLSearchParams();
                         form.set('av', session.__user || '0');
                         form.set('__user', session.__user || '0');
@@ -2444,15 +2676,15 @@ Object.assign(Core, {
                         form.set('fb_dtsg', session.fb_dtsg);
                         form.set('params', JSON.stringify({
                             atpTriggerSessionID: crypto.randomUUID?.() || (Date.now() + '_' + Math.random().toString(36).slice(2)),
-                            referer_type: 'TextPostAppProfileOverflow',
+                            referer_type: template.refererType || 'TextPostAppProfileOverflow',
                             target_user_id: targetUserId,
                         }));
                         const headers = {
                             'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-                            'X-FB-Friendly-Name': 'BarcelonaProfileAboutThisProfileAsyncActionQuery',
+                            'X-FB-Friendly-Name': template.friendlyName || 'BarcelonaProfileAboutThisProfileAsyncActionQuery',
                         };
                         if (session.lsd) headers['X-FB-LSD'] = session.lsd;
-                        const url = '/async/wbloks/fetch/?appid=com.bloks.www.text_post_app.about_this_profile_async_action&type=app&__bkv=' + encodeURIComponent(bkv);
+                        const url = (template.path || '/async/wbloks/fetch/') + '?appid=' + encodeURIComponent(template.appid) + '&type=' + encodeURIComponent(template.type || 'app') + '&__bkv=' + encodeURIComponent(bkv);
                         const response = await fetch(url, {
                             method: 'POST',
                             credentials: 'include',
@@ -2481,20 +2713,16 @@ Object.assign(Core, {
                         window.dispatchEvent(new CustomEvent('hege:threads-about-profile', { detail: data }));
                     }
                 };
-                window.addEventListener('hege:threads-about-profile-fetch-request', (event) => {
-                    const detail = event?.detail || {};
-                    const requestId = clean(detail.requestId || '');
-                    const username = clean(detail.username || '');
-                    if (!requestId || !username) return;
-                    fetchActiveAbout(requestId, username);
-                });
                 const originalFetch = window.fetch;
                 if (typeof originalFetch === 'function') {
                     window.fetch = async function(...args) {
                         const url = String(args[0]?.url || args[0] || '');
-                        rememberText(String(args[1]?.body || ''));
+                        const body = String(args[0]?.body || args[1]?.body || '');
+                        const headers = args[0]?.headers || args[1]?.headers || {};
+                        rememberText(body);
                         const response = await originalFetch.apply(this, args);
                         if (url.includes('about_this_profile_async_action')) {
+                            sanitizeAboutTemplate('fetch', url, body, headers);
                             response.clone().text().then(publish).catch(() => {});
                         } else if (/graphql|bulk-route|api/i.test(url)) {
                             response.clone().text().then(body => {
@@ -2509,17 +2737,40 @@ Object.assign(Core, {
                 }
                 const originalOpen = XMLHttpRequest.prototype.open;
                 const originalSend = XMLHttpRequest.prototype.send;
+                const originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
                 XMLHttpRequest.prototype.open = function(method, url, ...rest) {
                     this.__hegeAboutUrl = String(url || '');
+                    this.__hegeRequestHeaders = {};
                     return originalOpen.call(this, method, url, ...rest);
                 };
+                XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
+                    this.__hegeRequestHeaders = this.__hegeRequestHeaders || {};
+                    this.__hegeRequestHeaders[String(name || '')] = String(value || '');
+                    return originalSetRequestHeader.call(this, name, value);
+                };
                 XMLHttpRequest.prototype.send = function(...args) {
-                    rememberText(String(args[0] || ''));
+                    const requestBody = String(args[0] || '');
+                    rememberText(requestBody);
                     if (this.__hegeAboutUrl && this.__hegeAboutUrl.includes('about_this_profile_async_action')) {
+                        sanitizeAboutTemplate('xhr', this.__hegeAboutUrl, requestBody, this.__hegeRequestHeaders || {});
                         this.addEventListener('load', function() { publish(this.responseText || ''); });
                     }
                     return originalSend.apply(this, args);
                 };
+                window.addEventListener('hege:threads-profile-user-id-seed', event => {
+                    const items = Array.isArray(event?.detail?.items) ? event.detail.items : [];
+                    items.forEach(item => rememberUser(item?.username || '', item?.userId || '', 'content_cache_seed'));
+                });
+                window.addEventListener('hege:threads-about-profile-template-seed', event => {
+                    seedAboutTemplate(event?.detail || {});
+                });
+                window.addEventListener('hege:threads-about-profile-fetch-request', event => {
+                    const detail = event?.detail || {};
+                    const requestId = clean(detail.requestId || '');
+                    const username = clean(detail.username || '');
+                    if (!requestId || !username) return;
+                    fetchActiveAbout(requestId, username, detail.targetUserId || '');
+                });
                 scanDocumentState();
             })();`;
             const script = document.createElement('script');
@@ -2535,6 +2786,7 @@ Object.assign(Core, {
             });
             (document.documentElement || document.head || document.body).appendChild(script);
             script.remove();
+            Core.ThreeNoWatch.seedAboutProfileBridgeCaches();
             window.dispatchEvent(new CustomEvent('hege:threads-about-profile-bridge-ping'));
         },
 
@@ -2551,7 +2803,8 @@ Object.assign(Core, {
                 hasXhr: status.hasXhr === true,
                 hasFbDtsg: status.hasFbDtsg === true,
                 knownUserIds: parseInt(status.knownUserIds || '0', 10) || 0,
-                sessionKeys: String(status.sessionKeys || ''),
+                hasAboutTemplate: status.hasAboutTemplate === true,
+                aboutTemplateAgeMs: parseInt(status.aboutTemplateAgeMs || '0', 10) || 0,
                 checkedAt: parseInt(status.checkedAt || '0', 10) || 0,
                 error: String(status.error || ''),
             };
@@ -2592,6 +2845,110 @@ Object.assign(Core, {
             Storage.setJSON(CONFIG.KEYS.THREE_NO_PROFILE_METADATA_CACHE, Object.fromEntries(entries));
         },
 
+        getProfileUserIdCache: () => {
+            const cache = Storage.getJSON(CONFIG.KEYS.THREE_NO_PROFILE_USER_ID_CACHE, {});
+            return cache && typeof cache === 'object' && !Array.isArray(cache) ? cache : {};
+        },
+
+        readProfileUserIdCache: (username = '') => {
+            const normalized = Core.ThreeNoWatch.normalizeUsername(username).toLowerCase();
+            if (!normalized) return null;
+            const item = Core.ThreeNoWatch.getProfileUserIdCache()[normalized];
+            if (!item || typeof item !== 'object') return null;
+            const capturedAt = parseInt(item.capturedAt || '0', 10) || 0;
+            const maxAge = 30 * 24 * 3600 * 1000;
+            if (!capturedAt || Date.now() - capturedAt > maxAge) return null;
+            const userId = String(item.userId || '').replace(/\D+/g, '');
+            if (!userId) return null;
+            return {
+                username: normalized,
+                userId,
+                source: String(item.source || ''),
+                capturedAt,
+            };
+        },
+
+        writeProfileUserIdCache: (username = '', payload = {}) => {
+            const normalized = Core.ThreeNoWatch.normalizeUsername(username || payload.username || '').toLowerCase();
+            const userId = String(payload.userId || payload.id || '').replace(/\D+/g, '');
+            if (!normalized || !userId) return;
+            const cache = Core.ThreeNoWatch.getProfileUserIdCache();
+            cache[normalized] = {
+                username: normalized,
+                userId,
+                source: String(payload.source || 'passive_payload'),
+                capturedAt: parseInt(payload.capturedAt || `${Date.now()}`, 10) || Date.now(),
+            };
+            const entries = Object.entries(cache)
+                .sort((a, b) => (parseInt(b[1]?.capturedAt || '0', 10) || 0) - (parseInt(a[1]?.capturedAt || '0', 10) || 0))
+                .slice(0, 1200);
+            Storage.setJSON(CONFIG.KEYS.THREE_NO_PROFILE_USER_ID_CACHE, Object.fromEntries(entries));
+        },
+
+        getAboutRequestTemplateCache: () => {
+            const template = Storage.getJSON(CONFIG.KEYS.THREE_NO_ABOUT_REQUEST_TEMPLATE, {});
+            if (!template || typeof template !== 'object' || Array.isArray(template)) return null;
+            const capturedAt = parseInt(template.capturedAt || '0', 10) || 0;
+            const maxAge = parseInt(CONFIG.THREE_NO_ABOUT_TEMPLATE_MAX_AGE_MS || `${12 * 3600 * 1000}`, 10) || 12 * 3600 * 1000;
+            if (!capturedAt || Date.now() - capturedAt > maxAge) return null;
+            if (!template.path || !template.appid) return null;
+            return template;
+        },
+
+        writeAboutRequestTemplateCache: (payload = {}) => {
+            if (!payload || typeof payload !== 'object') return null;
+            const template = {
+                capturedAt: parseInt(payload.capturedAt || `${Date.now()}`, 10) || Date.now(),
+                source: String(payload.source || 'passive_network'),
+                path: String(payload.path || '/async/wbloks/fetch/').slice(0, 160),
+                appid: String(payload.appid || 'com.bloks.www.text_post_app.about_this_profile_async_action').slice(0, 160),
+                type: String(payload.type || 'app').slice(0, 40),
+                bkv: String(payload.bkv || '').slice(0, 120),
+                friendlyName: String(payload.friendlyName || 'BarcelonaProfileAboutThisProfileAsyncActionQuery').slice(0, 160),
+                refererType: String(payload.refererType || 'TextPostAppProfileOverflow').slice(0, 120),
+                paramKeys: Array.isArray(payload.paramKeys) ? payload.paramKeys.map(String).slice(0, 20) : [],
+                formKeys: Array.isArray(payload.formKeys) ? payload.formKeys.map(String).slice(0, 40) : [],
+            };
+            if (!template.path || !template.appid) return null;
+            Storage.setJSON(CONFIG.KEYS.THREE_NO_ABOUT_REQUEST_TEMPLATE, template);
+            return template;
+        },
+
+        seedAboutProfileBridgeCaches: () => {
+            const userIdEntries = Object.values(Core.ThreeNoWatch.getProfileUserIdCache())
+                .filter(item => Core.ThreeNoWatch.readProfileUserIdCache(item?.username || ''))
+                .slice(0, 400)
+                .map(item => ({
+                    username: item.username,
+                    userId: item.userId,
+                }));
+            if (userIdEntries.length > 0) {
+                window.dispatchEvent(new CustomEvent('hege:threads-profile-user-id-seed', {
+                    detail: { items: userIdEntries },
+                }));
+            }
+            const template = Core.ThreeNoWatch.getAboutRequestTemplateCache();
+            if (template) {
+                window.dispatchEvent(new CustomEvent('hege:threads-about-profile-template-seed', {
+                    detail: template,
+                }));
+            }
+        },
+
+        injectActiveAboutMetadataRequest: (requestId = '', username = '', targetUserId = '') => {
+            const cleanRequestId = String(requestId || '').trim();
+            const normalized = Core.ThreeNoWatch.normalizeUsername(username).toLowerCase();
+            if (!cleanRequestId || !normalized) return false;
+            window.dispatchEvent(new CustomEvent('hege:threads-about-profile-fetch-request', {
+                detail: {
+                    requestId: cleanRequestId,
+                    username: normalized,
+                    targetUserId: String(targetUserId || '').replace(/\D+/g, ''),
+                },
+            }));
+            return true;
+        },
+
         waitForPassiveAboutMetadata: async (username = '', timeoutMs = 1600) => {
             const normalized = Core.ThreeNoWatch.normalizeUsername(username).toLowerCase();
             if (!normalized) return null;
@@ -2607,6 +2964,7 @@ Object.assign(Core, {
                 return { ok: false, attempt, error: 'accelerated_disabled' };
             }
             Core.ThreeNoWatch.installAboutProfilePassiveBridge();
+            Core.ThreeNoWatch.seedAboutProfileBridgeCaches();
             window.dispatchEvent(new CustomEvent('hege:threads-about-profile-bridge-ping'));
             await Utils.safeSleep(120);
             const bridgeStatus = Core.ThreeNoWatch.getAboutProfileBridgeStatus();
@@ -2618,6 +2976,7 @@ Object.assign(Core, {
                     bridgeStatus,
                 };
             }
+            const cachedUserId = Core.ThreeNoWatch.readProfileUserIdCache(normalized)?.userId || '';
             const requestId = `hege_about_${Date.now()}_${Math.random().toString(36).slice(2)}`;
             return new Promise(resolve => {
                 let settled = false;
@@ -2668,9 +3027,9 @@ Object.assign(Core, {
                     });
                 };
                 window.addEventListener('hege:threads-about-profile-fetch-response', handler);
-                window.dispatchEvent(new CustomEvent('hege:threads-about-profile-fetch-request', {
-                    detail: { requestId, username: normalized },
-                }));
+                if (!Core.ThreeNoWatch.injectActiveAboutMetadataRequest(requestId, normalized, cachedUserId)) {
+                    finish({ ok: false, attempt, error: 'active_injection_failed' });
+                }
             });
         },
 
@@ -2684,8 +3043,8 @@ Object.assign(Core, {
         requestActiveAboutMetadata: async (username = '', options = {}) => {
             const normalized = Core.ThreeNoWatch.normalizeUsername(username).toLowerCase();
             if (!normalized || !Storage.getThreeNoAcceleratedProfileEnabled?.()) return null;
-            const maxAttempts = Math.max(1, Math.min(5, parseInt(options.maxAttempts || '3', 10) || 3));
-            const timeoutMs = Math.max(1200, Math.min(8000, parseInt(options.timeoutMs || '3500', 10) || 3500));
+            const maxAttempts = Math.max(1, Math.min(2, parseInt(options.maxAttempts || '1', 10) || 1));
+            const timeoutMs = Math.max(900, Math.min(5000, parseInt(options.timeoutMs || `${CONFIG.THREE_NO_ABOUT_ACTIVE_TIMEOUT_MS || 2200}`, 10) || 2200));
             const attempts = [];
             for (let attempt = 1; attempt <= maxAttempts; attempt++) {
                 Core.ThreeNoWatch.setScanState({
@@ -2723,22 +3082,23 @@ Object.assign(Core, {
                     });
                     return result.item;
                 }
+                const shouldRetry = record.error === 'timeout' && attempt < maxAttempts;
                 Core.ThreeNoWatch.setScanState({
                     debug: {
-                        step: attempt < maxAttempts ? 'accelerated_about_retry_wait' : 'accelerated_about_fallback_after_retries',
+                        step: shouldRetry ? 'accelerated_about_retry_wait' : 'accelerated_about_fallback_after_retries',
                         username: normalized,
                         activeAboutAttempt: `${attempt}/${maxAttempts}`,
                         activeAboutAttempts: summary,
                         status: record.status,
                         error: record.error,
                         bridgeStatus: record.bridgeStatus,
-                        fallbackNext: attempt >= maxAttempts ? 'about_menu_three_dots' : '',
+                        retryPolicy: 'passive_template_once',
+                        fallbackNext: shouldRetry ? '' : 'about_menu_three_dots',
                         url: window.location.href,
                     },
                 });
-                if (attempt < maxAttempts) {
-                    await Utils.safeSleep(Math.min(1200, 350 + attempt * 250));
-                }
+                if (!shouldRetry) break;
+                await Utils.safeSleep(Math.min(1200, 350 + attempt * 250));
             }
             return null;
         },
@@ -2811,10 +3171,15 @@ Object.assign(Core, {
             if (cached && (cached.joined || cached.location)) {
                 return Core.ThreeNoWatch.buildMetadataFromCachedAbout(cached, 'passive_about_api_cache');
             }
+            const passiveWaitMs = Math.max(250, Math.min(1800, parseInt(CONFIG.THREE_NO_ABOUT_PASSIVE_WAIT_MS || '700', 10) || 700));
+            const passiveBeforeActive = await Core.ThreeNoWatch.waitForPassiveAboutMetadata(normalizedUser, passiveWaitMs);
+            if (passiveBeforeActive && (passiveBeforeActive.joined || passiveBeforeActive.location)) {
+                return Core.ThreeNoWatch.buildMetadataFromCachedAbout(passiveBeforeActive, 'passive_about_api');
+            }
             if (Storage.getThreeNoAcceleratedProfileEnabled?.()) {
                 const active = await Core.ThreeNoWatch.requestActiveAboutMetadata(normalizedUser, {
-                    maxAttempts: 3,
-                    timeoutMs: 3500,
+                    maxAttempts: 1,
+                    timeoutMs: CONFIG.THREE_NO_ABOUT_ACTIVE_TIMEOUT_MS || 2200,
                 });
                 if (active && (active.joined || active.location)) {
                     return Core.ThreeNoWatch.buildMetadataFromCachedAbout(active, 'accelerated_about_api');
@@ -3217,6 +3582,11 @@ Object.assign(Core, {
                 const mergeBooleanSignal = (key) => itemIsFreshFinding
                     ? item?.[key] === true
                     : (existing?.[key] === true || item?.[key] === true);
+                const hasExplicitEmptyReason = (source, key) => /^explicit_empty:/i.test(String(source?.metadataDebug?.[key] || ''));
+                const hasNoContentEvidence = (source, knownKey, valueKey, reasonKey) => {
+                    if (!source || source.accountPrivate === true) return false;
+                    return (source?.[knownKey] === true && source?.[valueKey] === true) || hasExplicitEmptyReason(source, reasonKey);
+                };
                 const accountPrivate = mergeBooleanSignal('accountPrivate');
                 const scanDates = [...new Set([
                     ...(existing?.scanDates || []),
@@ -3251,14 +3621,14 @@ Object.assign(Core, {
                     noAvatar: mergeBooleanSignal('noAvatar'),
                     noBio: mergeBooleanSignal('noBio'),
                     noPosts: accountPrivate ? false : (itemIsFreshFinding
-                        ? (item.noPostsKnown === true && item.noPosts === true)
-                        : (existing?.noPostsKnown === true && existing?.noPosts === true)),
+                        ? hasNoContentEvidence(item, 'noPostsKnown', 'noPosts', 'postsSignalReason')
+                        : (hasNoContentEvidence(existing, 'noPostsKnown', 'noPosts', 'postsSignalReason') || hasNoContentEvidence(item, 'noPostsKnown', 'noPosts', 'postsSignalReason'))),
                     noReplies: accountPrivate ? false : (itemIsFreshFinding
-                        ? (item.noRepliesKnown === true && item.noReplies === true)
-                        : (existing?.noRepliesKnown === true && existing?.noReplies === true)),
+                        ? hasNoContentEvidence(item, 'noRepliesKnown', 'noReplies', 'repliesSignalReason')
+                        : (hasNoContentEvidence(existing, 'noRepliesKnown', 'noReplies', 'repliesSignalReason') || hasNoContentEvidence(item, 'noRepliesKnown', 'noReplies', 'repliesSignalReason'))),
                     noReposts: accountPrivate ? false : (itemIsFreshFinding
-                        ? (item.noRepostsKnown === true && item.noReposts === true)
-                        : (existing?.noRepostsKnown === true && existing?.noReposts === true)),
+                        ? hasNoContentEvidence(item, 'noRepostsKnown', 'noReposts', 'repostsSignalReason')
+                        : (hasNoContentEvidence(existing, 'noRepostsKnown', 'noReposts', 'repostsSignalReason') || hasNoContentEvidence(item, 'noRepostsKnown', 'noReposts', 'repostsSignalReason'))),
                     accountPrivate,
                     suspiciousUsername: mergeBooleanSignal('suspiciousUsername'),
                     profileSignalsVersion: Math.max(

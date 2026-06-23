@@ -1725,10 +1725,10 @@ export const Core = {
             threeNoItem.style.display = showProfileScan ? 'none' : 'flex';
             if (threeNoVisibleCount > 0 || threeNoUnreadCount > 0) {
                 threeNoItem.style.color = '#ff453a';
-                if (threeNoLabel) threeNoLabel.textContent = '管理三無追蹤者';
+                if (threeNoLabel) threeNoLabel.textContent = '三無待審清單';
                 if (threeNoCount) threeNoCount.textContent = `${Math.max(threeNoVisibleCount, threeNoUnreadCount)} 位`;
                 threeNoItem.title = threeNoResults.completedAt
-                    ? `累計已掃 ${threeNoResults.checkedFollowersCount} 位；${threeNoResults.hasMore ? '可再掃下一批' : '已掃到底'}；上次掃描：${new Date(threeNoResults.completedAt).toLocaleString('zh-TW')}`
+                    ? `累計已掃 ${threeNoResults.checkedFollowersCount} 位；${threeNoResults.hasMore ? '可再掃下一批' : '已掃到底'}；待審帳號需人工確認後才加入封鎖清單；上次掃描：${new Date(threeNoResults.completedAt).toLocaleString('zh-TW')}`
                     : '';
             } else if (scanRunning) {
                 threeNoItem.style.color = '#30d158';
@@ -1740,7 +1740,7 @@ export const Core = {
                 if (threeNoLabel) threeNoLabel.textContent = '掃描三無追蹤者';
                 if (threeNoCount) threeNoCount.textContent = '可手動';
                 threeNoItem.title = threeNoResults.completedAt
-                    ? `目前沒有未處理的三無管理名單；點擊會重新掃描自己的粉絲。上次掃描：${new Date(threeNoResults.completedAt).toLocaleString('zh-TW')}`
+                    ? `目前沒有未處理的三無待審帳號；點擊會重新掃描自己的粉絲。上次掃描：${new Date(threeNoResults.completedAt).toLocaleString('zh-TW')}`
                     : '手動掃描三無追蹤者';
             }
         }

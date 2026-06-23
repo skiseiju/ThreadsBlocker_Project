@@ -834,6 +834,11 @@ Object.assign(Core, {
                 }
 
                 await Core.ReportDriver.visualStep(options, user, '準備點「檢舉」', reportMenuItem, 300);
+                Core.ThreeNoWatch?.appendNetworkActionMarker?.('report_menu_click', {
+                    user,
+                    mode,
+                    phase: 'before_click',
+                });
                 Utils.simClick(reportMenuItem);
                 const reportMenuClickAt = Date.now();
                 Core.ReportDriver.recordDebugTrace('report_menu_clicked', user, options, { mode }, false);
@@ -930,6 +935,13 @@ Object.assign(Core, {
                         window.hegeLog(`[只檢舉] 選擇檢舉項目「${match.step}」 pathIndex=${pathIndex} offset=${match.offset}`);
                     }
                     await Core.ReportDriver.visualStep(options, user, `準備選擇「${match.step}」`, match.option, 320);
+                    Core.ThreeNoWatch?.appendNetworkActionMarker?.('report_option_click', {
+                        user,
+                        mode,
+                        pathIndex,
+                        step: match.step,
+                        phase: 'before_click',
+                    });
                     Utils.simClick(match.option);
                     pathIndex += match.offset + 1;
                     await Utils.safeSleep(700);
@@ -947,6 +959,13 @@ Object.assign(Core, {
                     const confirmText = (confirmBtn.innerText || confirmBtn.textContent || '').replace(/\s+/g, ' ').trim();
                     if (window.hegeLog) window.hegeLog(`[只檢舉] 準備點確認按鈕「${confirmText || '提交/完成'}」 round=${i + 1}`);
                     await Core.ReportDriver.visualStep(options, user, `準備點「${confirmText || '提交/完成'}」`, confirmBtn, 320);
+                    Core.ThreeNoWatch?.appendNetworkActionMarker?.('report_confirm_click', {
+                        user,
+                        mode,
+                        round: i + 1,
+                        confirmText: confirmText || '',
+                        phase: 'before_click',
+                    });
                     Utils.simClick(confirmBtn);
                     await Utils.safeSleep(700);
                     const submitState = Core.ReportDriver.getSubmitSuccessState(originDialog);
@@ -977,6 +996,12 @@ Object.assign(Core, {
                     finalSignal: finalSubmitState.signal || 'unknown',
                     totalElapsedMs: Date.now() - reportMenuClickAt,
                 }, false);
+                Core.ThreeNoWatch?.appendNetworkActionMarker?.('report_success', {
+                    user,
+                    mode,
+                    finalSignal: finalSubmitState.signal || 'unknown',
+                    totalElapsedMs: Date.now() - reportMenuClickAt,
+                });
 
                 Storage.recordReport();
                 Core.ReportDriver.recordHistory(user, options);

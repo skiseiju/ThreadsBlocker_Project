@@ -280,6 +280,41 @@ export const UI = {
                 display: flex; justify-content: space-between; align-items: center;
                 background: #1c1c1c;
             }
+            .hege-three-no-footer {
+                gap: 14px;
+                align-items: flex-start;
+                flex-wrap: wrap;
+            }
+            .hege-three-no-footer-note {
+                flex: 1 1 280px;
+                min-width: 220px;
+                color: #777;
+                font-size: 11px;
+                line-height: 1.45;
+                padding-top: 2px;
+            }
+            .hege-three-no-footer-actions {
+                display: flex;
+                justify-content: flex-end;
+                align-items: center;
+                gap: 8px;
+                flex: 2 1 520px;
+                flex-wrap: wrap;
+            }
+            .hege-three-no-footer-actions .hege-manager-btn {
+                white-space: nowrap;
+                padding: 9px 14px;
+            }
+            @media (max-width: 720px) {
+                .hege-three-no-footer-actions {
+                    justify-content: stretch;
+                    width: 100%;
+                }
+                .hege-three-no-footer-actions .hege-manager-btn {
+                    flex: 1 1 calc(50% - 8px);
+                    min-width: 128px;
+                }
+            }
             .hege-manager-btn {
                 padding: 10px 20px; border-radius: 12px; font-weight: 600;
                 font-size: 14px; cursor: pointer; transition: 0.2s; border: none;
@@ -1103,20 +1138,107 @@ export const UI = {
             const [color, border] = colors[tone] || colors.gray;
             return `font-size:10px;color:${color};border:1px solid ${border};border-radius:999px;padding:2px 6px;`;
         };
+        const suspicionToneStyle = (level = 'low') => {
+            const colors = {
+                critical: ['#ffd0cc', 'rgba(255,69,58,0.24)', 'rgba(255,69,58,0.58)'],
+                high: ['#ffb4ad', 'rgba(255,149,0,0.18)', 'rgba(255,149,0,0.42)'],
+                medium: ['#f6df92', 'rgba(255,214,10,0.14)', 'rgba(255,214,10,0.34)'],
+                low: ['#9ad0ff', 'rgba(64,156,255,0.12)', 'rgba(64,156,255,0.30)'],
+            };
+            const [color, bg, border] = colors[level] || colors.low;
+            return `color:${color};background:${bg};border:1px solid ${border};border-radius:7px;padding:5px 7px;min-width:88px;text-align:center;`;
+        };
+        const buildReviewInfo = (item = {}) => {
+            const profileSignalsVersion = parseInt(item.profileSignalsVersion || '0', 10) || 0;
+            const isPrivate = item.accountPrivate === true;
+            const metadataDebug = item.metadataDebug && typeof item.metadataDebug === 'object' ? item.metadataDebug : {};
+            const isPrivateRouteOnlyContentSignal = (key) => /^private_route_posts:/i.test(String(metadataDebug?.[key] || ''));
+            const postsPrivateRouteOnly = item.noPosts !== true && isPrivateRouteOnlyContentSignal('postsSignalReason');
+            const repliesPrivateRouteOnly = item.noReplies !== true && isPrivateRouteOnlyContentSignal('repliesSignalReason');
+            const repostsPrivateRouteOnly = item.noReposts !== true && isPrivateRouteOnlyContentSignal('repostsSignalReason');
+            const hasExplicitEmptyReason = (key) => /^explicit_empty:/i.test(String(metadataDebug?.[key] || ''));
+            const noPostsKnown = isPrivate
+                ? false
+                : (item.noPostsKnown === true || (profileSignalsVersion > 0 && profileSignalsVersion < 8)) && !postsPrivateRouteOnly;
+            const noRepliesKnown = isPrivate
+                ? false
+                : (item.noRepliesKnown === true || (profileSignalsVersion >= 2 && profileSignalsVersion < 8)) && !repliesPrivateRouteOnly;
+            const noRepostsKnown = isPrivate
+                ? false
+                : (item.noRepostsKnown === true || (profileSignalsVersion >= 2 && profileSignalsVersion < 8)) && !repostsPrivateRouteOnly;
+            const noPostsValue = item.noPosts === true || hasExplicitEmptyReason('postsSignalReason');
+            const noRepliesValue = item.noReplies === true || hasExplicitEmptyReason('repliesSignalReason');
+            const noRepostsValue = item.noReposts === true || hasExplicitEmptyReason('repostsSignalReason');
+            const followerCountKnown = !isPrivate && item.followerCountKnown === true;
+            const followerCount = parseInt(item.followerCount || '0', 10) || 0;
+            const regionMissing = isMissingRegion(item);
+            const signals = [];
+            const incomplete = [];
+            const addSignal = (label, points) => signals.push({ label, points });
+
+            if (item.noAvatar) addSignal('無頭像', 18);
+            if (item.noBio) addSignal('無自介', 14);
+            if (!isPrivate && noPostsKnown && noPostsValue) addSignal('無發文', 14);
+            if (!isPrivate && noRepliesKnown && noRepliesValue) addSignal('無回文', 10);
+            if (!isPrivate && noRepostsKnown && noRepostsValue) addSignal('無轉貼', 10);
+            if (isPrivate) addSignal('帳號不公開，內容訊號有限', 8);
+            if (followerCountKnown && followerCount === 0) addSignal('粉絲 0', 12);
+            else if (followerCountKnown && followerCount < 30) addSignal(`粉絲 ${followerCount}`, 6);
+            if (item.suspiciousUsername) addSignal('命名可疑', 14);
+            if (item.isNewAccount) addSignal('新帳號', 10);
+            if (regionMissing) addSignal('地區未分享', 4);
+
+            if (!isPrivate && !noPostsKnown) incomplete.push('發文資料不完整');
+            if (!isPrivate && !noRepliesKnown) incomplete.push('回文資料不完整');
+            if (!isPrivate && !noRepostsKnown) incomplete.push('轉貼資料不完整');
+            if (!followerCountKnown) incomplete.push('粉絲數未確認');
+            if (!item.joinedAt && !item.accountAgeDays) incomplete.push('加入時間未確認');
+
+            const completenessTotal = 6;
+            const completenessKnown = [
+                true,
+                true,
+                isPrivate || noPostsKnown,
+                isPrivate || noRepliesKnown,
+                isPrivate || noRepostsKnown,
+                followerCountKnown || isPrivate,
+            ].filter(Boolean).length;
+            const score = Math.min(100, signals.reduce((sum, signal) => sum + signal.points, 0) + Math.min(10, incomplete.length * 2));
+            const level = score >= 90 ? 'critical' : (score >= 70 ? 'high' : (score >= 40 ? 'medium' : 'low'));
+            const levelLabel = level === 'critical' ? '極高' : (level === 'high' ? '高' : (level === 'medium' ? '中' : '低'));
+            return {
+                score,
+                level,
+                levelLabel,
+                reasonLabels: signals.map(signal => signal.label),
+                incomplete,
+                completenessText: `${completenessKnown}/${completenessTotal}`,
+                noPostsKnown,
+                noRepliesKnown,
+                noRepostsKnown,
+                noPostsValue,
+                noRepliesValue,
+                noRepostsValue,
+                followerCountKnown,
+                followerCount,
+                regionMissing,
+                isPrivate,
+            };
+        };
         const checkedAtText = results.completedAt > 0
             ? new Date(results.completedAt).toLocaleString('zh-TW')
             : '尚未完成';
         const statusText = results.status === 'completed'
-            ? `累計已檢查 ${scanTargetOwner ? `@${Utils.escapeHTML(scanTargetOwner)} 的 ` : ''}${results.checkedFollowersCount} 位粉絲，本批 ${results.batchCheckedFollowersCount} 位`
+            ? `累計已檢查 ${scanTargetOwner ? `@${Utils.escapeHTML(scanTargetOwner)} 的 ` : ''}${results.checkedFollowersCount} 位粉絲，本批 ${results.batchCheckedFollowersCount} 位；結果需人工確認後才加入封鎖清單`
             : (results.status ? `狀態：${Utils.escapeHTML(results.status)}` : '尚未掃描');
         const limitedText = results.hasMore ? ' · 可續掃下一批' : ' · 已掃到底';
-        const titleText = '管理三無追蹤者';
+        const titleText = '三無待審清單';
         const emptyText = results.completedAt > 0
-            ? '目前沒有未處理的三無追蹤者。'
-            : '目前沒有未處理的三無追蹤者。';
+            ? '目前沒有未處理的待審帳號。'
+            : '目前沒有未處理的待審帳號。';
 
         Utils.setHTML(overlay, `
-            <div class="hege-manager-box" style="width:min(94vw,820px);max-width:820px;max-height:calc(100vh - 28px);max-height:calc(100dvh - 28px);">
+            <div class="hege-manager-box" style="width:min(96vw,1040px);max-width:1040px;max-height:calc(100vh - 28px);max-height:calc(100dvh - 28px);">
                 <div class="hege-manager-header">
                     <span class="hege-manager-title">${Utils.escapeHTML(titleText)}</span>
                     <span class="hege-manager-close">
@@ -1124,12 +1246,16 @@ export const UI = {
                     </span>
                 </div>
                 <div style="padding:14px 20px;border-bottom:1px solid #2a2a2a;color:#aaa;font-size:12px;line-height:1.45;">
-                    <div style="color:#f5f5f5;font-weight:700;margin-bottom:4px;">${users.length} 位三無追蹤者管理名單</div>
+                    <div style="color:#f5f5f5;font-weight:700;margin-bottom:4px;">${users.length} 位待審帳號</div>
                     <div>${statusText}${limitedText} · ${checkedAtText}</div>
-                    <div style="margin-top:6px;color:#888;">清單會累加保存；可先用多重篩選縮小範圍，再勾選清除、加入安全名單或加入封鎖清單。</div>
+                    <div style="margin-top:6px;color:#888;">掃描只整理本機待審清單；請依疑似假帳號分數、命中原因與資料完整度人工確認，再清除、加入安全名單或排入封鎖清單。</div>
                     ${users.length > 0 ? `
                         <div id="hege-three-no-filters" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center;">
                             ${[
+                                ['suspicionCritical', '疑似程度極高'],
+                                ['suspicionHigh', '疑似程度高'],
+                                ['suspicionMedium', '疑似程度中'],
+                                ['suspicionLow', '疑似程度低'],
                                 ['noAvatar', '無頭貼'],
                                 ['noBio', '無自介'],
                                 ['noPosts', '無發文'],
@@ -1196,28 +1322,22 @@ export const UI = {
                             : (item.scanTargetOwner ? `@${item.scanTargetOwner}` : '');
                         const scanDates = Array.isArray(item.scanDates) ? item.scanDates : [item.scanDate].filter(Boolean);
                         const countryTag = getCountryTag(item) || '地區未分享';
-                        const regionMissing = isMissingRegion(item);
-                        const profileSignalsVersion = parseInt(item.profileSignalsVersion || '0', 10) || 0;
-                        const isPrivate = item.accountPrivate === true;
-                        const noPostsKnown = isPrivate
-                            ? false
-                            : (item.noPostsKnown === true || (profileSignalsVersion > 0 && profileSignalsVersion < 8));
-                        const noRepliesKnown = isPrivate
-                            ? false
-                            : (item.noRepliesKnown === true || (profileSignalsVersion >= 2 && profileSignalsVersion < 8));
-                        const noRepostsKnown = isPrivate
-                            ? false
-                            : (item.noRepostsKnown === true || (profileSignalsVersion >= 2 && profileSignalsVersion < 8));
-                        const followerCountKnown = !isPrivate && item.followerCountKnown === true;
-                        const followerCount = parseInt(item.followerCount || '0', 10) || 0;
+                        const review = buildReviewInfo(item);
+                        const regionMissing = review.regionMissing;
+                        const isPrivate = review.isPrivate;
+                        const noPostsKnown = review.noPostsKnown;
+                        const noRepliesKnown = review.noRepliesKnown;
+                        const noRepostsKnown = review.noRepostsKnown;
+                        const followerCountKnown = review.followerCountKnown;
+                        const followerCount = review.followerCount;
                         const zeroFollowers = followerCountKnown && followerCount === 0;
                         const followersUnder30 = followerCountKnown && followerCount < 30;
                         const tags = [
                             item.noAvatar ? ['無大頭照', 'red'] : null,
                             item.noBio ? ['無自介', 'red'] : null,
-                            (!isPrivate && noPostsKnown && item.noPosts) ? ['無發文', 'red'] : (!isPrivate && !noPostsKnown ? ['發文待重掃', 'gray'] : null),
-                            (!isPrivate && noRepliesKnown && item.noReplies) ? ['無回文', 'red'] : (!isPrivate && !noRepliesKnown ? ['回文待重掃', 'gray'] : null),
-                            (!isPrivate && noRepostsKnown && item.noReposts) ? ['無轉貼', 'red'] : (!isPrivate && !noRepostsKnown ? ['轉貼待重掃', 'gray'] : null),
+                            (!isPrivate && noPostsKnown && review.noPostsValue) ? ['無發文', 'red'] : (!isPrivate && !noPostsKnown ? ['發文待重掃', 'gray'] : null),
+                            (!isPrivate && noRepliesKnown && review.noRepliesValue) ? ['無回文', 'red'] : (!isPrivate && !noRepliesKnown ? ['回文待重掃', 'gray'] : null),
+                            (!isPrivate && noRepostsKnown && review.noRepostsValue) ? ['無轉貼', 'red'] : (!isPrivate && !noRepostsKnown ? ['轉貼待重掃', 'gray'] : null),
                             isPrivate ? ['帳號不公開', 'gray'] : null,
                             isPrivate && item.contentProbeSkippedReason === 'private_profile' ? ['已跳過內容檢查', 'gray'] : null,
                             zeroFollowers ? ['粉絲 0', 'gold'] : null,
@@ -1227,12 +1347,22 @@ export const UI = {
                             item.accountAgeBucket ? [item.accountAgeBucket, 'blue'] : null,
                             countryTag ? [countryTag, regionMissing ? 'gray' : 'green'] : null,
                         ].filter(Boolean);
+                        const reasonText = review.reasonLabels.length
+                            ? review.reasonLabels.join('、')
+                            : '目前只有低強度訊號，請人工確認';
+                        const incompleteText = review.incomplete.length
+                            ? `待補：${review.incomplete.slice(0, 3).join('、')}${review.incomplete.length > 3 ? '…' : ''}`
+                            : '資料完整度足夠';
                         const traitValues = [
+                            review.level === 'critical' ? 'suspicionCritical' : '',
+                            review.level === 'high' ? 'suspicionHigh' : '',
+                            review.level === 'medium' ? 'suspicionMedium' : '',
+                            review.level === 'low' ? 'suspicionLow' : '',
                             item.noAvatar ? 'noAvatar' : '',
                             item.noBio ? 'noBio' : '',
-                            (!isPrivate && noPostsKnown && item.noPosts) ? 'noPosts' : '',
-                            (!isPrivate && noRepliesKnown && item.noReplies) ? 'noReplies' : '',
-                            (!isPrivate && noRepostsKnown && item.noReposts) ? 'noReposts' : '',
+                            (!isPrivate && noPostsKnown && review.noPostsValue) ? 'noPosts' : '',
+                            (!isPrivate && noRepliesKnown && review.noRepliesValue) ? 'noReplies' : '',
+                            (!isPrivate && noRepostsKnown && review.noRepostsValue) ? 'noReposts' : '',
                             isPrivate ? 'accountPrivate' : '',
                             zeroFollowers ? 'zeroFollowers' : '',
                             followersUnder30 ? 'followersUnder30' : '',
@@ -1250,8 +1380,15 @@ export const UI = {
                                 data-scan-dates="${Utils.escapeHTML(scanDates.join(','))}"
                                 style="gap:10px;align-items:flex-start;">
                                 <input class="hege-three-no-select" type="checkbox" data-username="${safeU}" style="margin-top:8px;">
-                                <div class="user-info" style="min-width:0;">
+                                <div style="${suspicionToneStyle(review.level)}">
+                                    <div style="font-size:10px;font-weight:700;letter-spacing:.5px;">疑似${review.levelLabel}</div>
+                                    <div style="font-size:18px;font-weight:800;line-height:1.15;">${review.score}</div>
+                                    <div style="font-size:10px;color:#aaa;">完整 ${review.completenessText}</div>
+                                </div>
+                                <div class="user-info" style="min-width:0;flex:1;">
                                     <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="username" style="color:#f5f5f5;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">@${safeU}</a>
+                                    <div style="font-size:11px;color:#cfcfcf;margin-top:4px;line-height:1.45;">命中原因：${Utils.escapeHTML(reasonText)}</div>
+                                    <div style="font-size:11px;color:#777;margin-top:2px;line-height:1.45;">${Utils.escapeHTML(incompleteText)}</div>
                                     <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px;">
                                         ${tags.map(([tag, tone]) => `<span style="${tagStyle(tone)}">${Utils.escapeHTML(tag)}</span>`).join('')}
                                     </div>
@@ -1263,13 +1400,15 @@ export const UI = {
                         `;
                     }).join('')}
                 </div>
-                <div class="hege-manager-footer">
-                    <span style="font-size:11px;color:#777;">名單只存在本機；平台只上傳統計數量。</span>
-                    <button class="hege-manager-btn primary" id="hege-three-no-next-batch">續掃</button>
-                    ${users.length > 0 ? '<button class="hege-manager-btn secondary" id="hege-three-no-clear-selected">清除勾選名單</button>' : ''}
-                    ${users.length > 0 ? '<button class="hege-manager-btn secondary" id="hege-three-no-safe-selected">加入安全名單</button>' : ''}
-                    ${users.length > 0 ? '<button class="hege-manager-btn primary" id="hege-three-no-enqueue-block">加入封鎖清單</button>' : ''}
-                    <button class="hege-manager-btn secondary" id="hege-three-no-close">關閉</button>
+                <div class="hege-manager-footer hege-three-no-footer">
+                    <div class="hege-three-no-footer-note">待審清單與安全名單只存在本機；平台只上傳匿名統計。加入封鎖清單後仍需回主面板手動開始封鎖。</div>
+                    <div class="hege-three-no-footer-actions">
+                        <button class="hege-manager-btn primary" id="hege-three-no-next-batch">續掃</button>
+                        ${users.length > 0 ? '<button class="hege-manager-btn secondary" id="hege-three-no-clear-selected">從待審清單清除</button>' : ''}
+                        ${users.length > 0 ? '<button class="hege-manager-btn secondary" id="hege-three-no-safe-selected">標為安全名單</button>' : ''}
+                        ${users.length > 0 ? '<button class="hege-manager-btn primary" id="hege-three-no-enqueue-block">加入封鎖清單</button>' : ''}
+                        <button class="hege-manager-btn secondary" id="hege-three-no-close">關閉</button>
+                    </div>
                 </div>
             </div>
         `);
@@ -1358,7 +1497,7 @@ export const UI = {
                 }
                 const removed = Storage.removeThreeNoUsersFromResults(selected);
                 removeSelectedRows(selected);
-                UI.showToast(removed > 0 ? `已從三無清單清除 ${removed} 位` : '勾選帳號已不在三無清單中');
+                UI.showToast(removed > 0 ? `已從待審清單清除 ${removed} 位` : '勾選帳號已不在待審清單中');
             };
         }
         const safeSelected = overlay.querySelector('#hege-three-no-safe-selected');
@@ -1372,7 +1511,7 @@ export const UI = {
                 const added = Storage.addThreeNoSafeUsers(selected);
                 const removed = Storage.removeThreeNoUsersFromResults(selected);
                 removeSelectedRows(selected);
-                UI.showToast(`已加入安全名單 ${added} 位，從三無清單移除 ${removed} 位`);
+                UI.showToast(`已標為安全名單 ${added} 位，從待審清單移除 ${removed} 位`);
             };
         }
         const enqueueBlock = overlay.querySelector('#hege-three-no-enqueue-block');
@@ -1391,7 +1530,7 @@ export const UI = {
                     const removed = Storage.removeThreeNoUsersFromResults(selected);
                     removeSelectedRows(selected);
                     if (removed > 0 && (!result || !result.messageShown)) {
-                        UI.showToast(`已加入封鎖清單並移除 ${removed} 位三無項目`);
+                        UI.showToast(`已排入封鎖清單並移除 ${removed} 位待審項目；仍需手動開始封鎖`);
                     }
                 }
             };

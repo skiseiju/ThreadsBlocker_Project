@@ -1,3 +1,115 @@
+## v2.7.2-beta19 — 三無舊資料 explicit empty 修正
+
+*   **TL;DR：修正舊待審資料已記錄 `explicit_empty` 命中原因，卻沒有同步顯示無發文 / 無回文 / 無轉貼，導致疑似假帳號分數過低的問題。**
+*   **舊資料相容**：待審清單會從 `metadataDebug.postsSignalReason / repliesSignalReason / repostsSignalReason` 的明確空狀態補回可解釋命中原因，不必等重掃才修正。
+*   **Merge 修正**：後續掃描合併舊資料時，也會把明確空狀態視為 no-content evidence，避免再次被舊布林欄位覆蓋。
+
+## v2.7.2-beta18 — 待審清單疑似程度分級
+
+*   **TL;DR：三無待審清單把「審核分數」改成「疑似假帳號分數」，並新增 90 分以上的「疑似程度極高」。**
+*   **級距調整**：90-100 為極高、70-89 為高、40-69 為中、0-39 為低；這是本機可解釋訊號推估，仍需使用者人工確認。
+*   **文案調整**：CWS draft、README 與產品頁同步把「人工審核 / 審核分數」改成「人工確認 / 疑似假帳號分數」。
+
+## v2.7.2-beta17 — 三無首屏判斷再加速
+
+*   **TL;DR：profile probe 已在首屏看到內容或明確空狀態時直接判定；不再固定多等回頁首後的 500ms。**
+*   **可見內容優先**：只有當頁面真的停在較下方時才回到頁首，且等待縮短為 150ms；正常首屏載入不再額外等待。
+
+## v2.7.2-beta16 — 三無 passive-first 加速
+
+*   **TL;DR：三無 profile 檢查改成 passive-first / cache-first，優先重用自然觀察到的 about profile request 模板與 user id，減少開三點；內容判斷仍只看首屏可見內容或明確空狀態，不再用 private route hint 猜測。**
+*   **穩定優先**：active about request 只有在本機已有近期被動觀察到的 request template、當前頁 token 與 user id 時才送出；缺任一條件會快速 fallback 到三點，不再硬組舊 bkv/request。
+*   **速度優化**：profile probe 不再先下捲；首屏已看到內容或空狀態就直接判斷，固定 profile 等待從 1800ms 降到 1400ms，內容等待 timeout 也縮短。
+*   **本機 cache**：新增 `hege_three_no_profile_user_id_cache_v1` 與 `hege_three_no_about_request_template_v1`，只保存在本機，用於三無掃描加速；reset 三無資料時會清除，平台同步不會上傳 user id、request template、token 或帳號清單。
+
+## v2.7.2-beta15 — 三無 reset 備份容量修正
+
+*   **TL;DR：修正 beta14 reset 因三無 debug / metadata cache 過大導致 localStorage backup 超額、清除流程中止的問題。**
+*   **Backup scope**：reset 備份改存核心可回復資料；debug log、debug schema 與 profile metadata cache 只列入 omitted keys 並直接清除。
+*   **Fallback**：若核心備份仍超額，會退到 minimal backup，至少保留 results、cursor、safe 與 ignored users。
+
+## v2.7.2-beta14 — 三無掃描資料重跑入口
+
+*   **TL;DR：新增 beta-only `hege_three_no_reset=true` 入口，重跑三無掃描前可先備份並清除三無掃描結果、cursor、safe/ignored、debug 與 profile metadata cache。**
+*   **Rollback**：reset 會先把被清除的三無 local/session keys 存成 `hege_three_no_reset_backup_<timestamp>`，再清除資料。
+*   **Scope**：只清三無 namespace，不動封鎖資料庫、檢舉佇列、失敗清單或一般平台同步設定。
+
+## v2.7.2-beta13 — 三無內容訊號誤判修正
+
+*   **TL;DR：停用 `bulk-route-definitions` 的 `/post/` 路由快判斷，避免 Threads 預載或鄰近路由把無文章、無回文、無轉發帳號誤判成有內容。**
+*   **Content probe**：`private_route_posts` 只保留在三無診斷 log，不再單獨把 profile base / replies / reposts 判為有內容；內容狀態改回由可見 DOM 貼文或明確空狀態文案決定。
+*   **Review Queue 舊資料**：既有待審資料若只有 `private_route_posts` 作為「有內容」來源，清單會降級顯示為待重掃，不再誤標資料完整。
+
+## v2.7.2-beta12 — 三無待審清單視窗放寬
+
+*   **TL;DR：放寬三無待審清單視窗，並把底部說明與操作按鈕分區換行，避免按鈕擠在同一排。**
+*   **Modal layout**：待審清單最大寬度從 820px 放寬到 1040px，保留 96vw 的小螢幕限制。
+*   **Footer actions**：底部改成左側本機/手動封鎖提醒、右側按鈕群；按鈕可換行，小螢幕改成兩欄式伸展。
+
+## v2.7.2-beta11 — 三無待審清單與 CWS 文案
+
+*   **TL;DR：把「管理三無追蹤者」改成「三無待審清單」，每筆帳號顯示本機審核分數、命中原因與資料完整度，並同步 CWS/產品頁文案為人工審核與本機處理口徑。**
+*   **Review Queue**：舊的三無結果仍沿用 `hege_three_no_scan_results.users`，開啟清單時即時計算審核高 / 中 / 低、命中原因與資料完整度，不新增 migration。
+*   **安全名單語意**：安全名單維持 `hege_three_no_safe_users`，只代表使用者本機確認過的例外帳號；加入後從待審清單移除，重掃時繼續排除，不上傳平台。
+*   **防誤封邊界**：加入封鎖清單仍只排入 queue，不自動啟動封鎖 worker；UI 文案改為提醒使用者仍需手動開始封鎖。
+*   **CWS / 隱私文案**：manifest、README、產品頁與 CWS listing draft 改成「批次封鎖、只檢舉、三無待審清單與本機來源分析」；明確寫出待審清單 / 安全名單只存在本機，平台同步只含匿名統計。
+
+## v2.7.2-beta10 — page bridge review 修正
+
+*   **TL;DR：修正 beta7 review 發現的 page bridge 邊界問題，token/session 不再掛到 page global，network discovery 先過濾 URL 再讀 response。**
+*   **安全邊界**：`fb_dtsg`、`lsd`、`jazoest`、`__user` 等 session/token 只保留在 closure 內，bridge status 只輸出安全摘要。
+*   **效能邊界**：beta network discovery 只對 graphql / bulk-route / api / ajax / about / wbloks 類 request clone response，避免讀取所有 fetch response。
+*   **XHR 防守**：讀 `responseText` 前加上保護，避免非文字 responseType 造成 discovery listener 例外。
+
+## v2.7.2-beta7 — active about retry 收斂
+
+*   **TL;DR：`加速三無` 只在 active about `timeout` 時重試一次；`http_500`、缺 token 或缺 user id 直接退回三點選單 fallback。**
+*   **Retry 政策**：避免 Threads 明確回錯時仍白等多輪，debug 會標示 `retryPolicy: timeout_once_only` 與 `fallbackNext: about_menu_three_dots`。
+*   **Bridge 清理**：刪除 content side 已不可達的一次性 active about runner，active about request 統一透過 page bridge event 處理。
+*   **Debug schema**：升為 `network-discovery-v6` 並清掉舊 debug ring log，方便下一輪只看 beta7 資料。
+
+## v2.7.2-beta6 — 三無 active about bridge 修正
+
+*   **TL;DR：修正 `加速三無` 主動 about metadata request 沒有 response、每個帳號白等 3 次 timeout 的問題。**
+*   **Active bridge**：`page-bridge` 恢復 `hege:threads-about-profile-fetch-request` listener，content 端改為透過既有 page bridge 送 request，避免每次 profile probe 重新注入一次性 runner 後收不到回應。
+*   **失敗診斷**：active about 失敗時會回到明確原因（例如 `missing_user_id`、`missing_fb_dtsg`、`http_xxx`、`rate_limited`），不再只留下 `timeout`。
+*   **Debug schema**：升為 `network-discovery-v5` 並清掉舊 debug ring log，方便下一輪只看修正後資料。
+
+## v2.7.2-beta5 — 三無 private route 有內容快判斷
+
+*   **TL;DR：把 `bulk-route-definitions` 的 `routeUrls.posts > 0` 接進三無 profile probe，只用來提早確認「有內容」，不拿來單獨判斷「無內容」。**
+*   **快判斷範圍**：profile base / replies / reposts 同一路徑下若 passive network discovery 看到 post routes，該 probe 直接標為 `hasContent: true`，降低等待 DOM 穩定與 explicit empty 文案的時間。
+*   **保守邊界**：沒有 private route 訊號時仍走原本 DOM content / explicit empty 判斷；不會因為 API 沒回 posts 就判定無發文、無回文或無轉貼。
+*   **Debug schema**：升為 `network-discovery-v4` 並清掉舊 debug ring log，方便直接分析新訊號是否命中。
+
+## v2.7.2-beta4 — private API discovery log 重整
+
+*   **TL;DR：重整 beta-only private API discovery log，清掉舊格式 ring log，並補上三無 route 數值摘要與封鎖 / 檢舉 action marker。**
+*   **三無候選 API**：`bulk-route-definitions` discovery 現在會記錄 route 類型摘要與安全 scalar 欄位，例如 `initial_thread_count`、`max_thread_count`、`owner_posts_count_for_crawlers`、`is_reply`，用來判斷是否能取代 DOM tab 檢查。
+*   **封鎖 / 檢舉對時**：封鎖、解除封鎖與只檢舉流程會在關鍵點寫入 `network_action_marker`，方便從下一份診斷 JSON 對照送出前後的 network requests。
+*   **Log reset**：升到此 schema 後會清空舊的 `hege_three_no_scan_debug_log`，避免 beta2 / beta3 格式混在同一份匯出；掃描結果、cursor、三無名單與佇列不受影響。
+*   **安全邊界**：仍不保存 request / response body、token、cookie、route URL 值、使用者 ID 值或貼文文字。
+
+## v2.7.2-beta3 — 封鎖 / 檢舉 private API discovery 分類
+
+*   **TL;DR：把 beta-only passive network discovery 擴充到封鎖、解除封鎖與檢舉流程，方便從診斷 JSON 找出相關 private API endpoint。**
+*   **流程分類**：network discovery 會依 URL、request keys、doc_id / friendly name 與 response 結構標示 `workflow`，包含 `block`、`unblock`、`report`、`about_profile`、`profile_content` 與 `unknown`。
+*   **對照資訊**：每筆 discovery log 會附上目前 worker mode、封鎖佇列數與檢舉佇列數，方便判斷該 request 是封鎖、檢舉或三無 profile 掃描自然觸發。
+*   **安全邊界**：仍只做 passive discovery，不新增 active 封鎖/檢舉 API 呼叫，不保存 request / response body、token、cookie、帳號清單或貼文文字。
+
+## v2.7.2-beta2 — 三無 private API passive discovery
+
+*   **TL;DR：新增 beta-only passive network discovery，協助找出 Threads profile base / replies / reposts 自然載入時使用的 private API endpoint 與 response 結構。**
+*   **private API 偵測**：page bridge 只有在 beta content script 明確啟用後，才會記錄 fetch / XHR 的 endpoint、method、request keys、doc_id / friendly name、status、response 結構 key 與 profile tab 類型。
+*   **隱私邊界**：debug log 不保存 request body、response body、token、cookie、使用者 ID 值或貼文文字；資料只寫入本機 `hege_three_no_scan_debug_log`，透過 beta 的「匯出三無診斷」帶出。
+
+## v2.7.2-beta1 — 三無 review 修正
+
+*   **TL;DR：收斂三無自介判斷、移除常駐 active about API 觸發點，並避免 about parser 用欄位順序誤填加入時間或地區。**
+*   **無自介判斷**：profile header 文字必須符合 bio line-clamp 形狀才會被視為自介，降低「為你推薦」、帳號名稱或新版 Threads header 片段誤判為有自介的機率。
+*   **加速三無 API 邊界**：常駐 page bridge 改為 passive-only；active about request 只在加速三無開啟且掃描流程真的需要時注入一次性 runner，避免頁面上的任意 script 透過公開 event 觸發登入狀態 API request。
+*   **關於資訊解析**：about metadata 只在 label 明確命中時填入加入時間與國家/地區，不再用 payload 第 1 / 第 2 個欄位 fallback，避免「未分享」被錯誤覆蓋。
+
 ## v2.7.1 — 三無管理與新版 Threads 介面修正正式版
 
 *   **TL;DR：2.7.1 修正新版 Threads 介面下的三無掃描、檢舉 worker、更新通知與管理清單流程，並把三無後續處理收斂成「清除 / 安全名單 / 加入封鎖清單」的本機管理模式。**

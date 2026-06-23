@@ -1824,6 +1824,7 @@ export const Worker = {
             }
 
             let blockBtn = null;
+            let postFallbackUsed = false;
             {
                 // 1. Wait for "More" button (智慧等待)
                 let profileBtn = await Worker.findMoreButton(12000);
@@ -1973,6 +1974,7 @@ export const Worker = {
                             }
 
                             if (blockBtn) {
+                                postFallbackUsed = true;
                                 if (window.hegeLog) window.hegeLog(`[DIAG] ✅ 貼文備案成功找到封鎖鈕！`);
                                 break;
                             }
@@ -2006,6 +2008,11 @@ export const Worker = {
             setStep(isUnblock ? '點擊解除封鎖...' : '點擊封鎖...');
             await Worker.blockVisualStep(user, isUnblock ? '準備點「解除封鎖」' : '準備點「封鎖」', blockBtn, 420);
             await Utils.speedSleep(500);
+            Core.ThreeNoWatch?.appendNetworkActionMarker?.(isUnblock ? 'unblock_menu_click' : 'block_menu_click', {
+                user,
+                phase: 'before_click',
+                fallbackUsed: postFallbackUsed,
+            });
             Utils.simClick(blockBtn);
 
             // 3. Wait for Confirmation Dialog (智慧等待)
@@ -2041,6 +2048,11 @@ export const Worker = {
                 if (directBlocked) {
                     if (window.hegeLog) window.hegeLog(`[DIAG] @${user} 無確認 dialog 但偵測到已${isUnblock ? '解鎖' : '封鎖'}，視為成功`);
                     setStep(isUnblock ? '✅ 已解除封鎖 (直接)' : '✅ 已封鎖 (直接)');
+                    Core.ThreeNoWatch?.appendNetworkActionMarker?.(isUnblock ? 'unblock_success_direct' : 'block_success_direct', {
+                        user,
+                        phase: 'detected_after_menu_click',
+                        fallbackUsed: postFallbackUsed,
+                    });
                     return 'success';
                 }
 
@@ -2063,6 +2075,11 @@ export const Worker = {
             setStep(isUnblock ? '確認解除封鎖...' : '確認封鎖...');
             await Worker.blockVisualStep(user, isUnblock ? '準備點「確認解除封鎖」' : '準備點「確認封鎖」', confirmBtn, 420);
             await Utils.safeSleep(200); // confirm button React handler settle — not speed-adjusted
+            Core.ThreeNoWatch?.appendNetworkActionMarker?.(isUnblock ? 'unblock_confirm_click' : 'block_confirm_click', {
+                user,
+                phase: 'before_click',
+                fallbackUsed: postFallbackUsed,
+            });
             Utils.simClick(confirmBtn);
 
             // 4. Wait for confirmation dialog to close (智慧等待)
@@ -2075,6 +2092,11 @@ export const Worker = {
 
             if (closeResult === 'success') {
                 setStep(isUnblock ? '✅ 已解除封鎖' : '✅ 已封鎖');
+                Core.ThreeNoWatch?.appendNetworkActionMarker?.(isUnblock ? 'unblock_success' : 'block_success', {
+                    user,
+                    phase: 'dialog_closed',
+                    fallbackUsed: postFallbackUsed,
+                });
                 return 'success';
             }
             if (closeResult === 'cooldown') {
