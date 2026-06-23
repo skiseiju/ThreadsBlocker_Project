@@ -323,7 +323,12 @@ export const Core = {
         if (!ctx || ctx === document.body) return false;
         const text = (ctx.innerText || ctx.textContent || '').replace(/\s+/g, ' ').trim();
         if (/回覆給|發佈回覆|新增回覆|撰寫回覆|Post your reply|Reply to|Add a reply/i.test(text)) return true;
-        return Array.from(ctx.querySelectorAll('textarea, [contenteditable="true"], [role="textbox"]')).some(el => {
+        const textInputs = Array.from(ctx.querySelectorAll('textarea, [contenteditable="true"], [role="textbox"]'));
+        if (textInputs.some(el => {
+            const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { width: 1, height: 1 };
+            return rect.width > 0 && rect.height > 0;
+        })) return true;
+        return textInputs.some(el => {
             const label = [
                 el.getAttribute('aria-label') || '',
                 el.getAttribute('placeholder') || '',
