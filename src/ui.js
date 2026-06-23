@@ -609,10 +609,10 @@ export const UI = {
                     <div style="margin:0 0 16px;padding:13px 14px;border:1px solid rgba(236,195,81,0.42);border-radius:10px;background:rgba(236,195,81,0.10);color:#f4e2a2;line-height:1.65;">
                         <div style="font-weight:800;color:#ffe69a;margin-bottom:6px;">開發者近況提醒</div>
                         <div style="color:#eadfbf;">
-                            開發者帳號回來了。之後會恢復用真實 Threads 介面做回歸測試，也歡迎 follow <a href="https://www.threads.com/@skiseiju" target="_blank" rel="noopener noreferrer" style="color:#ffe69a;">@skiseiju</a> 追蹤後續修正。
+                            開發者帳號已經回來了，之後會持續用真實 Threads 介面做回歸測試。也歡迎 follow <a href="https://www.threads.com/@skiseiju" target="_blank" rel="noopener noreferrer" style="color:#ffe69a;">@skiseiju</a> 追蹤後續修正。
                         </div>
                         <div style="margin-top:8px;color:#eadfbf;">
-                            也希望大家可以因為這次 Meta 大封鎖，去附議「推動跨境數位平台設立臺灣實體據點法定代理人與常駐真人客服申訴機制」，讓大家以後不會被平台綁架又求助無門。<a href="https://join.gov.tw/idea/detail/78f0ba59-bcde-42e2-9920-43d9f293fa0c#endorses" target="_blank" rel="noopener noreferrer" style="color:#ffe69a;">前往附議</a>
+                            這次 Meta 大封鎖提醒我們：數位帳號、社群連結與創作成果，都不該被平台單方面封住卻求助無門。希望大家一起附議「推動跨境數位平台設立臺灣實體據點法定代理人與常駐真人客服申訴機制」，讓台灣使用者有基本申訴管道，也讓自己的數位資產更自由、更有保障。<a href="https://join.gov.tw/idea/detail/78f0ba59-bcde-42e2-9920-43d9f293fa0c#endorses" target="_blank" rel="noopener noreferrer" style="color:#ffe69a;">前往附議</a>
                         </div>
                     </div>
                     <p style="margin:0 0 12px;color:#f2f2f2;font-weight:700;">功能介紹</p>
@@ -632,16 +632,17 @@ export const UI = {
                     </div>
                     <p style="margin:0 0 10px;color:#f2f2f2;font-weight:700;">最近更新</p>
                     <ul style="margin:0 0 14px;padding-left:18px;">
+                        <li style="margin-bottom:6px;"><b>2.7.2</b>：加強封鎖/檢舉名單的加密，與「分享到其他設備」功能，並加入多檔匯入；三無清單可顯示本機匯入命中次數；也修正回文彈窗誤出現「清理名單」。</li>
                         <li style="margin-bottom:6px;"><b>2.7.1</b>：修正三無判斷、新版三點選單、失敗清單清除與設定分區。</li>
                         <li style="margin-bottom:6px;"><b>2.7.0</b>：加入 Chrome 三無追蹤者掃描，可掃自己或指定帳號粉絲並用本機清單管理。</li>
                     </ul>
                     <div style="margin:0;padding:12px 14px;border:1px solid rgba(236,195,81,0.35);border-radius:10px;background:rgba(236,195,81,0.10);color:#f6df92;font-weight:700;line-height:1.55;">
-                        如果留友封有幫上你的忙，也歡迎贊助我喝咖啡。謝謝大家的支持。
+                        如果留友封有幫上你的忙，也歡迎贊助我來維持功能更新。謝謝大家的支持。
                     </div>
                 </div>
                 <div class="hege-manager-footer" style="gap:10px;flex-wrap:wrap;">
                     <button class="hege-manager-btn secondary" id="hege-release-notes-later">知道了</button>
-                    <button class="hege-manager-btn primary" id="hege-release-notes-donate" style="background:#ecc351;color:#1b1300;">贊助我喝咖啡</button>
+                    <button class="hege-manager-btn primary" id="hege-release-notes-donate" style="background:#ecc351;color:#1b1300;">贊助維持更新</button>
                 </div>
             </div>
         `);
