@@ -2335,6 +2335,130 @@ export const Core = {
         navigator.clipboard.writeText(list).then(() => { UI.showToast(`已複製 ${db.length} 人名單`); }).catch(() => { prompt("請手動複製總名單：", list); });
     },
 
+    bytesToBase64: (bytes) => {
+        let binary = '';
+        const chunk = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunk) {
+            binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+        }
+        return btoa(binary);
+    },
+
+    buildReportPackPayload: () => {
+        const accounts = {};
+        const addEvent = (username, event = {}) => {
+            const u = String(username || '').trim().replace(/^@+/, '');
+            if (!u) return;
+            if (!accounts[u]) {
+                accounts[u] = {
+                    accountId: u,
+                    actionSummary: { blockCount: 0, reportCount: 0 },
+                    sourceUrls: new Set(),
+                    monthBuckets: new Set(),
+                    flags: [],
+                };
+            }
+            const item = accounts[u];
+            if (event.type === 'report') item.actionSummary.reportCount++;
+            else item.actionSummary.blockCount++;
+            if (event.sourceUrl) item.sourceUrls.add(String(event.sourceUrl));
+            const ts = parseInt(event.at || '0', 10) || 0;
+            if (ts > 0) item.monthBuckets.add(new Date(ts).toISOString().slice(0, 7));
+        };
+
+        const tsMap = Storage.getJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
+        Storage.getBlockDB().forEach((username) => {
+            const meta = tsMap?.[username];
+            const entry = meta && typeof meta === 'object' ? meta : { t: meta || 0 };
+            addEvent(username, { type: 'block', at: entry.t || 0, sourceUrl: entry.src || '' });
+        });
+        Storage.getJSON(CONFIG.KEYS.REPORT_HISTORY, []).forEach((entry) => {
+            if (!entry || typeof entry !== 'object') return;
+            addEvent(entry.username, { type: 'report', at: entry.t || 0, sourceUrl: entry.sourceUrl || '' });
+        });
+
+        const band = (count) => count <= 0 ? '0' : (count === 1 ? '1' : (count <= 3 ? '2-3' : '4+'));
+        const accountList = Object.values(accounts).map((item) => {
+            const sourceCount = item.sourceUrls.size;
+            const total = item.actionSummary.blockCount + item.actionSummary.reportCount;
+            const flags = [];
+            if (item.actionSummary.blockCount > 0 && item.actionSummary.reportCount > 0) flags.push('blocked_and_reported');
+            if (total > 1) flags.push('multiple_events');
+            if (sourceCount > 1) flags.push('multiple_sources');
+            return {
+                accountId: item.accountId,
+                actionSummary: item.actionSummary,
+                sourceCountBand: band(sourceCount),
+                monthBuckets: Array.from(item.monthBuckets).sort(),
+                flags,
+            };
+        }).sort((a, b) => a.accountId.localeCompare(b.accountId));
+
+        return {
+            schema: 'threadsblocker.reportpack.payload.v1',
+            packId: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `pack-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+            exportedAt: new Date().toISOString(),
+            exporter: { tool: 'ThreadsBlocker', version: CONFIG.VERSION },
+            accountCount: accountList.length,
+            accounts: accountList,
+        };
+    },
+
+    encryptReportPack: async (payload, password) => {
+        if (typeof crypto === 'undefined' || !crypto.subtle || typeof TextEncoder === 'undefined') {
+            throw new Error('此瀏覽器不支援 Web Crypto，無法產生加密檔');
+        }
+        const encoder = new TextEncoder();
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const iterations = 210000;
+        const baseKey = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveKey']);
+        const key = await crypto.subtle.deriveKey(
+            { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
+            baseKey,
+            { name: 'AES-GCM', length: 256 },
+            false,
+            ['encrypt']
+        );
+        const ciphertext = new Uint8Array(await crypto.subtle.encrypt(
+            { name: 'AES-GCM', iv },
+            key,
+            encoder.encode(JSON.stringify(payload))
+        ));
+        return {
+            schema: 'threadsblocker.reportpack.encrypted.v1',
+            createdAt: new Date().toISOString(),
+            accountCount: payload.accountCount,
+            kdf: { name: 'PBKDF2', hash: 'SHA-256', iterations },
+            cipher: { name: 'AES-GCM' },
+            salt: Core.bytesToBase64(salt),
+            iv: Core.bytesToBase64(iv),
+            ciphertext: Core.bytesToBase64(ciphertext),
+        };
+    },
+
+    exportEncryptedReportPack: () => {
+        if (typeof crypto === 'undefined' || !crypto.subtle) {
+            UI.showToast('此瀏覽器不支援加密匯出');
+            return false;
+        }
+        const payload = Core.buildReportPackPayload();
+        if (!payload.accountCount) {
+            UI.showToast('目前沒有封鎖或檢舉紀錄可匯出');
+            return false;
+        }
+        UI.showReportPackExportModal(async (password) => {
+            const encrypted = await Core.encryptReportPack(payload, password);
+            const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 13);
+            const filename = `threadsblocker-reportpack-${stamp}.tb-reportpack`;
+            const downloaded = Core.downloadTextFile(filename, JSON.stringify(encrypted, null, 2), 'application/json');
+            if (!downloaded) throw new Error('無法下載加密檔');
+            UI.showToast(`已產生加密備份檔：${payload.accountCount} 筆`);
+            return true;
+        });
+        return true;
+    },
+
     retryFailedQueue: () => {
         Storage.invalidateMulti([CONFIG.KEYS.FAILED_QUEUE, CONFIG.KEYS.REPORT_FAILED_QUEUE]);
         const failedUsers = [...new Set(Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, [])

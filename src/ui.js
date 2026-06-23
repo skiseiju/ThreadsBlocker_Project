@@ -920,6 +920,84 @@ export const UI = {
         };
     },
 
+    showReportPackExportModal: (onSubmit) => {
+        if (document.getElementById('hege-reportpack-export-overlay')) return;
+
+        const overlay = document.createElement('div');
+        overlay.id = 'hege-reportpack-export-overlay';
+        overlay.className = 'hege-manager-overlay';
+
+        Utils.setHTML(overlay, `
+            <div class="hege-manager-box" style="width:min(520px,calc(100vw - 24px));max-width:calc(100vw - 24px);height:auto;max-height:calc(100dvh - 24px);display:flex;flex-direction:column;overflow:hidden;">
+                <div class="hege-manager-header">
+                    <span class="hege-manager-title">分享到其他設備</span>
+                    <span class="hege-manager-close">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+                    </span>
+                </div>
+                <div style="flex:1 1 auto;padding:18px;color:#ccc;font-size:13px;line-height:1.6;overflow:auto;min-height:0;">
+                    <div style="background:#101820;border:1px solid #263746;border-radius:8px;padding:12px;margin-bottom:12px;color:#cfe8ff;">
+                        這會產生一份加密的 <code>.tb-reportpack</code>，用來把你的封鎖/檢舉摘要搬到其他設備。留友封不會上傳這份檔案，也不會連線到 Google Drive。
+                    </div>
+                    <div style="background:#181111;border:1px solid #3a2525;border-radius:8px;padding:12px;margin-bottom:14px;color:#ffd1d1;">
+                        檔案可能包含平台帳號紀錄。請妥善保管密碼；若你自行交給他人，需自行確認合法性與風險。
+                    </div>
+                    <label style="display:block;margin-bottom:8px;color:#ddd;font-weight:700;">加密密碼</label>
+                    <input id="hege-reportpack-password" type="password" autocomplete="new-password" style="width:100%;box-sizing:border-box;background:#1a1a1a;border:1px solid #444;color:#fff;padding:10px;border-radius:7px;font-family:inherit;margin-bottom:10px;">
+                    <label style="display:block;margin-bottom:8px;color:#ddd;font-weight:700;">再次輸入密碼</label>
+                    <input id="hege-reportpack-password-confirm" type="password" autocomplete="new-password" style="width:100%;box-sizing:border-box;background:#1a1a1a;border:1px solid #444;color:#fff;padding:10px;border-radius:7px;font-family:inherit;">
+                    <div id="hege-reportpack-status" style="min-height:18px;margin-top:10px;color:#888;"></div>
+                </div>
+                <div class="hege-manager-footer" style="flex:0 0 auto;position:sticky;bottom:0;z-index:1;padding-bottom:max(16px,env(safe-area-inset-bottom));">
+                    <div style="display:flex;gap:10px;width:100%;justify-content:flex-end;flex-wrap:wrap;">
+                        <button class="hege-manager-btn secondary" id="hege-reportpack-cancel">取消</button>
+                        <button class="hege-manager-btn primary" id="hege-reportpack-submit">產生加密檔</button>
+                    </div>
+                </div>
+            </div>
+        `);
+        document.body.appendChild(overlay);
+
+        const close = () => overlay.remove();
+        const status = overlay.querySelector('#hege-reportpack-status');
+        const password = overlay.querySelector('#hege-reportpack-password');
+        const confirmInput = overlay.querySelector('#hege-reportpack-password-confirm');
+        const submit = overlay.querySelector('#hege-reportpack-submit');
+        overlay.querySelector('.hege-manager-close').onclick = close;
+        overlay.querySelector('#hege-reportpack-cancel').onclick = close;
+        submit.onclick = async () => {
+            const pass = password.value || '';
+            if (!pass) {
+                status.textContent = '請輸入加密密碼';
+                status.style.color = '#ffb4ad';
+                return;
+            }
+            if (pass !== (confirmInput.value || '')) {
+                status.textContent = '兩次密碼不一致';
+                status.style.color = '#ffb4ad';
+                return;
+            }
+            if (pass.length < 8 && !confirm('密碼少於 8 字，保護力較弱。仍要繼續嗎？')) return;
+            submit.disabled = true;
+            submit.textContent = '加密中...';
+            status.textContent = '';
+            try {
+                const ok = await onSubmit(pass);
+                if (ok !== false) close();
+                else {
+                    submit.disabled = false;
+                    submit.textContent = '產生加密檔';
+                }
+            } catch (err) {
+                status.textContent = err?.message || '匯出失敗';
+                status.style.color = '#ffb4ad';
+                submit.disabled = false;
+                submit.textContent = '產生加密檔';
+            }
+        };
+        setTimeout(() => password.focus(), 50);
+    },
+
     showReportPicker: (callback, options = {}) => {
         const existing = document.getElementById('hege-report-picker-overlay');
         if (existing) existing.remove();
@@ -1638,12 +1716,15 @@ export const UI = {
                             <span style="color:#777;font-size:11px;line-height:1.35;">只加速「關於此個人檔案」的地區與加入時間；快取 1 天，遇到限制會退回一般三點流程。</span>
                         </div>
                         <div style="${settingsSectionTitleStyle}">資料移轉</div>
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px;">
                             <div class="hege-menu-item" id="hege-s-import" style="border-bottom:none;">
                                 <span>匯入名單</span>
                             </div>
                             <div class="hege-menu-item" id="hege-s-export" style="border-bottom:none;">
                                 <span>匯出紀錄</span>
+                            </div>
+                            <div class="hege-menu-item" id="hege-s-reportpack-export" style="border-bottom:none;color:#cfe8ff;">
+                                <span>分享到其他設備</span>
                             </div>
                         </div>
                         <div style="${settingsSectionTitleStyle}">觀測與上傳</div>
@@ -1771,6 +1852,7 @@ export const UI = {
         bind('hege-s-reservoir', callbacks.onReservoir);
         bind('hege-s-import', callbacks.onImport);
         bind('hege-s-export', callbacks.onExport);
+        bind('hege-s-reportpack-export', callbacks.onExportReportPack);
         bind(reportDebugExportId, callbacks.onExportReportDebug);
         bind(threeNoDebugExportId, callbacks.onExportThreeNoDebug);
         bind(devReloadId, callbacks.onDevReloadExtension);

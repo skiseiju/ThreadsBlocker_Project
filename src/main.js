@@ -964,6 +964,7 @@ import './features/three-no-watch.js';
                             onManage: () => Core.openBlockManager(),
                             onImport: () => Core.importList(),
                             onExport: () => Core.exportHistory(),
+                            onExportReportPack: () => Core.exportEncryptedReportPack(),
                             onExportReportDebug: Utils.isBetaBuild() ? (() => Core.exportLastReportDebug()) : null,
                             onExportThreeNoDebug: Utils.isBetaBuild() ? (() => Core.exportThreeNoDebug()) : null,
                             onClearDB: confirmClearDB,
