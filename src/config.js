@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.7.2-beta20',
+    VERSION: '2.7.2-beta21',
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     DONATE_URL: 'https://api.payuni.com.tw/api/uop/receive_info/2/3/U012070036/885oqmRcNVU7OTwotE1HS',
@@ -141,6 +141,8 @@ export const CONFIG = {
         REPORT_RESTORE_PENDING: 'hege_report_restore_pending',
         REPORT_DEBUG_BATCH: 'hege_report_debug_batch',
         REPORT_DEBUG_LAST_EXPORT: 'hege_report_debug_last_export',
+        IMPORTED_REPORT_PACKS: 'hege_imported_report_packs_v1',
+        IMPORTED_REPORT_PACK_INDEX: 'hege_imported_report_pack_index_v1',
         
         // Task 2: 大蟑螂
         COCKROACH_DB: 'hege_cockroach_db_v1',

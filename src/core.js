@@ -2344,6 +2344,8 @@ export const Core = {
         return btoa(binary);
     },
 
+    base64ToBytes: (value = '') => Uint8Array.from(atob(String(value || '')), c => c.charCodeAt(0)),
+
     buildReportPackPayload: () => {
         const accounts = {};
         const addEvent = (username, event = {}) => {
@@ -2437,6 +2439,73 @@ export const Core = {
         };
     },
 
+    decryptReportPack: async (encrypted, password) => {
+        if (typeof crypto === 'undefined' || !crypto.subtle || typeof TextDecoder === 'undefined') {
+            throw new Error('此瀏覽器不支援 Web Crypto，無法匯入加密檔');
+        }
+        const pack = encrypted && typeof encrypted === 'object' ? encrypted : {};
+        if (pack.schema !== 'threadsblocker.reportpack.encrypted.v1') throw new Error('檔案格式不支援');
+        const encoder = new TextEncoder();
+        const decoder = new TextDecoder();
+        const salt = Core.base64ToBytes(pack.salt);
+        const iv = Core.base64ToBytes(pack.iv);
+        const ciphertext = Core.base64ToBytes(pack.ciphertext);
+        const iterations = parseInt(pack.kdf?.iterations || '0', 10) || 210000;
+        const baseKey = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveKey']);
+        const key = await crypto.subtle.deriveKey(
+            { name: 'PBKDF2', salt, iterations, hash: pack.kdf?.hash || 'SHA-256' },
+            baseKey,
+            { name: 'AES-GCM', length: 256 },
+            false,
+            ['decrypt']
+        );
+        const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+        const payload = JSON.parse(decoder.decode(plaintext));
+        if (payload?.schema !== 'threadsblocker.reportpack.payload.v1' || !payload.packId) {
+            throw new Error('解密成功，但內容格式不支援');
+        }
+        return payload;
+    },
+
+    importReportPackPayload: (payload) => {
+        const packId = String(payload?.packId || '').trim();
+        const accounts = Array.isArray(payload?.accounts) ? payload.accounts : [];
+        if (!packId || payload?.schema !== 'threadsblocker.reportpack.payload.v1') throw new Error('回報包內容格式不支援');
+
+        const packs = Storage.getJSON(CONFIG.KEYS.IMPORTED_REPORT_PACKS, {});
+        const packMap = packs && typeof packs === 'object' && !Array.isArray(packs) ? packs : {};
+        if (packMap[packId]) return { imported: false, skipped: true, accountRefs: 0 };
+
+        const rawIndex = Storage.getJSON(CONFIG.KEYS.IMPORTED_REPORT_PACK_INDEX, {});
+        const index = rawIndex && typeof rawIndex === 'object' && !Array.isArray(rawIndex) ? rawIndex : {};
+        let accountRefs = 0;
+        accounts.forEach((account) => {
+            const accountId = String(account?.accountId || account?.accountIdHashOrId || '').trim().replace(/^@+/, '');
+            if (!accountId) return;
+            const packsForAccount = Array.isArray(index[accountId]) ? index[accountId] : [];
+            packsForAccount.push({
+                packId,
+                actionSummary: account.actionSummary && typeof account.actionSummary === 'object' ? account.actionSummary : {},
+                sourceCountBand: String(account.sourceCountBand || ''),
+                monthBuckets: Array.isArray(account.monthBuckets) ? account.monthBuckets.slice(0, 24).map(v => String(v || '')).filter(Boolean) : [],
+                flags: Array.isArray(account.flags) ? account.flags.slice(0, 12).map(v => String(v || '')).filter(Boolean) : [],
+            });
+            index[accountId] = packsForAccount;
+            accountRefs++;
+        });
+
+        packMap[packId] = {
+            packId,
+            importedAt: Date.now(),
+            exportedAt: String(payload.exportedAt || ''),
+            accountCount: parseInt(payload.accountCount || accounts.length || '0', 10) || accounts.length,
+            exporterVersion: String(payload.exporter?.version || ''),
+        };
+        Storage.setJSON(CONFIG.KEYS.IMPORTED_REPORT_PACKS, packMap);
+        Storage.setJSON(CONFIG.KEYS.IMPORTED_REPORT_PACK_INDEX, index);
+        return { imported: true, skipped: false, accountRefs };
+    },
+
     exportEncryptedReportPack: () => {
         if (typeof crypto === 'undefined' || !crypto.subtle) {
             UI.showToast('此瀏覽器不支援加密匯出');
@@ -2455,6 +2524,38 @@ export const Core = {
             if (!downloaded) throw new Error('無法下載加密檔');
             UI.showToast(`已產生加密備份檔：${payload.accountCount} 筆`);
             return true;
+        });
+        return true;
+    },
+
+    importEncryptedReportPackFiles: async (files, password) => {
+        const list = Array.isArray(files) ? files : Array.from(files || []);
+        const out = { imported: 0, skipped: 0, failed: 0, accountRefs: 0, errors: [] };
+        for (const file of list) {
+            try {
+                const encrypted = JSON.parse(await file.text());
+                const payload = await Core.decryptReportPack(encrypted, password);
+                const result = Core.importReportPackPayload(payload);
+                if (result.skipped) out.skipped++;
+                else out.imported++;
+                out.accountRefs += result.accountRefs || 0;
+            } catch (err) {
+                out.failed++;
+                out.errors.push({ name: file?.name || 'unknown', error: err?.message || String(err) });
+            }
+        }
+        return out;
+    },
+
+    importEncryptedReportPack: () => {
+        if (typeof crypto === 'undefined' || !crypto.subtle) {
+            UI.showToast('此瀏覽器不支援加密匯入');
+            return false;
+        }
+        UI.showReportPackImportModal(async (files, password) => {
+            const result = await Core.importEncryptedReportPackFiles(files, password);
+            UI.showToast(`匯入完成：成功 ${result.imported} 份，略過 ${result.skipped} 份，失敗 ${result.failed} 份`);
+            return result;
         });
         return true;
     },

@@ -998,6 +998,82 @@ export const UI = {
         setTimeout(() => password.focus(), 50);
     },
 
+    showReportPackImportModal: (onSubmit) => {
+        if (document.getElementById('hege-reportpack-import-overlay')) return;
+
+        const overlay = document.createElement('div');
+        overlay.id = 'hege-reportpack-import-overlay';
+        overlay.className = 'hege-manager-overlay';
+
+        Utils.setHTML(overlay, `
+            <div class="hege-manager-box" style="width:min(560px,calc(100vw - 24px));max-width:calc(100vw - 24px);height:auto;max-height:calc(100dvh - 24px);display:flex;flex-direction:column;overflow:hidden;">
+                <div class="hege-manager-header">
+                    <span class="hege-manager-title">匯入其他設備資料</span>
+                    <span class="hege-manager-close">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+                    </span>
+                </div>
+                <div style="flex:1 1 auto;padding:18px;color:#ccc;font-size:13px;line-height:1.6;overflow:auto;min-height:0;">
+                    <div style="background:#101820;border:1px solid #263746;border-radius:8px;padding:12px;margin-bottom:12px;color:#cfe8ff;">
+                        匯入資料只保存在本機，用於跨設備/多帳號封鎖紀錄提示；不會加入封鎖清單，也不會納入觀測平台。
+                    </div>
+                    <label style="display:block;margin-bottom:8px;color:#ddd;font-weight:700;">選擇加密檔</label>
+                    <input id="hege-reportpack-files" type="file" multiple accept=".tb-reportpack,application/json" style="width:100%;box-sizing:border-box;background:#1a1a1a;border:1px solid #444;color:#fff;padding:10px;border-radius:7px;font-family:inherit;margin-bottom:12px;">
+                    <label style="display:block;margin-bottom:8px;color:#ddd;font-weight:700;">解密密碼</label>
+                    <input id="hege-reportpack-import-password" type="password" autocomplete="current-password" style="width:100%;box-sizing:border-box;background:#1a1a1a;border:1px solid #444;color:#fff;padding:10px;border-radius:7px;font-family:inherit;">
+                    <div id="hege-reportpack-import-status" style="min-height:18px;margin-top:10px;color:#888;"></div>
+                </div>
+                <div class="hege-manager-footer" style="flex:0 0 auto;position:sticky;bottom:0;z-index:1;padding-bottom:max(16px,env(safe-area-inset-bottom));">
+                    <div style="display:flex;gap:10px;width:100%;justify-content:flex-end;flex-wrap:wrap;">
+                        <button class="hege-manager-btn secondary" id="hege-reportpack-import-cancel">取消</button>
+                        <button class="hege-manager-btn primary" id="hege-reportpack-import-submit">匯入</button>
+                    </div>
+                </div>
+            </div>
+        `);
+        document.body.appendChild(overlay);
+
+        const close = () => overlay.remove();
+        const filesInput = overlay.querySelector('#hege-reportpack-files');
+        const password = overlay.querySelector('#hege-reportpack-import-password');
+        const status = overlay.querySelector('#hege-reportpack-import-status');
+        const submit = overlay.querySelector('#hege-reportpack-import-submit');
+        overlay.querySelector('.hege-manager-close').onclick = close;
+        overlay.querySelector('#hege-reportpack-import-cancel').onclick = close;
+        submit.onclick = async () => {
+            const files = Array.from(filesInput.files || []);
+            const pass = password.value || '';
+            if (!files.length) {
+                status.textContent = '請選擇至少一個 .tb-reportpack 檔案';
+                status.style.color = '#ffb4ad';
+                return;
+            }
+            if (!pass) {
+                status.textContent = '請輸入解密密碼';
+                status.style.color = '#ffb4ad';
+                return;
+            }
+            submit.disabled = true;
+            submit.textContent = '匯入中...';
+            status.textContent = '';
+            try {
+                const result = await onSubmit(files, pass);
+                const failed = result?.failed || 0;
+                status.style.color = failed ? '#f6df92' : '#a8e6b0';
+                status.textContent = `成功 ${result?.imported || 0} 份，略過重複 ${result?.skipped || 0} 份，失敗 ${failed} 份，新增/更新 ${result?.accountRefs || 0} 筆帳號線索。`;
+                if (!failed) setTimeout(close, 900);
+                submit.disabled = false;
+                submit.textContent = '匯入';
+            } catch (err) {
+                status.textContent = err?.message || '匯入失敗';
+                status.style.color = '#ffb4ad';
+                submit.disabled = false;
+                submit.textContent = '匯入';
+            }
+        };
+        setTimeout(() => filesInput.focus(), 50);
+    },
+
     showReportPicker: (callback, options = {}) => {
         const existing = document.getElementById('hege-report-picker-overlay');
         if (existing) existing.remove();
@@ -1314,6 +1390,15 @@ export const UI = {
         const emptyText = results.completedAt > 0
             ? '目前沒有未處理的待審帳號。'
             : '目前沒有未處理的待審帳號。';
+        const importedPackIndexRaw = Storage.getJSON(CONFIG.KEYS.IMPORTED_REPORT_PACK_INDEX, {});
+        const importedPackIndex = importedPackIndexRaw && typeof importedPackIndexRaw === 'object' && !Array.isArray(importedPackIndexRaw)
+            ? importedPackIndexRaw
+            : {};
+        const getImportedPackHits = (username = '') => {
+            const key = String(username || '').trim().replace(/^@+/, '');
+            const hits = Array.isArray(importedPackIndex[key]) ? importedPackIndex[key] : [];
+            return hits.length;
+        };
 
         Utils.setHTML(overlay, `
             <div class="hege-manager-box" style="width:min(96vw,1040px);max-width:1040px;max-height:calc(100vh - 28px);max-height:calc(100dvh - 28px);">
@@ -1401,6 +1486,7 @@ export const UI = {
                         const scanDates = Array.isArray(item.scanDates) ? item.scanDates : [item.scanDate].filter(Boolean);
                         const countryTag = getCountryTag(item) || '地區未分享';
                         const review = buildReviewInfo(item);
+                        const importedPackHits = getImportedPackHits(item.username);
                         const regionMissing = review.regionMissing;
                         const isPrivate = review.isPrivate;
                         const noPostsKnown = review.noPostsKnown;
@@ -1424,6 +1510,7 @@ export const UI = {
                             item.isNewAccount ? ['新帳號', 'blue'] : null,
                             item.accountAgeBucket ? [item.accountAgeBucket, 'blue'] : null,
                             countryTag ? [countryTag, regionMissing ? 'gray' : 'green'] : null,
+                            importedPackHits > 0 ? [`匯入命中 ${importedPackHits} 次`, 'blue'] : null,
                         ].filter(Boolean);
                         const reasonText = review.reasonLabels.length
                             ? review.reasonLabels.join('、')
@@ -1726,6 +1813,9 @@ export const UI = {
                             <div class="hege-menu-item" id="hege-s-reportpack-export" style="border-bottom:none;color:#cfe8ff;">
                                 <span>分享到其他設備</span>
                             </div>
+                            <div class="hege-menu-item" id="hege-s-reportpack-import" style="border-bottom:none;color:#cfe8ff;">
+                                <span>匯入其他設備</span>
+                            </div>
                         </div>
                         <div style="${settingsSectionTitleStyle}">觀測與上傳</div>
                         <div class="hege-menu-item" id="hege-s-analytics" style="color: #5ac8fa;">
@@ -1853,6 +1943,7 @@ export const UI = {
         bind('hege-s-import', callbacks.onImport);
         bind('hege-s-export', callbacks.onExport);
         bind('hege-s-reportpack-export', callbacks.onExportReportPack);
+        bind('hege-s-reportpack-import', callbacks.onImportReportPack);
         bind(reportDebugExportId, callbacks.onExportReportDebug);
         bind(threeNoDebugExportId, callbacks.onExportThreeNoDebug);
         bind(devReloadId, callbacks.onDevReloadExtension);
