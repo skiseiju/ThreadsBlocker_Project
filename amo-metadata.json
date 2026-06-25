@@ -1,0 +1,13 @@
+{
+  "summary": {
+    "en-US": "Batch blocking, report-only workflows, suspicious account review, and local source analysis for Threads."
+  },
+  "categories": [
+    "social-communication",
+    "privacy-security"
+  ],
+  "version": {
+    "license": "all-rights-reserved",
+    "approval_notes": "The submitted extension is generated from the repository source with ./build.sh --no-bump. A source archive is uploaded with the AMO submission. The add-on only runs on threads.net and threads.com, and does not request cookies, history, tabs, or broad cross-site browsing permissions."
+  }
+}

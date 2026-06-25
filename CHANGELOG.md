@@ -1,3 +1,11 @@
+## v2.7.3 — Firefox AMO 自動發布流程正式版
+
+*   **TL;DR：2.7.3 補上 Firefox AMO 一鍵送件流程，並修正本次正式版發版產物來源，避免把 stale beta artifact 上傳到商店。**
+*   **AMO 發布**：新增 `npm run firefox:publish`、`npm run firefox:sign` 與 `npm run firefox:publish:dry-run`，自動重建 Firefox package、產生 AMO source archive，並透過 `web-ext sign` 送出。
+*   **送審資料**：新增 `amo-metadata.json`，預設分類為 Social & Communication / Privacy & Security，授權使用 `all-rights-reserved` 以符合目前 repo 未提供 LICENSE 的狀態。
+*   **Firefox package**：Firefox manifest icon 宣告改為只列實際存在的 128px 圖示，避免 AMO lint 產生錯誤尺寸提醒。
+*   **Storage / 隱私**：本次僅新增發布工具與 Firefox manifest metadata，未變更 storage keys、平台同步同意版本、上傳資料範圍或使用者偏好讀寫流程。
+
 ## v2.7.2 — 跨設備加密回報包與更新說明正式版
 
 *   **TL;DR：2.7.2 新增跨設備加密回報包匯出 / 匯入，修正三無待審清單與回文彈窗清理入口，並更新正式版內建說明、CWS 留評入口與官網信任資訊。**

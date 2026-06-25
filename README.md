@@ -1,7 +1,7 @@
 # 留友封 (Threads Block Tool)
 
 **留友封** 是一個專為 Threads 設計的批量封鎖、只檢舉、三無待審清單與本機來源分析工具，旨在解決官方介面缺乏批量管理與人工確認輔助的痛點。本專案支援 **Userscript (Tampermonkey/Stay)** 與 **Chrome 擴充功能** 雙模式。
-目前正式版：`v2.7.2`
+目前正式版：`v2.7.3`
 
 ## ✨ 主要功能 (Features)
 
@@ -52,6 +52,12 @@
 2. 產生的檔案位於 `ThreadsBlocker_Project/dist/threads_block_tool.user.js`。
 3. 將檔案拖入瀏覽器或在 Tampermonkey 中建立新腳本並貼上內容。
 4. **iOS Safari**: 腳本會自動部署至 iCloud Userscripts 資料夾 (若有設定)。
+
+### 4. Firefox AMO 自動發布
+1. 先在 AMO Developer Hub 建立 API credentials。
+2. 在本機或 CI 設定 `AMO_JWT_ISSUER` 與 `AMO_JWT_SECRET`。
+3. 執行 `npm run firefox:publish:dry-run` 檢查 build、metadata 與 source archive。
+4. 執行 `npm run firefox:publish` 送出 listed 版本；若只要簽名自架，執行 `npm run firefox:sign`。
 
 ## 📝 版本紀錄 (Changelog)
 

@@ -1,5 +1,13 @@
 {
+  "scripts": {
+    "firefox:publish": "scripts/publish-firefox-amo.sh --listed",
+    "firefox:publish:dry-run": "scripts/publish-firefox-amo.sh --listed --dry-run",
+    "firefox:sign": "scripts/publish-firefox-amo.sh --unlisted"
+  },
   "dependencies": {
     "playwright": "^1.58.2"
+  },
+  "devDependencies": {
+    "web-ext": "^10.4.0"
   }
 }
