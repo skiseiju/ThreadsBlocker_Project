@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.7.2-beta23',
+    VERSION: '2.7.3-beta1',
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     DONATE_URL: 'https://api.payuni.com.tw/api/uop/receive_info/2/3/U012070036/885oqmRcNVU7OTwotE1HS',

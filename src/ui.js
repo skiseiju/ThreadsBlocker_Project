@@ -305,6 +305,21 @@ export const UI = {
                 white-space: nowrap;
                 padding: 9px 14px;
             }
+            .hege-release-notes-footer {
+                display: grid;
+                grid-template-columns: auto minmax(0, 1fr) auto;
+                align-items: center;
+                gap: 10px;
+                padding: 12px;
+            }
+            .hege-release-notes-footer .hege-manager-btn {
+                white-space: nowrap;
+                font-size: 12px;
+                padding: 8px 10px;
+            }
+            #hege-release-notes-later { justify-self: start; }
+            #hege-release-notes-review { justify-self: center; }
+            #hege-release-notes-donate { justify-self: end; }
             @media (max-width: 720px) {
                 .hege-three-no-footer-actions {
                     justify-content: stretch;
@@ -313,6 +328,35 @@ export const UI = {
                 .hege-three-no-footer-actions .hege-manager-btn {
                     flex: 1 1 calc(50% - 8px);
                     min-width: 128px;
+                }
+            }
+            @media (max-width: 340px) {
+                .hege-release-notes-footer {
+                    gap: 6px;
+                    padding: 10px;
+                }
+                .hege-release-notes-footer .hege-manager-btn {
+                    padding: 7px 8px;
+                }
+            }
+            @media (max-width: 300px) {
+                .hege-release-notes-footer {
+                    grid-template-columns: 1fr 1fr;
+                    grid-template-areas:
+                        "later donate"
+                        "review review";
+                }
+                #hege-release-notes-later {
+                    grid-area: later;
+                    justify-self: stretch;
+                }
+                #hege-release-notes-review {
+                    grid-area: review;
+                    justify-self: stretch;
+                }
+                #hege-release-notes-donate {
+                    grid-area: donate;
+                    justify-self: stretch;
                 }
             }
             .hege-manager-btn {
@@ -612,7 +656,10 @@ export const UI = {
                             開發者帳號已經回來了，之後會持續用真實 Threads 介面做回歸測試。也歡迎 follow <a href="https://www.threads.com/@skiseiju" target="_blank" rel="noopener noreferrer" style="color:#ffe69a;">@skiseiju</a> 追蹤後續修正。
                         </div>
                         <div style="margin-top:8px;color:#eadfbf;">
-                            這次 Meta 大封鎖提醒我們：數位帳號、社群連結與創作成果，都不該被平台單方面封住卻求助無門。希望大家一起附議「推動跨境數位平台設立臺灣實體據點法定代理人與常駐真人客服申訴機制」，讓台灣使用者有基本申訴管道，也讓自己的數位資產更自由、更有保障。<a href="https://join.gov.tw/idea/detail/78f0ba59-bcde-42e2-9920-43d9f293fa0c#endorses" target="_blank" rel="noopener noreferrer" style="color:#ffe69a;">前往附議</a>
+                            這次 Meta 大封鎖提醒我們：數位帳號、社群連結與創作成果，都不該被平台單方面封住卻求助無門。希望大家一起附議「推動跨境數位平台設立臺灣實體據點法定代理人與常駐真人客服申訴機制」，讓台灣使用者有基本申訴管道，也讓自己的數位資產更自由、更有保障。<a href="https://join.gov.tw/idea/detail/78f0ba59-bcde-42e2-9920-43d9f293fa0c" target="_blank" rel="noopener noreferrer" style="color:#ffe69a;">前往附議</a>
+                        </div>
+                        <div style="margin-top:8px;color:#eadfbf;">
+                            另外也想請大家看看新的公共連署「社群媒體反詐騙，強制揭露電信國碼與其他來源資訊」。這個提案主張提高社群帳號來源透明度，讓使用者在面對陌生帳號、廣告或大量轉傳內容時，有更多線索判斷可信度；這和留友封希望幫大家保護社群生活的方向很接近。<a href="https://join.gov.tw/idea/detail/2c8c07a0-bdd4-49ad-a5ff-75b1cad58cf0" target="_blank" rel="noopener noreferrer" style="color:#ffe69a;">前往附議</a>
                         </div>
                     </div>
                     <p style="margin:0 0 12px;color:#f2f2f2;font-weight:700;">功能介紹</p>
@@ -637,11 +684,12 @@ export const UI = {
                         <li style="margin-bottom:6px;"><b>2.7.0</b>：加入 Chrome 三無追蹤者掃描，可掃自己或指定帳號粉絲並用本機清單管理。</li>
                     </ul>
                     <div style="margin:0;padding:12px 14px;border:1px solid rgba(236,195,81,0.35);border-radius:10px;background:rgba(236,195,81,0.10);color:#f6df92;font-weight:700;line-height:1.55;">
-                        如果留友封有幫上你的忙，也歡迎贊助我來維持功能更新。謝謝大家的支持。
+                        如果留友封有幫上你的忙，也歡迎贊助我來維持功能更新；或到 Chrome Web Store 留一句評價，讓更多人敢安心安裝。謝謝大家的支持。
                     </div>
                 </div>
-                <div class="hege-manager-footer" style="gap:10px;flex-wrap:wrap;">
+                <div class="hege-manager-footer hege-release-notes-footer">
                     <button class="hege-manager-btn secondary" id="hege-release-notes-later">知道了</button>
+                    <button class="hege-manager-btn secondary" id="hege-release-notes-review">前往 CWS 留評</button>
                     <button class="hege-manager-btn primary" id="hege-release-notes-donate" style="background:#ecc351;color:#1b1300;">贊助維持更新</button>
                 </div>
             </div>
@@ -654,6 +702,11 @@ export const UI = {
         };
         overlay.querySelector('#hege-release-notes-close').onclick = close;
         overlay.querySelector('#hege-release-notes-later').onclick = close;
+        overlay.querySelector('#hege-release-notes-review').onclick = () => {
+            Storage.set(CONFIG.KEYS.RELEASE_NOTES_SEEN_VERSION, CONFIG.VERSION);
+            window.open('https://chromewebstore.google.com/detail/%E7%95%99%E5%8F%8B%E5%B0%81-threads-block-tool/goibhoemcnjojlejjlojpikfehmccbbj', '_blank', 'noopener,noreferrer');
+            overlay.remove();
+        };
         overlay.querySelector('#hege-release-notes-donate').onclick = () => {
             Storage.set(CONFIG.KEYS.RELEASE_NOTES_SEEN_VERSION, CONFIG.VERSION);
             window.open(CONFIG.DONATE_URL, '_blank', 'noopener,noreferrer');
