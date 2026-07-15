@@ -220,8 +220,11 @@ export const Storage = {
                 .filter(item => item && typeof item === 'object')
                 .map(item => {
                     const accountPrivate = item.accountPrivate === true;
+                    const username = String(item.username || '').trim();
+                    const compactUsername = username.replace(/^@+/, '').toLowerCase().replace(/[._-]+/g, '');
+                    const legacyTaiwanMobileSuspicious = /^a09\d{8}$/.test(compactUsername);
                     return {
-                        username: String(item.username || '').trim(),
+                        username,
                         profileUrl: String(item.profileUrl || ''),
                         checkedAt: parseInt(item.checkedAt || '0', 10) || 0,
                         firstSeenAt: parseInt(item.firstSeenAt || item.checkedAt || '0', 10) || 0,
@@ -240,7 +243,7 @@ export const Storage = {
                         noReplies: accountPrivate ? false : item.noReplies === true,
                         noReposts: accountPrivate ? false : item.noReposts === true,
                         accountPrivate,
-                        suspiciousUsername: item.suspiciousUsername === true,
+                        suspiciousUsername: item.suspiciousUsername === true && !legacyTaiwanMobileSuspicious,
                         profileSignalsVersion: parseInt(item.profileSignalsVersion || '0', 10) || 0,
                         noPostsKnown: accountPrivate ? false : item.noPostsKnown === true,
                         noRepliesKnown: accountPrivate ? false : item.noRepliesKnown === true,
@@ -295,8 +298,11 @@ export const Storage = {
                 .filter(item => item && typeof item === 'object')
                 .map(item => {
                     const accountPrivate = item.accountPrivate === true;
+                    const username = String(item.username || '').trim();
+                    const compactUsername = username.replace(/^@+/, '').toLowerCase().replace(/[._-]+/g, '');
+                    const legacyTaiwanMobileSuspicious = /^a09\d{8}$/.test(compactUsername);
                     return {
-                        username: String(item.username || '').trim(),
+                        username,
                         profileUrl: String(item.profileUrl || ''),
                         checkedAt: parseInt(item.checkedAt || '0', 10) || 0,
                         firstSeenAt: parseInt(item.firstSeenAt || item.checkedAt || '0', 10) || 0,
@@ -315,7 +321,7 @@ export const Storage = {
                         noReplies: accountPrivate ? false : item.noReplies === true,
                         noReposts: accountPrivate ? false : item.noReposts === true,
                         accountPrivate,
-                        suspiciousUsername: item.suspiciousUsername === true,
+                        suspiciousUsername: item.suspiciousUsername === true && !legacyTaiwanMobileSuspicious,
                         profileSignalsVersion: parseInt(item.profileSignalsVersion || '0', 10) || 0,
                         noPostsKnown: accountPrivate ? false : item.noPostsKnown === true,
                         noRepliesKnown: accountPrivate ? false : item.noRepliesKnown === true,
@@ -386,7 +392,7 @@ export const Storage = {
         Storage.set(CONFIG.KEYS.THREE_NO_CANDIDATE_THRESHOLD, String(normalized));
         return normalized;
     },
-    getThreeNoAcceleratedProfileEnabled: () => Storage.get(CONFIG.KEYS.THREE_NO_ACCELERATED_PROFILE_ENABLED, 'false') === 'true',
+    getThreeNoAcceleratedProfileEnabled: () => true,
     setThreeNoAcceleratedProfileEnabled: (enabled) => {
         Storage.set(CONFIG.KEYS.THREE_NO_ACCELERATED_PROFILE_ENABLED, enabled ? 'true' : 'false');
         return enabled === true;

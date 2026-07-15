@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="留友封觀測站以匿名聚合資料呈現事件量趨勢與重要事件時序對照。">
+  <meta name="description" content="留友封觀測站以匿名聚合資料呈現事件量趨勢、候選議題與社群內生高熱討論。">
   <meta property="og:title" content="留友封觀測站">
-  <meta property="og:description" content="以匿名聚合資料觀察封鎖、檢舉與重要事件時序。">
+  <meta property="og:description" content="以匿名聚合資料觀察封鎖、檢舉、候選議題與社群內生高熱討論。">
   <meta property="og:type" content="website">
   <title>留友封觀測站</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="/platform/styles.css">
+  <link rel="stylesheet" href="/platform/styles.css?v=0.1.0-beta24">
 </head>
 <body>
   <div class="page-shell">
@@ -29,9 +29,20 @@
           <p class="section-kicker">Civic Signal Observatory</p>
           <h1 id="heroHeadline">台灣是 Threads 全球流量最高的市場之一　你以為跟你對話的是真人嗎？</h1>
           <p id="heroSubtitle" class="hero__subtitle">留友封觀測站試著用匿名聚合資料來回答這個問題</p>
+          <p id="heroDataSentence" class="hero__data">本期資料正在載入中。</p>
           <p class="legal-note">依《個人資料保護法》，本站僅呈現匿名聚合統計與現象觀察，不公開使用者帳號 ID 或個別貼文連結。</p>
           <p id="heroDateRange" class="hero__meta">--</p>
           <p id="heroStatusMessage" class="legal-note" hidden>--</p>
+        </div>
+      </section>
+
+      <section class="insights-section section-alt" aria-labelledby="insightsTitle">
+        <div class="section-inner">
+          <div class="section-heading">
+            <h2 id="insightsTitle" class="section-title">本期重點</h2>
+            <p class="section-copy">把趨勢、分類與協調信號整理成可以直接讀懂的結論。</p>
+          </div>
+          <div id="keyInsights" class="insight-list">載入中。</div>
         </div>
       </section>
 
@@ -42,23 +53,27 @@
           <div class="stats-row">
             <article class="stat-card">
               <p id="statEvents" class="stat-card__value">0</p>
-              <p class="stat-card__label">可分析事件</p>
-              <p class="stat-card__sub">納入趨勢計算的封鎖與檢舉事件</p>
+              <p class="stat-card__label">被封鎖或檢舉的事件</p>
+              <p id="statEventsDelta" class="stat-card__delta">載入變化中。</p>
+              <p id="statEventsSub" class="stat-card__sub">納入趨勢計算的封鎖與檢舉事件，代表這段時間使用者遇到問題的總量。</p>
             </article>
             <article class="stat-card">
               <p id="statCoordinated" class="stat-card__value">0</p>
-              <p class="stat-card__label">疑似協調帳號</p>
-              <p class="stat-card__sub">高信號樣本牽涉的帳號樣本數，非身分或違法認定</p>
+              <p class="stat-card__label">重複出現帳號</p>
+              <p id="statCoordinatedDelta" class="stat-card__delta">這是累積估計值，沒有每日趨勢線可比較。</p>
+              <p id="statCoordinatedSub" class="stat-card__sub">在高熱度、重複轉傳的樣本中被封鎖或檢舉的帳號數；可用來觀察是否同一批敘事被多帳號放大，不是實際真人數。</p>
             </article>
             <article class="stat-card">
               <p id="statContributors" class="stat-card__value">0</p>
-              <p class="stat-card__label">可分析來源</p>
-              <p class="stat-card__sub">已進入可分析批次的來源數</p>
+              <p class="stat-card__label">提供資料的人</p>
+              <p id="statContributorsDelta" class="stat-card__delta">這是觀測窗累積值，沒有每日趨勢線可比較。</p>
+              <p id="statContributorsSub" class="stat-card__sub">已能進入分析的匿名來源數；數字越高，越能降低單一來源偏誤。</p>
             </article>
             <article class="stat-card">
               <p id="statTrustedUploads" class="stat-card__value">0</p>
-              <p class="stat-card__label">可分析批次</p>
-              <p class="stat-card__sub">已通過整理，可用於趨勢與分類呈現</p>
+              <p class="stat-card__label">可用資料批次</p>
+              <p id="statTrustedUploadsDelta" class="stat-card__delta">這是觀測窗累積值，沒有每日趨勢線可比較。</p>
+              <p id="statTrustedUploadsSub" class="stat-card__sub">已通過整理、可用於趨勢與分類呈現的匿名資料批次。</p>
             </article>
           </div>
         </div>
@@ -67,8 +82,8 @@
       <section class="categories-section" aria-labelledby="categoriesTitle">
         <div class="section-inner">
           <div class="section-heading">
-            <h2 id="categoriesTitle" class="section-title">檢舉分類分佈</h2>
-            <p class="section-copy">使用者檢舉事件依 Threads 原生分類統計，同時標示占全部可分析事件與占檢舉事件的比例。</p>
+            <h2 id="categoriesTitle" class="section-title">檢舉分類</h2>
+            <p class="section-copy">使用者檢舉事件依 Threads 原生檢舉流程整理；同義或歷史路徑差異會合併標示。</p>
           </div>
           <div id="categoriesList" class="categories-list">載入中。</div>
         </div>
@@ -77,8 +92,8 @@
       <section class="trend-section" aria-labelledby="trendTitle">
         <div class="section-inner">
           <div class="section-heading">
-            <h2 id="trendTitle" class="section-title">事件量趨勢 × 重要事件</h2>
-            <p class="section-copy">匿名事件量與外部公共事件放在同一時間軸觀察。圖中標記只作時序參考，不代表已證實因果關係。</p>
+            <h2 id="trendTitle" class="section-title">事件量趨勢</h2>
+            <p class="section-copy">匿名事件量、封鎖、檢舉與來源數的時間序列。具名外部事件與社群內生高熱議題另列於下方卡片。</p>
           </div>
           <div class="chart-card">
             <div id="trendReadout" class="chart-readout">載入中。</div>
@@ -88,13 +103,13 @@
         </div>
       </section>
 
-      <section class="narratives-section section-alt" aria-labelledby="narrativesTitle">
+      <section class="candidate-section" aria-labelledby="candidateTopicsTitle">
         <div class="section-inner">
           <div class="section-heading">
-            <h2 id="narrativesTitle" class="section-title">近期熱門協調敘事</h2>
-            <p class="section-copy">觀測窗內匿名聚合樣本中重複出現的敘事框架，按可分析事件量排序。高信號代表樣本中出現明顯的協調特徵。</p>
+            <h2 id="candidateTopicsTitle" class="section-title">議題關聯判定</h2>
+            <p class="section-copy">把「新聞事件可對照的討論」和「站內自己燒起來的討論」分開看。目前這裡只做時間與話題對照；是否有人刻意帶風向，需要更多操作跡象證據。</p>
           </div>
-          <div id="narrativesList" class="narratives-list">載入中。</div>
+          <div id="candidateTopicsList" class="candidate-topic-groups">載入中。</div>
         </div>
       </section>
 
@@ -120,13 +135,15 @@
     </main>
   </div>
 
-  <script src="/platform/public.js"></script>
+  <script src="/platform/public.js?v=0.1.0-beta24"></script>
   <script>
     (function () {
       const heroHeadline = document.getElementById('heroHeadline');
       const heroSubtitle = document.getElementById('heroSubtitle');
+      const heroDataSentence = document.getElementById('heroDataSentence');
       const heroDateRange = document.getElementById('heroDateRange');
       const heroStatusMessage = document.getElementById('heroStatusMessage');
+      const keyInsights = document.getElementById('keyInsights');
       const statEvents = document.getElementById('statEvents');
       const statCoordinated = document.getElementById('statCoordinated');
       const statContributors = document.getElementById('statContributors');
@@ -135,6 +152,7 @@
       const trendReadout = document.getElementById('trendReadout');
       const trendChart = document.getElementById('trendChart');
       const trendEventDetail = document.getElementById('trendEventDetail');
+      const candidateTopicsList = document.getElementById('candidateTopicsList');
       const rotatingHeadlines = [
         '台灣是 Threads 全球流量最高的市場之一\n你以為跟你對話的是真人嗎？',
         '你每天都在封鎖/檢舉的帳號\n到底為什麼處理不完？',
@@ -144,9 +162,10 @@
         '你以為是輿論\n也可能只是機器人大量複製出來的聲量',
         '有些「網友」不會累、不會停\n因為它們根本不是人',
       ];
-      heroHeadline.textContent = rotatingHeadlines[Math.floor(Math.random() * rotatingHeadlines.length)];
+      const randomHeadline = rotatingHeadlines[Math.floor(Math.random() * rotatingHeadlines.length)];
+      heroHeadline.textContent = randomHeadline;
 
-      const defaultHeadline = null;
+      const defaultHeadline = randomHeadline;
       const defaultSubtitle = '留友封觀測站試著用匿名聚合資料來回答這個問題';
 
       function safeValue(value, fallback) {
@@ -172,7 +191,11 @@
         const eventsLoader = window.PlatformPublic.fetchPoliticalEvents || window.PlatformPublic.loadPoliticalEvents;
         const politicalEvents = typeof eventsLoader === 'function' ? await eventsLoader() : [];
 
+        heroHeadline.textContent = resolveHeadline(data);
         heroSubtitle.textContent = resolveSubtitle(data);
+        if (typeof window.PlatformPublic.renderHeroDataSentence === 'function') {
+          window.PlatformPublic.renderHeroDataSentence(heroDataSentence, data);
+        }
         const analysisRange = data && data.dateRange ? data.dateRange : null;
         const uploadRange = data && data.contribution && data.contribution.dateRange ? data.contribution.dateRange : null;
         const registry = data && data.sourceRegistry ? data.sourceRegistry : {};
@@ -209,27 +232,38 @@
         statTrustedUploads.textContent = window.PlatformPublic.formatNumber(
           safeValue(data && data.overview && data.overview.uploadCount, 0)
         );
+        if (typeof window.PlatformPublic.renderStatCards === 'function') {
+          window.PlatformPublic.renderStatCards(data);
+        }
+        if (typeof window.PlatformPublic.renderKeyInsights === 'function') {
+          window.PlatformPublic.renderKeyInsights(keyInsights, data, politicalEvents);
+        }
 
         window.PlatformPublic.renderTrendChart(
           trendChart,
           trendEventDetail,
           Array.isArray(data.dailyTrend) ? data.dailyTrend : [],
           politicalEvents,
-          Array.isArray(data.topicTimeSeries) ? data.topicTimeSeries : []
+          Array.isArray(data.topicTimeSeries) ? data.topicTimeSeries : [],
+          Array.isArray(data.candidateTopics) ? data.candidateTopics : []
         );
         if (typeof window.PlatformPublic.renderTrendReadout === 'function') {
           window.PlatformPublic.renderTrendReadout(trendReadout, data, politicalEvents);
         }
 
-        window.PlatformPublic.renderNarratives(
-          document.getElementById('narrativesList'),
-          Array.isArray(data.topNarratives) ? data.topNarratives : []
-        );
+        if (typeof window.PlatformPublic.renderCandidateTopics === 'function') {
+          window.PlatformPublic.renderCandidateTopics(
+            candidateTopicsList,
+            Array.isArray(data.candidateTopics) ? data.candidateTopics : [],
+            politicalEvents
+          );
+        }
 
         window.PlatformPublic.renderReportCategories(
           document.getElementById('categoriesList'),
           Array.isArray(data.reportCategories) ? data.reportCategories : [],
-          data.overview || {}
+          data.overview || {},
+          Array.isArray(data.reportCategoryTree) ? data.reportCategoryTree : []
         );
 
         return data;

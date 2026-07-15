@@ -1,5 +1,5 @@
 (function () {
-  const PLATFORM_VERSION = '0.1.0-beta11';
+  const PLATFORM_VERSION = '0.1.0-beta23';
   const API_BASE = 'https://threadsblocker-bug-admin.skiseiju.workers.dev';
   const DEFAULT_DAYS = 90;
   const MOCK_DAYS = 60;
@@ -166,6 +166,10 @@ topNarratives: [
     return Number.isFinite(num) ? num : 0;
   }
 
+  function safeString(value, maxLength = 200) {
+    return String(value ?? '').trim().slice(0, maxLength);
+  }
+
   function formatNumber(value) {
     return safeNum(value).toLocaleString('zh-TW');
   }
@@ -241,7 +245,7 @@ topNarratives: [
 
     const sourceName = String(row?.sourceName || row?.source_name || '').trim();
     const note = String(row?.note || '').trim()
-      || (sourceName ? `${sourceName}／外部公共事件節點` : '外部公共事件節點，僅作時序參考。');
+      || (sourceName ? `${sourceName}／外部事件錨點` : '外部事件錨點，僅作時序參考。');
 
     return {
       date,
@@ -486,7 +490,9 @@ topNarratives: [
       dailyTrend: [],
       topicTimeSeries: [],
       reportCategories: [],
+      reportCategoryTree: [],
       topNarratives: [],
+      candidateTopics: [],
       recentUploads: [],
       sourceRegistry: {
         sourceCount: 0,
@@ -527,7 +533,9 @@ topNarratives: [
       dailyTrend: Array.isArray(data?.dailyTrend) ? data.dailyTrend : [],
       topicTimeSeries: Array.isArray(data?.topicTimeSeries) ? data.topicTimeSeries : [],
       reportCategories: Array.isArray(data?.reportCategories) ? data.reportCategories : [],
+      reportCategoryTree: Array.isArray(data?.reportCategoryTree) ? data.reportCategoryTree : [],
       topNarratives: Array.isArray(data?.topNarratives) ? data.topNarratives : [],
+      candidateTopics: Array.isArray(data?.candidateTopics) ? data.candidateTopics : [],
       recentUploads: Array.isArray(data?.recentUploads) ? data.recentUploads : []
     };
   }
@@ -682,6 +690,54 @@ topNarratives: [
     }));
   }
 
+  function findCandidateExternalMatches(topic, externalEvents) {
+    const keywords = Array.isArray(topic?.keywords) ? topic.keywords.filter(Boolean) : [];
+    if (!keywords.length || !Array.isArray(externalEvents)) return [];
+    return externalEvents.filter((event) => {
+      const haystack = `${event.title || ''} ${event.category || ''}`;
+      return keywords.some((keyword) => haystack.includes(keyword));
+    });
+  }
+
+  function buildCandidateAnchorGroups(candidateTopics, externalEvents, dailyTrend) {
+    const daily = Array.isArray(dailyTrend) ? dailyTrend : [];
+    if (!daily.length) return [];
+    const start = daily[0]?.day_key || '';
+    const end = daily[daily.length - 1]?.day_key || '';
+    const anchors = (Array.isArray(candidateTopics) ? candidateTopics : [])
+      .filter((topic) => topic?.kind === 'external_anchor')
+      .slice(0, 8);
+
+    return anchors.map((topic) => {
+      const matches = findCandidateExternalMatches(topic, externalEvents)
+        .filter((event) => event.date >= start && event.date <= end)
+        .sort((a, b) => a.date.localeCompare(b.date));
+      const topDay = Array.isArray(topic.topDays) && topic.topDays.length ? topic.topDays[0].date : '';
+      const rangedDay = topic.dateRange?.start || '';
+      const matchedDay = matches[0]?.date || '';
+      const date = [topDay, rangedDay, matchedDay].find((day) => day >= start && day <= end);
+      if (!date) return null;
+
+      const fallbackEvent = {
+        date,
+        title: topic.title || '候選議題錨點',
+        shortLabel: topic.title || '候選',
+        category: topic.strength === 'strong' ? '候選強關聯' : '候選關聯',
+        note: topic.note || '候選議題錨點',
+        sourceName: candidateStrengthLabel(topic.strength, topic.kind),
+        sourceUrl: ''
+      };
+      return {
+        date,
+        events: matches.length ? matches : [fallbackEvent],
+        category: topic.strength === 'strong' ? '候選強關聯' : '候選關聯',
+        title: topic.title || '候選議題錨點',
+        label: topic.title || '候選',
+        topic
+      };
+    }).filter(Boolean);
+  }
+
   function renderTrendReadout(container, data, externalEvents) {
     if (!container) return;
     const daily = normalizeDailyTrendRows(data?.dailyTrend || []);
@@ -690,8 +746,6 @@ topNarratives: [
       return;
     }
 
-    const scopedEvents = filterEventsForRange(externalEvents, daily);
-    const eventGroups = groupEventsByDay(scopedEvents);
     const start = daily[0]?.day_key || data?.dateRange?.start || '';
     const end = daily[daily.length - 1]?.day_key || data?.dateRange?.end || '';
     const activeDays = daily.filter((row) => safeNum(row.total_event_count) > 0).length;
@@ -718,11 +772,6 @@ topNarratives: [
         note: `封鎖 ${formatNumber(overview.blockEventCount)}；檢舉 ${formatNumber(overview.reportEventCount)}。`
       },
       {
-        label: '外部事件標記',
-        value: `${formatNumber(scopedEvents.length)} 件 / ${formatNumber(eventGroups.length)} 日期`,
-        note: '只作時序參照，不代表匿名樣本與事件之間有已證實因果關係。'
-      },
-      {
         label: '觀測窗高點',
         value: `${formatDateLabel(peak.day_key)} / ${formatNumber(peak.total_event_count)} 件`,
         note: `封鎖 ${formatNumber(peak.block_event_count)}；檢舉 ${formatNumber(peak.report_event_count)}；來源數 ${formatNumber(peak.source_count)}。`
@@ -737,26 +786,197 @@ topNarratives: [
   }
 
   function computeWindowMetrics(data) {
-    const daily = Array.isArray(data.dailyTrend) ? data.dailyTrend : [];
+    const daily = normalizeDailyTrendRows(data?.dailyTrend || []);
     const last7 = daily.slice(-7);
     const previous7 = daily.slice(-14, -7);
     const last7Total = last7.reduce((sum, row) => sum + safeNum(row.total_event_count), 0);
     const last7Block = last7.reduce((sum, row) => sum + safeNum(row.block_event_count), 0);
     const last7Report = last7.reduce((sum, row) => sum + safeNum(row.report_event_count), 0);
+    const last7Source = last7.reduce((sum, row) => sum + safeNum(row.source_count), 0);
     const previous7Total = previous7.reduce((sum, row) => sum + safeNum(row.total_event_count), 0);
+    const previous7Block = previous7.reduce((sum, row) => sum + safeNum(row.block_event_count), 0);
+    const previous7Report = previous7.reduce((sum, row) => sum + safeNum(row.report_event_count), 0);
+    const previous7Source = previous7.reduce((sum, row) => sum + safeNum(row.source_count), 0);
     const activeDays = daily.filter((row) => safeNum(row.total_event_count) > 0).length;
+    const peak = daily.reduce((max, row) => (
+      safeNum(row.total_event_count) > safeNum(max.total_event_count) ? row : max
+    ), daily[0] || {});
+    const pctChange = (current, previous) => {
+      if (previous <= 0) return current > 0 ? null : 0;
+      return Number((((current - previous) / previous) * 100).toFixed(1));
+    };
     return {
+      daily,
+      last7,
+      previous7,
       last7Total,
       last7Block,
       last7Report,
+      last7Source,
       previous7Total,
+      previous7Block,
+      previous7Report,
+      previous7Source,
+      totalDeltaPct: pctChange(last7Total, previous7Total),
+      blockDeltaPct: pctChange(last7Block, previous7Block),
+      reportDeltaPct: pctChange(last7Report, previous7Report),
+      sourceDeltaPct: pctChange(last7Source, previous7Source),
       avgDaily7: last7.length ? Math.round(last7Total / last7.length) : 0,
-      activeDays
+      activeDays,
+      hasComparison: last7.length === 7 && previous7.length === 7 && previous7Total > 0,
+      peak
     };
   }
 
-  function buildSignalBadges(data) {
+  function directionText(delta) {
+    if (!Number.isFinite(delta)) return '無法比較';
+    if (delta > 0) return `上升 ${formatPercent(delta)}`;
+    if (delta < 0) return `下降 ${formatPercent(delta)}`;
+    return '持平';
+  }
+
+  function deltaClass(delta) {
+    if (!Number.isFinite(delta) || delta === 0) return 'stat-card__delta--flat';
+    return delta > 0 ? 'stat-card__delta--up' : 'stat-card__delta--down';
+  }
+
+  function deltaSentence(delta, noun = '事件量') {
+    if (!Number.isFinite(delta)) return `近 7 日${noun}已有資料，但前 7 日不足，暫時無法計算變化。`;
+    const arrow = delta > 0 ? '↑' : delta < 0 ? '↓' : '→';
+    return `${arrow} 近 7 日較前 7 日${directionText(delta)}`;
+  }
+
+  function displayCategoryLabel(label) {
+    return String(label || '未分類').replace(/^這是\s*/, '').trim() || '未分類';
+  }
+
+  function topReportCategory(data) {
+    const categories = Array.isArray(data?.reportCategories) ? data.reportCategories : [];
+    const reportEventCount = safeNum(data?.overview?.reportEventCount);
+    if (!categories.length || reportEventCount <= 0) return null;
+    const top = categories.reduce((max, cat) => (
+      safeNum(cat.eventCount) > safeNum(max.eventCount) ? cat : max
+    ), categories[0] || {});
+    const eventCount = safeNum(top.eventCount);
+    if (eventCount <= 0) return null;
+    const totalEventCount = safeNum(data?.overview?.totalEventCount);
+    return {
+      label: displayCategoryLabel(top.label),
+      eventCount,
+      reportPct: (eventCount / reportEventCount) * 100,
+      allPct: totalEventCount > 0 ? (eventCount / totalEventCount) * 100 : 0
+    };
+  }
+
+  function findPeakEventOverlap(peak, externalEvents) {
+    const day = String(peak?.day_key || '').slice(0, 10);
+    if (!day || safeNum(peak?.total_event_count) <= 0) return null;
+    const events = (Array.isArray(externalEvents) ? externalEvents : [])
+      .filter((event) => String(event?.date || '').slice(0, 10) === day);
+    return events[0] || null;
+  }
+
+  function hottestTopicText(data, peakDay = '') {
+    const rows = Array.isArray(data?.topicTimeSeries) ? data.topicTimeSeries : [];
+    const preferred = rows.find((row) => row.date === peakDay && Array.isArray(row.topics) && row.topics.length);
+    const fallback = rows.find((row) => Array.isArray(row.topics) && row.topics.length);
+    const topics = (preferred || fallback || {}).topics || [];
+    if (!topics.length) return '';
+    const top = topics[0];
+    const label = top.label ? displayCategoryLabel(top.label) : '未命名話題';
+    return `${label}${safeNum(top.count) ? `（${formatNumber(top.count)} 件）` : ''}`;
+  }
+
+  function renderHeroDataSentence(container, data) {
+    if (!container) return;
+    const metrics = computeWindowMetrics(data || {});
+    const total = safeNum(data?.overview?.totalEventCount);
+    if (total <= 0 && metrics.last7Total <= 0) {
+      container.textContent = '本期資料量不足，暫時還不能判讀趨勢方向。';
+      return;
+    }
+    const delta = Number.isFinite(metrics.totalDeltaPct)
+      ? `，近 7 日較前 7 日${directionText(metrics.totalDeltaPct)}`
+      : '，近 7 日已開始累積但前期基準不足';
+    container.textContent = `本期共 ${formatNumber(total || metrics.last7Total)} 件可分析事件${delta}。`;
+  }
+
+  function renderStatCards(data) {
+    const metrics = computeWindowMetrics(data || {});
+    const setText = (id, text, className = '') => {
+      const node = document.getElementById(id);
+      if (!node) return;
+      node.textContent = text;
+      node.classList.remove('stat-card__delta--up', 'stat-card__delta--down', 'stat-card__delta--flat');
+      if (className) node.classList.add(className);
+    };
+
+    setText('statEventsDelta', deltaSentence(metrics.totalDeltaPct, '事件量'), deltaClass(metrics.totalDeltaPct));
+    setText('statEventsSub', '這是觀測窗內被封鎖或檢舉的總量，用來看使用者遇到問題的規模。');
+    setText('statCoordinatedDelta', '這是累積估計值，沒有每日趨勢線可比較。', 'stat-card__delta--flat');
+    setText('statCoordinatedSub', '數字越高，代表同一批高信號敘事牽涉的帳號樣本越多；不是身分或違法認定。');
+    setText('statContributorsDelta', '這是觀測窗累積值，沒有每日趨勢線可比較。', 'stat-card__delta--flat');
+    setText('statContributorsSub', '有多少匿名來源的資料已能進入分析，數字越高越能降低單一來源偏誤。');
+    setText('statTrustedUploadsDelta', '這是觀測窗累積值，沒有每日趨勢線可比較。', 'stat-card__delta--flat');
+    setText('statTrustedUploadsSub', '已通過整理、能用來產生趨勢和分類的匿名資料批次。');
+  }
+
+  function renderKeyInsights(container, data, externalEvents) {
+    if (!container) return;
+    const metrics = computeWindowMetrics(data || {});
+    const items = [];
+
+    if (metrics.last7.length && metrics.last7Total > 0) {
+      const change = Number.isFinite(metrics.totalDeltaPct)
+        ? `，較前 7 日${directionText(metrics.totalDeltaPct)}`
+        : '，前 7 日資料不足，暫時無法比較升降';
+      items.push({
+        body: `近 7 日共 ${formatNumber(metrics.last7Total)} 件事件${change}。`
+      });
+    }
+
+    const overlap = findPeakEventOverlap(metrics.peak, externalEvents);
+    if (overlap) {
+      items.push({
+        body: `峰值出現在 ${formatDateLabel(metrics.peak.day_key)}（${formatNumber(metrics.peak.total_event_count)} 件），與外部事件「${overlap.title}」時間重疊。`
+      });
+    } else if (metrics.peak && safeNum(metrics.peak.total_event_count) > 0) {
+      items.push({
+        body: `本期最高點是 ${formatDateLabel(metrics.peak.day_key)}，當天有 ${formatNumber(metrics.peak.total_event_count)} 件可分析事件。`
+      });
+    }
+
+    const topCategory = topReportCategory(data || {});
+    if (topCategory) {
+      items.push({
+        body: `檢舉最集中的分類是「${topCategory.label}」，占檢舉事件 ${formatPercent(topCategory.reportPct)}。`
+      });
+    }
+
+    const badges = buildSignalBadges(data || {}, metrics)
+      .filter((badge) => badge.tone !== 'steady' || items.length > 0)
+      .slice(0, Math.max(0, 5 - items.length));
+    badges.forEach((badge) => {
+      items.push({
+        badge,
+        body: badge.detail
+      });
+    });
+
+    if (!items.length) {
+      container.innerHTML = '<p class="empty-state empty-state--compact">本期資料量不足，暫無重點結論。</p>';
+      return;
+    }
+
+    container.innerHTML = items.slice(0, 5).map((item) => `<article class="insight-card">
+      ${item.badge ? `<span class="insight-badge insight-badge--${escapeHtml(item.badge.tone)}">${escapeHtml(item.badge.label)}</span>` : ''}
+      <p>${escapeHtml(item.body)}</p>
+    </article>`).join('');
+  }
+
+  function buildSignalBadges(data, windowMetrics) {
     const signals = data.signals || {};
+    const metrics = windowMetrics || computeWindowMetrics(data || {});
     const items = [];
 
     if (safeNum(signals.sourceConcentrationPct) >= 20) {
@@ -773,18 +993,18 @@ topNarratives: [
         detail: `重複敘事事件占可回推來源事件 ${formatPercent(signals.repeatedNarrativePct)}`
       });
     }
-    if (safeNum(signals.shortTermDiffusionPct) >= 25) {
+    if (Number.isFinite(metrics.totalDeltaPct) && metrics.totalDeltaPct >= 25) {
       items.push({
         tone: 'warn',
         label: '短期升高',
-        detail: `最近 7 日事件量較前 7 日增加 ${formatPercent(signals.shortTermDiffusionPct, 1, true)}`
+        detail: `最近 7 日事件量較前 7 日增加 ${formatPercent(metrics.totalDeltaPct, 1, true)}`
       });
     }
     if (safeNum(signals.coordinatedAccountEstimate) >= 100) {
       items.push({
         tone: 'warn',
-        label: '多帳號參與',
-        detail: `高信號來源目前牽涉約 ${formatNumber(signals.coordinatedAccountEstimate)} 個帳號樣本`
+        label: '帳號集中出現',
+        detail: `約 ${formatNumber(signals.coordinatedAccountEstimate)} 個帳號在熱門重複內容中被封鎖或檢舉`
       });
     }
     if (!items.length) {
@@ -797,7 +1017,7 @@ topNarratives: [
     return items;
   }
 
-  function renderTrendChart(container, detailEl, dailyTrend, externalEvents, topicTimeSeries) {
+  function renderTrendChart(container, detailEl, dailyTrend, externalEvents, topicTimeSeries, candidateTopics = []) {
     const daily = normalizeDailyTrendRows(dailyTrend);
     const topicMap = {};
     (Array.isArray(topicTimeSeries) ? topicTimeSeries : []).forEach((entry) => {
@@ -807,18 +1027,17 @@ topNarratives: [
     if (daily.length < 2) {
       container.innerHTML = '<div class="empty-state">資料不足，暫時無法繪製趨勢圖。</div>';
       if (detailEl) {
-        detailEl.innerHTML = '<strong>資料不足</strong> 目前可分析日期少於兩天，暫時不繪製趨勢線；外部事件標記仍會在資料區間足夠時顯示。';
+        detailEl.innerHTML = '<strong>資料不足</strong> 目前可分析日期少於兩天，暫時不繪製趨勢線。';
       }
       return;
     }
 
-    const scopedEvents = filterEventsForRange(externalEvents, daily);
-    const groupedEvents = groupEventsByDay(scopedEvents);
+    const groupedEvents = [];
     const valuesTotal = daily.map((row) => safeNum(row.total_event_count));
     const valuesBlock = daily.map((row) => safeNum(row.block_event_count));
     const valuesReport = daily.map((row) => safeNum(row.report_event_count));
     const valuesSource = daily.map((row) => safeNum(row.source_count));
-    const maxValue = Math.max(...valuesTotal, ...valuesSource, 1);
+    const maxValue = Math.max(...valuesTotal, 1);
     const width = 940;
     const height = 360;
     const padL = 58;
@@ -848,6 +1067,8 @@ topNarratives: [
     const GENDER_CATS = new Set(['性別爭議', '性騷擾指控']);
     const DRAMA_CATS = new Set(['娛樂八卦', '網路論戰', '直播爭議']);
     function pinColor(category) {
+      if (category === '候選強關聯') return { line: '#2563eb', text: '#1d4ed8' };
+      if (category === '候選關聯') return { line: '#f59e0b', text: '#b45309' };
       if (POLITICAL_CATS.has(category)) return { line: '#f59e0b', text: '#b45309' };
       if (SOCIAL_CATS.has(category)) return { line: '#ef4444', text: '#b91c1c' };
       if (GENDER_CATS.has(category)) return { line: '#ec4899', text: '#be185d' };
@@ -882,7 +1103,7 @@ topNarratives: [
 
     const pins = flatPins.map(({ group, date, x, eventY, labelY }) => {
       const label = String(group.label || '').trim() || date.slice(5);
-      const labelText = label.length > 6 ? `${label.slice(0, 6)}…` : label;
+      const labelText = label.length > 8 ? `${label.slice(0, 8)}…` : label;
       const { line: lineColor, text: textColor } = pinColor(group.category || '');
       const lineTop = Math.min(labelY + 8, eventY - 8);
       const hitY = Math.max(0, labelY - 24);
@@ -928,7 +1149,7 @@ topNarratives: [
           <path id="chart-path-total" d="${pathFor(valuesTotal)}" fill="none" stroke="#2563eb" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
           <path id="chart-path-block" d="${pathFor(valuesBlock)}" fill="none" stroke="#10b981" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path>
           <path id="chart-path-report" d="${pathFor(valuesReport)}" fill="none" stroke="#60a5fa" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
-          <path id="chart-path-source" d="${pathFor(valuesSource)}" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="5 5" stroke-linecap="round" stroke-linejoin="round"></path>
+          <path id="chart-path-source" d="${pathFor(valuesSource)}" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-dasharray="5 5" stroke-linecap="round" stroke-linejoin="round" opacity="0" data-hidden="1"></path>
           ${dayRects}
           ${pins}
           <g id="chart-spikes">${spikeDots}</g>
@@ -939,16 +1160,20 @@ topNarratives: [
         <button class="chart-legend-item" data-target="total"><span class="chart-legend-dot" style="background:#2563eb"></span>總事件</button>
         <button class="chart-legend-item" data-target="block"><span class="chart-legend-dot" style="background:#10b981"></span>封鎖</button>
         <button class="chart-legend-item" data-target="report"><span class="chart-legend-dot" style="background:#60a5fa"></span>檢舉</button>
-        <button class="chart-legend-item" data-target="source"><span class="chart-legend-dot chart-legend-dot--dashed" style="background:#9ca3af"></span>來源數</button>
+        <button class="chart-legend-item chart-legend-item--off" data-target="source"><span class="chart-legend-dot chart-legend-dot--dashed" style="background:#9ca3af"></span>來源數</button>
         <button class="chart-legend-item" data-target="spikes"><span class="chart-legend-dot chart-legend-dot--spike"></span>異常峰值</button>
       </div>
-      <p class="chart-scale-note">總事件 = 封鎖 + 檢舉。來源數使用同一個垂直量尺，只適合看方向與相對變化，不適合和事件數直接比較。0 值代表當日沒有進入可分析表的事件。</p>
+      <p class="chart-scale-note">讀圖：總事件 = 封鎖 + 檢舉；外部事件標記只作時序對照，不代表因果認定。來源數量級不同，預設不畫在主圖，可用圖例切換查看方向。</p>
     `;
 
     if (detailEl) {
-      detailEl.innerHTML = scopedEvents.length
-        ? '<strong>讀圖方式</strong> 藍線是可分析事件總量，綠線是封鎖事件，淺藍線是檢舉事件，灰色虛線是來源數。上方垂直標記是外部公共事件，只作時序對照，不代表因果認定。'
-        : '<strong>讀圖方式</strong> 藍線是可分析事件總量，綠線是封鎖事件，淺藍線是檢舉事件，灰色虛線是來源數；目前這段觀測區間沒有外部事件標記。';
+      const metrics = computeWindowMetrics({ dailyTrend: daily });
+      const peak = metrics.peak || {};
+      const hotTopic = hottestTopicText({ topicTimeSeries }, peak.day_key);
+      const direction = Number.isFinite(metrics.totalDeltaPct)
+        ? `近 7 日較前 7 日${directionText(metrics.totalDeltaPct)}`
+        : '近 7 日已有資料，但前 7 日不足，暫時無法比較方向';
+      detailEl.innerHTML = `<strong>本期發現</strong> 峰值出現在 ${escapeHtml(formatDateLabel(peak.day_key))}，共 ${formatNumber(peak.total_event_count)} 件；${escapeHtml(direction)}；當期最熱話題：${escapeHtml(hotTopic || '暫無公開話題摘要')}。`;
 
       container.querySelectorAll('.chart-event-pin').forEach((node) => {
         const renderDetail = () => {
@@ -966,7 +1191,7 @@ topNarratives: [
           detailEl.innerHTML = `<strong>${node.dataset.date}</strong> ${escapeHtml(node.dataset.title || '')}`
             + (list ? `<ul class="chart-detail-events">${list}</ul>` : '')
             + more
-            + '<p class="chart-detail-note">政治事件為外部參考，不代表與平台樣本之間存在已證實的因果關係。</p>';
+            + '<p class="chart-detail-note">外部事件只作時間參考；是否相關仍要看下方議題卡片。</p>';
         };
         node.addEventListener('mouseenter', renderDetail);
         node.addEventListener('focus', renderDetail);
@@ -1019,37 +1244,274 @@ topNarratives: [
         ? item.hintLabels.map((h) => `<span class="hint-tag">${escapeHtml(h)}</span>`).join('')
         : '';
       const hasWhy = item.whyNote && item.whyNote.trim();
-      return `<article class="narrative-card${hasWhy ? ' narrative-card--expandable' : ''}">
+      return `<article class="narrative-card">
         <header class="narrative-card__header">
           <span class="badge ${bandClass}">${bandText}</span>
           <h3 class="narrative-card__title">${escapeHtml(item.title || '')}</h3>
-          ${hasWhy ? '<button class="narrative-card__toggle" aria-expanded="false" aria-label="展開說明">為什麼？<span class="toggle-icon">↓</span></button>' : ''}
         </header>
         <p class="narrative-card__summary">${escapeHtml(item.summary || '')}</p>
-        ${hasWhy ? `<div class="narrative-card__why" hidden><p>${escapeHtml(item.whyNote)}</p></div>` : ''}
+        ${hasWhy ? `<div class="narrative-card__why"><p>${escapeHtml(item.whyNote)}</p></div>` : ''}
         <footer class="narrative-card__stats">
           <span>${formatNumber(item.eventCount)} 事件</span>
-          <span>${formatNumber(item.accountCount)} 帳號樣本</span>
+          <span>${formatNumber(item.accountCount)} 個帳號</span>
           <span>${item.sourceCount} 個來源</span>
           ${hints}
         </footer>
       </article>`;
     }).join('');
+  }
 
-    container.querySelectorAll('.narrative-card--expandable').forEach((card) => {
-      const btn = card.querySelector('.narrative-card__toggle');
-      const why = card.querySelector('.narrative-card__why');
-      btn.addEventListener('click', () => {
-        const open = btn.getAttribute('aria-expanded') === 'true';
-        btn.setAttribute('aria-expanded', String(!open));
-        btn.querySelector('.toggle-icon').textContent = open ? '↓' : '↑';
-        why.hidden = open;
-      });
+  function candidateKindLabel(kind) {
+    return kind === 'external_anchor' ? '新聞事件可對照' : '站內自行升溫';
+  }
+
+  function candidateStrengthLabel(strength, kind) {
+    if (kind === 'external_anchor') return strength === 'strong' ? '時間與話題吻合' : '待人工確認';
+    return strength === 'strong' ? '站內討論集中' : '站內小型熱點';
+  }
+
+  function candidateStrengthClass(strength) {
+    return strength === 'strong' ? 'candidate-topic-card--strong' : 'candidate-topic-card--candidate';
+  }
+
+  function findExternalMatches(topic, externalEvents) {
+    const keywords = Array.isArray(topic?.keywords) ? topic.keywords.filter(Boolean) : [];
+    if (!keywords.length || !Array.isArray(externalEvents)) return [];
+    return externalEvents.filter((event) => {
+      const haystack = `${event.title || ''} ${event.category || ''}`;
+      return keywords.some((keyword) => haystack.includes(keyword));
     });
   }
 
-  function renderReportCategories(container, categories, overview = {}) {
+  function candidateOperationEvidenceText(item) {
+    const sourceCount = safeNum(item?.sourceCount);
+    const accountCount = safeNum(item?.accountCount);
+    const eventCount = safeNum(item?.eventCount);
+
+    if (item?.kind === 'external_anchor') {
+      if (sourceCount >= 10 && accountCount >= 1000) {
+        return '站內同時有大量帳號與多個來源參與，但還缺重複話術與短時間同步證據';
+      }
+      if (sourceCount >= 2 && eventCount >= 100) {
+        return '多個來源出現相關討論，仍需比對重複話術與同步時間';
+      }
+      return '目前只有新聞時間與站內關鍵字可對照';
+    }
+
+    if (sourceCount >= 10 && accountCount >= 1000) {
+      return '站內高熱且來源分散，待比對重複話術與同步時間';
+    }
+    if (sourceCount >= 2) {
+      return '站內有多個來源參與，尚未判定操作來源';
+    }
+    return '站內熱點，尚未判定操作來源';
+  }
+
+  function renderCandidateTopics(container, topics, externalEvents = []) {
     if (!container) return;
+    const candidateDate = (item) => {
+      if (item?.displayDate) return item.displayDate;
+      if (item?.dateRange?.start) return item.dateRange.start;
+      if (Array.isArray(item?.topDays) && item.topDays.length) return item.topDays[0].date || '';
+      return '';
+    };
+    const sortByDate = (a, b) => {
+      const aDate = candidateDate(a);
+      const bDate = candidateDate(b);
+      if (aDate && bDate && aDate !== bDate) return aDate.localeCompare(bDate);
+      if (aDate && !bDate) return -1;
+      if (!aDate && bDate) return 1;
+      return safeNum(b.eventCount) - safeNum(a.eventCount);
+    };
+    const items = (Array.isArray(topics) ? topics : [])
+      .filter((item) => item && item.title)
+      .sort(sortByDate);
+
+    if (!items.length) {
+      container.innerHTML = '<p class="empty-state">目前沒有達到公開門檻的候選議題。</p>';
+      return;
+    }
+
+    const groups = [
+      {
+        kind: 'external_anchor',
+        title: '新聞事件可對照的討論',
+        note: '依日期列出最多 10 件。這些只表示新聞時間與站內關鍵字相近；是否有人刻意帶風向，還需要重複話術、短時間同步等證據。'
+      },
+      {
+        kind: 'community_native',
+        title: '站內自行升溫的討論',
+        note: '依日期列出最多 6 件。這些話題主要是站內自己燒起來，不一定有對應新聞。'
+      }
+    ];
+
+    container.innerHTML = groups.map((group) => {
+      const limit = group.kind === 'external_anchor' ? 10 : 6;
+      const groupItems = items
+        .filter((item) => item.kind === group.kind)
+        .sort((a, b) => safeNum(b.eventCount) - safeNum(a.eventCount))
+        .slice(0, limit)
+        .sort(sortByDate);
+      if (!groupItems.length) return '';
+      const cards = groupItems.map((item) => {
+        const matches = findExternalMatches(item, externalEvents);
+        const displayDate = candidateDate(item);
+        const dateRange = item.dateRange && item.dateRange.start && item.dateRange.end && item.dateRange.start !== item.dateRange.end
+          ? `${formatDateLabel(item.dateRange.start)} - ${formatDateLabel(item.dateRange.end || item.dateRange.start)}`
+          : displayDate ? formatDateLabel(displayDate) : '日期不足';
+        const keywords = Array.isArray(item.keywords)
+          ? item.keywords.slice(0, 6).map((keyword) => `<span class="hint-tag">${escapeHtml(keyword)}</span>`).join('')
+          : '';
+        const externalText = item.kind === 'external_anchor'
+          ? (matches.length ? `${formatNumber(matches.length)} 則新聞可對照` : '有新聞日期可參考')
+          : '站內討論';
+        const evidenceText = candidateOperationEvidenceText(item);
+        const eventText = safeNum(item.eventCount) > 0
+          ? `${formatNumber(item.eventCount)} 次封鎖/檢舉`
+          : '已出現相關討論';
+
+        return `<article class="candidate-topic-card ${candidateStrengthClass(item.strength)}">
+          <header class="candidate-topic-card__header">
+            <span class="candidate-topic-card__kind">${escapeHtml(candidateKindLabel(item.kind))}</span>
+            <span class="candidate-topic-card__strength">${escapeHtml(candidateStrengthLabel(item.strength, item.kind))}</span>
+          </header>
+          <h3>${escapeHtml(item.title || '')}</h3>
+          <p>${escapeHtml(item.note || '')}</p>
+          <dl class="candidate-topic-card__metrics">
+            <div><dt>站內熱度</dt><dd>${escapeHtml(eventText)}</dd></div>
+            <div><dt>時間</dt><dd>${escapeHtml(dateRange)}</dd></div>
+            <div><dt>對照方式</dt><dd>${escapeHtml(externalText)}</dd></div>
+            <div><dt>操作跡象</dt><dd>${escapeHtml(evidenceText)}</dd></div>
+          </dl>
+          ${keywords ? `<div class="candidate-topic-card__keywords">${keywords}</div>` : ''}
+        </article>`;
+      }).join('');
+
+      return `<div class="candidate-topic-group">
+        <div class="candidate-topic-group__heading">
+          <h3>${escapeHtml(group.title)}</h3>
+          <p>${escapeHtml(group.note)}</p>
+        </div>
+        <div class="candidate-topic-grid">${cards}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderReportCategoryTree(container, tree, overview = {}) {
+    const nodes = Array.isArray(tree) ? tree : [];
+    if (!nodes.length) return false;
+
+    const colors = ['#2563eb', '#ef4444', '#8b5cf6', '#10b981', '#f59e0b', '#14b8a6'];
+    const excludedIds = new Set(['spam', 'flow-answer']);
+    const visibleNodes = nodes.filter((node) => !excludedIds.has(node.id));
+    const excludedNodes = nodes.filter((node) => excludedIds.has(node.id) && safeNum(node.eventCount) > 0);
+    const visibleSlices = visibleNodes.flatMap((node) => {
+      const children = Array.isArray(node.children) ? node.children : [];
+      if (children.length) {
+        return children
+          .filter((child) => safeNum(child.eventCount) > 0)
+          .map((child) => ({
+            ...child,
+            parentLabel: safeString(node.label || '', 120)
+          }));
+      }
+      return [{
+        ...node,
+        parentLabel: ''
+      }];
+    });
+    const visibleEventCount = visibleSlices.reduce((sum, node) => sum + safeNum(node.eventCount), 0);
+    const rawEventCount = nodes.reduce((sum, node) => sum + safeNum(node.eventCount), 0);
+    const reportEventCount = safeNum(overview.reportEventCount);
+    const totalEventCount = safeNum(overview.totalEventCount);
+    const reportDenominator = reportEventCount || visibleEventCount || 1;
+    const totalDenominator = totalEventCount || visibleEventCount || 1;
+    if (visibleEventCount <= 0) {
+      container.innerHTML = '<p class="empty-state">扣除低資訊量分類後，目前沒有足夠的檢舉分類資料可呈現。</p>';
+      return true;
+    }
+    const shareDenominator = visibleEventCount || 1;
+    const pctOfShare = (count) => formatPercent((safeNum(count) / shareDenominator) * 100, 1);
+    const pctOfTotal = (count) => formatPercent((safeNum(count) / totalDenominator) * 100, 1);
+    const renderMeta = (node) => `${formatNumber(node.eventCount)} 件 · ${pctOfShare(node.eventCount)}`;
+    const pointOnCircle = (cx, cy, r, angle) => {
+      const rad = (angle - 90) * Math.PI / 180;
+      return {
+        x: cx + (r * Math.cos(rad)),
+        y: cy + (r * Math.sin(rad))
+      };
+    };
+    const piePath = (cx, cy, r, startAngle, endAngle) => {
+      const start = pointOnCircle(cx, cy, r, endAngle);
+      const end = pointOnCircle(cx, cy, r, startAngle);
+      const largeArc = endAngle - startAngle > 180 ? 1 : 0;
+      return [
+        `M ${cx} ${cy}`,
+        `L ${start.x.toFixed(3)} ${start.y.toFixed(3)}`,
+        `A ${r} ${r} 0 ${largeArc} 0 ${end.x.toFixed(3)} ${end.y.toFixed(3)}`,
+        'Z'
+      ].join(' ');
+    };
+
+    let currentAngle = 0;
+    const slices = visibleSlices.map((node, index) => {
+      const value = safeNum(node.eventCount);
+      const angle = shareDenominator > 0 ? (value / shareDenominator) * 360 : 0;
+      const startAngle = currentAngle;
+      const endAngle = Math.min(360, currentAngle + angle);
+      currentAngle = endAngle;
+      const color = colors[index % colors.length];
+      if (value <= 0) return '';
+      if (angle >= 359.99) {
+        return `<circle cx="100" cy="100" r="82" fill="${color}"></circle>`;
+      }
+      return `<path d="${piePath(100, 100, 82, startAngle, endAngle)}" fill="${color}">
+        <title>${escapeHtml(displayCategoryLabel(node.label))} ${escapeHtml(renderMeta(node))}</title>
+      </path>`;
+    }).join('');
+
+
+    const rows = visibleSlices.map((node, index) => {
+      const color = colors[index % colors.length];
+      const parentNote = node.parentLabel
+        ? `<p class="category-pie__note">${escapeHtml(node.parentLabel)} · 占全部事件 ${escapeHtml(pctOfTotal(node.eventCount))}</p>`
+        : `<p class="category-pie__note">占全部事件 ${escapeHtml(pctOfTotal(node.eventCount))}</p>`;
+      return `<li class="category-pie__legend-row">
+        <div class="category-pie__legend-main">
+          <span class="category-pie__dot" style="background:${color}"></span>
+          <span class="category-pie__label">${escapeHtml(displayCategoryLabel(node.label))}</span>
+          <span class="category-pie__meta">${escapeHtml(renderMeta(node))}</span>
+        </div>
+        ${parentNote}
+      </li>`;
+    }).join('');
+    const excludedNote = excludedNodes.length
+      ? `<p class="category-pie-excluded">已排除低資訊量分類：${excludedNodes.map((node) => `${escapeHtml(node.label || '')} ${formatNumber(node.eventCount)} 件`).join('、')}。原始檢舉分類合計 ${formatNumber(rawEventCount)} 件。</p>`
+      : '';
+
+    container.innerHTML = `<div class="category-pie-wrap">
+      <div class="category-pie-summary">
+        <span>主要檢舉子分類合計</span>
+        <strong>${formatNumber(visibleEventCount)}</strong>
+        <span>件，占檢舉事件 ${formatPercent((visibleEventCount / reportDenominator) * 100, 1)}；占全部事件 ${formatPercent((visibleEventCount / totalDenominator) * 100, 1)}</span>
+      </div>
+      <div class="category-pie-layout">
+        <div class="category-pie-chart">
+          <svg viewBox="0 0 200 200" role="img" aria-label="檢舉分類圓餅圖">
+            ${slices}
+            <circle cx="100" cy="100" r="82" fill="none" stroke="#fff" stroke-width="1"></circle>
+          </svg>
+        </div>
+        <ul class="category-pie__legend">${rows}</ul>
+      </div>
+      ${excludedNote}
+    </div>`;
+    return true;
+  }
+
+  function renderReportCategories(container, categories, overview = {}, categoryTree = []) {
+    if (!container) return;
+    if (renderReportCategoryTree(container, categoryTree, overview)) return;
     const items = Array.isArray(categories) ? categories : [];
     if (!items.length) {
       container.innerHTML = '<p class="empty-state">目前沒有達到公開門檻的檢舉分類資料。</p>';
@@ -1064,7 +1526,8 @@ topNarratives: [
     const categoryEventCount = items.reduce((sum, cat) => sum + safeNum(cat.eventCount), 0);
     const reportEventCount = safeNum(overview.reportEventCount);
     const totalEventCount = safeNum(overview.totalEventCount);
-    const denominator = totalEventCount || categoryEventCount || 1;
+    const reportDenominator = reportEventCount || categoryEventCount || 1;
+    const totalDenominator = totalEventCount || categoryEventCount || 1;
     const normalized = items.map((cat, index) => {
       const eventCount = safeNum(cat.eventCount);
       const accountCount = safeNum(cat.accountCount);
@@ -1073,15 +1536,15 @@ topNarratives: [
         : safeNum(cat.sharePct);
       const reportPct = reportEventCount > 0
         ? Number(((eventCount / reportEventCount) * 100).toFixed(1))
-        : 0;
+        : safeNum(cat.sharePct);
       return {
         color: colors[index % colors.length],
-        label: escapeHtml(cat.label || ''),
+        label: escapeHtml(displayCategoryLabel(cat.label)),
         pct: allEventPct,
         reportPct,
         eventCount,
         accountCount,
-        arcLength: (Math.max(allEventPct, 0) / 100) * circumference
+        arcLength: (Math.max(reportPct, 0) / 100) * circumference
       };
     });
 
@@ -1106,9 +1569,9 @@ topNarratives: [
     const legend = normalized.map((cat) => `<div class="donut-legend-row">
       <span class="donut-legend-dot" style="background:${cat.color}"></span>
       <span class="donut-legend-label">${cat.label}</span>
-      <span class="donut-legend-pct">${formatPercent(cat.pct)} 全部</span>
+      <span class="donut-legend-pct">${formatPercent(cat.reportPct)} 檢舉</span>
       <span class="donut-legend-count">${formatNumber(cat.eventCount)} 事件</span>
-      <span class="donut-legend-count">${formatPercent(cat.reportPct)} 檢舉</span>
+      <span class="donut-legend-count donut-legend-count--muted">${formatPercent(cat.pct)} 全部</span>
     </div>`).join('');
 
     container.innerHTML = `<div class="donut-wrap">
@@ -1123,9 +1586,10 @@ topNarratives: [
             stroke-width="${strokeWidth}"
           ></circle>
           ${segments}
-          <text x="${cx}" y="88" text-anchor="middle" class="donut-center-label">分類事件</text>
+          <text x="${cx}" y="88" text-anchor="middle" class="donut-center-label">檢舉分類</text>
           <text x="${cx}" y="108" text-anchor="middle" class="donut-center-value">${formatNumber(categoryEventCount)}</text>
-          <text x="${cx}" y="126" text-anchor="middle" class="donut-center-note">占全部 ${formatPercent((categoryEventCount / denominator) * 100, 1)}</text>
+          <text x="${cx}" y="126" text-anchor="middle" class="donut-center-note">占檢舉 ${formatPercent((categoryEventCount / reportDenominator) * 100, 1)}</text>
+          <text x="${cx}" y="140" text-anchor="middle" class="donut-center-note">占全部 ${formatPercent((categoryEventCount / totalDenominator) * 100, 1)}</text>
         </svg>
       </div>
       <div class="donut-legend">${legend}</div>
@@ -1173,8 +1637,12 @@ topNarratives: [
     fetchPoliticalEvents: loadPoliticalEvents,
     computeWindowMetrics,
     buildSignalBadges,
+    renderHeroDataSentence,
+    renderStatCards,
+    renderKeyInsights,
     renderTrendChart,
     renderTrendReadout,
+    renderCandidateTopics,
     renderNarratives,
     renderReportCategories,
     toggleMockMode,

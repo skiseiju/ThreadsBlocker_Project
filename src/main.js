@@ -21,6 +21,7 @@ import './features/three-no-watch.js';
     Storage.migratePlatformSyncConsent();
     console.log('[留友封] Extension Script Initializing...');
     Core.ThreeNoWatch?.installNetworkDiscoveryListener?.();
+    Core.ThreeNoWatch?.installAboutProfilePassiveBridge?.();
     const versionAtBoot = Storage.get(CONFIG.KEYS.VERSION_CHECK, '');
     const hadExistingInstallAtBoot = !!versionAtBoot;
     const shouldShowReleaseNotes = hadExistingInstallAtBoot
@@ -396,6 +397,10 @@ import './features/three-no-watch.js';
         });
     }
 
+    function isRetiredAnnouncement(announcement) {
+        return String(announcement?.id || '').trim() === '2026-06-17-v271';
+    }
+
     function normalizeAnnouncementFeed(raw) {
         const feed = raw && typeof raw === 'object' ? raw : {};
         const list = Array.isArray(feed.announcements)
@@ -404,6 +409,7 @@ import './features/three-no-watch.js';
         const now = Date.now();
         return list
             .filter(item => item && typeof item === 'object')
+            .filter(item => !isRetiredAnnouncement(item))
             .filter(item => item.active !== false)
             .filter(item => {
                 const startsAt = item.startsAt ? Date.parse(item.startsAt) : 0;
@@ -422,9 +428,13 @@ import './features/three-no-watch.js';
     }
 
     async function fetchLatestAnnouncement() {
-        const cached = Storage.getJSON(CONFIG.KEYS.ANNOUNCEMENT_CACHE, null);
+        let cached = Storage.getJSON(CONFIG.KEYS.ANNOUNCEMENT_CACHE, null);
         const lastCheckAt = parseInt(Storage.get(CONFIG.KEYS.ANNOUNCEMENT_LAST_CHECK_AT, '0') || '0', 10) || 0;
         const interval = parseInt(CONFIG.ANNOUNCEMENT_FEED_CHECK_INTERVAL_MS || '21600000', 10) || 21600000;
+        if (cached && typeof cached === 'object' && isRetiredAnnouncement(cached)) {
+            Storage.remove(CONFIG.KEYS.ANNOUNCEMENT_CACHE);
+            cached = null;
+        }
         if (cached && typeof cached === 'object' && Date.now() - lastCheckAt < interval) {
             return cached;
         }
@@ -460,17 +470,25 @@ import './features/three-no-watch.js';
         return getBundledAnnouncement();
     }
 
+    let pendingAnnouncementPromise = null;
+    async function getUnseenAnnouncement() {
+        if (!pendingAnnouncementPromise) pendingAnnouncementPromise = fetchLatestAnnouncement();
+        const announcement = await pendingAnnouncementPromise;
+        const id = String(announcement?.id || '').trim();
+        if (!id) return null;
+        if (Storage.get(CONFIG.KEYS.ANNOUNCEMENT_SEEN_ID, '') === id) return null;
+        return announcement;
+    }
+
     function scheduleAnnouncementFeedCheck(delay = 2200) {
         setTimeout(async () => {
-            if (document.querySelector('.hege-manager-overlay')) {
+            if (document.querySelector('.hege-manager-overlay') && !document.getElementById('hege-release-notes-overlay')) {
                 setTimeout(() => scheduleAnnouncementFeedCheck(900), 900);
                 return;
             }
-            const announcement = await fetchLatestAnnouncement();
-            const id = String(announcement?.id || '').trim();
-            if (!id) return;
-            if (Storage.get(CONFIG.KEYS.ANNOUNCEMENT_SEEN_ID, '') === id) return;
-            if (document.querySelector('.hege-manager-overlay')) {
+            const announcement = await getUnseenAnnouncement();
+            if (!announcement) return;
+            if (document.querySelector('.hege-manager-overlay') && !document.getElementById('hege-release-notes-overlay')) {
                 setTimeout(() => scheduleAnnouncementFeedCheck(900), 900);
                 return;
             }
@@ -1009,9 +1027,16 @@ import './features/three-no-watch.js';
             const panel = UI.createPanel(callbacks);
 
             if (shouldShowReleaseNotes) {
-                const tryShowReleaseNotes = (attempt = 0) => {
+                const tryShowReleaseNotes = async (attempt = 0) => {
                     if (!document.querySelector('.hege-manager-overlay')) {
-                        UI.showReleaseNotesModal();
+                        const announcement = await getUnseenAnnouncement();
+                        if (!document.querySelector('.hege-manager-overlay')) {
+                            UI.showReleaseNotesModal({ announcement });
+                            return;
+                        }
+                        if (attempt < 3) {
+                            setTimeout(() => tryShowReleaseNotes(attempt + 1), 1200);
+                        }
                         return;
                     }
                     if (attempt < 3) {
@@ -1019,8 +1044,9 @@ import './features/three-no-watch.js';
                     }
                 };
                 setTimeout(() => tryShowReleaseNotes(), 1200);
+            } else {
+                scheduleAnnouncementFeedCheck(1400);
             }
-            scheduleAnnouncementFeedCheck(shouldShowReleaseNotes ? 2600 : 1400);
 
             const syncCompletedReportSelection = () => {
                 const completedUsers = Storage.getJSON(CONFIG.KEYS.REPORT_COMPLETED_USERS, []);

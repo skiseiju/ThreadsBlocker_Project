@@ -126,3 +126,18 @@ CREATE TABLE IF NOT EXISTS platform_daily_metrics (
 
 CREATE INDEX IF NOT EXISTS idx_platform_daily_upload ON platform_daily_metrics(upload_id);
 CREATE INDEX IF NOT EXISTS idx_platform_daily_day ON platform_daily_metrics(day_key DESC);
+
+CREATE TABLE IF NOT EXISTS topic_sample_reviews (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  topic_id TEXT,
+  sample_text TEXT,
+  deidentified_text TEXT,
+  account_count INTEGER,
+  observer_count INTEGER,
+  status TEXT DEFAULT 'pending',
+  created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  decided_at TEXT,
+  UNIQUE(topic_id, deidentified_text)
+);
+
+CREATE INDEX IF NOT EXISTS idx_topic_sample_reviews_status ON topic_sample_reviews(status, created_at DESC);

@@ -3,7 +3,7 @@ export const BUNDLED_ANNOUNCEMENT_FEED = {
         {
             id: '2026-06-17-v271',
             publishedAt: '2026-06-17T16:30:00+08:00',
-            active: true,
+            active: false,
             title: '留友封 2.7.1 最新消息',
             subtitle: '開發者帳號回來了，請 follow @skiseiju',
             body: '這次也希望大家可以因為 Meta 大封鎖，去附議推動跨境數位平台設立臺灣實體據點法定代理人與常駐真人客服申訴機制，讓大家以後不會被平台綁架又求助無門。2.7.1 主要修正三無判斷、新版三點選單、失敗清單清除與設定分區；也確認一個限制：粉絲數很大的帳號可能只讓網頁載入前 50 位，留友封只能掃 Threads 目前實際顯示出來的名單。',

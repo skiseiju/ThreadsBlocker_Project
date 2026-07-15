@@ -1,3 +1,206 @@
+## v2.7.4-beta43 — B8 話術樣本覆核佇列與動態事件錨點
+
+*   **TL;DR：新增去識別化話術樣本的人工覆核佇列與公開卡片句型描述，並讓最近 14 日政治事件可自動形成去重錨點。**
+*   **樣本與隱私**：只有達到至少 20 個帳號、3 個獨立觀測來源的樣本才進入 pending 佇列；公開端只讀 approved 的去識別化文字，帳號名稱不自動剔除而交由人工覆核，公開模板不使用「網軍／機器人／假帳號／側翼」定性詞。
+*   **Worker API**：新增 `topic_sample_reviews` derived table、admin 列出/核准/拒絕端點與 API thresholds；不改變既有平台上傳 payload 欄位或 extension 同意、每日自動/手動上傳偏好。
+*   **Storage / 偏好**：新增的是 Worker D1 覆核佇列，不是 extension storage key；`platform-sync-v2` 與既有本機偏好不因 beta 版號重置。
+
+## v2.7.4-beta41 — CWS Credentials 隱私揭露補強
+
+*   **TL;DR：依 Chrome Web Store 退件信指定的 `credentials` 類型，補強隱私政策與 CWS listing draft，明確說明留友封不收集、不讀取、不儲存、不上傳也不分享認證資訊。**
+*   **隱私政策**：`/privacy/` 新增 Credentials / 認證資訊資料表列與專段說明，涵蓋 Threads 密碼、登入憑證、雙因素驗證碼、session cookies、access tokens、refresh tokens 與 OAuth tokens。
+*   **CWS 文案同步**：首頁摘要與 `docs/CWS_LISTING_DRAFT.md` 同步使用 CWS 審查字眼 Credentials / authentication information，避免審查員只看到「密碼」而判定未揭露 credentials 類型。
+*   **Storage / 隱私**：未新增 extension storage key；未變更平台同步同意版本 `platform-sync-v2`、上傳資料範圍、每日自動/手動上傳偏好或本機資料讀寫流程。
+
+## v2.7.4-beta40 — 官網隱私頁品牌規範整理
+
+*   **TL;DR：統一產品首頁與隱私權政策頁的品牌 banner、導覽列、色票與資料揭露入口，讓 Chrome Web Store 審查只指向 `/privacy/` 這份正式政策。**
+*   **官網整理**：首頁「隱私政策」改為「隱私與資料邊界」摘要，明確標示完整隱私權政策頁是唯一正式版本；隱私頁 hero 改成與首頁一致的「留友封 / ThreadsBlocker」品牌結構。
+*   **CWS 隱私口徑**：`/privacy/` 保留完整收集、處理、儲存、分享、刪除與 Limited Use 內容；首頁不再保留第二份長版政策，避免舊日期或重複口徑誤導審查。
+*   **Storage / 隱私**：未新增 extension storage key；未變更平台同步同意版本 `platform-sync-v2`、上傳資料範圍、每日自動/手動上傳偏好或本機資料讀寫流程。
+
+## v2.7.4-beta29 — Chrome profile header checkbox 修正
+
+*   **TL;DR：修正真實 Chrome / Threads 頁面沒有 `main` / `role=main` 時，profile header checkbox 仍不會出現的問題。**
+*   **Profile checkbox**：profile root 新增支援 Threads 目前的「直欄內文」容器，並避開頂部 sticky 標題列，改插在真正 profile header 的 username 旁。
+*   **Chrome installed truth**：在本機 Google Chrome 實測 beta28 時，文章 checkbox / badge 已回來，但 profile header checkbox 為 0；本版針對該真實 DOM 形狀修正。
+*   **Storage / 隱私**：未新增 storage key；不重置平台同步同意、公告已讀、升版已讀或每日上傳偏好。
+
+## v2.7.4-beta28 — profile 安全位置 checkbox
+
+*   **TL;DR：profile 頁重新提供可勾選入口，但放在帳號 username 旁的安全位置，不再插到 Instagram / 通知 / 更多 icon row。**
+*   **Profile checkbox**：進入他人 profile 時會在 header 左側帳號資訊區加入一顆 profile-level checkbox；空帳、私密帳或文章沒載出時也能直接加入封鎖/檢舉清單。
+*   **Badge 修正**：profile checkbox 可顯示同一顆「命名可疑 / 疑似假帳號」badge；文章旁 badge 維持原定位。
+*   **日期修正**：文章判斷新增 `2026-6-7`、`2025-5-13` 這類 Threads 絕對日期格式，避免 hawk 類貼文漏掉 checkbox/badge。
+*   **Storage / 隱私**：未新增 storage key；不重置平台同步同意、公告已讀、升版已讀或每日上傳偏好。
+
+## v2.7.4-beta27 — 文章 checkbox 延遲補回
+
+*   **TL;DR：修正 beta25 在 Threads DOM 還沒長出完整 username / 時間時就把 more button 標成已處理，導致文章旁 checkbox 與「命名可疑」badge 都不再出現。**
+*   **Checkbox 修正**：找不到 username 或暫時判斷不到貼文脈絡時不再永久標記 `data-hege-checked`，下一輪掃描會補回；profile header 仍不注入文章 checkbox。
+*   **Badge 修正**：貼文脈絡判斷放寬成同一小段容器內有 username 與時間即可，不要求同一行，避免真實 Threads DOM 換行造成 badge 消失。
+*   **Storage / 隱私**：未新增 storage key；不重置平台同步同意、公告已讀、升版已讀或每日上傳偏好。
+
+## v2.7.4-beta26 — CWS 隱私政策完整頁
+
+*   **TL;DR：新增獨立完整隱私權政策頁，讓 Chrome Web Store 隱私權政策網址可直接指向收集、處理、儲存、分享、保留、刪除與安全措施俱全的頁面。**
+*   **CWS 退件修正**：新增 `/privacy/` 完整政策頁，補齊醒目資料揭露、資料類型、處理用途、本機/伺服器儲存、公告 feed request metadata、第三方基礎設施、使用者控制與 Limited Use 聲明；首頁與 CWS listing draft 改指向固定政策 URL。
+*   **Storage / 隱私**：未新增 extension storage key；未變更平台同步同意版本 `platform-sync-v2`、上傳資料範圍、每日自動/手動上傳偏好或本機資料讀寫流程。
+
+## v2.7.4-beta25 — profile header 不注入文章 checkbox
+
+*   **TL;DR：修正 profile header 右側 Instagram / 通知 / 更多三個圖示旁也被塞入文章勾選框，造成圖示和 checkbox 互相覆蓋。**
+*   **Badge / Checkbox 修正**：`scanAndInject` 現在會先確認 more button 位於真實貼文脈絡（作者 username + 時間），才注入文章 checkbox；profile header/action row 不再注入文章 checkbox，也就不會擋到三個圖示。
+*   **Storage / 隱私**：未新增 storage key；不重置平台同步同意、公告已讀、升版已讀或每日上傳偏好。
+
+## v2.7.4-beta24 — 文章 badge 真實 DOM 修正
+
+*   **TL;DR：修正 beta23 誤用 `role=article` 判斷 Threads 文章，導致 `koala800515` 這類真實貼文旁 checkbox 沒有顯示「命名可疑」。**
+*   **Badge 修正**：文章 checkbox 改用 Threads 實際 DOM 特徵判斷：同一小段祖先文字內同時有作者 username 與時間（例如 `koala800515 22小時`）才顯示 badge；profile header/action row 沒有時間，不顯示也不覆蓋按鈕。
+*   **Storage / 隱私**：未新增 storage key；不重置平台同步同意、公告已讀、升版已讀或每日上傳偏好。
+
+## v2.7.4-beta23 — 文章 badge 定位修正
+
+*   **TL;DR：修正 beta22 把「命名可疑」掛在 profile/action row 造成蓋住按鈕，且文章旁 checkbox 反而看不到 badge 的問題。**
+*   **Badge 修正**：badge 改掛在文章 checkbox 自己裡面，只在 `[role="article"]` / `article` 內顯示；profile header、tab、username link 旁不顯示也不覆蓋按鈕。
+*   **Storage / 隱私**：未新增 storage key；不重置平台同步同意、公告已讀、升版已讀或每日上傳偏好。
+
+## v2.7.4-beta22 — 命名可疑只留勾選框旁
+
+*   **TL;DR：修正「命名可疑 / 疑似假帳號」同時出現在 username、profile tab 與勾選框旁的重複問題。**
+*   **Badge 修正**：可見 username / profile link 旁不再新增 badge；舊版殘留的 link badge 會在同步時清掉，只保留勾選框旁一顆本機提示。
+*   **Storage / 隱私**：未新增 storage key；不重置平台同步同意、公告已讀、升版已讀或每日上傳偏好。
+
+## v2.7.4-beta21 — 更新視窗補 2.7.3
+
+*   **TL;DR：補上更新視窗「最近更新」漏列的 2.7.3，讓 2.7.4 系列視窗能銜接上一個正式版。**
+*   **Modal 修正**：最近更新列表新增 2.7.3 Firefox AMO 自動發布流程與送審產物來源修正摘要。
+*   **Release 流程**：release / release QA skill 加入正式版公告 feed 檢查，避免正式版只改 changelog 卻忘記公告。
+*   **Storage / 隱私**：未新增 storage key；不重置平台同步同意、公告已讀、升版已讀或每日上傳偏好。
+
+## v2.7.4-beta20 — 資訊視窗固定可見滑桿
+
+*   **TL;DR：修正 beta19 在 macOS / Chrome / Safari 仍可能完全看不到 scrollbar 的問題，改成留友封自己畫固定可見的右側滑桿。**
+*   **Modal 修正**：前四種長版資訊視窗改用自繪 scroll track / thumb，內容仍用原本區塊滾動，截圖與實機都會看到右側金色滑桿。
+*   **Storage / 隱私**：未新增 storage key；不重置平台同步同意、公告已讀、升版已讀或每日上傳偏好。
+
+## v2.7.4-beta19 — 資訊視窗可見 scrollbar
+
+*   **TL;DR：前四種資訊視窗的內容區改成實體可見 scrollbar，不再被 macOS / Chrome overlay scrollbar 自動隱藏。**
+*   **Modal 修正**：更新/首次使用資訊視窗右側加入固定 scrollbar gutter、深色軌道與金色 thumb；公告單獨視窗仍保持短版。
+*   **Storage / 隱私**：未新增 storage key；不重置平台同步同意、公告已讀、升版已讀或每日上傳偏好。
+
+## v2.7.4-beta18 — 資訊視窗滾動區調整
+
+*   **TL;DR：使用前說明 / 升版更新這組資訊視窗改成固定高度，中間內容區顯示 scrollbar，避免前四種情境看起來太短。**
+*   **Modal 修正**：首次使用、首次使用含公告、升版、升版含公告都使用同一個高版型；只有公告單獨跳出時維持較短版型。
+*   **Storage / 隱私**：未新增 storage key；不重置平台同步同意、公告已讀、升版已讀或每日上傳偏好。
+
+## v2.7.4-beta17 — 無公告升版視窗修正
+
+*   **TL;DR：修正 beta16 在「沒有未讀最新消息」時開啟升版視窗可能噴 `content.js:2263` 錯誤。**
+*   **Modal 修正**：公告資料解析現在會把 `null` / 非物件當成沒有公告，不再阻斷「留友封更新了」或「使用前說明與更新重點」視窗。
+*   **Storage / 隱私**：未新增 storage key；不重置平台同步同意、公告已讀、升版已讀或每日上傳偏好。
+
+## v2.7.4-beta16 — 資訊視窗整合
+
+*   **TL;DR：使用前說明、升版更新與最新消息改成共用同一個資訊視窗容器；有未讀區塊才顯示，沒有就不佔空間。**
+*   **Modal 修正**：升版時會先把未讀最新消息合併進「留友封更新了」視窗；最新消息單獨出現時也改用同一個容器，不再維護第二套彈窗。
+*   **Storage / 隱私**：未新增 storage key；仍分別使用 `hege_release_notes_seen_version` 與 `hege_announcement_seen_id` 記錄已讀，不重置平台同步同意或每日上傳偏好。
+
+## v2.7.4-beta15 — 首次使用說明合併更新重點
+
+*   **TL;DR：第一次安裝時只顯示一個「使用前說明與更新重點」視窗，不再先看使用前說明、下次又補跳新版更新說明。**
+*   **Modal 修正**：首次使用按「我同意並繼續」會同時記錄使用前同意與本版更新已讀；既有使用者升版仍看原本的更新說明。
+*   **Storage / 隱私**：未新增 storage key，未重置平台同步同意、每日自動/手動上傳偏好或其他使用者偏好。
+
+## v2.7.4-beta14 — 停用 checkbox lane 假帳號 badge
+
+*   **TL;DR：假帳號提示只保留 username 旁的 badge，checkbox 旁的舊定位 badge 會被清掉，避免同一個帳號上下各一顆。**
+*   **Badge 修正**：checkbox 同步流程不再新增 `命名可疑 / 疑似假帳號` badge，只負責移除舊版殘留；封鎖 checkbox 功能不變。
+*   **Storage / 隱私**：未新增 storage key，未變更平台同步同意版本、上傳資料範圍或使用者偏好。
+
+## v2.7.4-beta13 — 同列多 profile link badge 去重
+
+*   **TL;DR：Threads 同一列若有多個連到同帳號的 profile link，只會選一個位置顯示「命名可疑 / 疑似假帳號」。**
+*   **Badge 修正**：同 row 同 username 的舊 badge 會在同步時清掉，避免 display name、username、avatar 或 checkbox 路徑各畫一顆。
+*   **Storage / 隱私**：未新增 storage key，未變更平台同步同意版本、上傳資料範圍或使用者偏好。
+
+## v2.7.4-beta12 — 命名可疑 badge 去重
+
+*   **TL;DR：同一列同一個帳號只保留一顆「命名可疑 / 疑似假帳號」badge，避免 username 旁與 checkbox 旁重複顯示。**
+*   **Badge 修正**：若同列已有 matching username 連結，假帳號提示固定由 username 旁的 badge 顯示；checkbox 旁的舊提示會移除並不再重建。
+*   **Storage / 隱私**：未新增 storage key，未變更平台同步同意版本、上傳資料範圍或使用者偏好。
+
+## v2.7.4-beta11 — Threads 載入效能修正
+
+*   **TL;DR：全站 DOM 監聽改成 debounce 掃描，避免 Threads 載入時大量 DOM 變更觸發上百次留友封掃描，拖慢首頁與 activity。**
+*   **效能修正**：`scanAndInject` 不再被每個 boot-time mutation 直接連打；備援輪詢也回到較保守節奏。
+*   **Storage / 隱私**：未新增 storage key，未變更平台同步同意版本、上傳資料範圍或使用者偏好。
+
+## v2.7.4-beta10 — 升版訊息按鈕防卡死
+
+*   **TL;DR：新版更新訊息與最新消息視窗會先移除遮罩，再記錄已讀，避免 storage 暫時失敗時整個 Threads 頁面被遮罩卡住。**
+*   **Modal 修正**：更新訊息的關閉、CWS 評價、贊助，以及最新消息 CTA 都改成不讓已讀狀態寫入失敗阻斷按鈕動作。
+*   **Storage / 隱私**：未新增 storage key，未變更平台同步同意版本、上傳資料範圍或使用者偏好。
+
+## v2.7.4-beta9 — Safari Userscript inline bridge 停用
+
+*   **TL;DR：Safari / Userscript 版也停用 content script 的 inline about bridge，避免 Threads CSP 或 Userscripts 注入差異造成頁面卡住。**
+*   **Safari fallback**：Safari / Userscript 沒有 Chrome manifest 的 `page-bridge.js` MAIN-world 橋接檔，現在會直接走既有頁面文字與三點選單 fallback；Chrome extension 仍使用 manifest page bridge。
+*   **Storage / 隱私**：未新增 storage key，未變更平台同步同意版本、上傳資料範圍或使用者偏好。
+
+## v2.7.4-beta8 — Chrome extension CSP 錯誤修正
+
+*   **TL;DR：Chrome extension 版不再從 content script 注入 inline about bridge，避免背景錯誤頁累積 Content Security Policy 錯誤。**
+*   **Page bridge**：Chrome extension 已由 manifest 以 `world: "MAIN"` 載入 `page-bridge.js`，content script 改為只 ping 既有 bridge；Userscript / Firefox fallback 不變。
+*   **Storage / 隱私**：未新增 storage key，未變更平台同步同意版本、上傳資料範圍或使用者偏好。
+
+## v2.7.4-beta7 — 退場舊版最新消息
+
+*   **TL;DR：停用 2.7.1 announcement feed 舊公告，避免 2.7.4 升版訊息後又跳出第二個舊版最新消息。**
+*   **Announcement**：`2026-06-17-v271` 退場；程式也會忽略本機已快取的同一公告 id，避免舊 cache 造成重複彈窗。
+*   **Storage / 隱私**：未新增 storage key，未重置 `hege_release_notes_seen_version`、`hege_announcement_seen_id`、平台同步同意或每日上傳偏好。
+
+## v2.7.4-beta6 — 可見 username 命名 badge
+
+*   **TL;DR：假帳號 badge 改成直接掃畫面上可見的 username 命名，不再等文章右側更多按鈕。**
+*   **命名提示**：留言、文章與搜尋結果中可見的 profile username 若命中「動物字詞 + 數字亂碼」或既有三無待審清單，會直接在 username 旁顯示 `命名可疑` / `疑似假帳號`。
+*   **Storage / 隱私**：未新增 storage key，不抓地區時間、不新增外部 API、不變更平台同步同意版本或上傳資料範圍。
+
+## v2.7.4-beta5 — 加速三無改為預設
+
+*   **TL;DR：加速三無現在固定視為開啟，設定頁不再顯示「加速三無」開關。**
+*   **三無掃描**：關於此個人檔案的加速讀取會預設啟用；若 Threads 限制或橋接不可用，仍沿用既有退回一般三點流程。
+*   **Storage / 隱私**：沿用既有 `hege_three_no_accelerated_profile_enabled` key 但讀取時不再受舊值影響；未新增 storage key，未變更平台同步同意版本、上傳資料範圍或使用者偏好。
+
+## v2.7.4-beta4 — 三無命名規則移除手機格式
+
+*   **TL;DR：移除 `a09xxxxxxxx` 台灣手機號碼形狀的命名可疑判斷，避免把一般手機型帳號誤標成假帳號。**
+*   **命名規則**：三無候選與文章旁 badge 不再因 `a09 + 8 位數` 命中；動物字詞加數字亂碼規則仍保留。
+*   **舊資料修正**：讀取或寫入既有三無待審清單時，會清掉舊版留在 `a09xxxxxxxx` 帳號上的「命名可疑」旗標，讓 filter 立即反映新版口徑。
+*   **Storage / 隱私**：未新增 storage key，未變更平台同步同意版本、上傳資料範圍或使用者偏好。
+
+## v2.7.4-beta3 — 假帳號 badge DOM 更新修正
+
+*   **TL;DR：補強文章旁假帳號 badge 的 DOM 同步，避免 Threads 重用節點時留下舊 username 的提示。**
+*   **Badge 更新**：同步 badge 時會先清除同一 host 上不同 username 的舊 badge，再建立或更新目前作者提示。
+*   **Storage / 隱私**：未新增 storage key，未變更平台同步同意版本、上傳資料範圍或使用者偏好。
+
+## v2.7.4-beta2 — 文章旁 injected API 警告
+
+*   **TL;DR：文章旁假帳號 badge 接上 Threads page-world injected API，可用本機 cache / about API 事件更即時更新提示。**
+*   **Injected API**：啟動時安裝既有 page bridge 監聽，接住 Threads 自己的 profile/about 回應；命中「動物字詞 + 數字亂碼」的文章作者會排入短佇列補抓 about metadata，抓到後同步刷新旁邊 badge。
+*   **提示邏輯**：本機三無待審清單仍顯示「疑似假帳號」；單純命名命中顯示「命名可疑」，若 injected API 顯示同時是新帳號，會升級為「疑似假帳號」並在 title 保留加入時間 / 地區線索。
+*   **Storage / 隱私**：沿用既有三無 profile metadata cache，不新增 storage key、不新增外部 API、不變更平台同步同意版本，也不把帳號清單上傳到平台。
+
+## v2.7.4-beta1 — 文章旁假帳號警告
+
+*   **TL;DR：文章旁新增本機假帳號警告 badge，並擴充三無預設動物命名清單。**
+*   **即時提示**：看文章時會在留友封勾選框旁顯示「疑似假帳號」或「命名可疑」；提示只使用本機三無待審清單與 username 規則，不自動封鎖、不開 profile 深掃。
+*   **命名規則**：新增 alligator、alpaca、llama、panther、unicorn 等預設動物字詞，支援「動物字詞 + 數字亂碼」帳號警告。
+*   **Storage / 隱私**：未新增 storage key，未變更平台同步同意版本、上傳資料範圍或使用者偏好；badge 不會把帳號清單上傳到平台。
+
 ## v2.7.3 — Firefox AMO 自動發布流程正式版
 
 *   **TL;DR：2.7.3 補上 Firefox AMO 一鍵送件流程，並修正本次正式版發版產物來源，避免把 stale beta artifact 上傳到商店。**

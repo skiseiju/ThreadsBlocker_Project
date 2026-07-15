@@ -6,6 +6,85 @@ import { Reporter } from './reporter.js';
 export const UI = {
     getDefaultReportPath: () => ['這是垃圾訊息'],
 
+    rememberModalSeen: (key, value, label = 'modal') => {
+        try {
+            Storage.set(key, value);
+        } catch (err) {
+            console.warn(`[留友封] ${label} seen state save failed:`, err);
+        }
+    },
+
+    getAnnouncementModalData: (announcement = {}) => {
+        const source = announcement && typeof announcement === 'object' ? announcement : {};
+        const id = String(source.id || '').trim();
+        if (!id) return null;
+        const cta = source.cta && typeof source.cta === 'object' ? source.cta : null;
+        const ctaLabel = String(cta?.label || '').trim();
+        const ctaUrl = String(cta?.url || '').trim();
+        return {
+            id,
+            title: String(source.title || '留友封最新消息').trim(),
+            subtitle: String(source.subtitle || source.publishedAt || '').trim(),
+            body: String(source.body || '').trim(),
+            items: Array.isArray(source.items)
+                ? source.items.map(item => String(item || '').trim()).filter(Boolean).slice(0, 8)
+                : [],
+            ctaLabel,
+            ctaUrl,
+            hasCta: !!(ctaLabel && /^https?:\/\//i.test(ctaUrl)),
+        };
+    },
+
+    renderAnnouncementSection: (data, options = {}) => `
+        <div id="hege-announcement-section" data-hege-announcement-id="${Utils.escapeHTML(data.id)}" style="margin:0 0 16px;padding:13px 14px;border:1px solid rgba(90,200,250,0.34);border-radius:10px;background:rgba(90,200,250,0.08);color:#d8f3ff;line-height:1.65;">
+            <div style="font-weight:800;color:#dff7ff;margin-bottom:6px;">${Utils.escapeHTML(data.title || '留友封最新消息')}</div>
+            ${data.subtitle ? `<p style="margin:0 0 10px;color:#9fcfe1;font-size:12px;">${Utils.escapeHTML(data.subtitle)}</p>` : ''}
+            ${data.body ? `<p style="margin:0 0 12px;white-space:pre-wrap;">${Utils.escapeHTML(data.body)}</p>` : ''}
+            ${data.items.length > 0 ? `
+                <ul style="margin:0 0 ${data.hasCta && options.inlineCta ? '12px' : '0'};padding-left:18px;">
+                    ${data.items.map(item => `<li style="margin-bottom:7px;">${Utils.escapeHTML(item)}</li>`).join('')}
+                </ul>
+            ` : ''}
+            ${data.hasCta && options.inlineCta ? `<button type="button" class="hege-manager-btn secondary" data-hege-announcement-cta="true" style="font-size:12px;padding:7px 10px;">${Utils.escapeHTML(data.ctaLabel)}</button>` : ''}
+        </div>
+    `,
+
+    appendAnnouncementToInfoModal: (announcement = {}) => {
+        const overlay = document.getElementById('hege-release-notes-overlay');
+        const sections = overlay?.querySelector('#hege-release-notes-sections');
+        const data = UI.getAnnouncementModalData(announcement);
+        if (!overlay || !sections || !data) return false;
+        if (overlay.dataset.announcementId === data.id || sections.querySelector('#hege-announcement-section')) return true;
+        overlay.dataset.announcementId = data.id;
+        if (sections.lastElementChild) sections.lastElementChild.style.marginBottom = '16px';
+        sections.insertAdjacentHTML('beforeend', UI.renderAnnouncementSection(data, { inlineCta: true }));
+        sections.querySelector('[data-hege-announcement-cta="true"]')?.addEventListener('click', () => {
+            UI.rememberModalSeen(CONFIG.KEYS.ANNOUNCEMENT_SEEN_ID, data.id, 'announcement');
+            window.open(data.ctaUrl, '_blank', 'noopener,noreferrer');
+        });
+        requestAnimationFrame(() => UI.syncReleaseNotesScrollbar(overlay));
+        return true;
+    },
+
+    syncReleaseNotesScrollbar: (overlay = document.getElementById('hege-release-notes-overlay')) => {
+        const sections = overlay?.querySelector('#hege-release-notes-sections');
+        const track = overlay?.querySelector('#hege-release-notes-scrollbar');
+        const thumb = overlay?.querySelector('#hege-release-notes-scrollbar-thumb');
+        if (!sections || !track || !thumb) return;
+        const scrollable = sections.scrollHeight - sections.clientHeight;
+        const trackHeight = track.clientHeight;
+        if (scrollable <= 1 || trackHeight <= 0) {
+            track.style.visibility = 'hidden';
+            return;
+        }
+        track.style.visibility = 'visible';
+        const thumbHeight = Math.max(34, Math.round(trackHeight * sections.clientHeight / sections.scrollHeight));
+        const maxTop = Math.max(0, trackHeight - thumbHeight);
+        const top = Math.round(maxTop * sections.scrollTop / scrollable);
+        thumb.style.height = `${thumbHeight}px`;
+        thumb.style.transform = `translateY(${top}px)`;
+    },
+
     normalizeReportPath: (path) => {
         const source = Array.isArray(path) && path.length > 0 ? path : UI.getDefaultReportPath();
         const ageChoice = source.includes('是') ? '是' : '否';
@@ -74,11 +153,70 @@ export const UI = {
             .hege-checkbox-container.finished { opacity: 0.6; }
             .hege-checkbox-container.finished .hege-svg-icon { color: #555; }
             .hege-checkbox-container:active { transform: scale(0.85); }
+            .hege-fake-account-badge {
+                display: inline-block;
+                pointer-events: none;
+                white-space: nowrap;
+                max-width: 112px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                box-sizing: border-box;
+                border-radius: 999px;
+                padding: 3px 7px;
+                font-size: 11px;
+                font-weight: 800;
+                line-height: 1.15;
+                letter-spacing: 0;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.22);
+            }
+            .hege-checkbox-container > .hege-fake-account-badge {
+                position: absolute;
+                right: calc(100% + 10px);
+                top: 50%;
+                transform: translateY(-50%);
+                z-index: 1001;
+            }
+            .hege-fake-account-badge.warning {
+                color: #ffe69a;
+                background: rgba(90, 63, 5, 0.92);
+                border: 1px solid rgba(236, 195, 81, 0.55);
+            }
+            .hege-fake-account-badge.strong {
+                color: #ffd0cc;
+                background: rgba(92, 20, 17, 0.94);
+                border: 1px solid rgba(255, 69, 58, 0.58);
+            }
+            .hege-fake-account-badge.hege-fake-account-link-badge {
+                position: static;
+                display: inline-block;
+                transform: none;
+                margin-left: 6px;
+                vertical-align: middle;
+            }
+            @media (max-width: 420px) {
+                .hege-fake-account-badge { max-width: 86px; font-size: 10px; padding: 3px 6px; }
+            }
             .hege-profile-list-checkbox {
                 width: 30px; height: 30px; min-width: 30px;
                 margin-left: auto; margin-right: 8px;
             }
             .hege-profile-list-checkbox .hege-svg-icon { width: 18px; height: 18px; }
+            .hege-profile-header-checkbox {
+                position: relative;
+                display: inline-flex;
+                width: auto; height: 30px; min-width: 30px;
+                margin-left: 0; margin-right: 8px;
+                gap: 8px;
+                vertical-align: middle;
+                flex: 0 0 auto;
+            }
+            .hege-profile-header-checkbox .hege-svg-icon { width: 18px; height: 18px; }
+            .hege-profile-header-checkbox > .hege-fake-account-badge {
+                position: static;
+                transform: none;
+                flex: 0 0 auto;
+                order: -1;
+            }
             
             .hege-block-all-btn {
                 display: flex; align-items: center; justify-content: center;
@@ -316,6 +454,41 @@ export const UI = {
                 white-space: nowrap;
                 font-size: 12px;
                 padding: 8px 10px;
+            }
+            .hege-release-scroll-wrap {
+                position: relative;
+                flex: 1 1 auto;
+                min-height: 0;
+            }
+            .hege-release-scroll-wrap.with-visible-scrollbar #hege-release-notes-sections {
+                scrollbar-width: none;
+            }
+            .hege-release-scroll-wrap.with-visible-scrollbar #hege-release-notes-sections::-webkit-scrollbar {
+                width: 0;
+                height: 0;
+            }
+            .hege-release-scrollbar {
+                position: absolute;
+                top: 20px;
+                right: 14px;
+                bottom: 20px;
+                width: 10px;
+                border-radius: 999px;
+                background: #242424;
+                border: 1px solid #333;
+                box-sizing: border-box;
+                pointer-events: none;
+            }
+            .hege-release-scrollbar-thumb {
+                position: absolute;
+                top: 0;
+                left: 1px;
+                right: 1px;
+                min-height: 34px;
+                border-radius: 999px;
+                background: #ecc351;
+                box-shadow: 0 0 0 1px rgba(27,19,0,0.45);
+                transform: translateY(0);
             }
             #hege-release-notes-later { justify-self: start; }
             #hege-release-notes-review { justify-self: center; }
@@ -633,146 +806,147 @@ export const UI = {
         };
     },
 
-    showReleaseNotesModal: () => {
-        if (document.getElementById('hege-release-notes-overlay')) return;
+    showReleaseNotesModal: (options = {}) => {
+        if (document.getElementById('hege-release-notes-overlay')) {
+            if (options.announcement) UI.appendAnnouncementToInfoModal(options.announcement);
+            return;
+        }
+        const isFirstUse = !!options.firstUse;
+        const announcementData = UI.getAnnouncementModalData(options.announcement);
+        if (options.announcementOnly && !announcementData) return;
+        const isAnnouncementOnly = !!options.announcementOnly;
+        const showReleaseBlock = isFirstUse || !isAnnouncementOnly;
+        if (!showReleaseBlock && !announcementData) return;
+        const boxStyle = showReleaseBlock
+            ? 'width:min(94vw,680px);max-width:680px;height:min(86vh,760px);height:min(86dvh,760px);max-height:calc(100vh - 28px);max-height:calc(100dvh - 28px);'
+            : 'width:min(94vw,680px);max-width:680px;max-height:calc(100vh - 28px);max-height:calc(100dvh - 28px);';
 
         const overlay = document.createElement('div');
         overlay.id = 'hege-release-notes-overlay';
         overlay.className = 'hege-manager-overlay';
+        if (announcementData?.id) overlay.dataset.announcementId = announcementData.id;
 
         Utils.setHTML(overlay, `
-            <div class="hege-manager-box" style="width:min(94vw,680px);max-width:680px;max-height:calc(100vh - 28px);max-height:calc(100dvh - 28px);">
+            <div class="hege-manager-box" style="${boxStyle}">
                 <div class="hege-manager-header">
-                    <span class="hege-manager-title">留友封更新了</span>
-                    <span class="hege-manager-close" id="hege-release-notes-close">
+                    <span class="hege-manager-title">${isFirstUse ? '使用前說明與更新重點' : (showReleaseBlock ? '留友封更新了' : Utils.escapeHTML(announcementData.title || '留友封最新消息'))}</span>
+                    ${isFirstUse ? '' : `<span class="hege-manager-close" id="hege-release-notes-close">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
-                    </span>
+                    </span>`}
                 </div>
-                <div style="padding:20px 24px;overflow-y:auto;-webkit-overflow-scrolling:touch;font-size:13px;line-height:1.7;color:#d5d5d5;">
-                    <p style="margin:0 0 8px;color:#888;font-size:12px;">版本 ${Utils.escapeHTML(CONFIG.VERSION)}</p>
-                    <div style="margin:0 0 16px;padding:13px 14px;border:1px solid rgba(236,195,81,0.42);border-radius:10px;background:rgba(236,195,81,0.10);color:#f4e2a2;line-height:1.65;">
-                        <div style="font-weight:800;color:#ffe69a;margin-bottom:6px;">開發者近況提醒</div>
-                        <div style="color:#eadfbf;">
-                            開發者帳號已經回來了，之後會持續用真實 Threads 介面做回歸測試。也歡迎 follow <a href="https://www.threads.com/@skiseiju" target="_blank" rel="noopener noreferrer" style="color:#ffe69a;">@skiseiju</a> 追蹤後續修正。
+                <div class="hege-release-scroll-wrap ${showReleaseBlock ? 'with-visible-scrollbar' : ''}">
+                <div id="hege-release-notes-sections" style="height:100%;box-sizing:border-box;padding:${showReleaseBlock ? '20px 44px 20px 24px' : '20px 24px'};overflow-y:${showReleaseBlock ? 'scroll' : 'auto'};overscroll-behavior:contain;-webkit-overflow-scrolling:touch;font-size:13px;line-height:1.7;color:#d5d5d5;">
+                    ${showReleaseBlock ? `
+                        ${isFirstUse ? `
+                            <div style="margin:0 0 16px;padding:13px 14px;border:1px solid rgba(255,255,255,0.14);border-radius:10px;background:#151515;color:#e8e8e8;line-height:1.65;">
+                                <div style="font-weight:800;color:#fff;margin-bottom:6px;">使用前說明</div>
+                                本擴充功能「留友封」僅供輔助過濾資訊，請依個人使用習慣斟酌；若因社群平台政策更動導致失效或異常，開發者不負相關責任。
+                            </div>
+                        ` : ''}
+                        <p style="margin:0 0 8px;color:#888;font-size:12px;">版本 ${Utils.escapeHTML(CONFIG.VERSION)}</p>
+                        <div style="margin:0 0 16px;padding:13px 14px;border:1px solid rgba(236,195,81,0.42);border-radius:10px;background:rgba(236,195,81,0.10);color:#f4e2a2;line-height:1.65;">
+                            <div style="font-weight:800;color:#ffe69a;margin-bottom:6px;">開發者近況提醒</div>
+                            <div style="color:#eadfbf;">
+                                開發者帳號已經回來了，之後會持續用真實 Threads 介面做回歸測試。也歡迎 follow <a href="https://www.threads.com/@skiseiju" target="_blank" rel="noopener noreferrer" style="color:#ffe69a;">@skiseiju</a> 追蹤後續修正。
+                            </div>
+                            <div style="margin-top:8px;color:#eadfbf;">
+                                這次 Meta 大封鎖提醒我們：數位帳號、社群連結與創作成果，都不該被平台單方面封住卻求助無門。希望大家一起附議「推動跨境數位平台設立臺灣實體據點法定代理人與常駐真人客服申訴機制」，讓台灣使用者有基本申訴管道，也讓自己的數位資產更自由、更有保障。<a href="https://join.gov.tw/idea/detail/78f0ba59-bcde-42e2-9920-43d9f293fa0c" target="_blank" rel="noopener noreferrer" style="color:#ffe69a;">前往附議</a>
+                            </div>
+                            <div style="margin-top:8px;color:#eadfbf;">
+                                另外也想請大家看看新的公共連署「社群媒體反詐騙，強制揭露電信國碼與其他來源資訊」。這個提案主張提高社群帳號來源透明度，讓使用者在面對陌生帳號、廣告或大量轉傳內容時，有更多線索判斷可信度；這和留友封希望幫大家保護社群生活的方向很接近。<a href="https://join.gov.tw/idea/detail/2c8c07a0-bdd4-49ad-a5ff-75b1cad58cf0" target="_blank" rel="noopener noreferrer" style="color:#ffe69a;">前往附議</a>
+                            </div>
                         </div>
-                        <div style="margin-top:8px;color:#eadfbf;">
-                            這次 Meta 大封鎖提醒我們：數位帳號、社群連結與創作成果，都不該被平台單方面封住卻求助無門。希望大家一起附議「推動跨境數位平台設立臺灣實體據點法定代理人與常駐真人客服申訴機制」，讓台灣使用者有基本申訴管道，也讓自己的數位資產更自由、更有保障。<a href="https://join.gov.tw/idea/detail/78f0ba59-bcde-42e2-9920-43d9f293fa0c" target="_blank" rel="noopener noreferrer" style="color:#ffe69a;">前往附議</a>
+                        <p style="margin:0 0 12px;color:#f2f2f2;font-weight:700;">功能介紹</p>
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-bottom:18px;">
+                            <div style="border:1px solid #303030;border-radius:8px;padding:12px 13px;background:#141414;">
+                                <div style="font-weight:700;color:#fff;margin-bottom:4px;">2.7 大功能：三無追蹤者掃描</div>
+                                <div style="font-size:12px;color:#aaa;line-height:1.55;">Chrome 版可掃自己或指定帳號粉絲，找出疑似三無帳號，結果只存在本機。</div>
+                            </div>
+                            <div style="border:1px solid #303030;border-radius:8px;padding:12px 13px;background:#141414;">
+                                <div style="font-weight:700;color:#fff;margin-bottom:4px;">三無管理流程</div>
+                                <div style="font-size:12px;color:#aaa;line-height:1.55;">掃描後可續掃、清除、加入安全名單或加入封鎖清單；不會自動封鎖。</div>
+                            </div>
+                            <div style="border:1px solid #303030;border-radius:8px;padding:12px 13px;background:#141414;">
+                                <div style="font-weight:700;color:#fff;margin-bottom:4px;">目前限制</div>
+                                <div style="font-size:12px;color:#aaa;line-height:1.55;">大型帳號可能只載入部分粉絲；留友封只判斷 Threads 當下顯示出的名單。</div>
+                            </div>
                         </div>
-                        <div style="margin-top:8px;color:#eadfbf;">
-                            另外也想請大家看看新的公共連署「社群媒體反詐騙，強制揭露電信國碼與其他來源資訊」。這個提案主張提高社群帳號來源透明度，讓使用者在面對陌生帳號、廣告或大量轉傳內容時，有更多線索判斷可信度；這和留友封希望幫大家保護社群生活的方向很接近。<a href="https://join.gov.tw/idea/detail/2c8c07a0-bdd4-49ad-a5ff-75b1cad58cf0" target="_blank" rel="noopener noreferrer" style="color:#ffe69a;">前往附議</a>
+                        <p style="margin:0 0 10px;color:#f2f2f2;font-weight:700;">最近更新</p>
+                        <ul style="margin:0 0 14px;padding-left:18px;">
+                            <li style="margin-bottom:6px;"><b>2.7.3</b>：補上 Firefox AMO 自動發布流程，並修正 Firefox package 與 source archive 送審產物來源。</li>
+                            <li style="margin-bottom:6px;"><b>2.7.2</b>：加強封鎖/檢舉名單的加密，與「分享到其他設備」功能，並加入多檔匯入；三無清單可顯示本機匯入命中次數；也修正回文彈窗誤出現「清理名單」。</li>
+                            <li style="margin-bottom:6px;"><b>2.7.1</b>：修正三無判斷、新版三點選單、失敗清單清除與設定分區。</li>
+                            <li style="margin-bottom:6px;"><b>2.7.0</b>：加入 Chrome 三無追蹤者掃描，可掃自己或指定帳號粉絲並用本機清單管理。</li>
+                        </ul>
+                        <div style="margin:0 0 ${announcementData ? '16px' : '0'};padding:12px 14px;border:1px solid rgba(236,195,81,0.35);border-radius:10px;background:rgba(236,195,81,0.10);color:#f6df92;font-weight:700;line-height:1.55;">
+                            如果留友封有幫上你的忙，也歡迎贊助我來維持功能更新；或到 Chrome Web Store 留一句評價，讓更多人敢安心安裝。謝謝大家的支持。
                         </div>
-                    </div>
-                    <p style="margin:0 0 12px;color:#f2f2f2;font-weight:700;">功能介紹</p>
-                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-bottom:18px;">
-                        <div style="border:1px solid #303030;border-radius:8px;padding:12px 13px;background:#141414;">
-                            <div style="font-weight:700;color:#fff;margin-bottom:4px;">2.7 大功能：三無追蹤者掃描</div>
-                            <div style="font-size:12px;color:#aaa;line-height:1.55;">Chrome 版可掃自己或指定帳號粉絲，找出疑似三無帳號，結果只存在本機。</div>
-                        </div>
-                        <div style="border:1px solid #303030;border-radius:8px;padding:12px 13px;background:#141414;">
-                            <div style="font-weight:700;color:#fff;margin-bottom:4px;">三無管理流程</div>
-                            <div style="font-size:12px;color:#aaa;line-height:1.55;">掃描後可續掃、清除、加入安全名單或加入封鎖清單；不會自動封鎖。</div>
-                        </div>
-                        <div style="border:1px solid #303030;border-radius:8px;padding:12px 13px;background:#141414;">
-                            <div style="font-weight:700;color:#fff;margin-bottom:4px;">目前限制</div>
-                            <div style="font-size:12px;color:#aaa;line-height:1.55;">大型帳號可能只載入部分粉絲；留友封只判斷 Threads 當下顯示出的名單。</div>
-                        </div>
-                    </div>
-                    <p style="margin:0 0 10px;color:#f2f2f2;font-weight:700;">最近更新</p>
-                    <ul style="margin:0 0 14px;padding-left:18px;">
-                        <li style="margin-bottom:6px;"><b>2.7.2</b>：加強封鎖/檢舉名單的加密，與「分享到其他設備」功能，並加入多檔匯入；三無清單可顯示本機匯入命中次數；也修正回文彈窗誤出現「清理名單」。</li>
-                        <li style="margin-bottom:6px;"><b>2.7.1</b>：修正三無判斷、新版三點選單、失敗清單清除與設定分區。</li>
-                        <li style="margin-bottom:6px;"><b>2.7.0</b>：加入 Chrome 三無追蹤者掃描，可掃自己或指定帳號粉絲並用本機清單管理。</li>
-                    </ul>
-                    <div style="margin:0;padding:12px 14px;border:1px solid rgba(236,195,81,0.35);border-radius:10px;background:rgba(236,195,81,0.10);color:#f6df92;font-weight:700;line-height:1.55;">
-                        如果留友封有幫上你的忙，也歡迎贊助我來維持功能更新；或到 Chrome Web Store 留一句評價，讓更多人敢安心安裝。謝謝大家的支持。
-                    </div>
+                    ` : ''}
+                    ${announcementData ? UI.renderAnnouncementSection(announcementData, { inlineCta: showReleaseBlock }) : ''}
                 </div>
-                <div class="hege-manager-footer hege-release-notes-footer">
-                    <button class="hege-manager-btn secondary" id="hege-release-notes-later">知道了</button>
-                    <button class="hege-manager-btn secondary" id="hege-release-notes-review">前往 CWS 留評</button>
-                    <button class="hege-manager-btn primary" id="hege-release-notes-donate" style="background:#ecc351;color:#1b1300;">贊助維持更新</button>
+                ${showReleaseBlock ? '<div class="hege-release-scrollbar" id="hege-release-notes-scrollbar" aria-hidden="true"><div class="hege-release-scrollbar-thumb" id="hege-release-notes-scrollbar-thumb"></div></div>' : ''}
+                </div>
+                <div class="hege-manager-footer ${isAnnouncementOnly ? '' : 'hege-release-notes-footer'}" style="${isAnnouncementOnly ? 'gap:10px;justify-content:flex-end;flex-wrap:wrap;' : ''}">
+                    <button class="hege-manager-btn ${isFirstUse ? 'primary' : 'secondary'}" id="hege-release-notes-later">${isFirstUse ? '我同意並繼續' : '知道了'}</button>
+                    ${isAnnouncementOnly && announcementData?.hasCta ? `<button class="hege-manager-btn primary" data-hege-announcement-cta="true">${Utils.escapeHTML(announcementData.ctaLabel)}</button>` : ''}
+                    ${showReleaseBlock && !isFirstUse ? `
+                        <button class="hege-manager-btn secondary" id="hege-release-notes-review">前往 CWS 留評</button>
+                        <button class="hege-manager-btn primary" id="hege-release-notes-donate" style="background:#ecc351;color:#1b1300;">贊助維持更新</button>
+                    ` : ''}
                 </div>
             </div>
         `);
         document.body.appendChild(overlay);
 
+        const markSeen = () => UI.rememberModalSeen(CONFIG.KEYS.RELEASE_NOTES_SEEN_VERSION, CONFIG.VERSION, 'release notes');
+        const markAnnouncementSeen = () => {
+            const id = String(overlay.dataset.announcementId || '').trim();
+            if (id) UI.rememberModalSeen(CONFIG.KEYS.ANNOUNCEMENT_SEEN_ID, id, 'announcement');
+        };
+        const sections = overlay.querySelector('#hege-release-notes-sections');
+        let cleanupReleaseScrollbar = () => {};
+        if (showReleaseBlock && sections) {
+            const sync = () => UI.syncReleaseNotesScrollbar(overlay);
+            sections.addEventListener('scroll', sync, { passive: true });
+            window.addEventListener('resize', sync);
+            cleanupReleaseScrollbar = () => {
+                sections.removeEventListener('scroll', sync);
+                window.removeEventListener('resize', sync);
+            };
+            requestAnimationFrame(sync);
+        }
         const close = () => {
-            Storage.set(CONFIG.KEYS.RELEASE_NOTES_SEEN_VERSION, CONFIG.VERSION);
+            cleanupReleaseScrollbar();
             overlay.remove();
+            if (showReleaseBlock) markSeen();
+            markAnnouncementSeen();
+            if (typeof options.onClose === 'function') options.onClose();
         };
-        overlay.querySelector('#hege-release-notes-close').onclick = close;
+        const closeBtn = overlay.querySelector('#hege-release-notes-close');
+        if (closeBtn) closeBtn.onclick = close;
         overlay.querySelector('#hege-release-notes-later').onclick = close;
-        overlay.querySelector('#hege-release-notes-review').onclick = () => {
-            Storage.set(CONFIG.KEYS.RELEASE_NOTES_SEEN_VERSION, CONFIG.VERSION);
+        overlay.querySelectorAll('[data-hege-announcement-cta="true"]').forEach(btn => {
+            btn.onclick = () => {
+                if (isAnnouncementOnly) close();
+                else markAnnouncementSeen();
+                window.open(announcementData.ctaUrl, '_blank', 'noopener,noreferrer');
+            };
+        });
+        const reviewBtn = overlay.querySelector('#hege-release-notes-review');
+        if (reviewBtn) reviewBtn.onclick = () => {
+            close();
             window.open('https://chromewebstore.google.com/detail/%E7%95%99%E5%8F%8B%E5%B0%81-threads-block-tool/goibhoemcnjojlejjlojpikfehmccbbj', '_blank', 'noopener,noreferrer');
-            overlay.remove();
         };
-        overlay.querySelector('#hege-release-notes-donate').onclick = () => {
-            Storage.set(CONFIG.KEYS.RELEASE_NOTES_SEEN_VERSION, CONFIG.VERSION);
+        const donateBtn = overlay.querySelector('#hege-release-notes-donate');
+        if (donateBtn) donateBtn.onclick = () => {
+            close();
             window.open(CONFIG.DONATE_URL, '_blank', 'noopener,noreferrer');
-            overlay.remove();
         };
     },
 
     showAnnouncementModal: (announcement = {}) => {
-        if (document.getElementById('hege-announcement-overlay')) return;
-        const id = String(announcement.id || '').trim();
-        if (!id) return;
-
-        const title = String(announcement.title || '留友封最新消息').trim();
-        const subtitle = String(announcement.subtitle || announcement.publishedAt || '').trim();
-        const body = String(announcement.body || '').trim();
-        const items = Array.isArray(announcement.items)
-            ? announcement.items.map(item => String(item || '').trim()).filter(Boolean).slice(0, 8)
-            : [];
-        const cta = announcement.cta && typeof announcement.cta === 'object' ? announcement.cta : null;
-        const ctaLabel = String(cta?.label || '').trim();
-        const ctaUrl = String(cta?.url || '').trim();
-        const hasCta = ctaLabel && /^https?:\/\//i.test(ctaUrl);
-
-        const overlay = document.createElement('div');
-        overlay.id = 'hege-announcement-overlay';
-        overlay.className = 'hege-manager-overlay';
-
-        Utils.setHTML(overlay, `
-            <div class="hege-manager-box" style="width:min(92vw,620px);max-width:620px;max-height:calc(100vh - 28px);max-height:calc(100dvh - 28px);">
-                <div class="hege-manager-header">
-                    <span class="hege-manager-title">${Utils.escapeHTML(title)}</span>
-                    <span class="hege-manager-close" id="hege-announcement-close">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
-                    </span>
-                </div>
-                <div style="padding:20px 24px;overflow-y:auto;-webkit-overflow-scrolling:touch;font-size:13px;line-height:1.75;color:#d5d5d5;">
-                    ${subtitle ? `<p style="margin:0 0 10px;color:#888;font-size:12px;">${Utils.escapeHTML(subtitle)}</p>` : ''}
-                    ${body ? `<p style="margin:0 0 14px;white-space:pre-wrap;">${Utils.escapeHTML(body)}</p>` : ''}
-                    ${items.length > 0 ? `
-                        <ul style="margin:0;padding-left:18px;">
-                            ${items.map(item => `<li style="margin-bottom:7px;">${Utils.escapeHTML(item)}</li>`).join('')}
-                        </ul>
-                    ` : ''}
-                </div>
-                <div class="hege-manager-footer" style="gap:10px;flex-wrap:wrap;">
-                    <button class="hege-manager-btn secondary" id="hege-announcement-later">知道了</button>
-                    ${hasCta ? `<button class="hege-manager-btn primary" id="hege-announcement-cta">${Utils.escapeHTML(ctaLabel)}</button>` : ''}
-                </div>
-            </div>
-        `);
-        document.body.appendChild(overlay);
-
-        const close = () => {
-            Storage.set(CONFIG.KEYS.ANNOUNCEMENT_SEEN_ID, id);
-            overlay.remove();
-        };
-        overlay.querySelector('#hege-announcement-close').onclick = close;
-        overlay.querySelector('#hege-announcement-later').onclick = close;
-        const ctaBtn = overlay.querySelector('#hege-announcement-cta');
-        if (ctaBtn) {
-            ctaBtn.onclick = () => {
-                Storage.set(CONFIG.KEYS.ANNOUNCEMENT_SEEN_ID, id);
-                window.open(ctaUrl, '_blank', 'noopener,noreferrer');
-                overlay.remove();
-            };
-        }
+        if (UI.appendAnnouncementToInfoModal(announcement)) return;
+        UI.showReleaseNotesModal({ announcement, announcementOnly: true });
     },
 
     showPlatformSyncConsentModal: (options = {}) => {
@@ -1849,13 +2023,6 @@ export const UI = {
                             </div>
                             <span style="color:#777;font-size:11px;line-height:1.35;">備選名單超過此數量後，開始進 profile 確認三無。</span>
                         </div>
-                        <div class="hege-menu-item" id="hege-s-three-no-accelerated-row" style="display:flex; flex-direction:column; align-items:stretch; gap:5px;">
-                            <label style="display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer;">
-                                <span>加速三無</span>
-                                <input id="hege-s-three-no-accelerated" type="checkbox" style="width:16px;height:16px;">
-                            </label>
-                            <span style="color:#777;font-size:11px;line-height:1.35;">只加速「關於此個人檔案」的地區與加入時間；快取 1 天，遇到限制會退回一般三點流程。</span>
-                        </div>
                         <div style="${settingsSectionTitleStyle}">資料移轉</div>
                         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px;">
                             <div class="hege-menu-item" id="hege-s-import" style="border-bottom:none;">
@@ -2072,17 +2239,6 @@ export const UI = {
             threeNoThresholdInput.onblur = commitThreeNoThreshold;
             const threeNoThresholdRow = overlay.querySelector('#hege-s-three-no-threshold-row');
             if (threeNoThresholdRow) threeNoThresholdRow.onclick = (e) => e.stopPropagation();
-        }
-
-        const threeNoAcceleratedToggle = overlay.querySelector('#hege-s-three-no-accelerated');
-        if (threeNoAcceleratedToggle) {
-            threeNoAcceleratedToggle.checked = Storage.getThreeNoAcceleratedProfileEnabled();
-            threeNoAcceleratedToggle.onchange = (e) => {
-                const enabled = Storage.setThreeNoAcceleratedProfileEnabled(e.target.checked);
-                UI.showToast(enabled ? '加速三無已開啟' : '加速三無已關閉');
-            };
-            const threeNoAcceleratedRow = overlay.querySelector('#hege-s-three-no-accelerated-row');
-            if (threeNoAcceleratedRow) threeNoAcceleratedRow.onclick = (e) => e.stopPropagation();
         }
 
         const reportVisualDebugToggle = overlay.querySelector('#hege-s-report-visual-debug-toggle');

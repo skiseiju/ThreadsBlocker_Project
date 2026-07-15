@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ThreadsBlocker 觀測站每週情勢簡報：社群防禦紀錄與話題放大觀測。">
+  <title>ThreadsBlocker 觀測站 Next</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./styles.css?v=next-10">
+</head>
+<body>
+  <main class="shell">
+    <header class="page-header">
+      <p class="eyebrow">ThreadsBlocker Observatory Next</p>
+      <h1>社群防禦紀錄 + 話題放大觀測</h1>
+      <p class="lede">每週情勢簡報，以匿名聚合資料觀察封鎖、檢舉與討論放大的行為模式。</p>
+      <p id="dataRange" class="meta">資料載入中。</p>
+    </header>
+
+    <section class="judgement" aria-labelledby="judgementTitle">
+      <div>
+        <p class="section-label">本週判讀</p>
+        <h2 id="judgementTitle">讀取近 7 日趨勢中。</h2>
+        <p id="judgementDetail" class="muted">若資料無法取得，這裡會改顯示空狀態。</p>
+      </div>
+      <span id="judgementBadge" class="badge badge-neutral">載入中</span>
+    </section>
+
+    <section aria-labelledby="kpiTitle">
+      <div class="section-heading">
+        <h2 id="kpiTitle">關鍵數字</h2>
+        <p>這些數字描述使用者遇到並採取防禦行動的樣本，不是 Threads 全站總量。</p>
+      </div>
+      <div class="kpi-grid">
+        <article class="kpi-card">
+          <p class="kpi-label">近 7 日事件</p>
+          <p id="kpiWeekEvents" class="kpi-value">--</p>
+          <p id="kpiWeekDelta" class="kpi-note">--</p>
+        </article>
+        <article class="kpi-card">
+          <p class="kpi-label">單日峰值</p>
+          <p id="kpiPeakEvents" class="kpi-value">--</p>
+          <p id="kpiPeakDate" class="kpi-note">--</p>
+        </article>
+        <article class="kpi-card">
+          <p class="kpi-label">來源集中度</p>
+          <p id="kpiConcentration" class="kpi-value">--</p>
+          <p id="kpiConcentrationNote" class="kpi-note">此值也反映樣本偏差。</p>
+        </article>
+        <article class="kpi-card">
+          <p class="kpi-label">被多人交叉封鎖帳號數</p>
+          <p id="kpiCrossBlocked" class="kpi-value">--</p>
+          <p class="kpi-note">非身分認定</p>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="pushTitle">
+      <div class="section-heading">
+        <h2 id="pushTitle">誰在推</h2>
+        <p>用來源集中度與短期擴散度，判斷樣本是否過度集中或短時間快速擴散。</p>
+      </div>
+      <div class="meter-panel">
+        <div class="meter-row">
+          <div class="meter-copy">
+            <strong>來源集中度</strong>
+            <span id="sourceConcentrationText">--</span>
+          </div>
+          <div class="meter" aria-hidden="true"><span id="sourceConcentrationBar"></span></div>
+        </div>
+        <div class="meter-row">
+          <div class="meter-copy">
+            <strong>短期擴散度</strong>
+            <span id="shortDiffusionText">--</span>
+          </div>
+          <div class="meter" aria-hidden="true"><span id="shortDiffusionBar"></span></div>
+        </div>
+        <p id="pushExplanation" class="plain-note">資料載入中。</p>
+      </div>
+    </section>
+
+    <section aria-labelledby="categoryTitle">
+      <div class="section-heading">
+        <h2 id="categoryTitle">檢舉分類</h2>
+        <p>橫條圖排除垃圾訊息，讓其他類型不被最大類別壓縮。</p>
+      </div>
+      <p id="spamShare" class="plain-note">垃圾訊息占比載入中。</p>
+      <div id="categoryBars" class="bar-list">載入中。</div>
+    </section>
+
+    <section aria-labelledby="topicTitle">
+      <div class="section-heading">
+        <h2 id="topicTitle">話題放大觀測</h2>
+        <p>這區呈現出現協調放大行為模式的話題，依協調訊號強弱排序。每張卡只陳述現有資料中的行為模式，不指認幕後身分。</p>
+      </div>
+      <div id="topicCards" class="topic-grid">載入中。</div>
+    </section>
+
+    <section aria-labelledby="phrasesTitle" hidden>
+      <div class="section-heading">
+        <h2 id="phrasesTitle">重複話術觀測</h2>
+        <p>跨來源逐字重複、且經人工覆核的文字樣本；不屬於特定話題，但重複程度本身即為觀測訊號。</p>
+      </div>
+      <div id="repeatedPhrases" class="bar-list"></div>
+    </section>
+
+    <footer class="boundary" aria-labelledby="boundaryTitle">
+      <h2 id="boundaryTitle">誠實邊界</h2>
+      <ul>
+        <li>只陳述行為模式（同文多帳號、時間爆發、跨觀測者集中），不指認幕後身分</li>
+        <li>不宣稱內容由 AI 產生</li>
+        <li>不宣稱代表 Threads 全站（樣本為擴充功能使用者）</li>
+      </ul>
+      <p class="boundary-note">認為頁面樣本涉及您的權益？來信 <a href="mailto:skiseiju@gmail.com?subject=觀測站樣本異議">skiseiju@gmail.com</a>，我們會先下架複核再回覆。</p>
+    </footer>
+  </main>
+
+  <script src="./app.js?v=next-10" defer></script>
+</body>
+</html>

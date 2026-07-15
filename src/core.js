@@ -30,6 +30,284 @@ export const Core = {
         return rawUsers.filter(u => !db.has(u) && !activeSet.has(u) && !Core.pendingUsers.has(u));
     },
 
+    getInlineFakeAccountBadgeInfo: (username = '', scanResults = null) => {
+        const normalize = Core.ThreeNoWatch?.normalizeUsername || ((value = '') => String(value || '').replace(/^@+/, '').split('?')[0].split('/')[0].trim());
+        const u = normalize(username).toLowerCase();
+        if (!u || Storage.isThreeNoUserSafe(u)) return null;
+        const results = scanResults || Storage.getThreeNoScanResults();
+        const knownThreeNo = (results.users || []).some(item => normalize(item.username || '').toLowerCase() === u)
+            && !Storage.isThreeNoUserIgnored(u);
+        if (knownThreeNo) return { label: '疑似假帳號', tone: 'strong' };
+        const suspiciousName = Core.ThreeNoWatch?.usernameMatchesSuspiciousThreeNoCandidate?.(u);
+        if (suspiciousName) {
+            return { label: '命名可疑', tone: 'warning' };
+        }
+        return null;
+    },
+
+    isInlinePostElementContext: (element, username, skipSharedCheckboxAncestor = false) => {
+        if (!element) return false;
+        if (element.closest('[role="article"], article')) return true;
+        username = String(username || '').toLowerCase();
+        if (!username) return false;
+        const postTimePattern = /(?:剛剛|昨天|今日|今天|\d{4}[/-]\d{1,2}[/-]\d{1,2}|\d+\s*(?:秒|分鐘|分|小時|時|天|週|周|個月|月|年)|\d+\s*(?:s|m|h|d|w|mo|y)\b)/i;
+        for (let node = element.parentElement, depth = 0; node && depth < 8; node = node.parentElement, depth += 1) {
+            if (skipSharedCheckboxAncestor && node.querySelectorAll?.('.hege-checkbox-container').length > 1) continue;
+            const moreCount = node.querySelectorAll?.(CONFIG.SELECTORS.MORE_SVG).length || 0;
+            if (moreCount > 1) continue;
+            const rawText = (node.innerText || node.textContent || '').trim();
+            if (rawText.length > 900) continue;
+            const text = rawText.replace(/\s+/g, ' ').trim();
+            if ((text.length <= 260 || moreCount === 1) && text.toLowerCase().includes(username) && postTimePattern.test(text)) return true;
+            const lines = rawText.split(/\n+/).map(line => line.replace(/\s+/g, ' ').trim()).filter(Boolean);
+            if (lines.some(line => line.length <= 180 && line.toLowerCase().includes(username) && postTimePattern.test(line))) return true;
+        }
+        return false;
+    },
+
+    isInlinePostCheckboxContext: (checkbox) => Core.isInlinePostElementContext(checkbox, checkbox?.dataset.username || '', true),
+
+    syncInlineFakeAccountBadge: (checkbox, scanResults = null) => {
+        if (!checkbox || checkbox.dataset.hegeInlineBadge !== 'true') return;
+        const username = checkbox.dataset.username || '';
+        const host = checkbox.parentElement;
+        if (!host || !username) return;
+        const normalize = Core.ThreeNoWatch?.normalizeUsername || ((value = '') => String(value || '').replace(/^@+/, '').split('?')[0].split('/')[0].trim());
+        const normalizedUsername = normalize(username).toLowerCase();
+        const isMatchingBadge = (el) => normalize(el.dataset.username || '').toLowerCase() === normalizedUsername;
+        Array.from(host.children)
+            .filter(el => el.classList.contains('hege-fake-account-badge') && !el.classList.contains('hege-fake-account-link-badge'))
+            .forEach(el => el.remove());
+        const badges = Array.from(checkbox.querySelectorAll('.hege-fake-account-badge'))
+            .filter(el => !el.classList.contains('hege-fake-account-link-badge'));
+        badges.filter(el => !isMatchingBadge(el)).forEach(el => el.remove());
+        const badge = badges.find(isMatchingBadge) || document.createElement('span');
+        badges
+            .filter(el => el !== badge)
+            .forEach(el => el.remove());
+        if (checkbox.dataset.hegeProfileBadge !== 'true' && checkbox.dataset.hegeInlineBadgeContext !== 'post' && !Core.isInlinePostCheckboxContext(checkbox)) {
+            badge.remove();
+            return;
+        }
+        const info = Core.getInlineFakeAccountBadgeInfo(username, scanResults);
+        if (!info) {
+            badge.remove();
+            return;
+        }
+        badge.dataset.username = username;
+        badge.textContent = info.label;
+        badge.title = `留友封：${info.label}`;
+        badge.className = `hege-fake-account-badge ${info.tone}`;
+        if (!badge.parentElement) checkbox.appendChild(badge);
+    },
+
+    syncInlineFakeAccountLinkBadges: () => {
+        document.querySelectorAll('.hege-fake-account-link-badge').forEach(el => el.remove());
+    },
+
+    bindCheckboxEvents: (container) => {
+        if (Utils.isMobile()) {
+            container.addEventListener('touchstart', (e) => {
+                if (e.target.closest('.hege-checkbox-container')) {
+                    e.stopPropagation();
+                }
+            }, { passive: false });
+            container.addEventListener('touchend', (e) => {
+                if (e.target.closest('.hege-checkbox-container')) {
+                    if (CONFIG.DEBUG_MODE) console.log('[留友封] Checkbox Touchend detected');
+                    e.stopPropagation();
+                    if (e.cancelable) e.preventDefault();
+                    Core.handleGlobalClick(e);
+                }
+            }, { passive: false, capture: true });
+        } else {
+            container.addEventListener('pointerdown', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+            }, true);
+            container.addEventListener('pointerup', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+            }, true);
+            container.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                if (e.shiftKey) e.preventDefault();
+            }, true);
+            container.addEventListener('mouseup', (e) => {
+                e.stopPropagation();
+            }, true);
+        }
+        container.addEventListener('click', Core.handleGlobalClick, true);
+    },
+
+    createCheckboxContainer: (username = '', options = {}) => {
+        const container = document.createElement('div');
+        container.className = 'hege-checkbox-container';
+        if (options.inlineBadge === true) container.dataset.hegeInlineBadge = 'true';
+        if (options.profileHeader === true) {
+            container.classList.add('hege-profile-header-checkbox');
+            container.dataset.hegeProfileBadge = 'true';
+        }
+        if (username) container.dataset.username = username;
+
+        const svgIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svgIcon.setAttribute("viewBox", "0 0 24 24");
+        svgIcon.classList.add("hege-svg-icon");
+
+        const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        rect.setAttribute("x", "2"); rect.setAttribute("y", "2");
+        rect.setAttribute("width", "20"); rect.setAttribute("height", "20");
+        rect.setAttribute("rx", "6"); rect.setAttribute("ry", "6");
+        rect.setAttribute("stroke", "currentColor"); rect.setAttribute("stroke-width", "2.5");
+        rect.setAttribute("fill", "none");
+
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.classList.add("hege-checkmark");
+        path.setAttribute("d", "M6 12 l4 4 l8 -8");
+        path.setAttribute("fill", "none");
+
+        svgIcon.appendChild(rect); svgIcon.appendChild(path);
+        container.appendChild(svgIcon);
+        Core.bindCheckboxEvents(container);
+        return container;
+    },
+
+    syncCheckboxQueueState: (container, username, queueElement = null) => {
+        if (!container || !username) return;
+        const db = new Set(Storage.getBlockDB());
+        const cdq = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
+        const bgq = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
+        if (db.has(username)) {
+            container.classList.add('finished');
+            container.classList.remove('checked');
+        } else if (Core.pendingUsers.has(username) || cdq.has(username) || bgq.has(username)) {
+            container.classList.add('checked');
+            container.classList.remove('finished');
+            if (queueElement) Core.blockQueue.add(queueElement);
+        } else {
+            container.classList.remove('finished');
+            container.classList.remove('checked');
+        }
+    },
+
+    findProfileHeaderUsernameElement: (root, username) => {
+        const normalized = String(username || '').toLowerCase();
+        if (!root || !normalized) return null;
+        const stickyTitleSelector = '[aria-label="直欄標題"], [aria-label="Column header"], [aria-label="Column title"]';
+        const candidates = Array.from(root.querySelectorAll('a, span, div'))
+            .filter(el => {
+                if (el.closest('[role="dialog"]')) return false;
+                if (el.closest(stickyTitleSelector)) return false;
+                const rawText = (el.innerText || el.textContent || '').trim();
+                if (rawText.toLowerCase() !== normalized) return false;
+                const rect = el.getBoundingClientRect();
+                if (!(rect.width > 4 && rect.height > 4 && rect.top >= 60 && rect.top < Math.min(window.innerHeight, 280))) return false;
+                if (el.closest('[role="article"], article')) return false;
+                return true;
+            })
+            .sort((a, b) => {
+                const ar = a.getBoundingClientRect();
+                const br = b.getBoundingClientRect();
+                const score = (el, rect) => {
+                    const rawText = (el.innerText || el.textContent || '').trim();
+                    const lines = rawText.split(/\n+/).map(line => line.trim()).filter(Boolean);
+                    const profileHeaderBand = rect.top >= 56 && rect.top < 280;
+                    const singleLine = lines.length === 1;
+                    const leafText = el.children.length === 0;
+                    return (profileHeaderBand ? 0 : 1000)
+                        + (singleLine ? 0 : 200)
+                        + (el.tagName === 'SPAN' ? 0 : 20)
+                        + (leafText ? 0 : 10)
+                        + Math.min(rect.height, 120)
+                        + Math.min(rawText.length, 300) / 10;
+                };
+                return score(a, ar) - score(b, br) || ar.top - br.top || ar.height - br.height;
+            });
+        return candidates[0] || null;
+    },
+
+    findProfileActionAnchor: (root) => {
+        if (!root) return null;
+        const candidates = Array.from(root.querySelectorAll('a, div[role="button"]'))
+            .map(el => {
+                const rect = el.getBoundingClientRect();
+                const svgs = Array.from(el.querySelectorAll('svg'));
+                const hasInstagram = svgs.some(svg => /instagram/i.test(svg.getAttribute('aria-label') || ''));
+                const hasBell = svgs.some(svg => svg.getAttribute('viewBox') === '0 0 25 24' && svg.querySelectorAll('path').length >= 2);
+                const hasProfileMore = svgs.some(svg => svg.querySelectorAll('circle').length === 1 && svg.querySelectorAll('path').length >= 3);
+                return { el, rect, hasInstagram, hasBell, hasProfileMore };
+            })
+            .filter(item => item.rect.width >= 24 && item.rect.height >= 24 && item.rect.top >= 120 && item.rect.top < Math.min(window.innerHeight, 460))
+            .filter(item => item.hasInstagram || item.hasBell || item.hasProfileMore)
+            .sort((a, b) => {
+                const rank = (item) => item.hasInstagram ? 0 : item.hasBell ? 1 : 2;
+                return rank(a) - rank(b) || a.rect.left - b.rect.left;
+            });
+        return candidates[0]?.el || null;
+    },
+
+    findProfileRoot: (username) => {
+        const roots = [
+            ...document.querySelectorAll('main, [role="main"], [aria-label="直欄內文"], [aria-label="Column body"], [aria-label="Column Body"]'),
+            document.body,
+        ].filter(Boolean);
+        return roots
+            .map(root => ({
+                root,
+                rect: root.getBoundingClientRect(),
+                usernameEl: Core.findProfileHeaderUsernameElement(root, username),
+                actionAnchor: Core.findProfileActionAnchor(root),
+            }))
+            .filter(item => item.usernameEl && item.actionAnchor)
+            .sort((a, b) => {
+                const bodyScore = (item) => item.root === document.body ? 1000000 : 0;
+                const area = (item) => Math.max(0, item.rect.width) * Math.max(0, item.rect.height);
+                return bodyScore(a) - bodyScore(b) || area(a) - area(b);
+            })[0]?.root || null;
+    },
+
+    injectProfileHeaderCheckbox: (scanResults = null) => {
+        const username = Core.ThreeNoWatch?.getCurrentProfileUsername?.() || '';
+        const profileRoot = Core.findProfileRoot(username);
+        if (!profileRoot) return;
+        const removeExisting = () => profileRoot.querySelectorAll('.hege-profile-header-checkbox').forEach(el => el.remove());
+        if (!username || Core.ThreeNoWatch?.isScanPage?.()) {
+            removeExisting();
+            return;
+        }
+        const profileRootText = (profileRoot.innerText || '').replace(/\s+/g, ' ').slice(0, 900);
+        if (/編輯個人檔案|Edit profile/i.test(profileRootText)) {
+            removeExisting();
+            return;
+        }
+        profileRoot.querySelectorAll('.hege-profile-header-checkbox').forEach(el => {
+            if (el.dataset.username !== username) el.remove();
+        });
+        const actionAnchor = Core.findProfileActionAnchor(profileRoot);
+        const existing = profileRoot.querySelector(`.hege-profile-header-checkbox[data-username="${CSS.escape(username)}"]`);
+        if (existing) {
+            if (actionAnchor && existing.nextElementSibling !== actionAnchor) {
+                const host = actionAnchor.parentElement || actionAnchor;
+                host.style.setProperty('display', 'flex', 'important');
+                host.style.setProperty('align-items', 'center', 'important');
+                host.style.setProperty('overflow', 'visible', 'important');
+                actionAnchor.insertAdjacentElement('beforebegin', existing);
+            }
+            Core.syncCheckboxQueueState(existing, username, existing.parentElement);
+            Core.syncInlineFakeAccountBadge(existing, scanResults);
+            return;
+        }
+        if (!actionAnchor || actionAnchor.closest('.hege-checkbox-container')) return;
+        const container = Core.createCheckboxContainer(username, { inlineBadge: true, profileHeader: true });
+        const host = actionAnchor.parentElement || actionAnchor;
+        host.style.setProperty('display', 'flex', 'important');
+        host.style.setProperty('align-items', 'center', 'important');
+        host.style.setProperty('overflow', 'visible', 'important');
+        actionAnchor.insertAdjacentElement('beforebegin', container);
+        Core.syncCheckboxQueueState(container, username, host);
+        Core.syncInlineFakeAccountBadge(container, scanResults);
+    },
+
     collectVisibleDialogUsers: (ctx) => {
         if (!ctx) return [];
         const containerRect = ctx.getBoundingClientRect();
@@ -410,10 +688,13 @@ export const Core = {
 
         if (CONFIG.DEBUG_MODE) console.log(`[留友封] 初始化完成, 版本: ${CONFIG.VERSION}, Mobile: ${Utils.isMobile()}`);
         if (!hasAgreed) {
-            UI.showDisclaimer(() => {
-                Storage.set(CONFIG.KEYS.DISCLAIMER_AGREED, 'true');
-                Core.startScanner();
-                if (Core.SweepDriver) Core.SweepDriver.tick();
+            UI.showReleaseNotesModal({
+                firstUse: true,
+                onClose: () => {
+                    Storage.set(CONFIG.KEYS.DISCLAIMER_AGREED, 'true');
+                    Core.startScanner();
+                    if (Core.SweepDriver) Core.SweepDriver.tick();
+                },
             });
         } else {
             Core.startScanner();
@@ -434,28 +715,55 @@ export const Core = {
 
     observer: null,
     _scrollDebounce: null,
+    _scanDebounce: null,
+    _scanInterval: null,
+    _navScanHooksInstalled: false,
+    runScannerPass: (updateUI = true) => {
+        Core.scanAndInject();
+        Core.injectDialogBlockAll();
+        Core.injectDialogCheckboxes();
+        if (updateUI) Core.updateControllerUI();
+    },
+    scheduleScannerPass: (delay = 120) => {
+        clearTimeout(Core._scanDebounce);
+        Core._scanDebounce = setTimeout(() => Core.runScannerPass(false), delay);
+    },
+    scheduleNavigationScannerPass: () => {
+        [80, 400, 1000].forEach(delay => setTimeout(() => Core.runScannerPass(false), delay));
+    },
+    installNavigationScanHooks: () => {
+        if (Core._navScanHooksInstalled) return;
+        Core._navScanHooksInstalled = true;
+        window.addEventListener('popstate', Core.scheduleNavigationScannerPass);
+        window.addEventListener('pageshow', Core.scheduleNavigationScannerPass);
+        ['pushState', 'replaceState'].forEach(name => {
+            const original = history[name];
+            history[name] = function (...args) {
+                const result = original.apply(this, args);
+                Core.scheduleNavigationScannerPass();
+                return result;
+            };
+        });
+    },
     startScanner: () => {
         // Optimization: Use MutationObserver instead of fixed interval for most cases
         if (Core.observer) Core.observer.disconnect();
+        clearTimeout(Core._scanDebounce);
+        if (Core._scanInterval) clearInterval(Core._scanInterval);
 
         Core.observer = new MutationObserver((mutations) => {
             let shouldScan = false;
-            let dialogChanged = false;
             for (const mutation of mutations) {
                 if (mutation.addedNodes.length > 0) {
                     shouldScan = true;
-                    dialogChanged = true;
                     break;
                 }
             }
-            if (shouldScan) Core.scanAndInject();
-            if (dialogChanged) {
-                Core.injectDialogBlockAll();
-                Core.injectDialogCheckboxes();
-            }
+            if (shouldScan) Core.scheduleScannerPass();
         });
 
         Core.observer.observe(document.body, { childList: true, subtree: true });
+        Core.installNavigationScanHooks();
 
         // Scroll listener: catch virtual-scroll items entering DOM during fast scrolling in dialogs
         document.addEventListener('scroll', () => {
@@ -464,15 +772,9 @@ export const Core = {
         }, true); // capture phase to catch scroll on any element
 
         // Backup interval in case mutation observer misses React's synthetic updates
-        // Increased frequency from 1500 to 500ms to catch post-Loading states faster
-        setInterval(() => {
-            Core.scanAndInject();
-            Core.injectDialogBlockAll();
-            Core.injectDialogCheckboxes();
-            Core.updateControllerUI();
-        }, 500);
+        Core._scanInterval = setInterval(() => Core.runScannerPass(), 1500);
 
-        Core.scanAndInject();
+        Core.runScannerPass();
 
         // [Debug] Global Click Tracker (User requested to keep this around for debugging)
         if (CONFIG.DEBUG_MODE) {
@@ -1165,6 +1467,25 @@ export const Core = {
         // Performance: Only run if window is active/visible to save CPU
         if (document.hidden) return;
 
+        const inlineThreeNoResults = Storage.getThreeNoScanResults();
+        Core.syncInlineFakeAccountLinkBadges(inlineThreeNoResults);
+        Core.injectProfileHeaderCheckbox(inlineThreeNoResults);
+        const currentProfile = Core.ThreeNoWatch?.getCurrentProfileUsername?.() || '';
+        const profileHeaderBottom = currentProfile ? (() => {
+            const tabLabels = new Set(['串文', 'Threads', '回覆', 'Replies', '影音內容', 'Media', '轉發', 'Reposts']);
+            const tabs = Array.from(document.querySelectorAll('[role="tab"], a, div, span'))
+                .filter(el => tabLabels.has((el.innerText || el.textContent || '').trim()))
+                .map(el => el.getBoundingClientRect())
+                .filter(rect => rect.width > 4 && rect.height > 4 && rect.top > 120)
+                .sort((a, b) => a.top - b.top);
+            return (tabs[0]?.top || 430) + 8;
+        })() : 0;
+        if (currentProfile) {
+            document.querySelectorAll('.hege-checkbox-container[data-hege-inline-badge-context="post"]').forEach(box => {
+                if (box.dataset.username === currentProfile && box.getBoundingClientRect().top < profileHeaderBottom) box.remove();
+            });
+        }
+
         const moreSvgs = document.querySelectorAll(CONFIG.SELECTORS.MORE_SVG);
         if (moreSvgs.length === 0) return;
 
@@ -1214,11 +1535,21 @@ export const Core = {
 
             if (!username) {
                 Utils.diagLog(`[SKIP] 找不到 username, btn.parentClasses=${btn.parentElement?.className?.substring(0, 50)}`);
+                return;
             }
 
-            if (username && username === Utils.getMyUsername()) {
+            if (username === Utils.getMyUsername()) {
                 // Checkbox should not appear for the user's own account
                 btn.setAttribute('data-hege-checked', 'true');
+                return;
+            }
+
+            if (username === currentProfile && btn.getBoundingClientRect().top < profileHeaderBottom) {
+                btn.setAttribute('data-hege-checked', 'true');
+                return;
+            }
+
+            if (!Core.isInlinePostElementContext(btn, username)) {
                 return;
             }
 
@@ -1226,6 +1557,8 @@ export const Core = {
 
             const container = document.createElement('div');
             container.className = 'hege-checkbox-container';
+            container.dataset.hegeInlineBadge = 'true';
+            container.dataset.hegeInlineBadgeContext = 'post';
 
             const svgIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
             svgIcon.setAttribute("viewBox", "0 0 24 24");
@@ -1316,6 +1649,7 @@ export const Core = {
                     container.style.transform = 'translateY(-50%)';
                     container.style.marginRight = '2px';
                     parent.appendChild(container);
+                    Core.syncInlineFakeAccountBadge(container, inlineThreeNoResults);
                 }
             } catch (e) { }
         });
@@ -1647,6 +1981,7 @@ export const Core = {
         if (pendingChanged) Storage.setSessionJSON(CONFIG.KEYS.PENDING, [...Core.pendingUsers]);
 
         // Only update visible elements or those that need state change
+        const inlineThreeNoResults = Storage.getThreeNoScanResults();
         document.querySelectorAll('.hege-checkbox-container').forEach(el => {
             const u = el.dataset.username;
             if (!u) return;
@@ -1667,7 +2002,9 @@ export const Core = {
                 el.classList.remove('finished');
                 el.classList.remove('checked');
             }
+            Core.syncInlineFakeAccountBadge(el, inlineThreeNoResults);
         });
+        Core.syncInlineFakeAccountLinkBadges(inlineThreeNoResults);
 
         const selCount = document.getElementById('hege-sel-count');
         if (selCount) selCount.textContent = `${Core.pendingUsers.size} 選取`;

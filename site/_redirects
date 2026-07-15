@@ -4,6 +4,8 @@ https://app.skiseiju.com/platform https://threadsblocker.skiseiju.com/platform/ 
 https://app.skiseiju.com/platform/ https://threadsblocker.skiseiju.com/platform/ 302
 /sitemap.xml /sitemap.xml 200
 /robots.txt /robots.txt 200
+/privacy /privacy/index.html 200
+/privacy/ /privacy/index.html 200
 /platform /platform/index.html 200
 /admin/ /platform/ 302
 /admin /platform/ 302

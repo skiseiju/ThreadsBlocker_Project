@@ -20,14 +20,17 @@ def extract_insert_sql():
 
 
 def extract_platform_alters():
-    return re.findall(r"ALTER TABLE platform_uploads ADD COLUMN [^`']+|'ALTER TABLE platform_uploads ADD COLUMN [^']+'|`ALTER TABLE platform_uploads ADD COLUMN [^`]+`", TEXT)
+    return re.findall(
+        r'"ALTER TABLE platform_uploads ADD COLUMN [^"]+"|'
+        r"'ALTER TABLE platform_uploads ADD COLUMN [^']+'|"
+        r"`ALTER TABLE platform_uploads ADD COLUMN [^`]+`",
+        TEXT,
+    )
 
 
 def normalize_sql_string(token):
     token = token.strip()
-    if token.startswith("`") and token.endswith("`"):
-        return token[1:-1]
-    if token.startswith("'") and token.endswith("'"):
+    if token[:1] in {"`", "'", '"'} and token[-1:] == token[:1]:
         return token[1:-1]
     return token
 
@@ -125,19 +128,17 @@ def insert_platform_upload(conn):
         35.0,
         "client-abc",
         "chrome_extension",
-        "iphash",
         "topic-taxonomy.v1",
         "trusted",
         "low",
         1,
         "manual",
-        '{"ok":true}',
     )
     conn.execute(sql, payload)
     row = conn.execute(
-        "SELECT upload_source, source_concentration_pct, repeated_narrative_pct, short_term_diffusion_pct, upload_trigger, note FROM platform_uploads"
+        "SELECT upload_source, source_concentration_pct, repeated_narrative_pct, short_term_diffusion_pct, upload_trigger FROM platform_uploads"
     ).fetchone()
-    assert row == ("extension", 75.5, 40.5, 35.0, "manual", '{"ok":true}')
+    assert row == ("extension", 75.5, 40.5, 35.0, "manual")
 
 
 def main():

@@ -1587,14 +1587,17 @@ Object.assign(Core, {
             const raw = Core.ThreeNoWatch.normalizeUsername(username).toLowerCase();
             const compact = raw.replace(/[._-]+/g, '');
             if (!compact) return false;
-            if (/^a09\d{8}$/.test(compact)) return true;
 
             const animals = [
-                'cat', 'kitty', 'dog', 'puppy', 'bird', 'fish', 'rabbit', 'bunny', 'bear', 'panda',
-                'tiger', 'lion', 'wolf', 'fox', 'deer', 'duck', 'goose', 'horse', 'cow', 'pig',
-                'sheep', 'goat', 'monkey', 'mouse', 'rat', 'hamster', 'koala', 'shark', 'whale',
-                'eagle', 'owl', 'frog', 'snake', 'turtle', 'dragon', 'dolphin', 'penguin', 'otter',
-                'swan', 'bee', 'ant', 'crab', 'seal', 'zebra', 'giraffe', 'leopard', 'cheetah',
+                'alligator', 'alpaca', 'armadillo', 'badger', 'bat', 'bear', 'camel', 'cat',
+                'chameleon', 'cheetah', 'chipmunk', 'crab', 'deer', 'dinosaur', 'dog', 'dolphin',
+                'dragon', 'duck', 'elephant', 'elk', 'gazelle', 'giraffe', 'goat', 'goose',
+                'hamster', 'hawk', 'horse', 'iguana', 'jellyfish', 'kangaroo', 'kitty', 'leopard',
+                'lion', 'llama', 'moose', 'otter', 'owl', 'panda', 'panther', 'penguin',
+                'platypus', 'quail', 'rabbit', 'reindeer', 'rhino', 'sheep', 'squirrel', 'tiger',
+                'turtle', 'unicorn', 'zebra', 'puppy', 'bird', 'fish', 'bunny', 'wolf', 'fox',
+                'cow', 'pig', 'monkey', 'mouse', 'rat', 'koala', 'shark', 'whale', 'eagle',
+                'frog', 'snake', 'swan', 'bee', 'ant', 'seal',
             ];
             const animalPrefix = animals.find(animal => compact.startsWith(animal));
             if (!animalPrefix) return false;
@@ -2376,6 +2379,7 @@ Object.assign(Core, {
                     source: String(detail.source || 'passive_about_api'),
                     capturedAt: Date.now(),
                 });
+                Core.updateControllerUI?.();
             });
             window.addEventListener('hege:threads-profile-user-id', (event) => {
                 const detail = event?.detail && typeof event.detail === 'object' ? event.detail : {};
@@ -2403,6 +2407,22 @@ Object.assign(Core, {
                     error: String(detail.error || ''),
                 };
             });
+
+            const ua = navigator.userAgent || '';
+            const isSafariRuntime = /safari/i.test(ua) && !/(chrome|chromium|crios|fxios|edg|edgios|opr)/i.test(ua);
+            const isUserscriptRuntime = typeof GM_info !== 'undefined' || typeof GM_xmlhttpRequest !== 'undefined';
+            if (Core.ThreeNoWatch.isChromeExtension() || isSafariRuntime || isUserscriptRuntime) {
+                window.__hegeAboutProfilePassiveBridgeStatus = {
+                    ...(window.__hegeAboutProfilePassiveBridgeStatus || {}),
+                    ready: false,
+                    source: Core.ThreeNoWatch.isChromeExtension() ? 'manifest_page_bridge_waiting' : 'inline_bridge_disabled',
+                    checkedAt: Date.now(),
+                    error: '',
+                };
+                Core.ThreeNoWatch.seedAboutProfileBridgeCaches();
+                window.dispatchEvent(new CustomEvent('hege:threads-about-profile-bridge-ping'));
+                return;
+            }
 
             const bridgeSource = `(() => {
                 if (window.__hegeThreadsAboutPassiveBridge) return;
@@ -2958,9 +2978,9 @@ Object.assign(Core, {
             return Core.ThreeNoWatch.readProfileMetadataCache(normalized);
         },
 
-        requestActiveAboutMetadataOnce: async (username = '', timeoutMs = 3500, attempt = 1) => {
+        requestActiveAboutMetadataOnce: async (username = '', timeoutMs = 3500, attempt = 1, options = {}) => {
             const normalized = Core.ThreeNoWatch.normalizeUsername(username).toLowerCase();
-            if (!normalized || !Storage.getThreeNoAcceleratedProfileEnabled?.()) {
+            if (!normalized || (!options.force && !Storage.getThreeNoAcceleratedProfileEnabled?.())) {
                 return { ok: false, attempt, error: 'accelerated_disabled' };
             }
             Core.ThreeNoWatch.installAboutProfilePassiveBridge();
