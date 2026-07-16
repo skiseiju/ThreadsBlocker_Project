@@ -31,7 +31,7 @@
           <p>這一頁不是替任何人下判決，而是把平台公開頁能呈現的統計模式、分數構成、公開門檻與法律邊界一次講清楚。</p>
           <p class="hero__meta">Observation Window：最近 30 日匿名聚合樣本的公開方法摘要。</p>
           <p>本頁內容呈現匿名樣本中的統計模式與風險信號，不構成對任何個人、帳號、貼文內容、動機或法律責任之事實認定。</p>
-          <p>方法論頁只使用 public projection 已釋出的聚合資料。即使內部 schema 存在帳號或 URL 欄位，公開頁也不會把那些原值渲染出來。</p>
+          <p>方法論頁只使用 public projection 已釋出的聚合資料。即使內部 schema 存在帳號或 URL 欄位，公開頁也不會把那些原值渲染出來；公開 GET 只讀取，不建立樣本 review row。</p>
           <p class="legal-note">依《個人資料保護法》，本站僅呈現匿名聚合統計與現象觀察，不公開使用者帳號 ID、原始貼文連結或其他可直接回推個人的欄位。</p>
           <ul>
             <li>公開頁只呈現匿名樣本中的統計模式與中性訊號。</li>
@@ -48,7 +48,7 @@
               <p class="section-kicker">Live Public Metadata</p>
               <h2 id="liveMetaTitle" class="section-title">目前公開投影設定</h2>
             </div>
-            <p class="section-copy">這些欄位直接來自 public overview API，用來揭露現在公開頁究竟是用哪一版 taxonomy、哪種 sample scope 與哪條 trust policy。</p>
+            <p class="section-copy">這些欄位直接來自 public overview API，用來揭露現在公開頁究竟是用哪一版 taxonomy、哪種 sample scope、樣本公開模式與哪條 trust policy。</p>
           </div>
           <div class="stats-row">
             <article class="stat-card">
@@ -65,6 +65,11 @@
               <p id="metaTrustPolicy" class="stat-card__value">--</p>
               <p class="stat-card__label">trustPolicy</p>
               <p class="stat-card__sub">目前公開頁的信任過濾原則</p>
+            </article>
+            <article class="stat-card">
+              <p id="metaSamplePublicationMode" class="stat-card__value">--</p>
+              <p class="stat-card__label">samplePublicationMode</p>
+              <p class="stat-card__sub">預設 description；legal gate 匹配才可 reviewed_text</p>
             </article>
           </div>
           <p id="metaUpdatedAt" class="legal-note">載入中。</p>
@@ -98,8 +103,8 @@
             </article>
             <article class="entry-card">
               <p class="entry-card__eyebrow">04</p>
-              <h3>協調帳號數</h3>
-              <p>定義：觀察高信號來源所涉及的匿名帳號樣本規模。公開值：公開頁會顯示帳號樣本與來源組數。限制：只代表模式聚集，不代表真實協調關係已被證實。</p>
+              <h3>帳號觀測筆數</h3>
+              <p>定義：觀察高信號來源所涉及的帳號觀測筆數。公開值：公開頁會顯示帳號觀測筆數與來源貼文數。限制：這不是跨批次去重後的帳號人數，只代表模式聚集，不代表真實協調關係已被證實。</p>
             </article>
           </div>
         </div>
@@ -199,7 +204,7 @@
                 </tr>
                 <tr>
                   <td>敘事框架門檻</td>
-                  <td>單一敘事至少需達 2 個來源、20 次事件，才會出現在公開敘事列表。</td>
+                  <td>單一敘事至少需達 2 筆來源貼文、20 次事件，才會出現在公開敘事列表。</td>
                 </tr>
                 <tr>
                   <td>分數帶門檻</td>
@@ -211,7 +216,7 @@
                 </tr>
               </tbody>
             </table>
-            <div class="chart-detail"><strong>Why Thresholds Exist：</strong> 公開門檻不是在隱藏資料，而是在防止低樣本誤讀與可識別回推。當分類、敘事或來源樣本太少時，公開頁寧可不顯示，也不把個案放大成公共結論。</div>
+            <div class="chart-detail"><strong>Why Thresholds Exist：</strong> 公開門檻不是在隱藏資料，而是在防止低樣本誤讀與可識別回推。當分類、敘事或來源貼文數太少時，公開頁寧可不顯示，也不把個案放大成公共結論。</div>
           </div>
         </div>
       </section>
@@ -260,8 +265,8 @@
             </article>
             <article class="entry-card">
               <p class="entry-card__eyebrow">No Raw Text Dump</p>
-              <h3>不貼原文全文或原始摘錄</h3>
-              <p>公開頁只顯示摘要化、去識別化後的敘事框架，不做具名引用。</p>
+              <h3>預設不貼文字樣本</h3>
+              <p>public projection 預設為 description：topicCards.samples 與 repeatedPhrases 為空，patternDescription 只說明聚合指標，不由原文衍生。只有人工 approved、通過門檻與去識別，且部署環境的 legal policy version 與程式常數完全匹配時，才可切換 reviewed_text；pending / rejected 永不公開。</p>
             </article>
             <article class="entry-card">
               <p class="entry-card__eyebrow">No Drill-Down</p>
@@ -293,9 +298,10 @@
               <h3>只公開匿名聚合層</h3>
               <p>即使底層資料可能含有 <code>accountId</code>、<code>profileUrl</code>、<code>sourceUrl</code>、<code>sourceOwner</code> 等欄位，公開頁只讀取投影後的匿名聚合欄位，例如四大指標、分類分佈、敘事摘要與 banding 門檻。</p>
               <ul>
-                <li>不公開帳號 ID、@username、原始貼文 URL、原文全文或具名風險標籤。</li>
+                <li>不公開帳號 ID、@username、原始貼文 URL、未經 gate 的原文全文或具名風險標籤。</li>
                 <li>不提供帳號搜尋、來源排行、單一來源詳情頁或原始明細下載。</li>
                 <li>不把高分來源自動轉譯成對個人身分、動機或違法性的認定。</li>
+                <li>公開 overview GET 不執行 queue、INSERT、UPDATE、DDL 或其他寫入。</li>
               </ul>
             </article>
           </div>
@@ -331,6 +337,7 @@
       const taxonomyEl = document.getElementById('metaTaxonomy');
       const sampleScopeEl = document.getElementById('metaSampleScope');
       const trustPolicyEl = document.getElementById('metaTrustPolicy');
+      const samplePublicationModeEl = document.getElementById('metaSamplePublicationMode');
       const updatedAtEl = document.getElementById('metaUpdatedAt');
 
       window.PlatformPublic.fetchOverview().then((result) => {
@@ -340,6 +347,7 @@
         trustPolicyEl.textContent = data.methodology && data.methodology.trustPolicy
           ? data.methodology.trustPolicy
           : '--';
+        if (samplePublicationModeEl) samplePublicationModeEl.textContent = data.samplePublicationMode || '--';
         updatedAtEl.textContent = result && result.message
           ? `目前狀態：${result.message}`
           : `公開投影更新時間：${data.generatedAt ? new Date(data.generatedAt).toLocaleString('zh-TW') : '未知'}`;

@@ -2,11 +2,12 @@
     'use strict';
     if (window.__hegeThreadsAboutPassiveBridge) {
         window.dispatchEvent(new CustomEvent('hege:threads-about-profile-bridge-status', {
-            detail: { ready: true, source: 'page_bridge_existing' },
+            detail: { ready: false, credentialsConsent: false, source: 'page_bridge_existing', error: 'bridge_already_initialized' },
         }));
         return;
     }
     window.__hegeThreadsAboutPassiveBridge = true;
+    const CREDENTIALS_PROCESSING_CONSENT_POLICY_VERSION = 'credentials-processing-v1';
     const stripPrefix = text => String(text || '').startsWith('for (;;);') ? String(text || '').slice(9) : String(text || '');
     const clean = value => String(value || '').replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16))).replace(/\s+/g, ' ').trim();
     const readBoundText = value => {
@@ -19,12 +20,22 @@
     const userIds = new Map();
     const publishedUserIds = new Set();
     let aboutRequestTemplate = null;
+    let credentialsProcessingEnabled = false;
+    let networkDiscoveryRequested = false;
+    let networkDiscoveryEnabled = false;
+    let originalFetch = null;
+    let originalOpen = null;
+    let originalSend = null;
+    let originalSetRequestHeader = null;
+    let fetchWrapper = null;
+    let xhrPatched = false;
     const emitStatus = (detail = {}) => {
         window.dispatchEvent(new CustomEvent('hege:threads-about-profile-bridge-status', {
             detail: {
                 ready: detail.ready === true,
                 source: 'page_bridge',
                 href: location.href,
+                credentialsConsent: credentialsProcessingEnabled,
                 hasFbDtsg: !!session.fb_dtsg,
                 knownUserIds: userIds.size,
                 hasAboutTemplate: !!aboutRequestTemplate,
@@ -34,10 +45,12 @@
         }));
     };
     const rememberToken = (key, value) => {
+        if (!credentialsProcessingEnabled) return;
         const cleanValue = clean(value);
         if (key && cleanValue && cleanValue !== 'null' && cleanValue !== 'undefined') session[key] = cleanValue;
     };
     const rememberText = (text) => {
+        if (!credentialsProcessingEnabled) return;
         const source = String(text || '');
         if (!source) return;
         [
@@ -126,6 +139,7 @@
         return '';
     };
     const scanDocumentState = (username = '') => {
+        if (!credentialsProcessingEnabled) return;
         Array.from(document.querySelectorAll('script')).forEach(script => {
             const text = script.textContent || script.src || '';
             if (!text) return;
@@ -154,6 +168,7 @@
         return '';
     };
     const resolveUserId = (username) => {
+        if (!credentialsProcessingEnabled) return '';
         const uname = clean(username).replace(/^@+/, '').toLowerCase();
         scanDocumentState(uname);
         if (userIds.has(uname)) return userIds.get(uname);
@@ -168,6 +183,7 @@
         && template.capturedAt
         && Date.now() - template.capturedAt <= ABOUT_TEMPLATE_MAX_AGE_MS;
     const sanitizeAboutTemplate = (transport, rawUrl = '', body = '', headers = {}) => {
+        if (!credentialsProcessingEnabled) return null;
         let parsedUrl;
         try { parsedUrl = new URL(String(rawUrl || ''), location.origin); } catch (_) { return null; }
         if (!parsedUrl.href.includes('about_this_profile_async_action')) return null;
@@ -251,7 +267,6 @@
         });
     };
     const labelIn = (label, values) => values.some(value => clean(label).toLowerCase() === value.toLowerCase());
-    let networkDiscoveryEnabled = false;
     const discoveryMaxChars = 300000;
     const discoveryUrlSummary = (rawUrl = '') => {
         let parsed;
@@ -440,7 +455,7 @@
         };
     };
     const emitNetworkDiscovery = (transport, method, rawUrl, body, response, responseBody = '') => {
-        if (!networkDiscoveryEnabled) return;
+        if (!credentialsProcessingEnabled || !networkDiscoveryEnabled) return;
         const url = discoveryUrlSummary(rawUrl);
         if (!/graphql|bulk_route|api|ajax|about_profile|wbloks/.test(url.kind)) return;
         const request = parseBodySummary(body);
@@ -495,6 +510,7 @@
         };
     };
     const publish = (body) => {
+        if (!credentialsProcessingEnabled) return;
         rememberText(body);
         const data = parseAbout(body);
         if (data && (data.username || data.joined || data.location)) {
@@ -507,6 +523,9 @@
         }));
     };
     const fetchActiveAbout = async (requestId, username, seededTargetUserId = '') => {
+        if (!credentialsProcessingEnabled) {
+            return emitActiveResponse(requestId, { ok: false, bridgeReady: false, error: 'credentials_consent_required' });
+        }
         try {
             const normalized = clean(username).replace(/^@+/, '').toLowerCase();
             const targetUserId = clean(seededTargetUserId).replace(/\D+/g, '') || resolveUserId(normalized);
@@ -563,12 +582,130 @@
             return emitActiveResponse(requestId, { ok: false, error: String(error?.message || error || 'active_about_error') });
         }
     };
+    const installNetworkPatches = () => {
+        if (!credentialsProcessingEnabled) return;
+        if (!fetchWrapper && typeof window.fetch === 'function') {
+            originalFetch = window.fetch;
+            fetchWrapper = async function(...args) {
+                const url = String(args[0]?.url || args[0] || '');
+                const method = String(args[0]?.method || args[1]?.method || 'GET');
+                const body = String(args[0]?.body || args[1]?.body || '');
+                const headers = args[0]?.headers || args[1]?.headers || {};
+                rememberText(body);
+                const response = await originalFetch.apply(this, args);
+                if (url.includes('about_this_profile_async_action')) {
+                    sanitizeAboutTemplate('fetch', url, body, headers);
+                    response.clone().text().then(publish).catch(() => {});
+                }
+                if (shouldInspectNetworkUrl(url)) {
+                    response.clone().text()
+                        .then(text => {
+                            rememberText(text);
+                            emitNetworkDiscovery('fetch', method, url, body, response, text);
+                        })
+                        .catch(() => emitNetworkDiscovery('fetch', method, url, body, response, ''));
+                }
+                return response;
+            };
+            window.fetch = fetchWrapper;
+        }
+        if (!xhrPatched && typeof XMLHttpRequest !== 'undefined' && XMLHttpRequest.prototype) {
+            originalOpen = XMLHttpRequest.prototype.open;
+            originalSend = XMLHttpRequest.prototype.send;
+            originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
+            if (typeof originalOpen === 'function' && typeof originalSend === 'function' && typeof originalSetRequestHeader === 'function') {
+                XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+                    this.__hegeAboutUrl = String(url || '');
+                    this.__hegeDiscoveryMethod = String(method || 'GET');
+                    this.__hegeRequestHeaders = {};
+                    return originalOpen.call(this, method, url, ...rest);
+                };
+                XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
+                    this.__hegeRequestHeaders = this.__hegeRequestHeaders || {};
+                    this.__hegeRequestHeaders[String(name || '')] = String(value || '');
+                    return originalSetRequestHeader.call(this, name, value);
+                };
+                XMLHttpRequest.prototype.send = function(...args) {
+                    const requestBody = String(args[0] || '');
+                    rememberText(requestBody);
+                    if (this.__hegeAboutUrl && this.__hegeAboutUrl.includes('about_this_profile_async_action')) {
+                        sanitizeAboutTemplate('xhr', this.__hegeAboutUrl, requestBody, this.__hegeRequestHeaders || {});
+                        this.addEventListener('load', function() {
+                            let responseText = '';
+                            try { responseText = this.responseText || ''; } catch (_) {}
+                            publish(responseText);
+                        });
+                    }
+                    if (shouldInspectNetworkUrl(this.__hegeAboutUrl || '')) {
+                        this.addEventListener('load', function() {
+                            let responseText = '';
+                            try { responseText = this.responseText || ''; } catch (_) {}
+                            rememberText(responseText);
+                            emitNetworkDiscovery('xhr', this.__hegeDiscoveryMethod || 'GET', this.__hegeAboutUrl || '', requestBody, {
+                                status: this.status || 0,
+                                headers: { get: () => this.getResponseHeader?.('content-type') || '' },
+                            }, responseText);
+                        });
+                    }
+                    return originalSend.apply(this, args);
+                };
+                xhrPatched = true;
+            } else {
+                originalOpen = null;
+                originalSend = null;
+                originalSetRequestHeader = null;
+            }
+        }
+        networkDiscoveryEnabled = networkDiscoveryRequested;
+        emitStatus({
+            ready: true,
+            hasFetch: typeof originalFetch === 'function',
+            hasXhr: xhrPatched,
+        });
+    };
+    const uninstallNetworkPatches = () => {
+        if (fetchWrapper && originalFetch && window.fetch === fetchWrapper) window.fetch = originalFetch;
+        if (xhrPatched && typeof XMLHttpRequest !== 'undefined' && XMLHttpRequest.prototype) {
+            if (originalOpen) XMLHttpRequest.prototype.open = originalOpen;
+            if (originalSend) XMLHttpRequest.prototype.send = originalSend;
+            if (originalSetRequestHeader) XMLHttpRequest.prototype.setRequestHeader = originalSetRequestHeader;
+        }
+        originalFetch = null;
+        originalOpen = null;
+        originalSend = null;
+        originalSetRequestHeader = null;
+        fetchWrapper = null;
+        xhrPatched = false;
+        networkDiscoveryEnabled = false;
+        Object.keys(session).forEach(key => delete session[key]);
+        userIds.clear();
+        publishedUserIds.clear();
+        aboutRequestTemplate = null;
+    };
+    window.addEventListener('hege:threads-credentials-processing-consent', (event) => {
+        const detail = event?.detail || {};
+        const enabled = detail.enabled === true
+            && detail.credentialsConsent === true
+            && detail.acceleratedProfileEnabled === true
+            && detail.policyVersion === CREDENTIALS_PROCESSING_CONSENT_POLICY_VERSION;
+        credentialsProcessingEnabled = enabled;
+        if (enabled) {
+            installNetworkPatches();
+        } else {
+            uninstallNetworkPatches();
+            emitStatus({ ready: false, error: 'credentials_consent_required', hasFetch: false, hasXhr: false });
+        }
+    });
     window.addEventListener('hege:threads-about-profile-bridge-ping', () => {
+        if (!credentialsProcessingEnabled) {
+            emitStatus({ ready: false, error: 'credentials_consent_required', hasFetch: false, hasXhr: false });
+            return;
+        }
         scanDocumentState();
         emitStatus({
             ready: true,
-            hasFetch: typeof window.fetch === 'function',
-            hasXhr: typeof XMLHttpRequest !== 'undefined',
+            hasFetch: typeof originalFetch === 'function',
+            hasXhr: xhrPatched,
         });
     });
     window.addEventListener('hege:threads-about-profile-fetch-request', (event) => {
@@ -580,81 +717,53 @@
         fetchActiveAbout(requestId, username, targetUserId);
     });
     window.addEventListener('hege:threads-profile-user-id-seed', (event) => {
+        if (!credentialsProcessingEnabled) return;
         const items = Array.isArray(event?.detail?.items) ? event.detail.items : [];
         items.forEach(item => rememberUser(item?.username || '', item?.userId || '', 'content_cache_seed'));
     });
     window.addEventListener('hege:threads-about-profile-template-seed', (event) => {
+        if (!credentialsProcessingEnabled) return;
         seedAboutTemplate(event?.detail || {});
     });
     window.addEventListener('hege:threads-network-discovery-toggle', (event) => {
-        networkDiscoveryEnabled = event?.detail?.enabled === true;
+        networkDiscoveryRequested = event?.detail?.enabled === true;
+        networkDiscoveryEnabled = credentialsProcessingEnabled && networkDiscoveryRequested;
     });
-    const originalFetch = window.fetch;
-    if (typeof originalFetch === 'function') {
-        window.fetch = async function(...args) {
-            const url = String(args[0]?.url || args[0] || '');
-            const method = String(args[0]?.method || args[1]?.method || 'GET');
-            const body = String(args[0]?.body || args[1]?.body || '');
-            const headers = args[0]?.headers || args[1]?.headers || {};
-            rememberText(body);
-            const response = await originalFetch.apply(this, args);
-            if (url.includes('about_this_profile_async_action')) {
-                sanitizeAboutTemplate('fetch', url, body, headers);
-                response.clone().text().then(publish).catch(() => {});
-            }
-            if (shouldInspectNetworkUrl(url)) {
-                response.clone().text()
-                    .then(text => {
-                        rememberText(text);
-                        emitNetworkDiscovery('fetch', method, url, body, response, text);
-                    })
-                    .catch(() => emitNetworkDiscovery('fetch', method, url, body, response, ''));
-            }
-            return response;
+    const BRIDGE_CONSENT_STORAGE_KEYS = new Set([
+        'hege_credentials_processing_consent',
+        'hege_credentials_processing_consent_version',
+        'hege_three_no_accelerated_profile_enabled',
+    ]);
+    const readConsentStorageState = () => {
+        const read = (key) => {
+            try { return localStorage.getItem(key) || ''; } catch (_) { return ''; }
         };
-    }
-    const originalOpen = XMLHttpRequest.prototype.open;
-    const originalSend = XMLHttpRequest.prototype.send;
-    const originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
-    XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-        this.__hegeAboutUrl = String(url || '');
-        this.__hegeDiscoveryMethod = String(method || 'GET');
-        this.__hegeRequestHeaders = {};
-        return originalOpen.call(this, method, url, ...rest);
+        const credentialsConsent = read('hege_credentials_processing_consent') === 'true'
+            && read('hege_credentials_processing_consent_version') === CREDENTIALS_PROCESSING_CONSENT_POLICY_VERSION;
+        const acceleratedProfileEnabled = read('hege_three_no_accelerated_profile_enabled') === 'true';
+        return {
+            enabled: credentialsConsent && acceleratedProfileEnabled,
+            credentialsConsent,
+            acceleratedProfileEnabled,
+            policyVersion: CREDENTIALS_PROCESSING_CONSENT_POLICY_VERSION,
+        };
     };
-    XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
-        this.__hegeRequestHeaders = this.__hegeRequestHeaders || {};
-        this.__hegeRequestHeaders[String(name || '')] = String(value || '');
-        return originalSetRequestHeader.call(this, name, value);
+    const dispatchConsentFromStorage = () => {
+        window.dispatchEvent(new CustomEvent('hege:threads-credentials-processing-consent', {
+            detail: readConsentStorageState(),
+        }));
     };
-    XMLHttpRequest.prototype.send = function(...args) {
-        const requestBody = String(args[0] || '');
-        rememberText(requestBody);
-        if (this.__hegeAboutUrl && this.__hegeAboutUrl.includes('about_this_profile_async_action')) {
-            sanitizeAboutTemplate('xhr', this.__hegeAboutUrl, requestBody, this.__hegeRequestHeaders || {});
-            this.addEventListener('load', function() {
-                let responseText = '';
-                try { responseText = this.responseText || ''; } catch (_) {}
-                publish(responseText);
-            });
-        }
-        if (shouldInspectNetworkUrl(this.__hegeAboutUrl || '')) {
-            this.addEventListener('load', function() {
-                let responseText = '';
-                try { responseText = this.responseText || ''; } catch (_) {}
-                rememberText(responseText);
-                emitNetworkDiscovery('xhr', this.__hegeDiscoveryMethod || 'GET', this.__hegeAboutUrl || '', requestBody, {
-                    status: this.status || 0,
-                    headers: { get: () => this.getResponseHeader?.('content-type') || '' },
-                }, responseText);
-            });
-        }
-        return originalSend.apply(this, args);
-    };
-    scanDocumentState();
-    emitStatus({
-        ready: true,
-        hasFetch: typeof originalFetch === 'function',
-        hasXhr: typeof originalOpen === 'function' && typeof originalSend === 'function',
+    window.addEventListener('storage', (event) => {
+        if (event?.key !== null && !BRIDGE_CONSENT_STORAGE_KEYS.has(event?.key)) return;
+        dispatchConsentFromStorage();
     });
+    let lastConsentStorageSignature = '';
+    setInterval(() => {
+        const state = readConsentStorageState();
+        const signature = `${state.credentialsConsent}:${state.acceleratedProfileEnabled}:${state.policyVersion}`;
+        if (signature === lastConsentStorageSignature) return;
+        lastConsentStorageSignature = signature;
+        window.dispatchEvent(new CustomEvent('hege:threads-credentials-processing-consent', { detail: state }));
+    }, 2000);
+    emitStatus({ ready: false, error: 'credentials_consent_required', hasFetch: false, hasXhr: false });
 })();

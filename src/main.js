@@ -22,6 +22,7 @@ import './features/three-no-watch.js';
     console.log('[留友封] Extension Script Initializing...');
     Core.ThreeNoWatch?.installNetworkDiscoveryListener?.();
     Core.ThreeNoWatch?.installAboutProfilePassiveBridge?.();
+    Storage.syncCredentialsProcessingConsentToBridge();
     const versionAtBoot = Storage.get(CONFIG.KEYS.VERSION_CHECK, '');
     const hadExistingInstallAtBoot = !!versionAtBoot;
     const shouldShowReleaseNotes = hadExistingInstallAtBoot
@@ -992,6 +993,7 @@ import './features/three-no-watch.js';
                                 onStart: () => Core.SweepDriver.startNow()
                             }),
                             onReport: () => Core.showReportDialog(),
+                            onCredentialsConsent: () => UI.showCredentialsConsentModal(),
                             onAnalytics: () => UI.showAnalyticsReport({ onBack: () => openSettings('data') }),
                             onDevReloadExtension: canRequestDevExtensionReload() ? (async () => {
                                 UI.showToast(['正在重新載入', '開發版', 'extension'].join(''));
@@ -1068,9 +1070,17 @@ import './features/three-no-watch.js';
 
             // Sync Logic (Restored from beta46)
             const syncKeySet = new Set(CONFIG.SYNC_KEYS);
+            const bridgeConsentKeySet = new Set([
+                CONFIG.KEYS.CREDENTIALS_PROCESSING_CONSENT_DECISION,
+                CONFIG.KEYS.CREDENTIALS_PROCESSING_CONSENT_VERSION,
+                CONFIG.KEYS.THREE_NO_ACCELERATED_PROFILE_ENABLED,
+            ]);
             window.addEventListener('storage', (e) => {
                 if (syncKeySet.has(e.key)) {
                     Storage.invalidate(e.key); // Force cache clear so getJSON fetches fresh data
+                    if (bridgeConsentKeySet.has(e.key)) {
+                        Storage.syncCredentialsProcessingConsentToBridge();
+                    }
                     if (e.key === CONFIG.KEYS.REPORT_COMPLETED_USERS) {
                         Storage.invalidate(CONFIG.KEYS.REPORT_KEEP_BLOCK_SELECTION);
                         syncCompletedReportSelection();
@@ -1084,6 +1094,7 @@ import './features/three-no-watch.js';
             });
             setInterval(() => {
                 Storage.invalidateMulti(CONFIG.SYNC_KEYS);
+                Storage.syncCredentialsProcessingConsentToBridge();
                 syncReportRestorePending();
                 syncCompletedReportSelection();
                 maybeAutoShowThreeNoReport();

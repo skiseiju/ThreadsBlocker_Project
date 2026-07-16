@@ -138,7 +138,7 @@
                     <th>總事件</th>
                     <th>封鎖事件</th>
                     <th>檢舉事件</th>
-                    <th>來源樣本</th>
+                    <th>來源貼文數</th>
                     <th>峰值</th>
                   </tr>
                 </thead>
@@ -306,9 +306,9 @@
             body: '比較最近 7 日與前 7 日的事件量變化。高成長可能反映公共議題升溫。'
           },
           {
-            title: '協調帳號數',
+            title: '帳號觀測筆數',
             value: window.PlatformPublic.formatNumber(data?.signals?.coordinatedAccountEstimate),
-            body: '高信號來源目前涉及的匿名帳號樣本規模。這是模式聚集，不是對真實協調關係的證明。'
+            body: '高信號來源目前涉及的帳號觀測筆數。這是資料列的觀測口徑，不是跨批次去重後的帳號人數，也不是對真實協調關係的證明。'
           }
         ];
         document.getElementById('signalCards').innerHTML = items.map((item) => `
@@ -369,7 +369,7 @@
           },
           {
             title: '公開門檻',
-            body: `分類至少 ${safeNum(thresholds.categoryMinEvents)} 次事件；敘事至少 ${safeNum(thresholds.narrativeMinSources)} 個來源與 ${safeNum(thresholds.narrativeMinEvents)} 次事件。`
+            body: `分類至少 ${safeNum(thresholds.categoryMinEvents)} 次事件；敘事至少 ${safeNum(thresholds.narrativeMinSources)} 筆來源貼文與 ${safeNum(thresholds.narrativeMinEvents)} 次事件。`
           },
           {
             title: '樣本限制',
@@ -404,7 +404,7 @@
         document.getElementById('heroSubtitle').textContent = result && result.emptyState
           ? '目前公開資料量仍在累積中，以下先顯示真實空狀態與方法資訊。'
           : '固定格式公開月報，使用最近 30 日滾動觀測窗，整理匿名樣本中的事件量、四大訊號、敘事框架與方法限制。';
-        document.getElementById('heroMeta').textContent = `資料期間 ${safeText(data?.dateRange?.start)} 至 ${safeText(data?.dateRange?.end)}。本期觀測窗累積 ${window.PlatformPublic.formatNumber(data?.overview?.totalEventCount)} 次匿名聚合事件、${window.PlatformPublic.formatNumber(data?.overview?.sourcePostCount)} 筆來源樣本與 ${window.PlatformPublic.formatNumber(data?.overview?.uploadCount)} 個有效上傳批次。`;
+        document.getElementById('heroMeta').textContent = `資料期間 ${safeText(data?.dateRange?.start)} 至 ${safeText(data?.dateRange?.end)}。本期觀測窗累積 ${window.PlatformPublic.formatNumber(data?.overview?.totalEventCount)} 次匿名聚合事件、${window.PlatformPublic.formatNumber(data?.overview?.sourcePostCount)} 筆來源貼文與 ${window.PlatformPublic.formatNumber(data?.overview?.uploadCount)} 個有效上傳批次。`;
 
         const heroSignals = window.PlatformPublic.buildSignalBadges(data);
         document.getElementById('heroSignals').innerHTML = heroSignals.map((item) => `
@@ -431,7 +431,7 @@
           : '目前沒有達到公開門檻的分類資料。';
         document.getElementById('summaryTopNarrative').textContent = topNarrative ? window.PlatformPublic.formatNumber(topNarrative.eventCount) : '--';
         document.getElementById('summaryTopNarrativeSub').textContent = topNarrative
-          ? `本期最主要的匿名敘事框架涉及 ${window.PlatformPublic.formatNumber(topNarrative.sourceCount)} 個來源與 ${window.PlatformPublic.formatNumber(topNarrative.accountCount)} 個帳號樣本。`
+          ? `本期最主要的匿名敘事框架涉及 ${window.PlatformPublic.formatNumber(topNarrative.sourceCount)} 筆來源貼文與 ${window.PlatformPublic.formatNumber(topNarrative.accountCount)} 筆帳號觀測；這不是跨批次去重後的人數。`
           : '目前沒有達到公開門檻的敘事資料。';
 
         document.getElementById('trendSummary').innerHTML = `最近 7 日事件量相對前 7 日為 <strong>${window.PlatformPublic.formatPercent(data?.signals?.shortTermDiffusionPct, 1, true)}</strong>。本期總事件中，封鎖約占 <strong>${window.PlatformPublic.formatPercent(data?.overview?.totalEventCount ? (safeNum(data?.overview?.blockEventCount) / safeNum(data?.overview?.totalEventCount)) * 100 : 0)}</strong>，檢舉約占 <strong>${window.PlatformPublic.formatPercent(data?.overview?.totalEventCount ? (safeNum(data?.overview?.reportEventCount) / safeNum(data?.overview?.totalEventCount)) * 100 : 0)}</strong>。峰值日為 <strong>${esc(window.PlatformPublic.formatDateLabel(peakTrend?.day_key || ''))}</strong>，單日累積 <strong>${window.PlatformPublic.formatNumber(peakTrend?.total_event_count)}</strong> 次事件；觀測窗最後一天 <strong>${esc(window.PlatformPublic.formatDateLabel(lastTrend?.day_key || ''))}</strong> 仍有 <strong>${window.PlatformPublic.formatNumber(lastTrend?.total_event_count)}</strong> 次事件。`;

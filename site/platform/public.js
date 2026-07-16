@@ -14,10 +14,11 @@
     generatedAt: '2026-04-21T00:00:00Z',
     taxonomyVersion: 'topic-taxonomy.v1',
     sampleScope: 'trusted',
+    samplePublicationMode: 'description',
     days: 30,
     summary: {
-      headline: 'Threads 台灣有 9,000 萬個帳號　你以為跟你對話的是真人嗎？',
-      subtitle: '留友封觀測站試著用匿名聚合資料來回答這個問題'
+      headline: 'Threads 公開行為的集中與擴散，正在如何變化？',
+      subtitle: '留友封觀測站用匿名聚合資料整理可觀察的行為模式'
     },
     overview: {
       uploadCount: 286,
@@ -156,7 +157,7 @@ topNarratives: [
       principles: [
         '公開頁只呈現匿名樣本中的統計模式與中性訊號。',
         '高風險分級是統計標籤，不是對個人、貼文、動機或違法性的認定。',
-        '資料來自使用者自願上傳，並非平台全量資料。'
+        '資料來自自願上傳的匿名來源，並非平台全量資料。'
       ]
     }
   };
@@ -445,6 +446,7 @@ topNarratives: [
       generatedAt: new Date().toISOString(),
       taxonomyVersion: 'topic-taxonomy.v1',
       sampleScope: 'trusted',
+      samplePublicationMode: 'description',
       days,
       summary: {
         headline: '',
@@ -774,7 +776,7 @@ topNarratives: [
       {
         label: '觀測窗高點',
         value: `${formatDateLabel(peak.day_key)} / ${formatNumber(peak.total_event_count)} 件`,
-        note: `封鎖 ${formatNumber(peak.block_event_count)}；檢舉 ${formatNumber(peak.report_event_count)}；來源數 ${formatNumber(peak.source_count)}。`
+        note: `封鎖 ${formatNumber(peak.block_event_count)}；檢舉 ${formatNumber(peak.report_event_count)}；來源貼文數 ${formatNumber(peak.source_count)}。`
       }
     ];
 
@@ -912,9 +914,9 @@ topNarratives: [
     };
 
     setText('statEventsDelta', deltaSentence(metrics.totalDeltaPct, '事件量'), deltaClass(metrics.totalDeltaPct));
-    setText('statEventsSub', '這是觀測窗內被封鎖或檢舉的總量，用來看使用者遇到問題的規模。');
+    setText('statEventsSub', '這是觀測窗內已收到並通過整理的封鎖或檢舉事件總量。');
     setText('statCoordinatedDelta', '這是累積估計值，沒有每日趨勢線可比較。', 'stat-card__delta--flat');
-    setText('statCoordinatedSub', '數字越高，代表同一批高信號敘事牽涉的帳號樣本越多；不是身分或違法認定。');
+    setText('statCoordinatedSub', '數字越高，代表高信號敘事牽涉的帳號觀測筆數越多；不是身分或違法認定。');
     setText('statContributorsDelta', '這是觀測窗累積值，沒有每日趨勢線可比較。', 'stat-card__delta--flat');
     setText('statContributorsSub', '有多少匿名來源的資料已能進入分析，數字越高越能降低單一來源偏誤。');
     setText('statTrustedUploadsDelta', '這是觀測窗累積值，沒有每日趨勢線可比較。', 'stat-card__delta--flat');
@@ -1004,7 +1006,7 @@ topNarratives: [
       items.push({
         tone: 'warn',
         label: '帳號集中出現',
-        detail: `約 ${formatNumber(signals.coordinatedAccountEstimate)} 個帳號在熱門重複內容中被封鎖或檢舉`
+        detail: `約 ${formatNumber(signals.coordinatedAccountEstimate)} 筆帳號觀測出現在熱門重複內容中`
       });
     }
     if (!items.length) {
@@ -1160,10 +1162,10 @@ topNarratives: [
         <button class="chart-legend-item" data-target="total"><span class="chart-legend-dot" style="background:#2563eb"></span>總事件</button>
         <button class="chart-legend-item" data-target="block"><span class="chart-legend-dot" style="background:#10b981"></span>封鎖</button>
         <button class="chart-legend-item" data-target="report"><span class="chart-legend-dot" style="background:#60a5fa"></span>檢舉</button>
-        <button class="chart-legend-item chart-legend-item--off" data-target="source"><span class="chart-legend-dot chart-legend-dot--dashed" style="background:#9ca3af"></span>來源數</button>
+        <button class="chart-legend-item chart-legend-item--off" data-target="source"><span class="chart-legend-dot chart-legend-dot--dashed" style="background:#9ca3af"></span>來源貼文數</button>
         <button class="chart-legend-item" data-target="spikes"><span class="chart-legend-dot chart-legend-dot--spike"></span>異常峰值</button>
       </div>
-      <p class="chart-scale-note">讀圖：總事件 = 封鎖 + 檢舉；外部事件標記只作時序對照，不代表因果認定。來源數量級不同，預設不畫在主圖，可用圖例切換查看方向。</p>
+      <p class="chart-scale-note">讀圖：總事件 = 封鎖 + 檢舉；外部事件標記只作時序對照，不代表因果認定。來源貼文數量級不同，預設不畫在主圖，可用圖例切換查看方向。</p>
     `;
 
     if (detailEl) {
@@ -1205,7 +1207,7 @@ topNarratives: [
           const row = daily.find((item) => item.day_key === day) || {};
           const topics = topicMap[day] || [];
           const spikeNote = isSpike ? '<span style="color:#f97316;font-weight:600">▲ 異常峰值</span> · ' : '';
-          const countText = `總事件 ${formatNumber(row.total_event_count)}；封鎖 ${formatNumber(row.block_event_count)}；檢舉 ${formatNumber(row.report_event_count)}；來源數 ${formatNumber(row.source_count)}`;
+          const countText = `總事件 ${formatNumber(row.total_event_count)}；封鎖 ${formatNumber(row.block_event_count)}；檢舉 ${formatNumber(row.report_event_count)}；來源貼文數 ${formatNumber(row.source_count)}`;
           const topicText = topics.length
             ? '熱門話題：' + topics.map((t) => `${escapeHtml(t.label)} (${t.count})`).join('、')
             : '當日沒有可公開話題摘要';
@@ -1253,8 +1255,8 @@ topNarratives: [
         ${hasWhy ? `<div class="narrative-card__why"><p>${escapeHtml(item.whyNote)}</p></div>` : ''}
         <footer class="narrative-card__stats">
           <span>${formatNumber(item.eventCount)} 事件</span>
-          <span>${formatNumber(item.accountCount)} 個帳號</span>
-          <span>${item.sourceCount} 個來源</span>
+          <span>帳號觀測筆數 ${formatNumber(item.accountCount)}</span>
+          <span>來源貼文數 ${item.sourceCount}</span>
           ${hints}
         </footer>
       </article>`;
@@ -1290,7 +1292,7 @@ topNarratives: [
 
     if (item?.kind === 'external_anchor') {
       if (sourceCount >= 10 && accountCount >= 1000) {
-        return '站內同時有大量帳號與多個來源參與，但還缺重複話術與短時間同步證據';
+        return '站內同時有大量帳號觀測與多筆來源貼文，但還缺重複話術與短時間同步證據';
       }
       if (sourceCount >= 2 && eventCount >= 100) {
         return '多個來源出現相關討論，仍需比對重複話術與同步時間';

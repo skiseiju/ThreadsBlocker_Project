@@ -38,6 +38,7 @@ var PUBLIC_CANDIDATE_GROUP_LIMITS = {
 };
 var CURRENT_TAXONOMY_VERSION = "topic-taxonomy.v1";
 var PUBLIC_SAMPLE_SCOPE = "trusted";
+var PUBLIC_SAMPLE_LEGAL_POLICY_VERSION = "sample-publication-legal-v1";
 var LEGACY_TRUST_TIER = "trusted";
 var PUBLIC_REPORT_CATEGORY_TREE = [
   {
@@ -1035,7 +1036,7 @@ async function handleAdminPlatformOverview(request, env) {
   const url = new URL(request.url);
   const days = clampInt(url.searchParams.get("days"), 1, 365, 30);
   const top = clampInt(url.searchParams.get("top"), 5, 50, 15);
-  const data = await loadPlatformOverviewData(env, days, top);
+  const data = await loadPlatformOverviewData(env, days, top, { ensureSchema: true, queueSamples: true });
   return json({ code: 200, data }, 200);
 }
 __name(handleAdminPlatformOverview, "handleAdminPlatformOverview");
@@ -1083,10 +1084,17 @@ async function handlePublicPlatformOverview(request, env) {
   const url = new URL(request.url);
   const days = clampInt(url.searchParams.get("days"), 1, 365, 30);
   const top = clampInt(url.searchParams.get("top"), 5, 50, 15);
-  const data = await loadPlatformOverviewData(env, days, top);
-  return json({ code: 200, data: projectPublicPlatformOverview(data, top) }, 200);
+  const data = await loadPlatformOverviewData(env, days, top, { ensureSchema: false, queueSamples: false });
+  return json({ code: 200, data: projectPublicPlatformOverview(data, top, {
+    samplePublicationMode: resolveSamplePublicationMode(env)
+  }) }, 200);
 }
 __name(handlePublicPlatformOverview, "handlePublicPlatformOverview");
+function resolveSamplePublicationMode(env = {}) {
+  const configured = safeString(env?.PUBLIC_SAMPLE_LEGAL_POLICY_VERSION || "", 100);
+  return configured === PUBLIC_SAMPLE_LEGAL_POLICY_VERSION ? "reviewed_text" : "description";
+}
+__name(resolveSamplePublicationMode, "resolveSamplePublicationMode");
 async function handlePublicTopicDetails(request, env) {
   return json({
     code: 410,
@@ -1129,7 +1137,6 @@ async function handleAdminPoliticalEventsIngest(request, env) {
 }
 __name(handleAdminPoliticalEventsIngest, "handleAdminPoliticalEventsIngest");
 async function handlePublicPoliticalEvents(request, env) {
-  await ensurePlatformTables(env);
   const params = new URL(request.url).searchParams;
   const days = Math.min(90, Math.max(1, parseInt(params.get("days") || "30", 10)));
   const limit = Math.min(300, Math.max(1, parseInt(params.get("limit") || "120", 10)));
@@ -1141,8 +1148,8 @@ async function handlePublicPoliticalEvents(request, env) {
   return json({ code: 200, days, events: rows.results || [] });
 }
 __name(handlePublicPoliticalEvents, "handlePublicPoliticalEvents");
-async function loadPlatformOverviewData(env, days, top) {
-  await ensurePlatformTables(env);
+async function loadPlatformOverviewData(env, days, top, options = {}) {
+  if (options.ensureSchema !== false) await ensurePlatformTables(env);
   const recentPoliticalEventRows = await env.DB.prepare(
     `SELECT event_date, category, title, source_name
        FROM political_events
@@ -1313,7 +1320,9 @@ async function loadPlatformOverviewData(env, days, top) {
       ORDER BY observer_count DESC
       LIMIT 50`
   ).bind(since).all();
-  await queueEligibleTopicSamples(env, repeatedTextRows.results || [], candidateDefinitions);
+  if (options.queueSamples !== false) {
+    await queueEligibleTopicSamples(env, repeatedTextRows.results || [], candidateDefinitions);
+  }
   const approvedSampleReviews = await loadApprovedTopicSampleReviews(env);
   const materializedTotals = dailyTrend.reduce((acc, row) => {
     acc.block += safeCount(row.block_event_count);
@@ -1515,8 +1524,9 @@ function isWithinLookback(eventDate, referenceDate, lookbackDays) {
   return diff >= 0 && diff <= safeCount(lookbackDays) * 24 * 60 * 60 * 1e3;
 }
 __name(isWithinLookback, "isWithinLookback");
-function projectPublicPlatformOverview(raw, top = 15) {
+function projectPublicPlatformOverview(raw, top = 15, options = {}) {
   const data = raw && typeof raw === "object" ? raw : {};
+  const samplePublicationMode = options.samplePublicationMode === "reviewed_text" ? "reviewed_text" : "description";
   const overview = data.overview && typeof data.overview === "object" ? data.overview : {};
   const dailyTrend = Array.isArray(data.dailyTrend) ? data.dailyTrend : [];
   const topicTimeSeries = Array.isArray(data.topicTimeSeries) ? data.topicTimeSeries : [];
@@ -1537,7 +1547,7 @@ function projectPublicPlatformOverview(raw, top = 15) {
   const normalizedTopicRows = normalizeTopicRows(Array.isArray(data.topTopics) ? data.topTopics : []);
   const normalizedTopicTimeSeries = buildPublicTopicTimeSeries(topicTimeSeries);
   const normalizedCandidateTopicDaily = buildPublicTopicTimeSeries(candidateTopicDaily);
-  const narratives = buildPublicNarratives(sourceRows, top);
+  const narratives = buildPublicNarratives(sourceRows, top, samplePublicationMode);
   const highSignalRows = sourceRows.filter((row) => safeCount(row.avg_signal_score) >= PUBLIC_HIGH_SIGNAL_THRESHOLD);
   const coordinatedAccountEstimate = highSignalRows.reduce((sum, row) => sum + safeCount(row.unique_account_count), 0);
   const coordinatedSourceCount = highSignalRows.length;
@@ -1554,6 +1564,7 @@ function projectPublicPlatformOverview(raw, top = 15) {
     narratives,
     candidateTopics,
     approvedSampleReviews,
+    samplePublicationMode,
     dateRange: {
       start: dailyTrend[0]?.day_key || "",
       end: dailyTrend[dailyTrend.length - 1]?.day_key || ""
@@ -1571,6 +1582,8 @@ function projectPublicPlatformOverview(raw, top = 15) {
     days: safeCount(data.days || 30),
     taxonomyVersion: safeString(data.taxonomyVersion || CURRENT_TAXONOMY_VERSION, 40),
     sampleScope: safeString(data.sampleScope || PUBLIC_SAMPLE_SCOPE, 20),
+    samplePublicationMode,
+    samplePublicationPolicyVersion: PUBLIC_SAMPLE_LEGAL_POLICY_VERSION,
     overview: {
       uploadCount: safeCount(overview.uploadCount),
       contributorCount: safeCount(contribution.contributorCount) || safeCount(overview.contributorCount),
@@ -1649,7 +1662,9 @@ function projectPublicPlatformOverview(raw, top = 15) {
     topNarratives: narratives,
     candidateTopics,
     topicCards,
-    repeatedPhrases: buildPublicTopicSamples("general", Array.isArray(data.approvedSampleReviews) ? data.approvedSampleReviews : []),
+    repeatedPhrases: samplePublicationMode === "reviewed_text"
+      ? buildPublicTopicSamples("general", approvedSampleReviews)
+      : [],
     recentUploads: recentUploads.slice(0, 10).map((row) => ({
       id: safeCount(row.id),
       created_at: safeString(row.created_at, 40)
@@ -1697,7 +1712,7 @@ function buildPublicTopicTimeSeries(rows) {
   })).filter((row) => row.topics.length > 0);
 }
 __name(buildPublicTopicTimeSeries, "buildPublicTopicTimeSeries");
-function buildPublicTopicCards({ topicRows, topicTimeSeries, narratives, candidateTopics, approvedSampleReviews, dateRange, top }) {
+function buildPublicTopicCards({ topicRows, topicTimeSeries, narratives, candidateTopics, approvedSampleReviews, samplePublicationMode = "description", dateRange, top }) {
   const series = Array.isArray(topicTimeSeries) ? topicTimeSeries : [];
   const sampleReviews = Array.isArray(approvedSampleReviews) ? approvedSampleReviews : [];
   const candidateCards = (Array.isArray(candidateTopics) ? candidateTopics : []).map((topic) => ({
@@ -1713,8 +1728,12 @@ function buildPublicTopicCards({ topicRows, topicTimeSeries, narratives, candida
     activeDayCount: safeCount(topic.activeDayCount),
     evidence: buildCandidateTopicEvidence(topic),
     keywords: Array.isArray(topic.keywords) ? topic.keywords.slice(0, 8) : [],
-    samples: buildPublicTopicSamples(topic.id, sampleReviews),
-    patternDescription: buildTopicPatternDescription(topic, buildPublicTopicSamples(topic.id, sampleReviews)),
+    samples: samplePublicationMode === "reviewed_text" ? buildPublicTopicSamples(topic.id, sampleReviews) : [],
+    patternDescription: buildTopicPatternDescription(
+      topic,
+      samplePublicationMode === "reviewed_text" ? buildPublicTopicSamples(topic.id, sampleReviews) : [],
+      samplePublicationMode
+    ),
     topDays: Array.isArray(topic.topDays) ? topic.topDays : [],
     dailySeries: Array.isArray(topic.topDays) ? topic.topDays.map((day) => ({
       date: safeString(day.date || "", 20),
@@ -1779,7 +1798,7 @@ function buildPublicTopicCards({ topicRows, topicTimeSeries, narratives, candida
         end: dailySeries[dailySeries.length - 1]?.date || safeString(dateRange?.end || "", 20)
       },
       samples: [],
-      patternDescription: buildTopicPatternDescription({ keywords: [label] }, [])
+      patternDescription: buildTopicPatternDescription({ keywords: [label] }, [], samplePublicationMode)
     });
   }
   const fallbackCards = cards.filter((card) => !candidateLabels.has(card.canonical_label)).sort((a, b) => {
@@ -1803,7 +1822,10 @@ function buildPublicTopicSamples(topicId, rows) {
   })).filter((row) => row.deidentified_text).slice(0, PUBLIC_TOPIC_SAMPLE_LIMIT);
 }
 __name(buildPublicTopicSamples, "buildPublicTopicSamples");
-function buildTopicPatternDescription(topic, samples) {
+function buildTopicPatternDescription(topic, samples, samplePublicationMode = "description") {
+  if (samplePublicationMode !== "reviewed_text") {
+    return "句型描述模式：目前僅公開聚合行為指標，不公開文字樣本。";
+  }
   const firstSample = Array.isArray(samples) && samples.length > 0 ? samples[0].deidentified_text : "";
   const hints = Array.isArray(topic?.keywords) ? topic.keywords.slice(0, 3) : [];
   return removeBannedCopyTerms(summarizeNarrativePattern(firstSample, hints).summary);
@@ -2021,8 +2043,8 @@ function buildCandidateTopicEvidence(topic) {
       type: "cross_observer_count",
       label: "\u73FE\u6709\u8CC7\u6599",
       value: observers,
-      unit: "\u500B\u7368\u7ACB\u89C0\u6E2C\u4F86\u6E90",
-      text: `${observers} \u500B\u4E0D\u540C\u4F86\u6E90\u7684 source_text_sample \u547D\u4E2D\u8A71\u984C\u95DC\u9375\u5B57`
+      unit: "\u4F86\u6E90\u8CBC\u6587\u6578",
+      text: `${observers} \u500B\u4F86\u6E90\u8CBC\u6587\u547D\u4E2D\u6B64\u8A71\u984C\u95DC\u9375\u5B57`
     },
     {
       type: "source_concentration",
@@ -2166,7 +2188,7 @@ function buildPublicCategoryTree(categories, totalEventCount) {
   return nodes.sort((a, b) => safeCount(b.eventCount) - safeCount(a.eventCount));
 }
 __name(buildPublicCategoryTree, "buildPublicCategoryTree");
-function buildPublicNarratives(rows, top) {
+function buildPublicNarratives(rows, top, samplePublicationMode = "description") {
   const groups = /* @__PURE__ */ new Map();
   for (const item of Array.isArray(rows) ? rows : []) {
     const row = item && typeof item === "object" ? item : {};
@@ -2174,7 +2196,9 @@ function buildPublicNarratives(rows, top) {
     const eventCount = safeCount(row.total_event_count);
     const accountCount = safeCount(row.unique_account_count);
     const hints = normalizeTopicHints(row.top_topic_hints_json);
-    const narrative = summarizeNarrativePattern(row.source_text_sample || "", hints);
+    const narrative = samplePublicationMode === "reviewed_text"
+      ? summarizeNarrativePattern(row.source_text_sample || "", hints)
+      : summarizeNarrativePattern("", []);
     const key = narrative.key;
     if (!key) continue;
     if (!groups.has(key)) {
@@ -2647,6 +2671,7 @@ function clampInt(raw, min, max, fallback) {
 __name(clampInt, "clampInt");
 export {
   BANNED_COPY_TERMS,
+  PUBLIC_SAMPLE_LEGAL_POLICY_VERSION,
   SAMPLE_MIN_ACCOUNTS,
   SAMPLE_MIN_OBSERVERS,
   buildDynamicEventCandidates,
@@ -2656,6 +2681,7 @@ export {
   index_default as default,
   passesSampleGate,
   queueEligibleTopicSamples,
-  projectPublicPlatformOverview
+  projectPublicPlatformOverview,
+  resolveSamplePublicationMode
 };
 //# sourceMappingURL=index.js.map

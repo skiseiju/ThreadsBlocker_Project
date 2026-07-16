@@ -1,7 +1,7 @@
 # SDD: 話題放大偵測（Topic Amplification Detection）
 
-- 版本: v1.2（2026-07-11：§5.3 話術樣本公開修訂、新增 B8；v1.1 2026-07-07：§M5、§3.3）
-- 狀態: 施工中（B1/B2/M5 已上線；B8 為當前優先）
+- 版本: v1.3（2026-07-16：2.7.4-beta44 隱私 gate、description mode、public GET 唯讀與口徑修訂；v1.2 2026-07-11：§5.3 話術樣本公開修訂、新增 B8）
+- 狀態: 施工中（B1/B2/M5 已上線；B8 已完成程式 gate 與 description-mode 過渡，律師完成證據仍未具備）
 - 相關 ADR: [0006 觀測站定位轉向](adr/0006-observatory-repositioning.md)、[0007 帳號 ID 雜湊上傳與再處理層](adr/0007-account-hash-and-reprocessing.md)、[0008 每話題協調分數](adr/0008-per-topic-coordination-score.md)、[0009 話術樣本去識別化公開](adr/0009-deidentified-sample-publication.md)
 - 前情: 2026-07-06 與海哥討論定案（Obsidian Bridge: 觀測站定位與帶風向偵測可行性討論）
 
@@ -16,7 +16,7 @@
 
 ### 誠實邊界（寫死在產品文案，不得放寬）
 
-- 只陳述行為模式（同文多帳號、時間爆發、跨觀測者集中），不指認幕後身分
+- 只陳述行為模式（相似敘事、時間爆發、跨來源集中），不指認幕後身分
 - 不宣稱內容由 AI 產生
 - 不宣稱代表 Threads 全站（樣本為擴充功能使用者）
 
@@ -43,7 +43,7 @@
 | `timeBucket10mCounts` / `timeBucket1hCounts` | reporter.js:98-99 | 時間爆發偵測（已在收，毋須新欄位） |
 | `temporalBuckets10m/1h`(80/批，附 top 指紋) | reporter.js:157-168 | 爆發窗口內的同文證據 |
 | `narrativeSeeds.dominantTopicHints`(5) + `sourceTextSamples`(160字) | reporter.js:144-155 | 敘事群命名原料（後端輸出時未帶出 → hintLabels 空） |
-| `accountIds` / `accounts[].username` | reporter.js:72-87、storage.js:1060 | 跨觀測者驗證（**現為原文，見 §5**） |
+| `accountIds` / `accounts[].username` | reporter.js:72-87、storage.js:1060 | 跨來源交叉驗證（**現為原文，見 §5**） |
 
 ### 3.2 後端已有聚合
 
@@ -72,7 +72,7 @@
 ### M2 敘事群命名與證據鏈組裝（後端）
 
 1. `topNarratives` 輸出加欄位：`topKeywords[]`（來自 dominantTopicHints 正規化後）、`sampleFingerprints[]`
-2. 證據鏈 join：話題 × 敘事群（同文組數、帳號數）× 跨觀測者計數（≥N 位使用者分別封鎖）× 時間桶（爆發窗口）
+2. 證據鏈 join：話題 × 敘事群（同文組數、帳號觀測筆數）× 來源貼文數（≥N 個來源貼文）× 時間桶（爆發窗口）
 3. 公開 API 新增 `topicCards[]`：每卡含 `canonical_label, verdict, evidence[], dailySeries[], window`
 
 ### M3 放大異常分數（後端）
@@ -102,7 +102,7 @@
 | 話題命中 | `PUBLIC_CANDIDATE_TOPIC_DEFS.keywords` × `platform_source_metrics.source_text_sample` | 只納入 source text sample 命中候選話題關鍵字的來源 |
 | 協調訊號 | `platform_source_metrics.manipulation_signal_score`，公開查詢 alias 為 `avg_signal_score` | 擴充端已計算的 per-source proxy 訊號 |
 | 事件權重 | `platform_source_metrics.total_event_count` | 用事件量加權，避免小樣本高分來源過度影響 |
-| 獨立觀測者 | `platform_source_metrics.source_url` distinct count | 多個不同來源都命中，才降低單一恩怨或單一貼文偏差 |
+| 來源貼文數 | `platform_source_metrics.source_url` distinct count | 多個不同來源貼文都命中，才降低單一恩怨或單一貼文偏差 |
 | 來源集中 | max(`total_event_count`) / 話題事件總數 | 最大單一來源占比越高，越需要標示樣本偏差 |
 | 時間集中 | candidate topic `topDays` / `dateRange` | 峰值日事件占比與活躍天數，用於區分單日爆發與多日持續 |
 
@@ -124,13 +124,13 @@
 |---|---:|---|
 | `PUBLIC_HIGH_SIGNAL_THRESHOLD` | 65 | 高協調訊號分數 |
 | `PUBLIC_MEDIUM_SIGNAL_THRESHOLD` | 45 | 中等協調訊號分數 |
-| `PUBLIC_COORDINATION_HIGH_OBSERVER_MIN` | 3 | 判為「協調訊號偏高」所需最低獨立來源數 |
+| `PUBLIC_COORDINATION_HIGH_OBSERVER_MIN` | 3 | 判為「協調訊號偏高」所需最低來源貼文數 |
 | `PUBLIC_COORDINATION_WATCH_OBSERVER_MIN` | 2 | 觀察中樣本解讀門檻，保留於 API thresholds 供前端/文件引用 |
 
 判定：
 
 - **協調訊號偏高**：`coordinationScore >= PUBLIC_HIGH_SIGNAL_THRESHOLD` 且 `crossObserverCount >= PUBLIC_COORDINATION_HIGH_OBSERVER_MIN`
-- **觀察中**：分數中等，或分數偏高但獨立來源不足
+- **觀察中**：分數中等，或分數偏高但來源貼文數不足
 - **協調訊號低**：`coordinationScore < PUBLIC_MEDIUM_SIGNAL_THRESHOLD`
 
 #### 誠實邊界
@@ -152,7 +152,7 @@
 ### 5.1 上傳端變更（唯一的擴充功能改動）
 
 - `accountId`/`username` 上傳前改 **SHA-256 + 固定鹽** 雜湊（schema 升版 `platform_upload.v3`）
-- 跨觀測者交叉計數只需同帳號同值，不需原文
+- 跨來源交叉計數只需同帳號同值，不需原文
 - **前台永不呈現任何帳號識別**——原文不行，雜湊值也不呈現（海哥定案）
 
 ### 5.2 存量資料：再處理，不遷移（海哥定案）
@@ -167,16 +167,18 @@
 
 #### 樣本閘門（准入規則，須寫進程式碼）
 
-- 僅限「≥N 個帳號重複出現 且 ≥M 位獨立使用者分別封鎖」的文字；N/M 放模組常數並隨 API thresholds 輸出。重複性本身是去識別化的證明——越多帳號複製的文字，越不可能是任何個人的獨特言論
+- 僅限「≥N 個帳號觀測筆數重複出現 且 ≥M 個來源貼文」的文字；N/M 放模組常數並隨 API thresholds 輸出。這是准入門檻，不代表跨批次去重後的使用者或帳號數
 - 現值（2026-07-13 調整）：`SAMPLE_MIN_ACCOUNTS=10`、`SAMPLE_MIN_OBSERVERS=2`。初始 20/3 僅產出 35 筆候選、多數話題卡無材料；降為 10/2 候選增至 113 筆，品質由人工覆核把關
 - 去識別化 regex 涵蓋：@帳號名、`回覆xxx` 前綴、裸帳號名（含分隔符或字母數字混合的 token）、URL、電話樣式
 - 去識別化處理：移除 @帳號名、URL、私人（非公眾人物）之姓名與聯絡方式；公眾人物姓名屬可受公評之評論對象，可保留
 - **人工覆核閘門**：樣本進公開頁前須經覆核佇列核准，不自動發布
 - 未過閘門的 `snippet`/`sourceText` 維持僅供分群運算、不進公開 API；保存期限納入隱私聲明（建議值 180 天，待核定）
+- **公開 API legal gate**：projection 版本化輸出 `samplePublicationMode`，預設 `description`；缺少 env、env policy version 與 code 常數不完全相符，或沒有律師完成證據時，`topicCards[].samples=[]`、`repeatedPhrases=[]`，`patternDescription` 只能說明聚合指標且不得由原文衍生
+- 只有環境 policy version 完全匹配、樣本通過門檻與去識別、且人工狀態為 `approved` 時，才可使用 `reviewed_text`；`pending` / `rejected` 永不公開。public overview GET 唯讀，review queue 僅由 ingest、排程或有權限 admin refresh 產生
 
 #### 文案鐵律（程式化，非自律）
 
-- 卡片模板僅陳述可驗證事實：「此段文字由 N 個帳號重複出現、被 M 位使用者分別封鎖」——每句皆可自 D1 證明
+- 卡片模板僅陳述可驗證事實：「此段文字有 N 筆帳號觀測、來自 M 個來源貼文」——每句皆可自 D1 證明；不得改稱獨立使用者或獨立帳號
 - 禁用詞黑名單進 code：網軍、機器人、假帳號、側翼
 - 頁尾異議管道：「認為樣本涉及您的權益？來信即先下架複核」
 
@@ -191,7 +193,7 @@
 ### 5.4 法律定性備忘
 
 - 被封帳號之公開資訊：個資法 §19①7「一般可得之來源」為蒐集依據；特定目的（社群安全觀測統計）、僅發布聚合、訂保存期限，符合比例原則
-- 上傳者同意機制沿用 platform-sync-v2，schema v3 上線時同意文案同步改版
+- beta44 的上傳者同意機制改為獨立 `platform-sync-v3`；舊 v2 / 數字版同意不 migration 成 v3。這個 policy version 是同意 gate，不等同於尚未完成的 payload schema v3 / derived hash 工作
 - 隱私聲明（site/privacy/）補：蒐集範圍、目的、保存期限、僅聚合公開
 
 ## 6. Backlog 與 DoD

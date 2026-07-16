@@ -37,6 +37,31 @@ export const Reporter = {
         return text.length > maxLen ? text.slice(0, maxLen) : text;
     },
 
+    scrubSensitiveText: (value) => {
+        let text = String(value || '');
+        if (!text) return '';
+        const sensitiveKeys = 'authorization|cookie|set-cookie|x-fb-lsd|token|tokens|fb_dtsg|lsd|jazoest|__user|__hs|__hsi|__comet_req|__ccg|__a|__d|__spin_r|__spin_b|__spin_t|__dyn|__csr|__rev|__s|access[_-]?token|refresh[_-]?token|auth[_-]?token|request[_-]?token|id[_-]?token|session[_-]?token|csrf[_-]?token';
+        text = text.replace(new RegExp(`((?:^|[?&\\s,{\\[])["']?\\b(?:${sensitiveKeys})["']?\\s*[:=]\\s*["']?(?:bearer\\s+)?)[^&#,\\s}"']+`, 'gi'), '$1[REDACTED]');
+        text = text.replace(/(\bBearer\s+)[^,\s}"']+/gi, '$1[REDACTED]');
+        return text;
+    },
+
+    scrubSensitiveData: (value, key = '', seen = new WeakSet()) => {
+        const keyText = String(key || '');
+        const sensitiveKey = /(?:^|[_-])(?:fb_dtsg|lsd|jazoest|__user|__hs|__hsi|__comet_req|__ccg|__a|__d|__spin_r|__spin_b|__spin_t|__dyn|__csr|__rev|__s|access[_-]?token|refresh[_-]?token|auth[_-]?token|request[_-]?token|authorization|cookie|set-cookie|password|secret|session)(?:$|[_-])/i.test(keyText)
+            || /^(?:token|tokens|headers|requestHeaders|cookies)$/i.test(keyText);
+        if (sensitiveKey) return '[REDACTED]';
+        if (typeof value === 'string') return Reporter.scrubSensitiveText(value);
+        if (!value || typeof value !== 'object') return value;
+        if (seen.has(value)) return '[REDACTED_CYCLE]';
+        seen.add(value);
+        if (Array.isArray(value)) return value.map(item => Reporter.scrubSensitiveData(item, '', seen));
+        return Object.fromEntries(Object.entries(value).map(([entryKey, entryValue]) => [
+            entryKey,
+            Reporter.scrubSensitiveData(entryValue, entryKey, seen),
+        ]));
+    },
+
     keepTopEntries: (value, limit = 10) => {
         const obj = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
         return Object.fromEntries(
@@ -334,6 +359,9 @@ export const Reporter = {
     }),
 
     submitReport: async (level, message, errorCode = '', metadata = null) => {
+        if (!metadata || metadata.diagnosticConsent !== true) {
+            return { code: 204, skipped: 'diagnostic_consent_required' };
+        }
         const endpoints = Reporter.getReportEndpoints();
         if (endpoints.length === 0 || !CONFIG.BUG_REPORT_SALT) {
             return { code: 500, message: 'Bug Reporter is not properly configured.' };
@@ -345,15 +373,18 @@ export const Reporter = {
         const rawStr = `${timestamp}${hwid}${CONFIG.BUG_REPORT_SALT}`;
         const signature = await Reporter.sha256(rawStr);
 
+        const safeMessage = Reporter.scrubSensitiveText(message);
+        const safeMetadata = Reporter.scrubSensitiveData(metadata);
+        if (safeMetadata && typeof safeMetadata === 'object') delete safeMetadata.diagnosticConsent;
         const basePayload = {
             source_app: Reporter.sourceApp,
             version: CONFIG.VERSION,
             hwid,
             timestamp,
             level,
-            message,
-            error_code: errorCode,
-            metadata: metadata ? JSON.stringify(metadata) : '',
+            message: safeMessage,
+            error_code: Reporter.scrubSensitiveText(errorCode),
+            metadata: safeMetadata ? JSON.stringify(safeMetadata) : '',
             signature
         };
 
@@ -365,8 +396,8 @@ export const Reporter = {
                 const payload = {
                     ...basePayload,
                     metadata: JSON.stringify({
-                        userMetadata: metadata || null,
-                        clientEnv: envMeta
+                        userMetadata: safeMetadata || null,
+                        clientEnv: Reporter.scrubSensitiveData(envMeta)
                     })
                 };
 
@@ -399,6 +430,9 @@ export const Reporter = {
     },
 
     submitPlatformPayload: async (payload, options = {}) => {
+        if (!Storage.hasPlatformSyncConsentForCurrentVersion()) {
+            return { code: 204, skipped: 'pending_version_consent' };
+        }
         const endpoints = Reporter.getPlatformUploadEndpoints();
         if (endpoints.length === 0) {
             return { code: 500, message: 'Platform uploader is not configured.' };

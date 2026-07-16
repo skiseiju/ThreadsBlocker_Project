@@ -27,8 +27,8 @@
       <section class="hero hero--tinted">
         <div class="section-inner hero__content">
           <p class="section-kicker">Civic Signal Observatory</p>
-          <h1 id="heroHeadline">台灣是 Threads 全球流量最高的市場之一　你以為跟你對話的是真人嗎？</h1>
-          <p id="heroSubtitle" class="hero__subtitle">留友封觀測站試著用匿名聚合資料來回答這個問題</p>
+          <h1 id="heroHeadline">Threads 公開行為的集中與擴散，正在如何變化？</h1>
+          <p id="heroSubtitle" class="hero__subtitle">留友封觀測站用匿名聚合資料整理可觀察的行為模式</p>
           <p id="heroDataSentence" class="hero__data">本期資料正在載入中。</p>
           <p class="legal-note">依《個人資料保護法》，本站僅呈現匿名聚合統計與現象觀察，不公開使用者帳號 ID 或個別貼文連結。</p>
           <p id="heroDateRange" class="hero__meta">--</p>
@@ -55,17 +55,17 @@
               <p id="statEvents" class="stat-card__value">0</p>
               <p class="stat-card__label">被封鎖或檢舉的事件</p>
               <p id="statEventsDelta" class="stat-card__delta">載入變化中。</p>
-              <p id="statEventsSub" class="stat-card__sub">納入趨勢計算的封鎖與檢舉事件，代表這段時間使用者遇到問題的總量。</p>
+              <p id="statEventsSub" class="stat-card__sub">納入趨勢計算的封鎖與檢舉事件，代表這段時間已收到的可分析事件總量。</p>
             </article>
             <article class="stat-card">
               <p id="statCoordinated" class="stat-card__value">0</p>
-              <p class="stat-card__label">重複出現帳號</p>
+              <p class="stat-card__label">帳號觀測筆數</p>
               <p id="statCoordinatedDelta" class="stat-card__delta">這是累積估計值，沒有每日趨勢線可比較。</p>
-              <p id="statCoordinatedSub" class="stat-card__sub">在高熱度、重複轉傳的樣本中被封鎖或檢舉的帳號數；可用來觀察是否同一批敘事被多帳號放大，不是實際真人數。</p>
+              <p id="statCoordinatedSub" class="stat-card__sub">在高信號、重複敘事的樣本中被封鎖或檢舉的帳號觀測筆數；可用來觀察敘事是否被多筆帳號觀測放大，不代表跨批次去重後的人數。</p>
             </article>
             <article class="stat-card">
               <p id="statContributors" class="stat-card__value">0</p>
-              <p class="stat-card__label">提供資料的人</p>
+              <p class="stat-card__label">資料來源數</p>
               <p id="statContributorsDelta" class="stat-card__delta">這是觀測窗累積值，沒有每日趨勢線可比較。</p>
               <p id="statContributorsSub" class="stat-card__sub">已能進入分析的匿名來源數；數字越高，越能降低單一來源偏誤。</p>
             </article>
@@ -154,19 +154,18 @@
       const trendEventDetail = document.getElementById('trendEventDetail');
       const candidateTopicsList = document.getElementById('candidateTopicsList');
       const rotatingHeadlines = [
-        '台灣是 Threads 全球流量最高的市場之一\n你以為跟你對話的是真人嗎？',
-        '你每天都在封鎖/檢舉的帳號\n到底為什麼處理不完？',
-        '每次爭議話題出現\n背後有多少帳號是在協調行動？',
-        '你封鎖一個帳號\n後面還有三個在等',
-        '不是每一次「輿論爆發」\n都真的來自真人',
-        '你以為是輿論\n也可能只是機器人大量複製出來的聲量',
-        '有些「網友」不會累、不會停\n因為它們根本不是人',
+        'Threads 上的公開討論\n如何在短時間集中？',
+        '公開事件與站內行為\n是否在同一時間升高？',
+        '同一套敘事\n可以在一夜之間反覆出現',
+        '來源集中度與擴散度\n各自揭露什麼訊號？',
+        '重複敘事的出現\n如何被整理成可分析資料？',
+        '封鎖與檢舉事件\n如何形成時間序列？',
       ];
       const randomHeadline = rotatingHeadlines[Math.floor(Math.random() * rotatingHeadlines.length)];
       heroHeadline.textContent = randomHeadline;
 
       const defaultHeadline = randomHeadline;
-      const defaultSubtitle = '留友封觀測站試著用匿名聚合資料來回答這個問題';
+      const defaultSubtitle = '留友封觀測站用匿名聚合資料整理可觀察的行為模式';
 
       function safeValue(value, fallback) {
         return value === undefined || value === null || value === '' ? fallback : value;

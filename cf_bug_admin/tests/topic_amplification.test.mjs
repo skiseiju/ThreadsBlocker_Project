@@ -280,7 +280,7 @@ test("B8 deidentifies handles, URLs, and phone patterns but leaves names for rev
   assert.equal(result.includes("王小明"), true);
 });
 
-test("B8 keeps public sample copy factual and describes sentence style", () => {
+test("B8 keeps reviewed public sample copy factual and describes sentence style", () => {
   const projected = projectPublicPlatformOverview({
     days: 14,
     overview: { totalEventCount: 40 },
@@ -304,7 +304,7 @@ test("B8 keeps public sample copy factual and describes sentence style", () => {
       observer_count: 4,
       status: "pending"
     }]
-  }, 5);
+  }, 5, { samplePublicationMode: "reviewed_text" });
 
   const card = projected.topicCards.find((item) => item.canonical_label === "淡江大橋");
   assert.ok(card);

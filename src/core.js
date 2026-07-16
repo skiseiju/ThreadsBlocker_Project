@@ -3290,9 +3290,13 @@ export const Core = {
     },
 
     showReportDialog: () => {
-        UI.showBugReportModal(async (level, message) => {
+        UI.showBugReportModal(async (level, message, consent = {}) => {
+            if (consent.diagnosticConsent !== true) {
+                return { code: 204, skipped: 'diagnostic_consent_required' };
+            }
             const diagnosticsBundle = Core.collectDiagnosticsBundle();
             return await Reporter.submitReport(level, message, "UI_REPORT", {
+                diagnosticConsent: true,
                 diagnostics: diagnosticsBundle.diagnostics.summaryText,
                 diagnosticsBundle,
                 speedMode: Utils.getSpeedMode(),

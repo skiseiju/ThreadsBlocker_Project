@@ -2,7 +2,7 @@
 
 - 日期: 2026-07-11
 - 狀態: 已採納
-- 相關: [SDD_Topic_Amplification.md](../SDD_Topic_Amplification.md) §5.3（本 ADR 修訂該節原裁決）、ADR 0007、ADR 0008
+- 相關: [SDD_Topic_Amplification.md](../SDD_Topic_Amplification.md) §5.3（本 ADR 修訂該節原裁決）、ADR 0007、ADR 0008、2.7.4-beta44 privacy release
 
 ## 背景
 
@@ -12,7 +12,7 @@ M5 每話題協調分數上線後，話題卡仍被使用者連續評為「沒�
 
 1. **維持原文禁令**——卡片僅有分數與計數，產品持續無感，核心問題答不出來
 2. **句型描述模式**——不引原文，僅描述話術類型（「把 X 連結到 Y 的指控句式」）；安全但失去「收據」的說服力
-3. **去識別化樣本＋閘門公開**——僅限多帳號重複、多獨立觀測者驗證的文字，去除識別符，經人工覆核後公開；配文案鐵律（禁用「網軍」等定性詞，只出可驗證事實句）與異議下架管道
+3. **去識別化樣本＋閘門公開**——僅限達到帳號觀測筆數與來源貼文數門檻的文字，去除識別符，經人工覆核後公開；配文案鐵律（禁用「網軍」等定性詞，只出可驗證事實句）與異議下架管道
 
 ## 決定
 
@@ -22,6 +22,14 @@ M5 每話題協調分數上線後，話題卡仍被使用者連續評為「沒�
 - 妨害名譽為主要曝險，防線＝刑法 310-3 真實抗辯（每句陳述可自 D1 證明）＋刑法 311 善意評論（可受公評之事）＋釋字 509（方法論公開＝相當理由）；結構性防護＝原告須自認為大量複製文字之作者
 - 個資法風險低（去識別化的多帳號重複文字非個資）；著作權風險可忽略
 - 上線前卡片文案模板與准入規則送律師一次性審閱；審閱完成前以選項 2（句型描述）作為過渡模式
+
+## 2.7.4-beta44 實作修訂（2026-07-16）
+
+- public projection 版本化輸出 `samplePublicationMode`，預設為 `description`；在法律政策證據尚未具備前，`topicCards[].samples=[]`、`repeatedPhrases=[]`，`patternDescription` 只描述聚合指標，不從原文生成。
+- `reviewed_text` 只有在部署環境的 `PUBLIC_SAMPLE_LEGAL_POLICY_VERSION` 與程式常數 `sample-publication-legal-v1` 完全匹配，且樣本通過門檻、去識別與人工 `approved` 時才可輸出；`pending` / `rejected` 永不公開。
+- public overview GET 僅讀取，不能建立 queue 或 review row；queue 保留在 ingest、排程或有權限的 admin refresh。
+- 「來源貼文數」與「帳號觀測筆數」是對外固定口徑，不解讀為獨立使用者或獨立帳號。
+- 本修訂不表示律師審閱已完成；在取得證據前維持 description mode。
 
 ## 後果
 

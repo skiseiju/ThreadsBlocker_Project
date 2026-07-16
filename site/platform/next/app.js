@@ -336,7 +336,7 @@
     const maxConcentration = num(thresholds?.coordinationMaxConcentration) || 60;
     const { score, observers, concentration } = stats;
     if (/協調訊號偏高/.test(verdict)) {
-      return `${formatNumber(observers)} 位互不相識的使用者，各自封鎖了推這個話題的帳號；訊號強、來源分散，行為模式像被協調放大。`;
+      return `${formatNumber(observers)} 筆來源貼文回報同一話題的封鎖或檢舉；訊號強、來源較分散，行為模式呈現放大跡象。`;
     }
     if (/協調訊號低/.test(verdict)) {
       return '活動零星、訊號弱，看起來像自然討論。';
@@ -345,7 +345,7 @@
       return `重複跡象強，但 ${formatPercent(concentration)} 的活動集中在同一個來源——可能是個案，還不能算集體協調。`;
     }
     if (score >= high && observers < minObservers) {
-      return `重複跡象強，但只有 ${formatNumber(observers)} 位使用者回報，獨立驗證還不夠。`;
+      return `重複跡象強，但只有 ${formatNumber(observers)} 筆來源貼文回報，跨來源驗證還不夠。`;
     }
     if (score > 0) {
       return `重複跡象中等，證據還不足以下判斷，持續觀察。`;
@@ -364,14 +364,14 @@
   function buildStatChips(stats, thresholds) {
     const chips = [];
     if (stats.score > 0) chips.push(describeSignalLevel(stats.score, thresholds));
-    if (stats.observers > 0) chips.push(`${formatNumber(stats.observers)} 位獨立回報`);
+    if (stats.observers > 0) chips.push(`${formatNumber(stats.observers)} 筆來源貼文`);
     if (stats.concentration > 0) chips.push(`最大來源占 ${formatPercent(stats.concentration)}`);
     const threshold = getActivityThreshold(stats.eventCount);
     if (threshold) chips.push(`超過 ${formatNumber(threshold)} 次活動`);
     return chips;
   }
 
-  function normalizeTopicCard(card, topicTimeSeries, thresholds) {
+  function normalizeTopicCard(card, topicTimeSeries, thresholds, samplePublicationMode = 'description') {
     const verdict = text(card?.verdict ?? card?.coordinationBand ?? card?.signalBand ?? card?.band ?? card?.status, '觀察中');
     const title = text(card?.title ?? card?.canonical_label ?? card?.name ?? card?.topic, '未命名話題');
     const score = num(card?.coordinationScore);
@@ -380,12 +380,16 @@
     const eventCount = num(card?.eventCount ?? card?.event_count);
     const stats = { score, observers, concentration, eventCount };
     const activity = getTopicSeries(card, topicTimeSeries);
-    const samples = (Array.isArray(card?.samples) ? card.samples.slice(0, 3) : []).map((s) => ({
-      text: text(s?.text ?? s?.deidentified_text, ''),
-      accountCount: num(s?.accountCount ?? s?.account_count),
-      observerCount: num(s?.observerCount ?? s?.observer_count)
-    })).filter((s) => s.text);
-    const patternDescription = text(card?.patternDescription ?? '', '');
+    const samples = samplePublicationMode === 'reviewed_text'
+      ? (Array.isArray(card?.samples) ? card.samples.slice(0, 3) : []).map((s) => ({
+          text: text(s?.text ?? s?.deidentified_text, ''),
+          accountCount: num(s?.accountCount ?? s?.account_count),
+          observerCount: num(s?.observerCount ?? s?.observer_count)
+        })).filter((s) => s.text)
+      : [];
+    const patternDescription = samplePublicationMode === 'reviewed_text'
+      ? text(card?.patternDescription ?? '', '')
+      : '句型描述模式：目前僅公開聚合行為指標，不公開文字樣本。';
     return {
       title,
       summary: text(card?.summary ?? card?.note, ''),
@@ -456,7 +460,7 @@
       return;
     }
 
-    const normalizedCards = rawCards.map((card) => normalizeTopicCard(card, topicTimeSeries, data?.thresholds));
+    const normalizedCards = rawCards.map((card) => normalizeTopicCard(card, topicTimeSeries, data?.thresholds, data?.samplePublicationMode));
     const sortedCards = normalizedCards.sort((a, b) => {
       const priorityA = getCoordinationPriority(a.verdict);
       const priorityB = getCoordinationPriority(b.verdict);
@@ -493,7 +497,7 @@
                 return `
                   <blockquote class="sample-item">
                     <p>${escapeHtml(truncated)}</p>
-                    <p class="sample-meta">由 ${formatNumber(accountCount)} 個帳號重複出現 · ${formatNumber(observerCount)} 位使用者分別封鎖</p>
+                    <p class="sample-meta">帳號觀測筆數 ${formatNumber(accountCount)} · 來源貼文數 ${formatNumber(observerCount)}</p>
                   </blockquote>`;
               }).join('')}
             </div>
@@ -511,7 +515,7 @@
         ${dominatedCards.map((card) => `
           <div class="topic-lowlist__row">
             <span>${escapeHtml(card.title)}</span>
-            <span class="topic-lowlist__meta">${card.signalLevel} · ${formatNumber(card.observers)} 位回報 · 集中 ${formatPercent(card.concentration)}</span>
+            <span class="topic-lowlist__meta">${card.signalLevel} · 來源貼文數 ${formatNumber(card.observers)} · 集中 ${formatPercent(card.concentration)}</span>
           </div>`).join('')}
       </div>` : '';
 
@@ -521,7 +525,7 @@
         ${lowCards.map((card) => `
           <div class="topic-lowlist__row">
             <span>${escapeHtml(card.title)}</span>
-            <span class="topic-lowlist__meta">${card.signalLevel} · ${formatNumber(card.observers)} 位回報</span>
+            <span class="topic-lowlist__meta">${card.signalLevel} · 來源貼文數 ${formatNumber(card.observers)}</span>
           </div>`).join('')}
       </div>` : '';
 
@@ -531,11 +535,13 @@
   function renderRepeatedPhrases(data) {
     const host = document.getElementById('repeatedPhrases');
     if (!host) return;
-    const rows = (Array.isArray(data?.repeatedPhrases) ? data.repeatedPhrases : []).map((s) => ({
+    const rows = data?.samplePublicationMode === 'reviewed_text'
+      ? (Array.isArray(data?.repeatedPhrases) ? data.repeatedPhrases : []).map((s) => ({
       text: text(s?.text ?? s?.deidentified_text, ''),
       accountCount: num(s?.accountCount ?? s?.account_count),
       observerCount: num(s?.observerCount ?? s?.observer_count)
-    })).filter((s) => s.text);
+      })).filter((s) => s.text)
+      : [];
     const section = host.closest('section');
     if (!rows.length) {
       if (section) section.hidden = true;
@@ -547,7 +553,7 @@
       return `
         <blockquote class="sample-item">
           <p>${escapeHtml(truncated)}</p>
-          <p class="sample-meta">由 ${formatNumber(s.accountCount)} 個帳號重複出現 · ${formatNumber(s.observerCount)} 個來源分別回報</p>
+          <p class="sample-meta">帳號觀測筆數 ${formatNumber(s.accountCount)} · 來源貼文數 ${formatNumber(s.observerCount)}</p>
         </blockquote>`;
     }).join('');
   }

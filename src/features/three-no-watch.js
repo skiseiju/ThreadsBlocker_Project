@@ -2411,7 +2411,10 @@ Object.assign(Core, {
             const ua = navigator.userAgent || '';
             const isSafariRuntime = /safari/i.test(ua) && !/(chrome|chromium|crios|fxios|edg|edgios|opr)/i.test(ua);
             const isUserscriptRuntime = typeof GM_info !== 'undefined' || typeof GM_xmlhttpRequest !== 'undefined';
-            if (Core.ThreeNoWatch.isChromeExtension() || isSafariRuntime || isUserscriptRuntime) {
+            // The legacy inline MAIN-world bridge is permanently disabled. Chrome uses
+            // the manifest page-bridge; Firefox, Safari, and Userscripts use UI fallback.
+            const legacyInlineBridgeDisabled = true;
+            if (legacyInlineBridgeDisabled || Core.ThreeNoWatch.isChromeExtension() || isSafariRuntime || isUserscriptRuntime) {
                 window.__hegeAboutProfilePassiveBridgeStatus = {
                     ...(window.__hegeAboutProfilePassiveBridgeStatus || {}),
                     ready: false,

@@ -211,7 +211,10 @@ rm "$TEMP_BUNDLE"
 SAFARI_PATH="/Users/skiseiju/Library/Mobile Documents/com~apple~CloudDocs/userscripts/threads-block.js"
 SAFARI_DIR=$(dirname "$SAFARI_PATH")
 
-if [ -d "$SAFARI_DIR" ]; then
+SKIP_SAFARI_DEPLOY="${SKIP_SAFARI_DEPLOY:-false}"
+if [[ "$SKIP_SAFARI_DEPLOY" == "true" || "$SKIP_SAFARI_DEPLOY" == "1" ]]; then
+    echo "Safari Build deployment skipped: SKIP_SAFARI_DEPLOY=$SKIP_SAFARI_DEPLOY"
+elif [ -d "$SAFARI_DIR" ]; then
     cp "$OUT_FILE" "$SAFARI_PATH"
     echo "Safari Build deployed: $SAFARI_PATH"
 else

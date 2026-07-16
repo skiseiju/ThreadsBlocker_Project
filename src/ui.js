@@ -964,22 +964,23 @@ export const UI = {
                 <div style="padding:20px 24px;overflow-y:auto;-webkit-overflow-scrolling:touch;font-size:13px;line-height:1.75;color:#d5d5d5;">
                     <p style="margin:0 0 12px;color:#f2f2f2;font-weight:700;">嗨，我是開發者海哥。</p>
                     <p style="margin:0 0 12px;">留友封不是大型公司做的資料產品，而是由公開身份的個人維護。你可以檢視我的公開 ID、專案原始碼、網站說明與觀測方法，再決定是否支持我接下來的計畫。</p>
-                    <p style="margin:0 0 12px;">我做這個觀測計畫，是因為我們在 Threads 上看到太多相似帳號、相似留言、集中攻擊與帶風向行為。單一使用者很難證明那是不是一群帳號一起在操作，但如果許多人願意提供匿名樣本，我們就能把這些公開行為特徵整理成統計，讓更多人看見問題。</p>
+                    <p style="margin:0 0 12px;">我做這個觀測計畫，是因為我們在 Threads 上看到太多相似敘事、集中封鎖與帶風向行為。單一來源很難判斷是否存在跨來源的行為模式，但如果許多人願意提供匿名樣本，我們就能把公開行為特徵整理成統計，讓更多人看見問題。</p>
                     <p style="margin:0 0 14px;color:#f2f2f2;font-weight:700;">如果你信任我，或認同這件事值得被公開，你可以開啟每日自動上傳，來幫助大家更理解可疑帳號集中攻擊與帶風向的行為模式。</p>
-                    <div style="background:#2a1f08;border:1px solid #8f6d1f;border-radius:10px;padding:10px 12px;color:#ffe1a6;font-weight:700;margin-bottom:12px;">Chrome 擴充功能版也受 Google / Chrome Web Store 權限與隱私揭露審核限制。留友封沒有要求 cookies、history、tabs 等可讀取跨站資料的高敏感權限。</div>
+                    <div style="background:#2a1f08;border:1px solid #8f6d1f;border-radius:10px;padding:10px 12px;color:#ffe1a6;font-weight:700;margin-bottom:12px;">這是第 3 版平台同步同意（platform-sync-v3）。Chrome 擴充功能版沒有新增 cookies、history、tabs、webRequest 或 scripting 權限；Chrome 加速三無另有獨立的認證欄位處理同意，預設關閉。</div>
                     <div style="background:#101820;border:1px solid #263746;border-radius:10px;padding:12px;margin-bottom:12px;">
                         <div style="font-weight:700;color:#cfe8ff;margin-bottom:6px;">如果你同意，我們會上傳：</div>
                         <p style="margin:0 0 8px;">平台會取得你封鎖或檢舉過的帳號識別與公開個人檔案連結，用來做整體統計；公開頁不會列出你的完整封鎖/檢舉名單。</p>
-                        <p style="margin:0 0 8px;">也會上傳相關來源貼文連結、公開文字片段，以及你當時選擇的檢舉/封鎖分類，幫助判斷哪些議題正在被集中攻擊。</p>
+                        <p style="margin:0 0 8px;">也會上傳相關來源貼文連結、公開文字片段，以及你當時選擇的檢舉/封鎖分類，幫助判斷哪些議題正在被集中回報。公開頁預設只呈現聚合指標與句型描述，不公開文字樣本。</p>
                         <p style="margin:0;">另外會包含批次統計、時間、工具版本與匿名來源 ID。匿名來源 ID 是本工具在你的瀏覽器本機隨機產生的樣本代號，不是你的 Threads 使用者 ID，也不是由你的帳號、Email 或 Google 帳號推算而來；它只用來辨識同一個匿名來源的多次上傳，避免重複計算。</p>
                     </div>
                     <div style="background:#181111;border:1px solid #3a2525;border-radius:10px;padding:12px;margin-bottom:12px;">
                         <div style="font-weight:700;color:#ffd1d1;margin-bottom:6px;">我們不會上傳：</div>
-                        <p style="margin:0 0 8px;">Threads 密碼、登入憑證或雙因素驗證碼。</p>
-                        <p style="margin:0 0 8px;">cookies、瀏覽器歷史紀錄、其他網站資料或私人訊息。</p>
+                        <p style="margin:0 0 8px;">Threads 密碼、雙因素驗證碼或任何可登入帳號的完整憑證。</p>
+                        <p style="margin:0 0 8px;">平台同步不會上傳 Chrome 加速三無在本機暫時處理的同站認證欄位；該功能只有在另一個醒目視窗中明確同意後才會啟用，拒絕時保留一般三點操作。</p>
+                        <p style="margin:0 0 8px;">cookies API、瀏覽器歷史紀錄、其他網站資料或私人訊息。</p>
                         <p style="margin:0;">你的 Email、Google 帳號或真實姓名。</p>
                     </div>
-                    <p style="margin:0 0 12px;color:#b8b8b8;">觀測結果只代表公開樣本中的行為模式，不是對任何個別帳號、個人或組織的法律判定，也不鼓勵騷擾、肉搜、威脅或私下攻擊任何人。</p>
+                    <p style="margin:0 0 12px;color:#b8b8b8;">觀測結果只代表公開樣本中的行為模式，不是對任何個別帳號、個人或組織的法律判定，也不鼓勵騷擾、肉搜、威脅或私下攻擊任何人。若未來要顯示經去識別的短文字樣本，還必須同時通過門檻、人工核准與法務政策 gate；目前未開啟。</p>
                     <p style="margin:0 0 12px;">資料只用於公開統計、濫用偵測與方法改進，不用於廣告、再行銷或出售。新版會額外上傳三無追蹤者掃描的統計數量（例如檢查人數、符合三無人數），不包含三無名單、帳號、頭像網址或自介內容。你可以先看看<a href="https://threadsblocker.skiseiju.com/platform/?mock=1" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">示範觀測平台</a>會長什麼樣子，再決定也可以；也可以選擇只手動上傳，之後隨時能在「來源分析報告」中更改。</p>
                     <p style="margin:0;color:#8ab4f8;">維護者與成果預覽：<a href="https://www.threads.com/@skiseiju" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">Threads @skiseiju</a> / <a href="https://skiseiju.com" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">skiseiju.com</a> / <a href="https://github.com/skiseiju/ThreadsBlocker_Project" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">GitHub @skiseiju</a> / <a href="https://threadsblocker.skiseiju.com/platform/" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">正式觀測平台</a> / <a href="https://threadsblocker.skiseiju.com/platform/?mock=1" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">示範觀測平台</a></p>
                 </div>
@@ -1007,6 +1008,49 @@ export const UI = {
 
         overlay.querySelector('#hege-platform-sync-manual').onclick = () => finish(false);
         overlay.querySelector('#hege-platform-sync-enable').onclick = () => finish(true);
+    },
+
+    showCredentialsConsentModal: (options = {}) => {
+        if (Reporter.getClientPlatform() !== 'chrome_extension') return;
+        if (document.getElementById('hege-credentials-processing-consent-overlay')) return;
+
+        const enabled = Storage.hasCredentialsProcessingConsentForCurrentVersion()
+            && Storage.getThreeNoAcceleratedProfileEnabled();
+        const overlay = document.createElement('div');
+        overlay.id = 'hege-credentials-processing-consent-overlay';
+        overlay.className = 'hege-manager-overlay';
+        Utils.setHTML(overlay, `
+            <div class="hege-manager-box" style="width:min(92vw,720px);max-width:720px;max-height:calc(100vh - 28px);max-height:calc(100dvh - 28px);border:2px solid #ff9f0a;">
+                <div class="hege-manager-header">
+                    <span class="hege-manager-title">Chrome 加速三無：認證欄位處理同意</span>
+                </div>
+                <div style="padding:20px 24px;overflow-y:auto;-webkit-overflow-scrolling:touch;font-size:13px;line-height:1.75;color:#d5d5d5;">
+                    <div style="background:#2a1f08;border:1px solid #ff9f0a;border-radius:10px;padding:12px;color:#ffe1a6;font-weight:700;margin-bottom:14px;">這是獨立於平台上傳的 ${CONFIG.CREDENTIALS_PROCESSING_CONSENT_POLICY_VERSION} 同意。預設關閉；不同意不會影響一般可見 UI、三點選單或手動 fallback。</div>
+                    <p style="margin:0 0 12px;">啟用後，留友封只會在 Threads 頁面中，為了加速三無 profile 檢查，在本機暫時處理頁面或同站請求中的認證欄位，例如 <code>fb_dtsg</code>、<code>lsd</code>、<code>jazoest</code>、<code>__user</code> 等 token；發出同站 Threads 請求時，瀏覽器也可能依既有瀏覽器規則附帶同站 session cookie。</p>
+                    <p style="margin:0 0 12px;">這些欄位只用於 Threads 的加速檢查，不會保存到留友封的 localStorage，不會上傳到 ThreadsBlocker 平台，也不會附在問題回報或診斷附件中；我們不會讀取或要求你的密碼、雙因素驗證碼。</p>
+                    <p style="margin:0 0 12px;">本功能不新增 cookies、history、tabs、webRequest 或 scripting 權限。拒絕或關閉後，頁面 bridge 會停止掃描頁面、停止 fetch/XHR patch，並清除本次 bridge 暫存；你仍可使用一般 UI 與三點選單 fallback。</p>
+                    <p style="margin:0;color:#b8b8b8;">你可以稍後回到設定重新開啟或關閉。此同意版本只代表認證欄位處理，不會改變平台同步同意（platform-sync-v3）。</p>
+                </div>
+                <div class="hege-manager-footer">
+                    <div style="display:flex;gap:10px;width:100%;justify-content:flex-end;flex-wrap:wrap;">
+                        <button class="hege-manager-btn secondary" id="hege-credentials-consent-deny">${enabled ? '關閉並回到一般操作' : '拒絕，使用一般三點操作'}</button>
+                        <button class="hege-manager-btn primary" id="hege-credentials-consent-enable" style="background:#ff9f0a;color:#1a1000;border-color:#ff9f0a;">${enabled ? '保持開啟' : '同意並開啟加速三無'}</button>
+                    </div>
+                </div>
+            </div>
+        `);
+        document.body.appendChild(overlay);
+
+        const finish = (allow) => {
+            const active = Storage.setCredentialsProcessingConsentDecision(allow);
+            Storage.setThreeNoAcceleratedProfileEnabled(active);
+            Storage.syncCredentialsProcessingConsentToBridge();
+            overlay.remove();
+            UI.showToast(active ? '已開啟 Chrome 加速三無；認證欄位只在本機處理' : '已關閉加速三無，保留一般三點操作');
+            if (typeof options.onDecision === 'function') options.onDecision(active);
+        };
+        overlay.querySelector('#hege-credentials-consent-deny').onclick = () => finish(false);
+        overlay.querySelector('#hege-credentials-consent-enable').onclick = () => finish(true);
     },
 
     showPlatformManualUploadReminderModal: () => {
@@ -1093,6 +1137,15 @@ export const UI = {
                         <option value="ERROR" selected>❌ 功能壞了</option>
                         <option value="CRITICAL">💀 完全無法使用</option>
                     </select>
+                    <div style="margin-top:16px;background:#151515;border:1px solid #3b3b3b;border-radius:8px;padding:10px 12px;color:#cfcfcf;font-size:12px;line-height:1.6;">
+                        <div style="font-weight:700;color:#f2f2f2;margin-bottom:5px;">本次診斷附件會包含：</div>
+                        <div>目前頁面 URL／標題、工具版本與瀏覽器環境、封鎖／檢舉佇列摘要、來源貼文與操作摘要、必要的 DOM／console 診斷資訊。</div>
+                        <div style="margin-top:5px;color:#ffb8b8;">送出前會 scrub request token、cookie、authorization 與 canary；未勾選同意就不會送出。</div>
+                    </div>
+                    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;color:#f2f2f2;font-size:12px;line-height:1.5;cursor:pointer;">
+                        <input id="hege-report-diagnostic-consent" type="checkbox" style="margin-top:3px;flex:0 0 auto;">
+                        <span>我同意本次問題回報附上上述診斷附件；我知道這是單次同意，不會改變平台同步設定。</span>
+                    </label>
                 </div>
                 <div class="hege-manager-footer">
                     <span id="hege-report-status" style="font-size: 13px; color: #888;"></span>
@@ -1110,6 +1163,7 @@ export const UI = {
         const submitBtn = overlay.querySelector('#hege-report-submit');
         const msgInput = overlay.querySelector('#hege-report-msg');
         const levelSelect = overlay.querySelector('#hege-report-level');
+        const diagnosticConsent = overlay.querySelector('#hege-report-diagnostic-consent');
         const statusSpan = overlay.querySelector('#hege-report-status');
 
         const close = () => overlay.remove();
@@ -1123,13 +1177,18 @@ export const UI = {
                 statusSpan.style.color = '#ff3b30';
                 return;
             }
+            if (!diagnosticConsent?.checked) {
+                statusSpan.textContent = '送出前請勾選本次診斷附件同意；未同意不會送出回報。';
+                statusSpan.style.color = '#ff3b30';
+                return;
+            }
 
             submitBtn.disabled = true;
             submitBtn.textContent = '傳送中...';
             statusSpan.textContent = '';
             
             try {
-                const result = await onSubmit(levelSelect.value, msg);
+                const result = await onSubmit(levelSelect.value, msg, { diagnosticConsent: true });
                 if (result && result.code === 200) {
                     UI.showToast('感謝您的回報！已成功送出。');
                     close();
@@ -1943,6 +2002,10 @@ export const UI = {
         const devReloadSectionLabel = callbacks.onDevReloadExtension ? ['開', '發', '版'].join('') : '';
         const devReloadButtonLabel = callbacks.onDevReloadExtension ? ['重新', '載入', '開發', '版'].join('') : '';
         const devReloadStatusLabel = callbacks.onDevReloadExtension ? ['beta', 'only'].join(' ') : '';
+        const isChromeExtension = Reporter.getClientPlatform() === 'chrome_extension';
+        const credentialsConsentEnabled = isChromeExtension
+            && Storage.hasCredentialsProcessingConsentForCurrentVersion()
+            && Storage.getThreeNoAcceleratedProfileEnabled();
         const settingsSectionTitleStyle = 'margin:10px 0 0;padding:7px 10px;border:1px solid #2e2e2e;border-radius:7px;background:linear-gradient(180deg,#171717,#121212);color:#d8d8d8;font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;box-shadow:inset 0 1px 0 rgba(255,255,255,0.04);';
         const settingsDangerTitleStyle = 'margin:10px 0 0;padding:7px 10px;border:1px solid #443030;border-radius:7px;background:linear-gradient(180deg,#1b1414,#141010);color:#f0caca;font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;box-shadow:inset 0 1px 0 rgba(255,255,255,0.035);';
 
@@ -2023,6 +2086,16 @@ export const UI = {
                             </div>
                             <span style="color:#777;font-size:11px;line-height:1.35;">備選名單超過此數量後，開始進 profile 確認三無。</span>
                         </div>
+                        ${isChromeExtension ? `
+                        <div style="${settingsSectionTitleStyle}">Chrome 隱私與加速</div>
+                        <div class="hege-menu-item" id="hege-s-credentials-consent" style="display:flex; flex-direction:column; align-items:stretch; gap:5px;border-color:${credentialsConsentEnabled ? '#8f6d1f' : '#3d3030'};">
+                            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                                <span style="font-weight:700;">加速三無的認證欄位處理</span>
+                                <span class="status" style="color:${credentialsConsentEnabled ? '#ff9f0a' : '#aaa'};">${credentialsConsentEnabled ? '已明確同意並開啟' : '預設關閉'}</span>
+                            </div>
+                            <span style="color:#777;font-size:11px;line-height:1.35;">只在 Threads 同站請求中本機暫時處理 token；不存檔、不上傳，拒絕時保留一般三點 fallback。</span>
+                        </div>
+                        ` : ''}
                         <div style="${settingsSectionTitleStyle}">資料移轉</div>
                         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px;">
                             <div class="hege-menu-item" id="hege-s-import" style="border-bottom:none;">
@@ -2170,6 +2243,7 @@ export const UI = {
         bind(devReloadId, callbacks.onDevReloadExtension);
         bind('hege-s-clear-db', callbacks.onClearDB);
         bind('hege-s-report', callbacks.onReport);
+        bind('hege-s-credentials-consent', callbacks.onCredentialsConsent);
         bind('hege-s-analytics', callbacks.onAnalytics);
         // 速度模式切換（設定 modal 中）
         const speedModes = ['smart', 'stable', 'standard', 'turbo'];
@@ -2302,8 +2376,8 @@ export const UI = {
     },
 
     tryUploadThreeNoScanStats: async (options = {}) => {
-        if (Reporter.getClientPlatform() !== 'chrome_extension') return { code: 204, skipped: 'not_chrome_extension' };
         if (!Storage.hasPlatformSyncConsentForCurrentVersion()) return { code: 204, skipped: 'pending_version_consent' };
+        if (Reporter.getClientPlatform() !== 'chrome_extension') return { code: 204, skipped: 'not_chrome_extension' };
         if (!Storage.getPlatformSyncEnabled()) return { code: 204, skipped: 'disabled' };
 
         const scan = Storage.getThreeNoScanResults();
@@ -2886,18 +2960,17 @@ export const UI = {
     },
 
     tryAutoSyncPlatformUpload: async (options = {}) => {
-        if (!UI.supportsPlatformAutoSync()) {
-            if (!Storage.hasPlatformSyncConsentForCurrentVersion() && UI.shouldShowManualUploadReminder()) {
-                UI.showPlatformManualUploadReminderModal();
-            }
-            return { code: 204, skipped: 'unsupported_platform' };
-        }
         if (!Storage.hasPlatformSyncConsentForCurrentVersion()) {
-            UI.showPlatformSyncConsentModal({
-                onEnable: () => UI.tryAutoSyncPlatformUpload({ ...options, source: options.source || 'consent_modal' })
-            });
+            if (!UI.supportsPlatformAutoSync()) {
+                if (UI.shouldShowManualUploadReminder()) UI.showPlatformManualUploadReminderModal();
+            } else {
+                UI.showPlatformSyncConsentModal({
+                    onEnable: () => UI.tryAutoSyncPlatformUpload({ ...options, source: options.source || 'consent_modal' })
+                });
+            }
             return { code: 204, skipped: 'pending_version_consent' };
         }
+        if (!UI.supportsPlatformAutoSync()) return { code: 204, skipped: 'unsupported_platform' };
         if (!Storage.getPlatformSyncEnabled()) return { code: 204, skipped: 'disabled' };
 
         const now = Date.now();
@@ -2938,6 +3011,7 @@ export const UI = {
     },
 
     tryRepairPlatformReupload: async (options = {}) => {
+        if (!Storage.hasPlatformSyncConsentForCurrentVersion()) return { code: 204, skipped: 'pending_version_consent' };
         if (!Storage.getPlatformSyncEnabled()) return { code: 204, skipped: 'disabled' };
         if (!UI.supportsPlatformAutoSync()) return { code: 204, skipped: 'unsupported_platform' };
         if (Storage.getPlatformReuploadRepairDone()) return { code: 204, skipped: 'repair_already_done' };
@@ -3882,6 +3956,20 @@ export const UI = {
         const autoSyncToggle = overlay.querySelector('#hege-analytics-auto-sync-toggle');
         if (autoSyncToggle) {
             autoSyncToggle.onchange = () => {
+                if (!Storage.hasPlatformSyncConsentForCurrentVersion()) {
+                    autoSyncToggle.checked = false;
+                    UI.showPlatformSyncConsentModal({
+                        onEnable: () => {
+                            autoSyncToggle.checked = true;
+                            if (uploadStatusEl) uploadStatusEl.textContent = '已開啟每日自動同步；支援擴充功能的 Chrome / Firefox（含 Android）會在新的一天自動嘗試一次。';
+                        },
+                        onDisable: () => {
+                            autoSyncToggle.checked = false;
+                            if (uploadStatusEl) uploadStatusEl.textContent = '已保留手動上傳；本次未開啟每日自動同步。';
+                        },
+                    });
+                    return;
+                }
                 Storage.setPlatformSyncConsentDecision(Boolean(autoSyncToggle.checked));
                 if (uploadStatusEl) {
                     uploadStatusEl.textContent = autoSyncToggle.checked
@@ -3893,6 +3981,16 @@ export const UI = {
         if (uploadBtn) {
             uploadBtn.onclick = async (e) => {
                 e.stopPropagation();
+                if (!Storage.hasPlatformSyncConsentForCurrentVersion()) {
+                    if (uploadStatusEl) uploadStatusEl.textContent = '等待 platform-sync-v3 同意；尚未送出。';
+                    UI.showPlatformSyncConsentModal({
+                        onEnable: () => uploadBtn.click(),
+                        onDisable: () => {
+                            if (uploadStatusEl) uploadStatusEl.textContent = '未同意 platform-sync-v3；本次未送出。';
+                        },
+                    });
+                    return;
+                }
                 uploadBtn.disabled = true;
                 uploadBtn.style.opacity = '0.7';
                 if (uploadStatusEl) uploadStatusEl.textContent = '平台上傳中...';

@@ -309,10 +309,10 @@
             <h1>留友封</h1>
             <span class="en-name">ThreadsBlocker</span>
             <p class="tagline">隱私權政策與資料邊界</p>
-            <p class="lead">本政策完整說明留友封如何收集、處理、儲存、保護與分享使用者資料。留友封的核心設計是本機運作：封鎖、檢舉、三無待審清單與來源分析預設都在你的瀏覽器內完成；只有在你主動送出問題回報、手動上傳觀測資料，或明確同意每日自動上傳後，才會把必要資料傳送到留友封服務。</p>
-            <p class="meta">最後更新：2026 年 7 月 7 日。適用產品：Chrome 擴充功能、Firefox 擴充功能、Tampermonkey / Stay Userscript 與留友封觀測平台。</p>
+            <p class="lead">本政策完整說明留友封如何收集、處理、儲存、保護與分享使用者資料。留友封的核心設計是本機運作：封鎖、檢舉、三無待審清單與來源分析預設都在你的瀏覽器內完成；只有在你主動送出問題回報、手動上傳觀測資料、明確同意 platform-sync-v3 每日自動上傳，或在 Chrome 另行明確同意 credentials-processing-v1 的加速三無後，才會執行對應的額外資料處理。</p>
+            <p class="meta">最後更新：2026 年 7 月 16 日。適用產品：Chrome 擴充功能、Firefox 擴充功能、Tampermonkey / Stay Userscript 與留友封觀測平台。</p>
             <div class="notice">
-                <p><strong>Chrome Web Store 醒目揭露摘要：</strong>留友封會在 Threads 網域上讀取使用者正在互動的公開網頁內容，以提供批次封鎖、只檢舉、三無待審與來源分析功能。封鎖名單、檢舉佇列、三無待審清單、安全名單與來源證據預設只儲存在本機。平台上傳是使用者可選功能，可能包含公開 Threads 帳號識別、公開個人檔案連結、來源貼文連結、公開文字片段、封鎖/檢舉分類、批次統計、工具版本與匿名來源 ID。為了在使用者已登入 Threads 網頁時提供「加速三無」profile metadata 讀取，留友封可能在 Threads 網頁本機處理同站請求所需的 Credentials / authentication information，例如 Threads request token 欄位（如 <code>fb_dtsg</code>、<code>lsd</code>、<code>jazoest</code>）以及由瀏覽器自動附帶至 Threads 同站 request 的 session cookies；這些認證資訊不會傳送到留友封伺服器、不會寫入觀測平台 payload、不會出售，也不會用於廣告。留友封不要求使用者輸入 Threads 密碼、雙因素驗證碼、Google 帳號、付款資訊或真實姓名。</p>
+                <p><strong>Chrome Web Store 醒目揭露摘要：</strong>留友封會在 Threads 網域上讀取使用者正在互動的公開網頁內容，以提供批次封鎖、只檢舉、三無待審與來源分析功能。封鎖名單、檢舉佇列、三無待審清單、安全名單與來源證據預設只儲存在本機。平台上傳是使用者可選功能，可能包含公開 Threads 帳號識別、公開個人檔案連結、來源貼文連結、公開文字片段、封鎖/檢舉分類、批次統計、工具版本與匿名來源 ID；platform-sync-v3 未決定前不會送出。Chrome 加速三無另有醒目的 credentials-processing-v1 同意視窗，預設關閉；未同意時 page bridge 不掃描頁面、不 patch fetch/XHR、不處理 request body 或 token，並保留一般三點 fallback。明確同意後，留友封可能在 Threads 網頁本機處理同站請求所需的 token 欄位（如 <code>fb_dtsg</code>、<code>lsd</code>、<code>jazoest</code>）以及由瀏覽器自動附帶至 Threads 同站 request 的 session cookies；這些認證資訊不會傳送到留友封伺服器、不會寫入觀測平台 payload、問題回報或診斷附件，也不會出售或用於廣告。留友封不要求使用者輸入 Threads 密碼、雙因素驗證碼、Google 帳號、付款資訊或真實姓名。</p>
             </div>
         </div>
 
@@ -338,10 +338,10 @@
                     <p>留友封處理資料的目的，是在 Threads 網頁版上提供使用者可見的管理功能：批次封鎖、只檢舉、三無待審清單、來源分析、跨設備加密回報包、問題診斷與公開觀測統計。資料處理範圍以 Threads 網域與使用者在工具中啟動的功能為限。</p>
                     <ul>
                         <li>預設本機保存：封鎖名單、檢舉佇列、三無待審清單、安全名單、來源分析、設定偏好與執行狀態。</li>
-                        <li>可選上傳：問題回報與觀測平台上傳只在使用者主動送出，或在支援的擴充功能版明確同意每日自動上傳後執行。</li>
+                        <li>可選上傳：問題回報需每次勾選診斷附件同意後才送出；觀測平台上傳需先完成 platform-sync-v3 同意，未決定前 auto、repair、manual 與三無統計都不送。</li>
                         <li>公告檢查：擴充功能可能定期讀取留友封公告 JSON，用於顯示最新消息；該請求不包含帳號清單、來源分析 payload 或使用者輸入內容。</li>
-                        <li>Credentials / 認證資訊：加速三無功能可能在 Threads 網頁本機處理同站 request token 欄位（如 <code>fb_dtsg</code>、<code>lsd</code>、<code>jazoest</code>）與瀏覽器自動附帶至 Threads 同站 request 的 session cookies；這些資料不會傳送到留友封伺服器、不會寫入觀測平台 payload，也不會分享給第三方。</li>
-                        <li>不收集項目：留友封不要求使用者輸入 Threads 密碼、雙因素驗證碼、Google 帳號、付款資訊或真實姓名；不收集瀏覽器歷史、私人訊息、Email 與完整社交圖。</li>
+                        <li>Credentials / 認證資訊：只有明確同意 credentials-processing-v1 後，加速三無才會在 Threads 網頁本機處理同站 request token 欄位與瀏覽器自動附帶的 session cookies；拒絕時 fail-closed，這些資料不會傳送到留友封伺服器、觀測平台或問題回報。</li>
+                        <li>不收集項目：留友封不要求使用者輸入 Threads 密碼、雙因素驗證碼、Google 帳號、付款資訊或真實姓名；不使用 cookies API、不使用瀏覽器歷史、私人訊息、Email 與完整社交圖。</li>
                         <li>不出售資料，不與資料掮客分享，不用於個人化廣告、再行銷、信用評分或與產品功能無關的用途。</li>
                     </ul>
                 </section>
@@ -385,13 +385,13 @@
                             </tr>
                             <tr>
                                 <td data-label="資料類型">問題回報診斷資料</td>
-                                <td data-label="內容範例">工具版本、瀏覽器環境、使用者代理字串、錯誤訊息、近期操作紀錄、相關設定狀態與使用者填寫的描述。</td>
-                                <td data-label="何時收集或處理">只有在使用者主動送出問題回報時。</td>
+                                <td data-label="內容範例">工具版本、瀏覽器環境、使用者代理字串、頁面 URL / 標題、封鎖與檢舉佇列摘要、來源貼文/操作摘要、必要 DOM / console 診斷資訊與使用者填寫的描述；送出前 scrub request token、cookie、authorization 與 canary。</td>
+                                <td data-label="何時收集或處理">只有在使用者主動勾選本次診斷附件同意並送出問題回報時。</td>
                             </tr>
                             <tr>
                                 <td data-label="資料類型">Credentials / 認證資訊（本機處理，不上傳）</td>
                                 <td data-label="內容範例">Threads 同站 request token 欄位，例如 <code>fb_dtsg</code>、<code>lsd</code>、<code>jazoest</code>，以及由瀏覽器在同站 Threads request 中自動附帶的 session cookies。留友封不要求使用者輸入 Threads 密碼、雙因素驗證碼、Google 帳號或 OAuth 授權碼。</td>
-                                <td data-label="何時收集或處理">只有在使用者啟用三無掃描且加速 metadata 讀取需要呼叫 Threads 自己的 about profile endpoint 時，才在 Threads 網頁本機使用。留友封不透過 Chrome cookies API 讀取 cookie 值；不把 request token、session cookie 或其他認證資訊上傳到留友封伺服器、觀測平台、問題回報或第三方。</td>
+                                <td data-label="何時收集或處理">只有在使用者於 Chrome 醒目視窗明確同意 credentials-processing-v1，且啟用加速三無需要呼叫 Threads 自己的 about profile endpoint 時，才在 Threads 網頁本機使用。留友封不透過 Chrome cookies API 讀取 cookie 值；不把 request token、session cookie 或其他認證資訊上傳到留友封伺服器、觀測平台、問題回報或第三方。</td>
                             </tr>
                             <tr>
                                 <td data-label="資料類型">公告與網站請求 metadata</td>
@@ -407,10 +407,10 @@
                     <h3>本機功能處理</h3>
                     <p>留友封會在使用者瀏覽器內讀取 Threads 頁面上的公開可見內容，並把使用者選取的帳號、來源貼文、檢舉路徑與工作狀態整理成封鎖、檢舉、待審與分析資料。這些處理是產品主要功能的一部分，目的是讓使用者可以批次管理 Threads 互動名單、保留操作紀錄、重試失敗項目、回復冷卻等待區，以及理解封鎖/檢舉來源。</p>
                     <h3>Credentials / 認證資訊</h3>
-                    <p>留友封不要求使用者向留友封提供 Threads、Meta、Google 或瀏覽器帳號密碼。為了在使用者已登入 Threads 網頁時提供「加速三無」profile metadata 讀取，留友封可能在 Threads 網頁本機處理 Threads 同站 request 所需的 authentication information，例如 <code>fb_dtsg</code>、<code>lsd</code>、<code>jazoest</code> 等 request token 欄位，並讓瀏覽器在送往 Threads 自己 endpoint 的同站 request 中自動附帶 session cookies。這些 credentials 只在使用者瀏覽器本機用於使用者可見功能，不會傳送到留友封伺服器、觀測平台、問題回報端點或第三方，也不會用於廣告、再行銷或出售。</p>
+                    <p>留友封不要求使用者向留友封提供 Threads、Meta、Google 或瀏覽器帳號密碼。只有在 Chrome 醒目視窗明確同意 credentials-processing-v1 後，為了提供「加速三無」profile metadata 讀取，留友封才可能在 Threads 網頁本機處理同站 request 所需的 authentication information，例如 <code>fb_dtsg</code>、<code>lsd</code>、<code>jazoest</code> 等 request token 欄位，並讓瀏覽器在送往 Threads 自己 endpoint 的同站 request 中自動附帶 session cookies。拒絕或關閉時 page bridge fail-closed 並回到一般三點操作。這些 credentials 只在使用者瀏覽器本機用於使用者可見功能，不會傳送到留友封伺服器、觀測平台、問題回報端點或第三方，也不會用於廣告、再行銷或出售。</p>
                     <h3>觀測平台上傳</h3>
-                    <p>使用者可以在「來源分析報告」中手動匯出 JSON 或一鍵上傳觀測平台。支援擴充功能的 Chrome / Firefox（含 Android）會在首次同意或資料範圍政策變更時詢問是否開啟每日自動上傳；單純版本更新不會重置既有選擇。iOS / Safari 受背景執行限制，會以手動提醒為主。</p>
-                    <p>平台上傳資料用於公開聚合統計、樣本去重、來源可信度分級、濫用偵測、資料品質改善與產品功能改善。公開頁呈現的是整體趨勢與分類統計，不是對個別帳號、個人或組織的法律判定。</p>
+                    <p>使用者可以在「來源分析報告」中手動匯出 JSON 或一鍵上傳觀測平台；但每次送出都會由 upload gate 檢查 platform-sync-v3。舊的 v2 或數字版同意不會 migration 成 v3；單純 beta 版本跳號不會重置已完成的 v3 選擇。iOS / Safari 受背景執行限制，會以手動提醒為主。</p>
+                    <p>平台上傳資料用於公開聚合統計、樣本去重、來源可信度分級、濫用偵測、資料品質改善與產品功能改善。公開頁預設 samplePublicationMode=description；只有 legal policy version 完全匹配、通過門檻、去識別與人工 approved 才能進 reviewed_text，pending / rejected 永不公開；公開頁呈現的是整體趨勢與分類統計，不是對個別帳號、個人或組織的法律判定。</p>
                     <h3>問題回報</h3>
                     <p>問題回報只在使用者主動送出時傳送，用於重現錯誤、修復功能、調查濫用或安全事件，以及回覆使用者提出的問題。</p>
                     <h3>公告與更新消息檢查</h3>
@@ -432,7 +432,7 @@
                     <h2>5. 資料分享與第三方揭露</h2>
                     <p>留友封不出售使用者資料，不與資料掮客、廣告網路或再行銷服務分享使用者資料。資料只在下列情況揭露或處理：</p>
                     <ul>
-                        <li>公開觀測平台：僅呈現聚合統計、分類趨勢、可信樣本數、方法論 metadata 與可疑行為模式，不公開使用者真實姓名、Email、Google 帳號、私人訊息或完整個人瀏覽歷史。</li>
+                        <li>公開觀測平台：僅呈現聚合統計、分類趨勢、可信樣本數、方法論 metadata 與可疑行為模式；預設不公開文字樣本，reviewed_text 需通過 legal gate 與人工 approved，不公開使用者真實姓名、Email、Google 帳號、私人訊息或完整個人瀏覽歷史。</li>
                         <li>基礎設施服務：觀測上傳與問題回報可能由 Cloudflare Workers、Cloudflare R2、Cloudflare D1，以及問題回報備援端點 Google Apps Script 處理。這些服務用於接收、保存、去重、統計與維運，不用於廣告用途。</li>
                         <li>法律、安全與濫用調查：如法律要求、保護使用者或服務安全、調查濫用、詐騙、惡意上傳或安全事件時，可能處理或揭露必要資料。</li>
                         <li>使用者主動分享：跨設備加密回報包由使用者自行匯出、保存與匯入；留友封不會自動上傳該檔案。若使用者自行傳給他人，該分享由使用者控制。</li>
@@ -442,7 +442,7 @@
                 <section id="security">
                     <h2>6. 安全措施與權限限制</h2>
                     <ul>
-                        <li>Chrome 版只在 <code>threads.net</code> 與 <code>threads.com</code> 相關網域執行 content script；目前不要求 cookies、history、tabs、webRequest、declarativeNetRequest、scripting 或跨站讀取權限。加速三無功能需要的 request token 欄位只在 Threads 網頁本機處理，不會上傳到留友封服務。</li>
+                        <li>Chrome 版只在 <code>threads.net</code> 與 <code>threads.com</code> 相關網域執行 content script；目前不要求 cookies、history、tabs、webRequest、declarativeNetRequest、scripting 或跨站讀取權限。加速三無的 request token 欄位只有在 credentials-processing-v1 明確同意後才會由 page bridge 處理；未同意時不掃描、不 patch fetch/XHR、不處理 request body，且不會上傳。</li>
                         <li>Chrome manifest 另包含 <code>https://threadsblocker.skiseiju.com/*</code> host permission，用於連到留友封觀測平台與公告/更新消息 JSON；Chrome 版不會在該網域注入 content script，也不會讀取該網域上的使用者資料。</li>
                         <li>擴充功能套件內不載入遠端程式碼；上傳端點只接收資料，不會下發可執行邏輯。</li>
                         <li>上傳與問題回報透過 HTTPS 端點傳輸。Userscript 版本若使用 <code>GM_xmlhttpRequest</code>，也只會傳送到明列的 HTTPS 端點。</li>
@@ -455,7 +455,8 @@
                     <h2>7. 使用者控制與選擇</h2>
                     <ul>
                         <li>你可以不使用平台上傳；此時來源分析資料只保留在本機或由你手動匯出。</li>
-                        <li>你可以在「來源分析報告」中開啟或關閉每日自動上傳。若資料範圍政策版本變更，工具會重新要求確認；單純版本更新不會重置同意或偏好。</li>
+                        <li>你可以在「來源分析報告」中開啟或關閉每日自動上傳；platform-sync-v3 未決定前 auto、repair、manual 與三無統計都不送，舊 v2 / 數字版同意不會自動變成 v3。</li>
+                        <li>Chrome 設定可單獨開啟或關閉 credentials-processing-v1；拒絕時保留一般三點 fallback，且單純版本更新不會把這個獨立同意改成已同意。</li>
                         <li>你可以手動清除本機封鎖資料、檢舉歷史、來源證據、三無待審清單、安全名單、失敗佇列與相關設定。</li>
                         <li>你可以解除安裝擴充功能或刪除瀏覽器網站資料，以移除本機儲存資料。</li>
                         <li>你可以透過本頁聯絡方式要求說明、查詢或刪除與你提供的匿名來源 ID 或問題回報相關的伺服器端資料。</li>

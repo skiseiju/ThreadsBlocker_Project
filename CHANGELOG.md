@@ -1,3 +1,21 @@
+## v2.7.4 — 隱私一致性正式版收口
+
+* **TL;DR：2.7.4 正式版將 beta44 的隱私同意、上傳 gate、問題回報 scrub 與公開樣本 legal gate 收口；既有同意與每日自動／手動偏好不因去除 beta 標籤而重置。**
+* **Credentials opt-in**：Chrome 加速三無維持獨立版本化 `credentials-processing-v1` 同意，預設關閉；token 與同站 session cookie 只在 Threads 同站本機暫時處理，不送到 ThreadsBlocker、平台或問題回報端點。
+* **Platform consent**：平台同步維持 `platform-sync-v3`；舊版或舊政策同意不會因正式版轉換自動升級，auto、repair、manual 與三無統計偏好沿用原值並繼續受 policy gate 保護。
+* **問題回報**：每次送出前重新取得未預勾的診斷附件同意，request token、cookie、authorization 與 canary 先 scrub；正式版不提供手動匯出 beta-only 檢舉／三無診斷入口。
+* **公開觀測站**：公開樣本預設維持句型描述模式；只有 legal policy version、去識別、門檻與人工核准條件全部符合才可公開短摘錄，public GET 維持唯讀、不建立 review queue。
+
+## v2.7.4-beta44 — 隱私同意、上傳 gate 與公開樣本 legal gate
+
+* **TL;DR：建立 2.7.4-beta44 候選，補齊 credentials opt-in、platform-sync-v3、問題回報同意/scrub、公開樣本 legal gate 與 public GET 零寫入；不代表已發布。**
+* **Credentials opt-in**：Chrome 加速三無改為獨立版本化 `credentials-processing-v1` 同意，預設關閉；未同意時 page bridge 不掃描 document state、不 patch fetch/XHR、不處理 request body/token，並保留一般三點 fallback。明確同意後的 token 與同站 session cookie 只在 Threads 同站本機暫時處理，不會送到平台或問題回報。
+* **Platform consent**：平台同步改用 `platform-sync-v3`；舊 v2 / 數字版同意不 migration 成 v3。v3 未決定前 auto、repair、manual 與三無統計 upload 都回 `pending_version_consent` 且不得送。
+* **問題回報**：送出前列明診斷附件，checkbox 不預勾；未同意不得送，payload 送出前 scrub request token、cookie、authorization 與 canary。
+* **觀測站**：public projection 預設 `samplePublicationMode=description`；只有環境 legal policy version 與 code 常數完全匹配，且 row 通過門檻、去識別與人工 `approved`，才可 `reviewed_text`。description mode 的 `topicCards[].samples` / `repeatedPhrases` 為空，patternDescription 不由原文衍生；pending / rejected 永不公開。
+* **API 與口徑**：public overview GET 不建立 queue 或其他寫入；外部文案將 `observer_count` 稱為「來源貼文數」、`account_count` 稱為「帳號觀測筆數」，不宣稱獨立使用者或獨立帳號。
+* **文件與測試**：同步隱私頁、首頁、CWS listing、README、Topic SDD、ADR 0009，新增可直接照填的 CWS privacy practices 草稿與 deterministic privacy tests。
+
 ## v2.7.4-beta43 — B8 話術樣本覆核佇列與動態事件錨點
 
 *   **TL;DR：新增去識別化話術樣本的人工覆核佇列與公開卡片句型描述，並讓最近 14 日政治事件可自動形成去重錨點。**
@@ -11,6 +29,7 @@
 *   **隱私政策**：`/privacy/` 新增 Credentials / 認證資訊資料表列與專段說明，涵蓋 Threads 密碼、登入憑證、雙因素驗證碼、session cookies、access tokens、refresh tokens 與 OAuth tokens。
 *   **CWS 文案同步**：首頁摘要與 `docs/CWS_LISTING_DRAFT.md` 同步使用 CWS 審查字眼 Credentials / authentication information，避免審查員只看到「密碼」而判定未揭露 credentials 類型。
 *   **Storage / 隱私**：未新增 extension storage key；未變更平台同步同意版本 `platform-sync-v2`、上傳資料範圍、每日自動/手動上傳偏好或本機資料讀寫流程。
+*   **歷史口徑更正（beta44）**：本節「不收集、不讀取、不儲存、不上傳也不分享認證資訊」的宣告與當時 page bridge 實作不一致，屬歷史錯誤揭露；beta44 改為如實說明獨立 `credentials-processing-v1` opt-in、預設關閉、只在 Threads 同站本機處理且不外傳。此更正保留 beta41 的歷史紀錄，不將其改寫成不存在。
 
 ## v2.7.4-beta40 — 官網隱私頁品牌規範整理
 
