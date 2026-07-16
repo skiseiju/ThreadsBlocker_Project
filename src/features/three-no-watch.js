@@ -3755,13 +3755,25 @@ Object.assign(Core, {
                 },
             });
             if (completed) {
+                let statsUploadTimeoutId;
                 try {
-                    await UI.tryUploadThreeNoScanStats({ scanId: payload.scanId });
+                    const configuredTimeout = Number(CONFIG.THREE_NO_SCAN_STATS_UPLOAD_TIMEOUT_MS);
+                    const statsUploadTimeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout >= 0
+                        ? configuredTimeout
+                        : 1500;
+                    await Promise.race([
+                        Promise.resolve().then(() => UI.tryUploadThreeNoScanStats({ scanId: payload.scanId })),
+                        new Promise(resolve => {
+                            statsUploadTimeoutId = setTimeout(resolve, statsUploadTimeoutMs);
+                        }),
+                    ]);
                 } catch (err) {
                     if (CONFIG.DEBUG_MODE) console.warn('[留友封][ThreeNo] stats upload skipped/failed', err);
+                } finally {
+                    if (statsUploadTimeoutId !== undefined) clearTimeout(statsUploadTimeoutId);
                 }
             }
-            if (Utils.isBetaBuild() || stopped) {
+            if (!completed && (Utils.isBetaBuild() || stopped)) {
                 return;
             }
             setTimeout(() => {

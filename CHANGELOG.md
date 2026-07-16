@@ -1,3 +1,9 @@
+## v2.7.4-beta45 — 三無掃描完成關窗修正
+
+* **TL;DR：三無掃描完成後，統計上傳改為有界等待，正式版與 beta 都會在 `completed` 後排程關閉 worker 分頁；停止／失敗狀態與既有清理流程不變。**
+* **Worker lifecycle**：aggregate stats upload 最多等待 1.5 秒；上傳端點永遠 pending 時仍會繼續關窗，不改寫掃描狀態。
+* **Storage / preference**：未新增三無結果、lock、command、runtime backup 的 migration；`platform-sync-v3`、`credentials-processing-v1`、資料上傳同意與既有自動／手動偏好均不變。
+
 ## v2.7.4 — 隱私一致性正式版收口
 
 * **TL;DR：2.7.4 正式版將 beta44 的隱私同意、上傳 gate、問題回報 scrub 與公開樣本 legal gate 收口；既有同意與每日自動／手動偏好不因去除 beta 標籤而重置。**
