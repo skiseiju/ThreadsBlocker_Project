@@ -31,7 +31,7 @@ test('beta54 partial follower copy names loaded, added, already-listed and not-l
 });
 
 test('beta54 version is bumped without building', () => {
-    assert.match(configSource, /VERSION:\s*['"]2\.7\.4-beta(?:6[3456789]|7[01234])['"]/);
+    assert.match(configSource, /VERSION:\s*['"]2\.7\.4-beta(?:6[3456789]|7[0-6])['"]/);
 });
 
 test('beta54 message route requires route plus message shell and preserves normal routes', () => {
@@ -73,7 +73,7 @@ test('beta54 route lifecycle hides only panel, keeps pending, and marks repositi
 
 test('beta54 idle status is human-readable and stop visibility has no-active gate', () => {
     assert.match(coreSource, /idle:\s*['"]待命中['"]/);
-    assert.match(coreSource, /!activeQueue && !activeSession && state !== ['"]stopping['"]/);
+    assert.match(coreSource, /if.*terminal.*return false/i);
     assert.match(coreSource, /hege-stop-btn-item/);
 });
 

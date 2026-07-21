@@ -465,23 +465,25 @@ export const resolveControllerStatus = (input = {}) => {
     return 'idle';
 };
 
-const resolveStopVisibility = (input = {}) => {
+export const resolveStopVisibility = (input = {}) => {
     const bg = input.bgStatus && typeof input.bgStatus === 'object' ? input.bgStatus : {};
     const state = String(bg.state || input.state || '').toLowerCase();
     const terminal = ['idle', 'completed', 'stopped', 'failed', 'error'].includes(state)
         || input.terminal === true;
-    const activeQueue = Number(input.blockQueueCount || 0) > 0
-        || Number(input.reportQueueCount || 0) > 0
-        || Number(input.cooldownQueueCount || 0) > 0;
     const activeSession = input.sessionActive === true
         || input.threeNoActive === true
         || state === 'running'
         || state === 'stopping';
-    if (!activeQueue && !activeSession && state !== 'stopping') return false;
-    // A stop latch survives stale heartbeat/navigation.  It is released only
-    // after a terminal state is observed with no remaining active work.
-    if (terminal && !activeQueue && !activeSession) return false;
-    return !!(input.stopLatch || activeQueue || activeSession);
+    // Show button if there's an active session
+    if (activeSession) return true;
+    // Terminal state OR unknown state with no active session: release the latch
+    if (terminal || !state) return false;
+    // A stop latch survives stale heartbeat/navigation.  Show button if latch is set.
+    // This handles cases where bgStatus.state is unknown/stale but we're still in
+    // the process of stopping (e.g., stale heartbeat/navigation between updates).
+    if (input.stopLatch) return true;
+    // No active session, no terminal, no latch: hide button
+    return false;
 };
 
 export const Core = {

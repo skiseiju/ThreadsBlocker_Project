@@ -8,7 +8,7 @@ const mainSource = await readFile(new URL('../src/main.js', import.meta.url), 'u
 test('beta52 stop visibility has a latched resolver and terminal drain gate', () => {
     assert.match(coreSource, /resolveStopVisibility/);
     assert.match(coreSource, /stopVisibilityLatch|stop.*latch/i);
-    assert.match(coreSource, /terminal.*queue|queue.*terminal/i);
+    assert.match(coreSource, /if.*terminal.*return false/i);
     assert.match(coreSource, /hege_stop_visibility_latch/);
 });
 

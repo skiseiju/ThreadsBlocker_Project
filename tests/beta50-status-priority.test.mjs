@@ -4,7 +4,8 @@ import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('../src/core.js', import.meta.url), 'utf8');
 const helperStart = source.indexOf('export const resolveControllerStatus =');
-const helperEnd = source.indexOf('\n};\n\nexport const Core =', helperStart) + 3;
+const nextExport = source.indexOf('\nexport const', helperStart + 1);
+const helperEnd = source.lastIndexOf('};', nextExport) + 2;
 const resolveControllerStatus = Function(
     `${source.slice(helperStart, helperEnd).replace('export const ', 'const ')}; return resolveControllerStatus;`
 )();

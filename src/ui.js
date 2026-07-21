@@ -973,9 +973,36 @@ export const UI = {
         const alreadyListed = ['duplicate', 'selfTarget', 'blocked', 'queued']
             .reduce((sum, key) => sum + (Number(breakdown[key]) || 0), 0);
         const notLoaded = totalHint > 0 && visibleRows < totalHint ? totalHint - visibleRows : 0;
+
+        // Define specific reasons that should show both causes and next step
+        const newMessageReasons = new Set(['timeout', 'limited', 'max_scrolls', 'scroll_stall']);
+        const shouldShowNewMessage = newMessageReasons.has(reason) && reason !== 'stopped';
+
+        // For new message cases: show both possible causes and next step (takes priority)
+        if (shouldShowNewMessage) {
+            let mainMessage = '';
+
+            if (totalHint > 0) {
+                // When we know how many followers page displays
+                mainMessage = `這次收集尚未完整。這個帳號頁面顯示有 ${totalHint} 位粉絲，但這次只新增了 ${count} 位。\n\n`;
+            } else {
+                // When page doesn't show total count
+                mainMessage = `這次收集尚未完整。這次新增了 ${count} 位粉絲，但可能還有更多。\n\n`;
+            }
+
+            mainMessage += `差額可能有兩個原因：部分帳號已被你在別處封鎖（Threads 仍計入總數但名單不顯示），或者 Threads 的介面這次沒有完整載入粉絲。\n\n`;
+            mainMessage += `建議的下一步：先將這次收集到的名單加入封鎖，再執行一次「收集粉絲」，這樣可以逐步蒐集完整的粉絲名單。\n\n`;
+            mainMessage += `只收集，不會立即封鎖；確認後才會加入封鎖佇列。`;
+
+            return mainMessage;
+        }
+
+        // Preserve original totalHint branch for threads_partial and other non-specific reasons
         if (totalHint > 0 && visibleRows < totalHint && reason !== 'stopped') {
             return `收集未完成。這個帳號顯示有 ${totalHint} 位粉絲，但 Threads 目前只載入 ${visibleRows} 位。這次新增 ${count} 位，另外 ${alreadyListed} 位已在名單中；約 ${notLoaded} 位尚未載入。留友封已自動嘗試載入，Threads 暫時沒有繼續提供資料；你可以稍後重試。\n\n只收集，不會立即封鎖；確認後才會加入封鎖佇列。`;
         }
+
+        // For complete/stopped/empty cases: use original simple messages
         const reasonText = {
             completed: '收集完成。', end: '收集完成。',
             stopped: '你已停止這次收集。',

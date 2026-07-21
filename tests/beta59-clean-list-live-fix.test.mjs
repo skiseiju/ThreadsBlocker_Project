@@ -174,7 +174,7 @@ test('beta59 diagnostics expose privacy-safe skip breakdown and scroll progress'
         assert.match(coreSource, new RegExp(key));
     }
     assert.match(coreSource, /beforeScrollTop|afterScrollTop/);
-    assert.match(configSource, /2\.7\.4-beta(?:6[3456789]|7[01234])/);
+    assert.match(configSource, /2\.7\.4-beta(?:6[3456789]|7[0-6])/);
 });
 
 test('beta59 runtime sanitizer keeps new aggregate fields and drops sensitive values', () => {
