@@ -11,25 +11,38 @@ export const Utils = {
     getMyUsername: () => {
         if (Utils._myUsername) return Utils._myUsername;
 
-        // Approach: Find the profile link in the navigation bar
-        const allLinks = document.querySelectorAll('a[href^="/@"]');
-        for (let a of allLinks) {
-            // Usually the navigation bar links are outside the main feed role
-            if (!a.closest('main') && !a.closest('div[role="main"]') && !a.closest('div[data-pressable-container="true"]')) {
-                // Profile nav link usually has an SVG or no text
-                if (a.textContent.trim() === '' || a.querySelector('svg')) {
-                    const href = a.getAttribute('href');
-                    if (href) {
-                        try {
-                            const u = href.split('/@')[1].split('/')[0];
-                            if (u) {
-                                Utils._myUsername = u;
-                                return u;
-                            }
-                        } catch (e) { }
-                    }
-                }
-            }
+        // Only navigation/profile controls are trustworthy self evidence.
+        // Activity dialogs can be mounted outside <main>, so a global first
+        // account-link scan would incorrectly treat the first liker as self.
+        const links = Array.from(document.querySelectorAll('a[href^="/@"]'));
+        const accountFromLink = (link) => {
+            const href = link?.getAttribute?.('href') || '';
+            const match = href.match(/^\/@([^/?#]+)\/?$/);
+            return match?.[1] || '';
+        };
+        const trustedContainer = (link) => link.closest?.(
+            'nav, [role="navigation"], [data-testid*="navigation" i], [data-testid*="sidebar" i], [aria-label*="navigation" i], [aria-label*="sidebar" i]'
+        );
+        const excluded = (link) => {
+            // A dialog always wins the exclusion check, including a nested
+            // nav/list wrapper that visually resembles the sidebar.
+            if (link.closest?.('[role="dialog"]')) return true;
+            if (link.closest?.('main, [role="main"], [role="feed"], [role="article"], article, [data-pressable-container="true"], [data-testid*="activity" i]')) return true;
+            const list = link.closest?.('[role="list"], [role="listbox"]');
+            return !!list && !trustedContainer(link);
+        };
+        const profileControl = (link) => {
+            const label = `${link.getAttribute?.('aria-label') || ''} ${link.getAttribute?.('data-testid') || ''}`;
+            return !String(link.textContent || '').trim() || !!link.querySelector?.('svg')
+                || /profile|account|個人檔案|帳號|profile/i.test(label);
+        };
+        for (const link of links) {
+            const username = accountFromLink(link);
+            if (!username || excluded(link)) continue;
+            const container = trustedContainer(link);
+            if (!container || !profileControl(link)) continue;
+            Utils._myUsername = username;
+            return username;
         }
         return null;
     },

@@ -19,6 +19,7 @@ const eventTarget = {
 };
 
 let closeCalls = 0;
+let closeThrows = false;
 const windowMock = {
     ...eventTarget,
     location: {
@@ -31,6 +32,7 @@ const windowMock = {
     },
     close: () => {
         closeCalls += 1;
+        if (closeThrows) throw new Error('close probe failure');
     },
     open: () => null,
     postMessage: () => {},
@@ -130,7 +132,7 @@ const baseRuntime = {
 
 const waitForRealTime = (ms) => new Promise(resolve => realSetTimeout(resolve, ms));
 
-const runFinishScan = async ({ status, beta, upload }) => {
+const runFinishScan = async ({ status, beta, upload, duplicate = false, throwOnClose = false }) => {
     const runtime = { ...baseRuntime, findings: [...baseRuntime.findings], usernames: [...baseRuntime.usernames], triagedUsernames: [...baseRuntime.triagedUsernames] };
     const state = {
         cursor: { owner: 'owner', startedAt: 100, batchesCompleted: 0, reachedEnd: false, scannedUsers: [] },
@@ -143,10 +145,16 @@ const runFinishScan = async ({ status, beta, upload }) => {
     };
 
     closeCalls = 0;
+    closeThrows = throwOnClose;
     localStorageMock.clear();
     sessionStorageMock.clear();
     localStorageMock.setItem(CONFIG.KEYS.THREE_NO_SCAN_LOCK, 'scan-lock');
     localStorageMock.setItem(CONFIG.KEYS.THREE_NO_SCAN_COMMAND, 'stop');
+    localStorageMock.setItem(CONFIG.KEYS.THREE_NO_SCAN_STATE, JSON.stringify({
+        scanId: runtime.scanId,
+        status: 'scanning',
+        owner: runtime.owner,
+    }));
     localStorageMock.setItem(Core.ThreeNoWatch.runtimeBackupKey, JSON.stringify(runtime));
     sessionStorageMock.setItem(Core.ThreeNoWatch.stateKey, JSON.stringify(runtime));
 
@@ -162,15 +170,39 @@ const runFinishScan = async ({ status, beta, upload }) => {
     Storage.remove = (key) => localStorageMock.removeItem(key);
     Core.ThreeNoWatch.getRuntime = () => runtime;
     Core.ThreeNoWatch.getScanDebugLog = () => [];
-    Core.ThreeNoWatch.setScanState = (payload) => { state.scanState = payload; };
+    Core.ThreeNoWatch.setScanState = (payload) => {
+        state.scanState = payload;
+        localStorageMock.setItem(CONFIG.KEYS.THREE_NO_SCAN_STATE, JSON.stringify(payload));
+        return true;
+    };
     Utils.isBetaBuild = () => beta;
     UI.tryUploadThreeNoScanStats = async (...args) => {
         state.uploadCalls += 1;
         return upload(...args);
     };
 
-    await Core.ThreeNoWatch.finishScan({ status });
-    await waitForRealTime(70);
+    const previousSetTimeout = globalThis.setTimeout;
+    const pendingTimers = [];
+    if (duplicate) {
+        globalThis.setTimeout = (callback, delay, ...args) => {
+            pendingTimers.push(() => callback(...args));
+            return pendingTimers.length;
+        };
+    }
+    try {
+        const firstFinish = Core.ThreeNoWatch.finishScan({ status });
+        const secondFinish = duplicate ? Core.ThreeNoWatch.finishScan({ status }) : null;
+        await Promise.all([firstFinish, ...(secondFinish ? [secondFinish] : [])]);
+        if (duplicate) {
+            assert.equal(pendingTimers.length, 1, `${status}: duplicate finish must schedule one close timer`);
+            pendingTimers.shift()();
+        } else {
+            await waitForRealTime(70);
+        }
+    } finally {
+        globalThis.setTimeout = previousSetTimeout;
+        closeThrows = false;
+    }
 
     assert.equal(state.result?.status, status, `${status}: result status must remain unchanged`);
     assert.equal(state.scanState?.status, status, `${status}: published scan state must remain unchanged`);
@@ -204,10 +236,12 @@ try {
         status: 'stopped',
         beta: true,
         upload: async () => ({ code: 200 }),
+        duplicate: true,
+        throwOnClose: true,
     });
     assert.equal(stopped.uploadCalls, 0, 'stopped scan: stats upload must not run');
     assert.equal(stopped.result.status, 'stopped', 'stopped scan must not be rewritten as completed');
-    assert.equal(closeCalls, 0, 'stopped beta scan keeps its existing no-close behavior');
+    assert.equal(closeCalls, 1, 'stopped beta scan must close once after persistence and cleanup');
 
     const failed = await runFinishScan({
         status: 'failed',

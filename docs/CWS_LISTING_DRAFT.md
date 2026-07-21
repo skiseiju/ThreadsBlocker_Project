@@ -36,7 +36,7 @@ Chrome 加速三無另有獨立、版本化的 credentials-processing-v1 同意�
 - 待審清單與安全名單只保存在你的瀏覽器本機
 - 不上傳三無待審帳號名單、安全名單或完整社交圖
 - 平台同步只在使用者同意後上傳來源分析與匿名統計
-- 問題回報送出前會列明診斷附件；未勾選本次同意不送出，且 request token、cookie、authorization 與 canary 會在 payload 前 scrub
+- 問題回報送出前會列明可選診斷附件；未勾選時仍可只送問題描述，勾選後才附上完整診斷，且 request token、cookie、authorization 與 canary 會在 payload 前 scrub
 - 公開觀測站預設只顯示 description mode；只有 legal policy version 完全匹配、門檻通過、去識別且人工 approved 才能顯示 reviewed_text，pending / rejected 永不公開
 - 公告/更新消息檢查不傳送帳號清單或來源分析 payload，但伺服器可能收到一般 HTTPS request metadata
 - 認證資訊只在 credentials-processing-v1 明確同意後於 Threads 同站本機暫時處理，不會上傳或寫入診斷附件

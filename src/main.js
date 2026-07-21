@@ -662,6 +662,7 @@ import './features/three-no-watch.js';
                     }
 
                     if (toAdd.length > 0) {
+                        Core.beginBlockSession(toAdd);
                         Core.setBlockContext(toAdd, {
                             reason: 'three_no_follower_report',
                             batch: options.scanId || '',
@@ -735,6 +736,10 @@ import './features/three-no-watch.js';
                         scan_in_flight: '三無掃描已在執行中',
                         worker_busy: '背景任務執行中，稍後再掃描',
                         owner_unknown: '找不到自己的 Threads 帳號，請先打開個人頁或重新整理',
+                        owner_mismatch: '掃描目標與 worker 目前頁面不一致，未改掃描自己的粉絲',
+                        not_logged_in: 'Threads 尚未登入，無法啟動三無掃描',
+                        worker_bootstrap_timeout: 'worker 分頁已開啟但未完成啟動確認，請稍後重試',
+                        worker_blocked: 'Threads worker 載入被阻擋或遇到 challenge，請確認網路與登入狀態',
                         popup_blocked: '彈出視窗被阻擋，請允許 Threads 開啟 worker 分頁後再試一次',
                         worker_start_failed: '三無掃描 worker 啟動失敗',
                     };
@@ -840,6 +845,7 @@ import './features/three-no-watch.js';
                     Storage.invalidate(CONFIG.KEYS.BG_QUEUE);
                     const q = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
                     const newQ = [...new Set([...q, ...toAdd])];
+                    Core.beginBlockSession([...newQ, ...toAdd]);
                     Storage.setJSON(CONFIG.KEYS.BG_QUEUE, newQ);
                     
                     if (toAdd.length > 0) {
@@ -976,6 +982,24 @@ import './features/three-no-watch.js';
                     }
                     await startThreeNoScan({ targetOwner });
                 },
+                onCollectProfileFollowers: async () => {
+                    const targetOwner = Core.ThreeNoWatch?.getCurrentProfileUsername?.() || '';
+                    if (!targetOwner) {
+                        UI.showToast('目前頁面不是可收集的 Threads 個人檔案');
+                        return;
+                    }
+                    const result = await Core.collectFollowersForProfile(targetOwner);
+                    if (!result?.ok) {
+                        UI.showToast(UI.formatFollowerCollectionMessage(result || { reason: 'unknown' }), 3000, { severity: 'warning' });
+                        Core.updateControllerUI();
+                        return;
+                    }
+                    UI.showFollowerCollectionConfirm(result, () => {
+                        const queued = Core.enqueueFollowerUsers(result.users, targetOwner);
+                        UI.showToast(`已加入 ${queued.added} 位粉絲至封鎖佇列，請回主面板按「開始封鎖」執行`);
+                    }, () => UI.showToast('已取消加入粉絲封鎖佇列'));
+                    Core.updateControllerUI();
+                },
                 onSettings: () => {
                     const openSettings = (initialView = 'home') => {
                         UI.showSettingsModal({
@@ -1009,19 +1033,25 @@ import './features/three-no-watch.js';
                     openSettings();
                 },
                 onRetryFailed: () => Core.retryFailedQueue(),
+                onCopyDiagnostics: () => Core.copyRuntimeDiagnostics?.(),
+                onClearDiagnostics: () => Core.clearRuntimeDiagnostics?.(),
                 onStop: () => { UI.showConfirm('確定要停止目前背景執行或三無掃描？', () => {
                     const scanState = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
+                    let handledThreeNo = false;
                     if (Core.ThreeNoWatch?.isRunningStatus?.(scanState.status)) {
                         if (Core.ThreeNoWatch?.isFreshRunningState?.(scanState)) {
+                            handledThreeNo = true;
                             Core.ThreeNoWatch.requestStop();
                             UI.showToast('已送出三無掃描停止指令');
                         } else if (Core.ThreeNoWatch?.clearStaleScanIfNeeded?.('stale_scan_cleared_from_stop_button')) {
                             UI.showToast('已清除已關閉的三無掃描 worker 狀態');
                         }
                     }
-                    Storage.set(CONFIG.KEYS.BG_CMD, 'stop');
-                    Storage.set('hege_sweep_stopped', 'true');
-                    Storage.remove('hege_sweep_worker_standby');
+                    if (!handledThreeNo) {
+                        Core.markStopRequested();
+                        Storage.set('hege_sweep_stopped', 'true');
+                        Storage.remove('hege_sweep_worker_standby');
+                    }
                     Core.updateControllerUI();
                 }); }
             };
@@ -1108,12 +1138,14 @@ import './features/three-no-watch.js';
             Utils.log(`Env: ${_envPlatform}, TP:${navigator.maxTouchPoints}\nDevice: ${isIOS ? 'iOS/iPad' : 'Desktop'}\nUA: ${navigator.userAgent.substring(0, 50)}...`);
 
             // Anchor Loop
+            Core.updatePanelRouteVisibility?.();
             UI.anchorPanel();
             setInterval(() => {
                 if (!document.getElementById('hege-panel')) {
                     console.warn('[留友封] Panel missing from DOM! Attempting re-inject?');
                 }
                 UI.anchorPanel();
+                Core.updatePanelRouteVisibility?.();
             }, 1500);
 
             // Task 1: 貼文深層收割 8hr 排程定期巡檢 (每 1 分鐘檢查一次)

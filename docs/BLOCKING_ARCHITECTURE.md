@@ -115,6 +115,14 @@ location.reload();
 7. 管理視窗讓使用者自行決定後續處理：可用多重 filter 依三無原因、加入時間、國家/地區、掃描來源與掃描日期縮小清單，再勾選清除、加入安全名單或加入封鎖清單。加入封鎖清單只會排入正常封鎖佇列，使用者仍必須回主面板按「開始封鎖」執行；三無掃描完成後不得自動啟動封鎖 worker。
 8. 掃描完成後，worker 分頁嘗試上傳匿名 aggregate 統計，寫入報告狀態，然後呼叫 `window.close()` 關閉自己。
 
+### Beta48 launcher / lifecycle contract
+
+- launcher 先以唯一 `scanId` 寫入 `starting`、清除舊 command 並建立短期 lock；`window.open()` 回傳非 null 只代表瀏覽器建立了視窗，不代表 worker 已啟動。
+- worker 載入後必須讀取相同 `scanId`，寫入 `workerReadyAt`、`workerHeartbeatAt`、`workerInstanceId` 與 `workerBootstrapResult=ready`；launcher 在有界期限內收到同一 scanId 的 sentinel 才轉為 `ready`，首個掃描步驟後轉 `scanning`。
+- popup null/closed、bootstrap 逾時、Threads challenge/載入阻擋、未登入與其他啟動例外分別使用 `popup_blocked`、`worker_bootstrap_timeout`、`worker_blocked`、`not_logged_in`、`worker_start_failed`，不得互相吞併。
+- heartbeat 只依賴同 origin storage，不依賴 launcher focus；`ready`/`scanning` 的 stale heartbeat 會清除 lock/command 並標記可續掃的 `stopped`，runtime backup 與 cursor 不得被清掉。`completed`、`stopped`、`failed` 都會清理 lock、command 與 runtime backup；後兩者保留可續掃 cursor/result。
+- `running`、`collecting_followers`、`followers_collected`、`checking_profiles` 僅作舊資料相容顯示，寫入時正規化為 `ready` 或 `scanning`。三無結果只進本機管理清單，永不直接啟動封鎖 worker。
+
 ### 權限邊界
 
 - 三無掃描不使用 MV3 background service worker；必須由使用者點擊觸發 `window.open`，與一般 Desktop 背景分頁 Worker 模型一致。
@@ -303,7 +311,7 @@ svg[aria-label="更多"] viewBox="0 0 24 24"
    ├─ 找 a[href*="/@user/post/"] 貼文連結
    ├─ 從連結往上爬 DOM → 找到貼文的 svg「更多」
    ├─ 點擊 → 等選單 → 找「封鎖」
-   └─ 全失敗 → return 'rate_limited'
+   └─ 全失敗 → return 'menu_not_found'（若看到明確限制訊息才 return 'cooldown'）
 7. Polling 等待確認對話框 (最多 5s)
    ├─ 偵測到限制訊息 → return 'cooldown'
    └─ 點擊紅色確認按鈕
@@ -317,8 +325,12 @@ svg[aria-label="更多"] viewBox="0 0 24 24"
 |---|---|
 | `success` / `already_blocked` | 進入 **自適應驗證 (Adaptive Verification)**。若驗證成功則移出佇列並寫入 DB。三振計數器歸零。 |
 | `failed` | 從 BG_QUEUE 移除，加入 FAILED_QUEUE |
-| `rate_limited` | 三振累計 +1。第 1~2 次：標記失敗並靜置 3 秒。**連續 3 次**：觸發 12 小時冷卻。 |
-| `cooldown` | 觸發 `triggerCooldown()`，12小時鎖定並備份名單 |
+| `menu_not_found` / `navigation_mismatch` / `private_manual_required` | 記錄可診斷原因、加入 FAILED_QUEUE，繼續下一位；不增加 rate-limit 計數。 |
+| `vanished` | 從 BG_QUEUE 移除並清理失效帳號記錄。 |
+| `rate_limited` | 只有明確 Threads 限制訊號才三振累計 +1。第 1~2 次標記失敗並靜置 3 秒；**連續 3 次**才可觸發 12 小時冷卻。 |
+| `cooldown` | 明確限制訊號計數 +1；累積第 3 次且保護開啟才觸發 `triggerCooldown()`，否則記錄失敗並繼續 |
+
+> 上表的三振計數與冷卻只屬 **block worker**。只檢舉流程若看到明確限制訊息，會將本次 safe snapshot 記為 `rate_limited`，提示後跳過目前帳號並繼續 report queue；不共用 block worker 的三次冷卻，也不會自動呼叫 `triggerCooldown()`。
 
 ---
 
@@ -352,7 +364,7 @@ svg[aria-label="更多"] viewBox="0 0 24 24"
 **觸發條件**：
 1. `autoBlock` 中偵測到「稍後再試」等官方對話框 → `return 'cooldown'`。
 2. 自適應驗證系統連續 5 次偵測到「假性成功」。
-3. **三振空選單**：`autoBlock` 連續 3 次回傳 `rate_limited`（Profile + Post Fallback 都無法取得封鎖選項）。
+3. **明確限制訊號**：`autoBlock` 連續 3 次回傳 `rate_limited`；單純找不到 More／選單、私人帳號或導航不符不會觸發冷卻。
 
 **執行流程 (智慧回滾 Auto-Rollback)**：
 1. 立即停止當前 Worker 迴圈。

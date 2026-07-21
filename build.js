@@ -7,13 +7,19 @@ const OUT_FILE = path.join(DIST_DIR, 'threads_block_tool.user.js');
 
 const ORDER = [
     'config.js',
+    'announcements.js',
     'utils.js',
     'storage.js',
+    'dialog-collector.js',
+    'more-locator.js',
+    'report-debug-context.js',
     'reporter.js',
     'ui.js',
     'core.js',
     'features/post-reservoir-engine.js',
+    'features/report-flow.js',
     'features/cockroach.js',
+    'features/three-no-watch.js',
     'worker.js',
     'main.js'
 ];

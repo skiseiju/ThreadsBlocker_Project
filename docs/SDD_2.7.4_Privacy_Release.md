@@ -272,3 +272,9 @@ public overview GET 不得執行 `.run()` / `.exec()` 或建立 review row。候
 - **同意與偏好**：`platform-sync-v3`、`credentials-processing-v1` 不變；version migration 不觸碰 platform consent、credentials consent 或 manual／auto sync preference keys。
 - **驗證證據**：privacy test `11 pass / 0 fail`；相關 JS `node --check` 14 個 exit 0；`bash -n build.sh` exit 0；`git diff --check` exit 0；artifact／announcement／debug UI／preference regression checks 均 exit 0。Topic amplification、schema、SQL placeholder 為本次純版本轉換範圍外，N/A。
 - **限制**：本 closeout 不代表已發布、已送審或 installed truth 已更新；海哥需在 commit 後使用現有 Chrome／Safari 狀態自行 reload／test。
+
+## 12. beta47 addendum（2026-07-20；僅自動化證據）
+
+- 本 addendum 只記錄 beta47 本輪自動化測試實際覆蓋的 snapshot closed-schema 清理、More locator route／scope／dialog-menu／link fail-closed、profile→post navigation mismatch、private-state scope 與 report-only 限制結果行為；不改寫上方 beta44 歷史 PASS 與實機敘述。
+- 已通過的本輪命令包括：`node --check`（`src/` runtime JS）、`node tests/beta47-safety-regression.test.mjs`、`node tests/beta47-dom-fixture.test.mjs`（6 pass）、`node tests/beta47-debug-context.test.mjs`（2 pass）、`node tests/beta47-report-context.test.mjs`（2 pass）、`node tests/beta47-report-only-queue.test.mjs`（1 pass）、`node tests/report-flow-timing.test.mjs`、`node tests/three-no-watch-finish-scan.test.mjs`、`git diff --check`，以及 `SKIP_SAFARI_DEPLOY=true ./build.sh --no-bump`（exit 0）。
+- 本輪未執行使用者既有 Google Chrome installed-truth 驗證；不得將本 addendum 解讀為 live fixed、已發布或已送審。

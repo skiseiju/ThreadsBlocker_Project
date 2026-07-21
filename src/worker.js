@@ -1,7 +1,9 @@
 import { CONFIG } from './config.js';
 import { Utils } from './utils.js';
 import { Storage } from './storage.js';
-import { Core } from './core.js';
+import { Core, RuntimeDiagnostics } from './core.js';
+import { MoreLocator } from './more-locator.js';
+import { ReportDebugContext } from './report-debug-context.js';
 
 export const Worker = {
     stats: { success: 0, skipped: 0, failed: 0, vanished: 0, startTime: 0 },
@@ -14,6 +16,8 @@ export const Worker = {
     limitWarningMessage: '',
     _stepRunning: false,       // mutex: prevent concurrent runStep chains
     _workerVisualStorageListenerBound: false,
+    _diagnosticOperationId: null,
+    _diagnosticOperationFeature: 'blocking',
 
     saveStats: () => {
         Storage.setJSON(CONFIG.KEYS.WORKER_STATS, {
@@ -58,6 +62,54 @@ export const Worker = {
     clearStats: () => {
         Worker.resetStatsState(0);
         Storage.remove(CONFIG.KEYS.WORKER_STATS);
+    },
+
+    // Closed, aggregate-only diagnostics for block/report gates. This writer
+    // deliberately accepts no user, URL, DOM, text, or raw metadata fields.
+    recordSafetyDiagnostic: (phase, result = 'unknown', routeType = 'unknown', counts = {}, timing = {}, diagnosticOptions = {}) => {
+        const now = Date.now();
+        const previous = Storage.getJSON(CONFIG.KEYS.REPORT_FAILURE_SNAPSHOT, null);
+        const snapshot = ReportDebugContext.append(previous, {
+            ts: now,
+            phase,
+            result,
+            routeType: ReportDebugContext.ROUTES.has(routeType) ? routeType : 'unknown',
+            counts,
+            elapsedMs: timing.elapsedMs ?? 0,
+            retryCount: timing.retryCount ?? 0,
+        }, now);
+        if (snapshot) {
+            Storage.setJSON(CONFIG.KEYS.REPORT_FAILURE_SNAPSHOT, snapshot);
+            Storage.setJSON(CONFIG.KEYS.REPORT_DEBUG_CONTEXT_V2, ReportDebugContext.contextFromSnapshot(snapshot, now));
+        }
+        const feature = diagnosticOptions.feature || (Worker._diagnosticOperationFeature || 'blocking');
+        let operationId = diagnosticOptions.operationId || Worker._diagnosticOperationId;
+        const ownsOperation = !operationId && RuntimeDiagnostics.enabled();
+        if (ownsOperation) operationId = RuntimeDiagnostics.begin(feature, { strategy: 'route' });
+        const stageMap = {
+            queue_advance: 'dequeue', root_resolve: 'navigation', more_resolve: 'navigation', navigation_check: 'navigation',
+            menu_resolve: 'menu', action_resolve: 'action', confirm_resolve: 'confirm', retry: 'retry',
+            cooldown: 'cooldown', breaker: 'breaker', failure: 'failure',
+        };
+        const stage = stageMap[phase] || 'status';
+        RuntimeDiagnostics.record(feature, stage, {
+            operationId,
+            reason: result,
+            pathnameCategory: routeType === 'profile' || routeType === 'post' ? routeType : 'unknown',
+            candidateCount: counts.moreCandidates,
+            menuItems: counts.menuItems,
+            confirmButtons: counts.confirmButtons,
+            retryCount: timing.retryCount,
+            elapsedMs: timing.elapsedMs,
+            failure: ['failed', 'failure', 'error'].includes(result),
+            success: result === 'success' || result === 'completed',
+            private: result === 'private_manual_required',
+            protected: result === 'protected',
+            alreadyBlocked: result === 'already_blocked',
+            cooldownActive: result === 'cooldown' || result === 'rate_limited',
+        });
+        if (ownsOperation) RuntimeDiagnostics.end(operationId, 'terminal', { reason: result, ok: result === 'success' || result === 'completed', complete: true });
+        return snapshot;
     },
 
     resetStatsIfStorageCleared: () => {
@@ -105,7 +157,7 @@ export const Worker = {
         Worker.updateStatus('running', `只檢舉${label}: ${user}`, 0, Worker.initialTotal);
     },
 
-    markTargetFailedAndContinue: async (rawTarget, targetUser, currentTotal, logMessage = '', sleepMs = 3000) => {
+    markTargetFailedAndContinue: async (rawTarget, targetUser, currentTotal, logMessage = '', sleepMs = 3000, failureReason = 'unknown') => {
         if (logMessage && window.hegeLog) window.hegeLog(logMessage);
         Worker.stats.failed++;
         Worker.saveStats();
@@ -116,7 +168,7 @@ export const Worker = {
             Storage.setJSON(CONFIG.KEYS.BG_QUEUE, queue);
         }
 
-        Storage.queueAddUnique(CONFIG.KEYS.FAILED_QUEUE, targetUser);
+        Core.recordFailure('block', targetUser, failureReason);
         Worker.updateStatus('running', targetUser, 0, currentTotal);
         if (sleepMs > 0) await Utils.safeSleep(sleepMs);
         setTimeout(Worker.runStep, 100);
@@ -131,16 +183,19 @@ export const Worker = {
         onSuccess: (user) => {
             const target = user || reportUser;
             Worker.bumpReportStat('success', target);
-            Storage.queueRemove(CONFIG.KEYS.REPORT_FAILED_QUEUE, target);
+            Core.removeFailure(target, 'report');
         },
         onSkipped: (user, reason) => {
             const target = user || reportUser;
             Worker.bumpReportStat('skipped', target, reason);
-            Storage.queueAddUnique(CONFIG.KEYS.REPORT_FAILED_QUEUE, target);
+            Core.recordFailure('report', target, reason || 'report_failed');
         },
     }),
 
     init: async () => {
+        Worker._diagnosticOperationFeature = Storage.get(CONFIG.KEYS.WORKER_MODE, '') === 'report' ? 'report' : 'blocking';
+        Worker._diagnosticOperationId = RuntimeDiagnostics.begin(Worker._diagnosticOperationFeature, { strategy: Utils.isMobile() ? 'same_tab' : 'background_tab', foreground: !Utils.isMobile(), background: Utils.isMobile() === false });
+        RuntimeDiagnostics.record(Worker._diagnosticOperationFeature, 'precondition', { operationId: Worker._diagnosticOperationId, queueCount: Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []).length, pendingCount: Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []).length });
         Worker.loadStats();
         // Pre-initialize UI to capture early logs
         Worker.createStatusUI();
@@ -205,6 +260,9 @@ export const Worker = {
             Worker.updateStatus('error', `⛔ 封鎖功能被限制，約 ${remainHrs} 小時後自動恢復`);
             const stopBtn = document.getElementById('hege-worker-stop');
             if (stopBtn) stopBtn.style.display = 'none';
+            Worker.recordSafetyDiagnostic('cooldown', 'cooldown', MoreLocator.routeType(), {}, {}, { operationId: Worker._diagnosticOperationId });
+            RuntimeDiagnostics.end(Worker._diagnosticOperationId, 'terminal', { reason: 'cooldown', ok: false, cooldownActive: true });
+            Worker._diagnosticOperationId = null;
             return;
         }
 
@@ -602,7 +660,8 @@ export const Worker = {
 
             const handleStop = () => {
                 Storage.set('hege_sweep_stopped', 'true'); // 讓主頁面 driver 立即中止，防止空 queue 被誤判為批次完成
-                Storage.set(CONFIG.KEYS.BG_CMD, 'stop');
+                if (Core.markStopRequested) Core.markStopRequested();
+                else Storage.set(CONFIG.KEYS.BG_CMD, 'stop');
                 Storage.remove('hege_sweep_worker_standby');
                 sessionStorage.removeItem('hege_sweep_state');
                 sessionStorage.removeItem('hege_sweep_target');
@@ -964,7 +1023,7 @@ export const Worker = {
                 // 從 DB 移除未確認的封鎖
                 if (!isUnblock && Storage.getBlockDB().includes(user)) {
                     Storage.removeFromBlockDB(user);
-                    Storage.queueAddUnique(CONFIG.KEYS.FAILED_QUEUE, user);
+                    Core.recordFailure('block', user, 'verification_failed');
                     if (window.hegeLog) window.hegeLog(`[批次驗證] @${user} 已從 DB 移除，加入失敗佇列`);
                 }
             }
@@ -1018,7 +1077,12 @@ export const Worker = {
         if (Worker._stepRunning) return;
         Worker._stepRunning = true;
         try {
+        const operationFeature = Worker._diagnosticOperationFeature || 'blocking';
+        const operationId = Worker._diagnosticOperationId || (Worker._diagnosticOperationId = RuntimeDiagnostics.begin(operationFeature, { strategy: Utils.isMobile() ? 'same_tab' : 'background_tab' }));
+        RuntimeDiagnostics.record(operationFeature, 'dequeue', { operationId, queueCount: Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []).length, pendingCount: Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []).length });
         if (Storage.get(CONFIG.KEYS.BG_CMD) === 'stop') {
+            Worker.recordSafetyDiagnostic('queue_advance', 'stopped', MoreLocator.routeType());
+            RuntimeDiagnostics.end(operationId, 'stop', { reason: 'user_stop', ok: false });
             const workerMode = Storage.get(CONFIG.KEYS.WORKER_MODE, '');
             if (workerMode === 'report') Worker.interruptReportRun();
             Storage.remove(CONFIG.KEYS.BG_CMD);
@@ -1069,7 +1133,13 @@ export const Worker = {
                         window.hegeLog(`[驗證] Level 2 連續失敗 ${Worker.consecutiveFails}/5`);
                         if (Worker.consecutiveFails >= 5) {
                             if (Storage.isCooldownProtectionEnabled()) {
+                                Worker.recordSafetyDiagnostic('retry', 'retry', MoreLocator.routeType(), {}, { retryCount: Worker.consecutiveFails }, { operationId: Worker._diagnosticOperationId });
+                                Worker.recordSafetyDiagnostic('failure', 'failure', MoreLocator.routeType(), {}, { retryCount: Worker.consecutiveFails }, { operationId: Worker._diagnosticOperationId });
+                                Worker.recordSafetyDiagnostic('breaker', 'breaker_open', MoreLocator.routeType(), {}, { retryCount: Worker.consecutiveFails }, { operationId: Worker._diagnosticOperationId });
                                 await Worker.triggerCooldown();
+                                Worker.recordSafetyDiagnostic('cooldown', 'cooldown', MoreLocator.routeType(), {}, {}, { operationId: Worker._diagnosticOperationId });
+                                RuntimeDiagnostics.end(Worker._diagnosticOperationId, 'terminal', { reason: 'cooldown', ok: false, cooldownActive: true });
+                                Worker._diagnosticOperationId = null;
                             } else {
                                 await Worker.markTargetFailedAndContinue(
                                     verifyPending,
@@ -1088,7 +1158,7 @@ export const Worker = {
                         queue.shift();
                         Storage.setJSON(CONFIG.KEYS.BG_QUEUE, queue);
                     }
-                    Storage.queueAddUnique(CONFIG.KEYS.FAILED_QUEUE, targetUser);
+                    Core.recordFailure('block', targetUser, 'verification_failed');
                     Worker.updateStatus('running', targetUser, 0, currentTotal);
                     setTimeout(Worker.runStep, 100);
                     return;
@@ -1148,6 +1218,9 @@ export const Worker = {
             }
 
             Worker.updateStatus('idle', '✅ 檢舉全部完成！', 0, 0);
+            Worker.recordSafetyDiagnostic('queue_advance', 'completed', MoreLocator.routeType());
+            RuntimeDiagnostics.end(Worker._diagnosticOperationId, 'finish', { reason: 'completed', ok: true, complete: true, processedCount: Worker.stats.success + Worker.stats.skipped });
+            Worker._diagnosticOperationId = null;
             Worker.completeReportRun();
             Worker.clearStats();
             Storage.remove(CONFIG.KEYS.WORKER_MODE);
@@ -1259,6 +1332,9 @@ export const Worker = {
             }
 
             Worker.updateStatus('idle', '✅ 全部完成！', 0, 0);
+            Worker.recordSafetyDiagnostic('queue_advance', 'completed', MoreLocator.routeType());
+            RuntimeDiagnostics.end(Worker._diagnosticOperationId, 'finish', { reason: 'completed', ok: true, complete: true, processedCount: Worker.stats.success + Worker.stats.skipped });
+            Worker._diagnosticOperationId = null;
             Worker.clearStats();
             Storage.remove(CONFIG.KEYS.WORKER_MODE);
             const stopBtn = document.getElementById('hege-worker-stop');
@@ -1305,12 +1381,16 @@ export const Worker = {
             Worker.updateStatus('running', `略過: ${targetUser}`, 0, currentTotal);
             queue.shift();
             Storage.setJSON(CONFIG.KEYS.BG_QUEUE, queue);
+            Worker.recordSafetyDiagnostic('queue_advance', 'success', MoreLocator.routeType(), {
+                skipped: 0,
+            });
             setTimeout(Worker.runStep, 100);
             return;
         }
 
         const onTargetPage = new RegExp(`^/@${targetUser.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\/|$)`).test(location.pathname);
         if (!onTargetPage) {
+            Worker.recordSafetyDiagnostic('navigation_check', 'success', MoreLocator.routeType());
             Worker.updateStatus('running', `${isUnblock ? '解鎖前往' : '前往'}: ${targetUser}`, 0, currentTotal);
             await Utils.speedSleep(500 + Math.random() * 300);
             const useReplies = Storage.get(CONFIG.KEYS.POST_FALLBACK) !== 'false';
@@ -1346,6 +1426,13 @@ export const Worker = {
                     Storage.setJSON(CONFIG.KEYS.BG_QUEUE, q);
                 }
 
+                Worker.recordSafetyDiagnostic('queue_advance', 'success', MoreLocator.routeType(), {
+                    moreCandidates: 0,
+                    menuItems: 0,
+                    confirmButtons: 0,
+                    postFallbackAttempts: 0,
+                });
+
                 if (isUnblock) {
                     Storage.removeFromBlockDB(targetUser);
                 } else {
@@ -1355,6 +1442,8 @@ export const Worker = {
                 Worker.updateStatus('running', targetUser, 0, currentTotal);
                 setTimeout(Worker.runStep, 100);
             } else if (result === 'failed') {
+                Worker.consecutiveRateLimits = 0;
+                Worker.recordSafetyDiagnostic('queue_advance', 'failed', MoreLocator.routeType());
                 Worker.stats.failed++;
                 Worker.saveStats();
                 // Remove from active queue
@@ -1365,11 +1454,28 @@ export const Worker = {
                 }
 
                 // Add to failed queue (DO NOT add to history DB)
-                Storage.queueAddUnique(CONFIG.KEYS.FAILED_QUEUE, targetUser);
+                Core.recordFailure('block', targetUser, 'action_failed');
 
                 Worker.updateStatus('running', targetUser, 0, currentTotal);
                 setTimeout(Worker.runStep, 100);
+            } else if (['menu_not_found', 'navigation_mismatch', 'private_manual_required'].includes(result)) {
+                // These are actionable per-user outcomes, not platform rate limits.
+                Worker.consecutiveRateLimits = 0;
+                Worker.stats.failed++;
+                Worker.saveStats();
+                let q = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+                if (q.length > 0 && q[0] === rawTarget) {
+                    q.shift();
+                    Storage.setJSON(CONFIG.KEYS.BG_QUEUE, q);
+                }
+                Core.recordFailure('block', targetUser, result);
+                Worker.recordSafetyDiagnostic('queue_advance', result, MoreLocator.routeType());
+                Worker.updateStatus('running', `${targetUser}: ${result}`, 0, currentTotal);
+                await Utils.safeSleep(300);
+                setTimeout(Worker.runStep, 100);
             } else if (result === 'vanished') {
+                Worker.consecutiveRateLimits = 0;
+                Worker.recordSafetyDiagnostic('queue_advance', 'vanished', MoreLocator.routeType());
                 Worker.stats.vanished++;
                 Worker.saveStats();
                 // Remove from active queue
@@ -1388,6 +1494,7 @@ export const Worker = {
                 Worker.updateStatus('running', targetUser, 0, currentTotal);
                 setTimeout(Worker.runStep, 100);
             } else if (result === 'rate_limited') {
+                Worker.recordSafetyDiagnostic('queue_advance', 'rate_limited', MoreLocator.routeType());
                 Worker.consecutiveRateLimits++;
                 Worker.saveStats();
 
@@ -1395,6 +1502,9 @@ export const Worker = {
                     if (Storage.isCooldownProtectionEnabled()) {
                         if (window.hegeLog) window.hegeLog(`[⚠️警告] 選單異常達 ${Worker.consecutiveRateLimits} 次，偵測到 Meta 限制操作，強制冷卻`);
                         await Worker.triggerCooldown();
+                        Worker.recordSafetyDiagnostic('cooldown', 'cooldown', MoreLocator.routeType(), {}, {}, { operationId: Worker._diagnosticOperationId });
+                        globalThis.__hegeRuntimeDiagnostics?.end?.(Worker._diagnosticOperationId, 'terminal', { reason: 'cooldown', ok: false, cooldownActive: true });
+                        Worker._diagnosticOperationId = null;
                         Worker.clearStats();
                         return;
                     }
@@ -1402,10 +1512,13 @@ export const Worker = {
                         rawTarget,
                         targetUser,
                         currentTotal,
-                        `[⚠️警告] 選單異常達 ${Worker.consecutiveRateLimits} 次，但自動冷卻保護已關閉；改記錄失敗並繼續`
+                        `[⚠️警告] 選單異常達 ${Worker.consecutiveRateLimits} 次，但自動冷卻保護已關閉；改記錄失敗並繼續`,
+                        3000,
+                        'rate_limited'
                     );
                     return;
                 } else {
+                    Worker.recordSafetyDiagnostic('retry', 'retry', MoreLocator.routeType(), {}, { retryCount: Worker.consecutiveRateLimits }, { operationId: Worker._diagnosticOperationId });
                     if (window.hegeLog) window.hegeLog(`[⚠️警告] 選單異常 (第 ${Worker.consecutiveRateLimits}/3 次)，可能為網路延遲或初級限制，跳過並靜置...`);
                     // treat as normal failure but give it a larger timeout to breathe
                     Worker.stats.failed++;
@@ -1416,7 +1529,7 @@ export const Worker = {
                         q.shift();
                         Storage.setJSON(CONFIG.KEYS.BG_QUEUE, q);
                     }
-                    Storage.queueAddUnique(CONFIG.KEYS.FAILED_QUEUE, targetUser);
+                    Core.recordFailure('block', targetUser, 'rate_limited');
 
                     Worker.updateStatus('running', targetUser, 0, currentTotal);
                     await Utils.safeSleep(3000); // extra breather — 不受速度模式影響
@@ -1424,8 +1537,16 @@ export const Worker = {
                 }
                 return;
             } else if (result === 'cooldown') {
-                if (Storage.isCooldownProtectionEnabled()) {
+                Worker.recordSafetyDiagnostic('queue_advance', 'cooldown', MoreLocator.routeType());
+                // Explicit Threads restriction signals share the same three-strike
+                // counter; a single warning must not create a false cooldown.
+                Worker.consecutiveRateLimits++;
+                Worker.saveStats();
+                if (Worker.consecutiveRateLimits >= 3 && Storage.isCooldownProtectionEnabled()) {
                     await Worker.triggerCooldown();
+                    Worker.recordSafetyDiagnostic('cooldown', 'cooldown', MoreLocator.routeType(), {}, {}, { operationId: Worker._diagnosticOperationId });
+                    globalThis.__hegeRuntimeDiagnostics?.end?.(Worker._diagnosticOperationId, 'terminal', { reason: 'cooldown', ok: false, cooldownActive: true });
+                    Worker._diagnosticOperationId = null;
                     Worker.clearStats();
                     return;
                 }
@@ -1433,7 +1554,7 @@ export const Worker = {
                     rawTarget,
                     targetUser,
                     currentTotal,
-                    '[冷卻保護] 偵測到頻率限制，但自動冷卻保護已關閉；改記錄失敗並繼續'
+                    `[冷卻保護] 偵測到 Threads 明確限制訊號 (${Worker.consecutiveRateLimits}/3)，改記錄失敗並繼續`
                 );
                 return;
             }
@@ -1466,141 +1587,24 @@ export const Worker = {
         }
     },
 
-    findMoreButton: async (timeout = 5000) => {
-        const textOf = (el) => {
-            if (!el) return '';
-            const attrs = [
-                el.getAttribute?.('aria-label') || '',
-                el.getAttribute?.('title') || '',
-                el.getAttribute?.('alt') || '',
-            ];
-            const descendantAttrs = Array.from(el.querySelectorAll?.('[aria-label], [title], img[alt], svg[aria-label]') || [])
-                .map(node => [
-                    node.getAttribute?.('aria-label') || '',
-                    node.getAttribute?.('title') || '',
-                    node.getAttribute?.('alt') || '',
-                ].join(' '))
-                .join(' ');
-            return [...attrs, descendantAttrs, el.innerText || '', el.textContent || '']
-                .join(' ')
-                .replace(/\s+/g, ' ')
-                .trim();
-        };
-        const clickableAncestor = (el) => {
-            let node = el;
-            for (let depth = 0; node && depth < 8; depth++) {
-                if (node.matches?.('button, div[role="button"], [tabindex="0"]')) return node;
-                node = node.parentElement;
-            }
-            return el.closest?.('button, div[role="button"], [tabindex="0"]') || el;
-        };
-        const contextTextOf = (el) => {
-            const pieces = [];
-            let node = el;
-            for (let depth = 0; node && depth < 8 && node !== document.body; depth++) {
-                const rect = node.getBoundingClientRect?.();
-                const text = (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
-                if (text && rect && rect.width <= Math.min(window.innerWidth, 760) && rect.height <= 340) {
-                    pieces.push(text);
-                }
-                node = node.parentElement;
-            }
-            return pieces.join(' ');
-        };
-        const isVisible = (el) => {
-            const rect = el?.getBoundingClientRect?.();
-            return !!rect && rect.width > 0 && rect.height > 0
-                && rect.bottom > 0 && rect.top < window.innerHeight
-                && rect.right > 0 && rect.left < window.innerWidth;
-        };
-        const looksLikeMoreSvg = (svg) => {
-            if (!svg) return false;
-            const text = textOf(svg);
-            const circleCount = svg.querySelectorAll('circle').length;
-            const pathCount = svg.querySelectorAll('path').length;
-            return /更多|More|もっと見る|더 보기|เพิ่มเติม|Lainnya|Más|Plus|Mehr|Altro|Mais|Ещё|Więcej|Diğer|Thêm|المزيد|और|Meer|Higit pa/i.test(text)
-                || (circleCount === 3 && pathCount === 0)
-                || (circleCount >= 1 && pathCount >= 3);
-        };
-
-        return await Utils.pollUntil(() => {
-            const main = document.querySelector('main, div[role="main"]') || document.body;
-            const mainRect = main.getBoundingClientRect?.() || { left: 0, right: window.innerWidth, top: 0, bottom: window.innerHeight, width: window.innerWidth };
-            const rawNodes = Array.from(document.querySelectorAll([
-                'button',
-                'div[role="button"]',
-                '[tabindex="0"]',
-                CONFIG.SELECTORS.MORE_SVG,
-                'svg[aria-label]',
-            ].join(',')));
-            const seen = new Set();
-            const candidates = [];
-
-            rawNodes.forEach(node => {
-                const btn = clickableAncestor(node);
-                if (!btn || seen.has(btn) || !isVisible(btn)) return;
-                seen.add(btn);
-                if (btn.closest('[role="dialog"], [role="menu"], #hege-panel, .hege-manager-overlay, #hege-three-no-worker-overlay')) return;
-
-                const svg = btn.matches?.('svg') ? btn : (btn.querySelector?.(CONFIG.SELECTORS.MORE_SVG) || btn.querySelector?.('svg[aria-label]'));
-                const text = textOf(btn);
-                const hasMoreText = /更多|More|もっと見る|더 보기|เพิ่มเติม|Lainnya|Más|Plus|Mehr|Altro|Mais|Ещё|Więcej|Diğer|Thêm|المزيد|और|Meer|Higit pa/i.test(text);
-                if (!hasMoreText && !looksLikeMoreSvg(svg)) return;
-
-                const rect = btn.getBoundingClientRect();
-                const contextText = contextTextOf(btn);
-                const inMainColumn = rect.left >= mainRect.left - 12 && rect.right <= mainRect.right + 12;
-                const nearProfileHeader = rect.top >= Math.max(0, mainRect.top - 12) && rect.top < Math.min(window.innerHeight, mainRect.top + 430);
-                const profileContext = /Instagram|IG|粉絲|位粉絲|Followers|追蹤|Follow|發送訊息|Message|提及|Mention|回覆|Replies/i.test(contextText);
-                const globalMenuContext = /外觀|設定|已讀|封存|登出|Appearance|Settings|Archive|Log out/i.test(contextText);
-                const compactButton = rect.width <= 128 && rect.height <= 128;
-                const circleCount = svg?.querySelectorAll?.('circle').length || 0;
-                const pathCount = svg?.querySelectorAll?.('path').length || 0;
-                let score = 100;
-                if (inMainColumn) score -= 24;
-                if (nearProfileHeader) score -= 22;
-                if (profileContext) score -= 28;
-                if (compactButton) score -= 8;
-                if (circleCount >= 1 && pathCount >= 3) score -= 8;
-                if (circleCount === 3 && pathCount === 0) score -= 4;
-                if (rect.left < 72) score += 80;
-                if (globalMenuContext) score += 70;
-                if (!inMainColumn) score += 25;
-                if (!nearProfileHeader) score += 18;
-                score += Math.max(0, rect.top) * 0.02;
-                score -= Math.max(0, rect.left) * 0.002;
-                candidates.push({ btn, score, rect, text, contextText });
-            });
-
-            candidates.sort((a, b) => a.score - b.score || b.rect.left - a.rect.left || a.rect.top - b.rect.top);
-            if (window.hegeLog && candidates.length > 0) {
-                const debug = candidates.slice(0, 5).map(item => ({
-                    score: Math.round(item.score),
-                    rect: Worker.summarizeRect(item.btn),
-                    text: item.text.slice(0, 40),
-                    context: item.contextText.slice(0, 60),
-                }));
-                window.hegeLog(`[DIAG] 更多按鈕候選: ${JSON.stringify(debug)}`);
-            }
-            return candidates[0]?.btn || null;
-        }, timeout, 200);
-    },
+    findMoreButton: async (timeout = 5000, username = '') => await Utils.pollUntil(() => {
+        const profileRoot = Core.findProfileRoot?.(username);
+        if (!profileRoot) return null;
+        const button = MoreLocator.find(profileRoot, { mode: 'profile', trustedRoot: true });
+        if (button && window.hegeLog) {
+            window.hegeLog(`[DIAG] 共用 More locator 命中 profile (${MoreLocator.explicitAriaLabel(button) ? 'aria' : 'shape'})`);
+        }
+        return button;
+    }, timeout, 200),
 
     findPostMoreButtons: (user) => {
-        const postLinks = document.querySelectorAll(`a[href*="/@${CSS.escape(user)}/post/"]`);
+        const escaped = String(user || '').replace(/["'\\]/g, '\\$&');
+        const postLinks = document.querySelectorAll(`a[href*="/@${escaped}/post/"]`);
         const results = [];
         for (const link of postLinks) {
-            let container = link;
-            for (let lvl = 0; lvl < 8; lvl++) {
-                container = container.parentElement;
-                if (!container) break;
-                const svg = container.querySelector(CONFIG.SELECTORS.MORE_SVG);
-                if (!svg) continue;
-                const btn = svg.closest('div[role="button"]');
-                if (!btn) continue;
-                results.push({ btn, link });
-                break;
-            }
+            const container = link.closest('article, [role="article"], [data-pressable-container], [role="listitem"]') || link.parentElement;
+            const btn = MoreLocator.find(container, { mode: 'post' });
+            if (btn) results.push({ btn, link });
         }
         return results;
     },
@@ -1615,7 +1619,7 @@ export const Worker = {
             if (!verifyPageLoaded) await Utils.safeSleep(1000);
 
             // Find "More" button again (智慧等待)
-            let profileBtn = await Worker.findMoreButton(5000);
+            let profileBtn = await Worker.findMoreButton(5000, user);
 
             let blockStatus = null; // 'unblocked', 'blocked', or null
 
@@ -1788,7 +1792,7 @@ export const Worker = {
 
         function checkForError() {
             const errorPhrases = ['稍後再試', 'Try again later', '為了保護', 'protect our community', '受到限制', 'restrict certain activity'];
-            const dialogs = document.querySelectorAll('div[role="dialog"]');
+            const dialogs = document.querySelectorAll('div[role="dialog"], [role="alert"]');
             for (let dialog of dialogs) {
                 const t = dialog.innerText || dialog.textContent;
                 if (!t) continue;
@@ -1809,6 +1813,29 @@ export const Worker = {
             return isInvalid;
         }
 
+        const diagnosticStartedAt = Date.now();
+        let moreCandidates = 0;
+        let menuItems = 0;
+        let confirmButtons = 0;
+        let postFallbackAttempts = 0;
+        let diagnosticRetryCount = 0;
+        const recordDiagnostic = (phase, result, extra = {}) => Worker.recordSafetyDiagnostic(
+            phase,
+            result,
+            MoreLocator.routeType(),
+            {
+                moreCandidates,
+                menuItems,
+                confirmButtons,
+                postFallbackAttempts,
+                ...extra,
+            },
+            {
+                elapsedMs: Math.max(0, Date.now() - diagnosticStartedAt),
+                retryCount: diagnosticRetryCount,
+            },
+        );
+
         try {
             setStep('載入中...');
             // 智慧等待頁面載入，偵測到主要內容就繼續
@@ -1819,17 +1846,30 @@ export const Worker = {
             if (!pageLoaded) await Utils.safeSleep(1500);
 
             if (checkFor404()) {
+                recordDiagnostic('root_resolve', 'vanished');
                 setStep('跳過: 連結失效 (404)');
                 return 'vanished';
             }
 
+            const profileRoot = Core.findProfileRoot?.(user);
+            if (!profileRoot) {
+                recordDiagnostic('root_resolve', 'menu_not_found');
+                return 'menu_not_found';
+            }
+            recordDiagnostic('root_resolve', 'success');
+            const privateState = MoreLocator.detectPrivateProfileState(profileRoot);
+
             let blockBtn = null;
             let postFallbackUsed = false;
+            const routeBeforeMore = MoreLocator.routeType();
             {
                 // 1. Wait for "More" button (智慧等待)
-                let profileBtn = await Worker.findMoreButton(12000);
+                let profileBtn = await Worker.findMoreButton(12000, user);
+                moreCandidates = Math.min(document.querySelectorAll(CONFIG.SELECTORS.MORE_SVG).length, ReportDebugContext.MAX_COUNT);
 
                 if (!profileBtn) {
+                    const missingMoreResult = privateState.private ? 'private_manual_required' : 'menu_not_found';
+                    recordDiagnostic('more_resolve', missingMoreResult);
                     // Diagnostic dump: collect all SVG info on page
                     const allSvgs = document.querySelectorAll('svg[aria-label]');
                     const svgLabels = Array.from(allSvgs).map(s => s.getAttribute('aria-label'));
@@ -1848,8 +1888,10 @@ export const Worker = {
                         window.hegeLog(`[DIAG] 更多按鈕 SVG(${moreSvgs.length}): ${JSON.stringify(svgDetails)}`);
                         window.hegeLog(`[DIAG] Dialogs: ${dialogCount}`);
                     }
-                    return 'failed';
+                    if (privateState.private) setStep('需要手動處理：私人帳號');
+                    return missingMoreResult;
                 }
+                recordDiagnostic('more_resolve', 'success');
 
                 setStep('開啟選單...');
                 await Worker.blockVisualStep(user, '準備點「更多」', profileBtn, 420);
@@ -1869,6 +1911,13 @@ export const Worker = {
                 profileBtn.scrollIntoView({ block: 'center', inline: 'center' });
                 await Utils.safeSleep(200); // scroll animation settle — not speed-adjusted
                 Utils.simClick(profileBtn);
+                await Utils.safeSleep(60);
+                if (!MoreLocator.routeMatches(routeBeforeMore, MoreLocator.routeType(), 'profile')) {
+                    recordDiagnostic('navigation_check', 'navigation_mismatch');
+                    setStep('導航不符，安全跳過');
+                    return 'navigation_mismatch';
+                }
+                recordDiagnostic('navigation_check', 'success');
 
                 // 2. Wait for Menu (智慧等待 + retry click)
                 let clickRetried = false;
@@ -1880,13 +1929,15 @@ export const Worker = {
                         const testMenu = document.querySelectorAll('div[role="menuitem"]');
                         if (testMenu.length === 0) {
                             clickRetried = true;
+                            diagnosticRetryCount++;
                             if (window.hegeLog) window.hegeLog(`[DIAG] 選單未開啟，重試 simClick...`);
                             Utils.simClick(profileBtn);
                         }
                     }
 
-                    const menuItems = document.querySelectorAll('div[role="menuitem"], div[role="button"]');
-                    for (let item of menuItems) {
+                    const menuNodes = document.querySelectorAll('div[role="menuitem"], div[role="button"]');
+                    menuItems = Math.min(menuNodes.length, ReportDebugContext.MAX_COUNT);
+                    for (let item of menuNodes) {
                         const t = item.innerText || item.textContent;
                         if (!t) continue;
 
@@ -1910,8 +1961,8 @@ export const Worker = {
                 }, 8000, 150);
 
                 if (menuResult) {
-                    if (menuResult.action === 'already_unblocked') { setStep('已解鎖 (略過)'); return 'already_unblocked'; }
-                    if (menuResult.action === 'already_blocked') { setStep('已封鎖 (略過)'); return 'already_blocked'; }
+                    if (menuResult.action === 'already_unblocked') { recordDiagnostic('menu_resolve', 'already_unblocked'); setStep('已解鎖 (略過)'); return 'already_unblocked'; }
+                    if (menuResult.action === 'already_blocked') { recordDiagnostic('menu_resolve', 'already_blocked'); setStep('已封鎖 (略過)'); return 'already_blocked'; }
                     if (menuResult.action === 'found') blockBtn = menuResult.btn;
                 }
 
@@ -1924,6 +1975,7 @@ export const Worker = {
                                 blockBtn = item;
                                 break;
                             } else {
+                                recordDiagnostic('menu_resolve', 'already_blocked');
                                 setStep('已封鎖 (略過)');
                                 return 'already_blocked';
                             }
@@ -1944,6 +1996,7 @@ export const Worker = {
                         if (window.hegeLog) window.hegeLog(`[DIAG] 在 replies 頁找到 ${postBtns.length} 篇貼文連結`);
 
                         for (const { btn: postMoreBtn, link } of postBtns) {
+                            postFallbackAttempts++;
                             if (window.hegeLog) window.hegeLog(`[DIAG] 嘗試貼文「更多」按鈕: ${link.getAttribute('href')}`);
 
                             // 點擊 Post 層的三個點
@@ -1951,6 +2004,12 @@ export const Worker = {
                             postMoreBtn.scrollIntoView({ block: 'center' });
                             await Utils.safeSleep(200); // scroll settle
                             Utils.simClick(postMoreBtn);
+                            await Utils.safeSleep(60);
+                            if (!MoreLocator.routeMatches(routeBeforeMore, MoreLocator.routeType(), 'profile')) {
+                                recordDiagnostic('navigation_check', 'navigation_mismatch');
+                                setStep('導航不符，安全跳過');
+                                return 'navigation_mismatch';
+                            }
 
                             // 等選單 + 尋找封鎖按鈕 (智慧等待)
                             const postMenuResult = await Utils.pollUntil(() => {
@@ -1969,7 +2028,7 @@ export const Worker = {
                             }, 6000, 150);
 
                             if (postMenuResult) {
-                                if (postMenuResult.action === 'already_blocked') { setStep('已封鎖 (略過)'); return 'already_blocked'; }
+                                if (postMenuResult.action === 'already_blocked') { recordDiagnostic('menu_resolve', 'already_blocked'); setStep('已封鎖 (略過)'); return 'already_blocked'; }
                                 if (postMenuResult.action === 'found') { blockBtn = postMenuResult.btn; }
                             }
 
@@ -1987,7 +2046,11 @@ export const Worker = {
                     }
 
                     if (!blockBtn) {
-                        // 全部失敗 — 診斷 dump + rate_limited
+                        const missingActionResult = checkForError()
+                            ? 'cooldown'
+                            : privateState.private ? 'private_manual_required' : 'menu_not_found';
+                        recordDiagnostic('menu_resolve', missingActionResult);
+                        // 全部失敗 — 診斷 dump；沒有明確限制訊息就 fail closed
                         const allMenuItems = document.querySelectorAll('div[role="menuitem"]');
                         const menuTexts = Array.from(allMenuItems).map(el => (el.innerText || el.textContent || '').trim().substring(0, 30));
                         const allBtns = document.querySelectorAll('div[role="button"]');
@@ -1999,12 +2062,23 @@ export const Worker = {
                             window.hegeLog(`[DIAG] buttons(${btnTexts.length}): ${JSON.stringify(btnTexts.slice(0, 15))}`);
                             window.hegeLog(`[DIAG] Dialogs: ${dialogCount}`);
                         }
-                        setStep('錯誤: 找不到封鎖鈕 (可能遭限制)');
-                        return 'rate_limited';
+                        if (checkForError()) {
+                            setStep('偵測到 Threads 限制訊息');
+                            return 'cooldown';
+                        }
+                        if (privateState.private) {
+                            setStep('需要手動處理：私人帳號');
+                            return 'private_manual_required';
+                        }
+                        setStep('找不到可信選單');
+                        return 'menu_not_found';
                     }
                 }
             }
 
+            menuItems = Math.min(document.querySelectorAll('div[role="menuitem"], div[role="button"]').length, ReportDebugContext.MAX_COUNT);
+            recordDiagnostic('menu_resolve', 'success');
+            recordDiagnostic('action_resolve', 'success');
             setStep(isUnblock ? '點擊解除封鎖...' : '點擊封鎖...');
             await Worker.blockVisualStep(user, isUnblock ? '準備點「解除封鎖」' : '準備點「封鎖」', blockBtn, 420);
             await Utils.speedSleep(500);
@@ -2020,6 +2094,7 @@ export const Worker = {
                 const dialogs = document.querySelectorAll('div[role="dialog"]');
                 for (let dialog of dialogs) {
                     const btns = dialog.querySelectorAll('div[role="button"], button');
+                    confirmButtons = Math.min(confirmButtons + btns.length, ReportDebugContext.MAX_COUNT);
                     for (let btn of btns) {
                         const t = btn.innerText || btn.textContent;
                         if (!t) continue;
@@ -2046,6 +2121,7 @@ export const Worker = {
                     : Utils.isUnblockText(pageText); // 封鎖後應看到「解除封鎖」
 
                 if (directBlocked) {
+                    recordDiagnostic('confirm_resolve', 'success');
                     if (window.hegeLog) window.hegeLog(`[DIAG] @${user} 無確認 dialog 但偵測到已${isUnblock ? '解鎖' : '封鎖'}，視為成功`);
                     setStep(isUnblock ? '✅ 已解除封鎖 (直接)' : '✅ 已封鎖 (直接)');
                     Core.ThreeNoWatch?.appendNetworkActionMarker?.(isUnblock ? 'unblock_success_direct' : 'block_success_direct', {
@@ -2068,10 +2144,13 @@ export const Worker = {
                         window.hegeLog(`[DIAG] Dialog[${i}] 按鈕: ${JSON.stringify(btnTexts)}`);
                     }
                 }
-                setStep('找不到確認');
-                return 'failed';
+                const missingConfirmResult = privateState.private ? 'private_manual_required' : 'failed';
+                setStep(privateState.private ? '需要手動處理：私人帳號' : '找不到確認');
+                recordDiagnostic('confirm_resolve', missingConfirmResult);
+                return missingConfirmResult;
             }
 
+            recordDiagnostic('confirm_resolve', 'success');
             setStep(isUnblock ? '確認解除封鎖...' : '確認封鎖...');
             await Worker.blockVisualStep(user, isUnblock ? '準備點「確認解除封鎖」' : '準備點「確認封鎖」', confirmBtn, 420);
             await Utils.safeSleep(200); // confirm button React handler settle — not speed-adjusted
@@ -2091,6 +2170,7 @@ export const Worker = {
             }, 5000, 150);
 
             if (closeResult === 'success') {
+                recordDiagnostic('confirm_resolve', 'success');
                 setStep(isUnblock ? '✅ 已解除封鎖' : '✅ 已封鎖');
                 Core.ThreeNoWatch?.appendNetworkActionMarker?.(isUnblock ? 'unblock_success' : 'block_success', {
                     user,
@@ -2100,12 +2180,14 @@ export const Worker = {
                 return 'success';
             }
             if (closeResult === 'cooldown') {
+                recordDiagnostic('confirm_resolve', 'cooldown');
                 return 'cooldown';
             }
 
             // Dialog 超時未關閉 — 再次檢查是否為限流
             if (checkForError()) {
                 if (window.hegeLog) window.hegeLog(`[DIAG] @${user} dialog 超時且偵測到限流`);
+                recordDiagnostic('confirm_resolve', 'cooldown');
                 return 'cooldown';
             }
 
@@ -2120,14 +2202,18 @@ export const Worker = {
             }
 
             if (likelyBlocked) {
+                recordDiagnostic('confirm_resolve', 'success');
                 setStep(isUnblock ? '✅ 已解除封鎖 (超時)' : '✅ 已封鎖 (超時)');
                 return 'success';
             }
 
-            setStep('超時未確認');
-            return 'failed';
+            const timeoutResult = privateState.private ? 'private_manual_required' : 'failed';
+            setStep(privateState.private ? '需要手動處理：私人帳號' : '超時未確認');
+            recordDiagnostic('confirm_resolve', timeoutResult);
+            return timeoutResult;
         } catch (e) {
             console.error('autoBlock error:', e);
+            recordDiagnostic('action_resolve', 'failed');
             return 'failed';
         }
     }

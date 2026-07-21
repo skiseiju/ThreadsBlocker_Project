@@ -4,6 +4,7 @@ import { Utils } from '../utils.js';
 import { Reporter } from '../reporter.js';
 import { UI } from '../ui.js';
 import { Core } from '../core.js';
+import { ReportDebugContext } from '../report-debug-context.js';
 
 Object.assign(Core, {
     ThreeNoWatch: {
@@ -15,11 +16,172 @@ Object.assign(Core, {
 
         isScanPage: () => new URLSearchParams(window.location.search).get('hege_three_no_scan') === 'true',
 
-        isStopRequested: () => Storage.get(CONFIG.KEYS.THREE_NO_SCAN_COMMAND, '') === 'stop',
+        readStopCommand: () => {
+            Storage.invalidate(CONFIG.KEYS.THREE_NO_SCAN_COMMAND);
+            const raw = Storage.get(CONFIG.KEYS.THREE_NO_SCAN_COMMAND, '');
+            if (raw && typeof raw === 'object') return raw;
+            if (String(raw || '') === 'stop') return { command: 'stop', legacy: true };
+            try {
+                const parsed = raw ? JSON.parse(raw) : null;
+                return parsed && typeof parsed === 'object' ? parsed : null;
+            } catch (_) {
+                return null;
+            }
+        },
 
-        runningStatuses: ['starting', 'running', 'collecting_followers', 'followers_collected', 'checking_profiles', 'stopping'],
+        getOwnedStopCommand: (state = Core.ThreeNoWatch.getScanState()) => {
+            const command = Core.ThreeNoWatch.readStopCommand();
+            if (!command || String(command.command || '') !== 'stop') return null;
+            const scanId = String(state.scanId || '');
+            const ownerToken = String(state.ownerToken || '');
+            if (command.legacy === true) {
+                // Legacy scalar commands are accepted only for ownerless legacy scans.
+                return ownerToken ? null : command;
+            }
+            const requestedAt = Number(command.requestedAt || 0);
+            if (!scanId || !ownerToken
+                || String(command.scanId || '') !== scanId
+                || String(command.ownerToken || '') !== ownerToken
+                || !Number.isFinite(requestedAt) || requestedAt <= 0
+                || requestedAt > Date.now() + 5 * 60 * 1000
+                || Date.now() - requestedAt > 24 * 60 * 60 * 1000) return null;
+            return {
+                command: 'stop',
+                scanId,
+                ownerToken,
+                requestedAt,
+            };
+        },
+
+        isStopRequested: () => !!Core.ThreeNoWatch.getOwnedStopCommand(),
+
+        observeStop: async (step = 'stop_observed') => {
+            const state = Core.ThreeNoWatch.getScanState();
+            if (Core.ThreeNoWatch.isTerminalStatus(state.status) || state.cancelled === true) return true;
+            const command = Core.ThreeNoWatch.getOwnedStopCommand(state);
+            if (!command) return false;
+            const scanId = String(state.scanId || '');
+            const ownerToken = String(state.ownerToken || '');
+            const legacyOwnerless = command.legacy === true && !ownerToken;
+            if ((!scanId && !legacyOwnerless) || (!legacyOwnerless && !Core.ThreeNoWatch.ownsScan(scanId, ownerToken))) return false;
+            if (state.status !== 'stopping') {
+                Core.ThreeNoWatch.setScanState({
+                    scanId,
+                    ownerToken,
+                    status: 'stopping',
+                    debug: { step, stopObservedAt: Date.now() },
+                });
+            }
+            await Core.ThreeNoWatch.finishScan({
+                scanId,
+                ownerToken,
+                status: 'stopped',
+                debug: { step, stopObservedAt: Date.now() },
+            });
+            return true;
+        },
+
+        runningStatuses: ['starting', 'ready', 'running', 'scanning', 'collecting_followers', 'followers_collected', 'checking_profiles', 'stopping'],
+
+        terminalStatuses: ['completed', 'stopped', 'failed'],
+
+        READY_TIMEOUT_MS: 10000,
+        HEARTBEAT_STALE_MS: 30000,
+        LAUNCHER_LOCK_NAME: 'threadsblocker:three-no-scan-launcher',
+
+        readScanLock: () => {
+            Storage.invalidate(CONFIG.KEYS.THREE_NO_SCAN_LOCK);
+            const raw = Storage.get(CONFIG.KEYS.THREE_NO_SCAN_LOCK, '');
+            if (!raw) return null;
+            try {
+                const parsed = JSON.parse(raw);
+                if (parsed && typeof parsed === 'object') return {
+                    scanId: String(parsed.scanId || ''),
+                    token: String(parsed.token || ''),
+                    createdAt: parseInt(parsed.createdAt || '0', 10) || 0,
+                };
+            } catch (_) {}
+            const createdAt = parseInt(raw, 10) || 0;
+            return createdAt > 0 ? { scanId: '', token: 'legacy', createdAt } : null;
+        },
+
+        ownsScan: (scanId = '', token = '') => {
+            const state = Core.ThreeNoWatch.getScanState();
+            const lock = Core.ThreeNoWatch.readScanLock();
+            const id = String(scanId || '');
+            const owner = String(token || '');
+            return !!id && !!owner
+                && String(state.scanId || '') === id
+                && String(state.ownerToken || '') === owner
+                && !!lock
+                && String(lock.scanId || '') === id
+                && String(lock.token || '') === owner
+                && !Core.ThreeNoWatch.isTerminalStatus(state.status)
+                && state.cancelled !== true;
+        },
+
+        clearOwnedScan: (scanId = '', token = '') => {
+            const id = String(scanId || '');
+            const owner = String(token || '');
+            const lock = Core.ThreeNoWatch.readScanLock();
+            if (lock && lock.scanId === id && lock.token === owner) Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_LOCK);
+            const state = Core.ThreeNoWatch.getScanState();
+            const command = Core.ThreeNoWatch.readStopCommand();
+            if (String(state.scanId || '') === id && String(state.ownerToken || '') === owner
+                && (command?.legacy === true
+                    || (String(command?.scanId || '') === id && String(command?.ownerToken || '') === owner))) {
+                Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_COMMAND);
+            }
+            return !!(String(state.scanId || '') === id && String(state.ownerToken || '') === owner);
+        },
+
+        markTerminalIfOwned: (scanId, token, patch = {}) => {
+            if (!Core.ThreeNoWatch.ownsScan(scanId, token)) return false;
+            const accepted = Core.ThreeNoWatch.setScanState({
+                scanId,
+                ownerToken: token,
+                ...patch,
+                cancelled: true,
+                terminalAt: Date.now(),
+            });
+            if (accepted === false) return false;
+            Core.ThreeNoWatch.clearOwnedScan(scanId, token);
+            return true;
+        },
 
         isRunningStatus: (status = '') => Core.ThreeNoWatch.runningStatuses.includes(String(status || '')),
+
+        isTerminalStatus: (status = '') => Core.ThreeNoWatch.terminalStatuses.includes(String(status || '')),
+
+        normalizeLifecycleStatus: (status = '') => {
+            const value = String(status || '');
+            if (value === 'running') return 'ready';
+            if (['collecting_followers', 'followers_collected', 'checking_profiles'].includes(value)) return 'scanning';
+            return value;
+        },
+
+        lifecycleCounts: (state = {}) => ({
+            checked: Math.max(0, parseInt(state.checkedFollowersCount || '0', 10) || 0),
+            candidates: Math.max(0, parseInt(state.candidateFollowersCount || '0', 10) || 0),
+            findings: Math.max(0, parseInt(state.threeNoFollowersCount || '0', 10) || 0),
+        }),
+
+        recordLifecycleSnapshot: (state = {}, result = '') => {
+            const allowed = ReportDebugContext.RESULTS.has(result) ? result : 'unknown';
+            const now = Date.now();
+            const previous = Storage.getJSON(CONFIG.KEYS.REPORT_FAILURE_SNAPSHOT, null);
+            const snapshot = ReportDebugContext.append(previous, {
+                ts: now,
+                stage: 'three_no',
+                result: allowed,
+                routeType: 'other',
+                counts: Core.ThreeNoWatch.lifecycleCounts(state),
+            }, now);
+            if (!snapshot) return null;
+            Storage.setJSON(CONFIG.KEYS.REPORT_FAILURE_SNAPSHOT, snapshot);
+            Storage.setJSON(CONFIG.KEYS.REPORT_DEBUG_CONTEXT_V2, ReportDebugContext.contextFromSnapshot(snapshot, now));
+            return snapshot;
+        },
 
         getDebugSchemaVersion: () => 'network-discovery-v6',
 
@@ -35,14 +197,34 @@ Object.assign(Core, {
         },
 
         requestStop: () => {
-            Storage.set(CONFIG.KEYS.THREE_NO_SCAN_COMMAND, 'stop');
-            Core.ThreeNoWatch.setScanState({
+            const state = Core.ThreeNoWatch.getScanState();
+            const scanId = String(state.scanId || '');
+            const ownerToken = String(state.ownerToken || '');
+            if (!scanId || !ownerToken || Core.ThreeNoWatch.isTerminalStatus(state.status) || state.cancelled === true) return false;
+            if (!Core.ThreeNoWatch.ownsScan(scanId, ownerToken)) return false;
+            const requestedAt = Date.now();
+            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_COMMAND, {
+                command: 'stop',
+                scanId,
+                ownerToken,
+                requestedAt,
+            });
+            Core.RuntimeDiagnostics?.record('three_no', 'request', { operationId: state.diagnosticOperationId, stopRequested: true, active: true });
+            const accepted = Core.ThreeNoWatch.setScanState({
+                scanId,
+                ownerToken,
                 status: 'stopping',
                 debug: {
                     step: 'user_stop_requested',
-                    url: window.location.href,
+                    requestedAt,
                 },
             });
+            if (accepted === false) {
+                const command = Core.ThreeNoWatch.readStopCommand();
+                if (command?.scanId === scanId && command?.ownerToken === ownerToken) Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_COMMAND);
+                return false;
+            }
+            return true;
         },
 
         getLocalDayKey: (ts = Date.now()) => {
@@ -88,8 +270,8 @@ Object.assign(Core, {
             if (!Core.ThreeNoWatch.isRunningStatus(status)) return false;
             const updatedAt = parseInt(state.updatedAt || '0', 10) || 0;
             const heartbeatAt = parseInt(state.workerHeartbeatAt || '0', 10) || 0;
-            if (heartbeatAt > 0) return now - heartbeatAt < 25 * 1000;
-            return updatedAt > 0 && now - updatedAt < 30 * 1000;
+            if (heartbeatAt > 0) return now - heartbeatAt < Core.ThreeNoWatch.HEARTBEAT_STALE_MS;
+            return updatedAt > 0 && now - updatedAt < Core.ThreeNoWatch.HEARTBEAT_STALE_MS;
         },
 
         sanitizeDebugValue: (value, depth = 0) => {
@@ -285,16 +467,27 @@ Object.assign(Core, {
             const state = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
             if (!Core.ThreeNoWatch.isRunningStatus(state.status)) return false;
             if (Core.ThreeNoWatch.isFreshRunningState(state)) return false;
+            if (state.scanId && state.ownerToken) {
+                return Core.ThreeNoWatch.markTerminalIfOwned(state.scanId, state.ownerToken, {
+                    status: 'stopped',
+                    completedAt: Date.now(),
+                    error: 'worker_stale',
+                    debug: {
+                        ...(state.debug && typeof state.debug === 'object' ? state.debug : {}),
+                        step: reason,
+                        stalePreviousStatus: state.status || '',
+                        staleUpdatedAt: state.updatedAt || 0,
+                        staleWorkerHeartbeatAt: state.workerHeartbeatAt || 0,
+                    },
+                });
+            }
             Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_LOCK);
             Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_COMMAND);
-            try {
-                localStorage.removeItem(Core.ThreeNoWatch.runtimeBackupKey);
-            } catch (_) {}
             Core.ThreeNoWatch.setScanState({
                 ...state,
                 status: 'stopped',
                 completedAt: Date.now(),
-                error: '',
+                error: 'worker_stale',
                 debug: {
                     ...(state.debug && typeof state.debug === 'object' ? state.debug : {}),
                     step: reason,
@@ -315,16 +508,26 @@ Object.assign(Core, {
                     window.__hegeThreeNoWorkerHeartbeat = null;
                     return;
                 }
-                const state = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
-                if (!Core.ThreeNoWatch.isRunningStatus(state.status)) {
+                const state = Core.ThreeNoWatch.getScanState();
+                if (!Core.ThreeNoWatch.isRunningStatus(state.status) || state.status === 'stopping' || Core.ThreeNoWatch.isTerminalStatus(state.status)) {
                     clearInterval(window.__hegeThreeNoWorkerHeartbeat);
                     window.__hegeThreeNoWorkerHeartbeat = null;
                     return;
                 }
+                if (state.ownerToken && !Core.ThreeNoWatch.ownsScan(state.scanId, state.ownerToken)) return;
                 const now = Date.now();
+                // Re-read immediately before writing so a late heartbeat cannot revive
+                // a stopping/terminal state written by another tab.
+                Storage.invalidate(CONFIG.KEYS.THREE_NO_SCAN_STATE);
+                const latest = Core.ThreeNoWatch.getScanState();
+                if (latest.status === 'stopping' || Core.ThreeNoWatch.isTerminalStatus(latest.status)
+                    || latest.cancelled === true
+                    || String(latest.scanId || '') !== String(state.scanId || '')
+                    || String(latest.ownerToken || '') !== String(state.ownerToken || '')) return;
                 Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {
-                    ...state,
+                    ...latest,
                     workerHeartbeatAt: now,
+                    workerInstanceId: latest.workerInstanceId || window.__hegeThreeNoWorkerInstanceId || '',
                     updatedAt: now,
                 });
             };
@@ -333,10 +536,22 @@ Object.assign(Core, {
         },
 
         setScanState: (state = {}) => {
+            Storage.invalidate(CONFIG.KEYS.THREE_NO_SCAN_STATE);
             const previous = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
+            const rawStatus = String(state.status || '');
+            const lifecycleStatus = Core.ThreeNoWatch.normalizeLifecycleStatus(rawStatus);
+            const requestedScanId = String(state.scanId || '');
+            const previousScanId = String(previous.scanId || '');
+            if (requestedScanId && previousScanId && requestedScanId !== previousScanId) return false;
+            if (Core.ThreeNoWatch.isTerminalStatus(previous.status) || previous.cancelled === true) return false;
+            if (previous.status === 'stopping' && !Core.ThreeNoWatch.isTerminalStatus(lifecycleStatus || rawStatus)) return false;
+            if (state.ownerToken && previous.ownerToken && String(state.ownerToken) !== String(previous.ownerToken)) return false;
+            if (window.__hegeThreeNoWorkerOwnerToken && previous.ownerToken
+                && String(window.__hegeThreeNoWorkerOwnerToken) !== String(previous.ownerToken)) return false;
             const next = {
                 ...previous,
                 ...state,
+                ...(lifecycleStatus && lifecycleStatus !== rawStatus ? { phase: rawStatus, status: lifecycleStatus } : {}),
                 updatedAt: Date.now(),
             };
             if (state.status && state.status !== 'failed' && !Object.prototype.hasOwnProperty.call(state, 'error')) {
@@ -345,6 +560,47 @@ Object.assign(Core, {
             Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, next);
             Core.ThreeNoWatch.appendScanDebugLog(next);
             Core.ThreeNoWatch.renderWorkerOverlay(next);
+            const operationId = String(next.diagnosticOperationId || '').trim();
+            if (operationId && (String(previous.status || '') !== String(next.status || '')
+                || Object.prototype.hasOwnProperty.call(state, 'checkedFollowersCount')
+                || Object.prototype.hasOwnProperty.call(state, 'candidateFollowersCount')
+                || Object.prototype.hasOwnProperty.call(state, 'workerReadyAt')
+                || Object.prototype.hasOwnProperty.call(state, 'workerHeartbeatAt'))) {
+                const status = String(next.status || '');
+                const terminal = ['failed', 'stopped', 'completed'].includes(status);
+                const stage = terminal ? (status === 'completed' ? 'finish' : status === 'stopped' ? 'stop' : 'error')
+                    : status === 'starting' ? 'launch'
+                        : status === 'ready' ? 'worker'
+                            : status === 'stopping' ? 'ack' : 'progress';
+                Core.RuntimeDiagnostics?.record('three_no', stage, {
+                    operationId,
+                    created: status === 'starting', attached: status === 'ready',
+                    stopped: status === 'stopping' || status === 'stopped',
+                    complete: status === 'completed', failure: status === 'failed',
+                    checkedCount: parseInt(next.checkedFollowersCount || '0', 10) || 0,
+                    candidateCount: parseInt(next.candidateFollowersCount || '0', 10) || 0,
+                    queuedCount: parseInt(next.queuedCount || next.threeNoFollowersCount || '0', 10) || 0,
+                    scrollCount: parseInt(next.scrollCount || '0', 10) || 0,
+                    requestCount: parseInt(next.requestCount || '0', 10) || 0,
+                });
+                if (Object.prototype.hasOwnProperty.call(state, 'scrollCount')) {
+                    Core.RuntimeDiagnostics?.record('three_no', 'scroll', { operationId, scrollCount: parseInt(next.scrollCount || '0', 10) || 0, progress: true });
+                }
+                if (Object.prototype.hasOwnProperty.call(state, 'requestCount')) {
+                    Core.RuntimeDiagnostics?.record('three_no', 'request', { operationId, requestCount: parseInt(next.requestCount || '0', 10) || 0 });
+                }
+                if (terminal && String(previous.status || '') !== status) {
+                    Core.RuntimeDiagnostics?.record('three_no', 'close', { operationId, closed: true, disappeared: status !== 'completed', terminal: true });
+                    Core.RuntimeDiagnostics?.end(operationId, stage, {
+                        reason: status === 'completed' ? 'completed' : status === 'stopped' ? 'stopped' : 'failure',
+                        ok: status === 'completed', complete: status === 'completed', stopped: status === 'stopped',
+                    });
+                }
+            }
+            if (['failed', 'stopped', 'completed'].includes(String(next.status || ''))) {
+                Core.ThreeNoWatch.recordLifecycleSnapshot(next, String(next.status));
+            }
+            return true;
         },
 
         renderWorkerOverlay: (state = {}) => {
@@ -373,7 +629,9 @@ Object.assign(Core, {
 
             const statusMap = {
                 starting: '啟動中',
+                ready: 'worker 已就緒',
                 running: '準備掃描',
+                scanning: '正在掃描',
                 collecting_followers: '正在開啟粉絲名單',
                 followers_collected: '正在準備候選名單',
                 checking_profiles: '正在檢查個人檔案',
@@ -412,7 +670,7 @@ Object.assign(Core, {
                     <div style="margin-top:6px;color:#aaa;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;line-height:1.45;word-break:break-word;">${debugRows}</div>
                 </details>`
                 : '';
-            const canStop = ['starting', 'running', 'collecting_followers', 'followers_collected', 'checking_profiles'].includes(String(state.status || ''));
+            const canStop = ['starting', 'ready', 'running', 'scanning', 'collecting_followers', 'followers_collected', 'checking_profiles'].includes(String(state.status || ''));
             const closeText = state.status === 'failed' && Utils.isBetaBuild()
                 ? 'Beta 偵錯中，錯誤時不會自動關閉。'
                 : (state.status === 'stopped'
@@ -432,6 +690,7 @@ Object.assign(Core, {
                 <div style="color:#aaa;">${progress ? `進度：${progress}` : '正在準備粉絲名單'}${current ? ` · ${Utils.escapeHTML(current)}` : ''}</div>
                 ${candidateSummary ? `<div style="margin-top:4px;color:#9ad0ff;">${Utils.escapeHTML(candidateSummary)}</div>` : ''}
                 <div style="margin-top:6px;color:#777;">${closeText}</div>
+                <div style="margin-top:4px;color:#9ad0ff;">掃描只產生本機待審結果，不會自動封鎖；請由你手動加入封鎖清單並按「開始封鎖」。</div>
                 ${canStop ? '<button id="hege-three-no-worker-stop" style="margin-top:10px;width:100%;border:0;border-radius:8px;background:#ff453a;color:#fff;font-weight:800;padding:8px 10px;cursor:pointer;">停止並保留進度</button>' : ''}
                 ${error}
                 ${debugBlock}
@@ -467,9 +726,14 @@ Object.assign(Core, {
         },
 
         setRuntime: (state = {}) => {
+            const active = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
+            if (state.scanId && active.scanId && String(state.scanId) !== String(active.scanId)) return false;
+            if (active.cancelled === true || Core.ThreeNoWatch.isTerminalStatus(active.status) || active.status === 'stopping') return false;
+            if (state.ownerToken && active.ownerToken && String(state.ownerToken) !== String(active.ownerToken)) return false;
             const raw = JSON.stringify(state);
             sessionStorage.setItem(Core.ThreeNoWatch.stateKey, raw);
             localStorage.setItem(Core.ThreeNoWatch.runtimeBackupKey, raw);
+            return true;
         },
 
         getCurrentProfileUsername: () => {
@@ -494,83 +758,212 @@ Object.assign(Core, {
             return url.toString();
         },
 
-        startManualScan: async (options = {}) => {
-            if (!Core.ThreeNoWatch.isChromeExtension()) return { skipped: 'not_chrome_extension' };
-            if (Core.ThreeNoWatch.isScanPage()) return { skipped: 'scan_page' };
+        getScanState: () => {
+            Storage.invalidate(CONFIG.KEYS.THREE_NO_SCAN_STATE);
+            return Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
+        },
 
-            const today = Core.ThreeNoWatch.getLocalDayKey();
+        isLoginGateVisible: () => {
+            const text = String(document?.body?.innerText || document?.body?.textContent || '').replace(/\s+/g, ' ').slice(0, 6000);
+            return !!document?.querySelector?.('[href*="/login"], [data-testid*="login"], input[type="password"]')
+                || /登入 Threads|登錄 Threads|登入以|登錄以|log in to threads|sign in to threads|log in to continue|sign in to continue|login required/i.test(text);
+        },
+
+        isWorkerBlockedPage: () => {
+            const text = String(document?.body?.innerText || document?.body?.textContent || '').replace(/\s+/g, ' ').slice(0, 6000);
+            return /challenge|checkpoint|temporarily blocked|請稍後再試|暫時無法|blocked|網路錯誤|network error/i.test(text)
+                && !Core.ThreeNoWatch.isLoginGateVisible();
+        },
+
+        markWorkerSignal: (scanId, result = 'ready', extra = {}) => {
+            const state = Core.ThreeNoWatch.getScanState();
+            if (String(state.scanId || '') !== String(scanId || '')) return false;
             const now = Date.now();
-            const lock = parseInt(Storage.get(CONFIG.KEYS.THREE_NO_SCAN_LOCK, '0') || '0', 10) || 0;
-            const scanState = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
-            const freshScanState = Core.ThreeNoWatch.isFreshRunningState(scanState, now);
-            if (lock > 0 && now - lock < 20 * 60 * 1000 && freshScanState) return { skipped: 'scan_in_flight' };
-            if (lock > 0 && !freshScanState) {
-                Core.ThreeNoWatch.clearStaleScanIfNeeded('stale_scan_lock_cleared_before_start');
-            }
-
-            const bgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
-            const workerRunning = bgStatus.state === 'running' && (now - (bgStatus.lastUpdate || 0) < 30000);
-            if (workerRunning || Utils.isSweepRunning()) return { skipped: 'worker_busy' };
-
-            const targetOwner = Core.ThreeNoWatch.normalizeUsername(options.targetOwner || '');
-            const scanId = targetOwner
-                ? `three-no:target:${targetOwner}:${today}:${now}`
-                : `three-no:manual:${today}:${now}`;
-            Core.ThreeNoWatch.resetScanDebugLog(scanId);
-            Storage.set(CONFIG.KEYS.THREE_NO_SCAN_LOCK, String(now));
-            Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_COMMAND);
-            Core.ThreeNoWatch.setScanState({
+            const workerInstanceId = window.__hegeThreeNoWorkerInstanceId || `three-no-worker:${now}:${Math.random().toString(36).slice(2, 8)}`;
+            window.__hegeThreeNoWorkerInstanceId = workerInstanceId;
+            const nextStatus = result === 'ready'
+                ? (['starting', 'running'].includes(String(state.status || '')) ? 'ready' : (state.status || 'ready'))
+                : (state.status || 'starting');
+            const accepted = Core.ThreeNoWatch.setScanState({
                 scanId,
-                scanTargetOwner: targetOwner,
-                scanDate: today,
-                status: 'starting',
-                startedAt: now,
-                checkedFollowersCount: 0,
-                threeNoFollowersCount: 0,
+                ownerToken: state.ownerToken || '',
+                status: nextStatus,
+                workerReadyAt: result === 'ready' ? (state.workerReadyAt || now) : (state.workerReadyAt || 0),
+                workerHeartbeatAt: now,
+                workerInstanceId,
+                workerBootstrapResult: result,
+                workerBootstrapAt: now,
+                phase: result === 'ready' ? (state.phase || 'bootstrap') : 'bootstrap',
+                ...extra,
             });
+            return accepted !== false;
+        },
 
-            const url = Core.ThreeNoWatch.buildScanUrl(scanId, { targetOwner });
-            const workerWindow = window.open(url, 'HegeThreeNoWorker', 'width=800,height=700');
-            try {
-                if (!workerWindow || workerWindow.closed) throw new Error('popup_blocked');
+        waitForWorkerReady: async (scanId, timeoutMs = Core.ThreeNoWatch.READY_TIMEOUT_MS, ownerToken = '') => {
+            const deadline = Date.now() + Math.max(250, Number(timeoutMs) || Core.ThreeNoWatch.READY_TIMEOUT_MS);
+            while (Date.now() < deadline) {
+                const state = Core.ThreeNoWatch.getScanState();
+                if (String(state.scanId || '') !== String(scanId || '')) {
+                    await Utils.safeSleep(50);
+                    continue;
+                }
+                if (ownerToken && String(state.ownerToken || '') !== String(ownerToken)) return { ok: false, result: 'scan_in_flight', state };
+                if (ownerToken && (state.cancelled === true || Core.ThreeNoWatch.isTerminalStatus(state.status))) {
+                    return { ok: false, result: state.error || 'worker_start_failed', state };
+                }
+                const signal = String(state.workerBootstrapResult || '');
+                if (['worker_blocked', 'not_logged_in', 'owner_unknown', 'owner_mismatch', 'worker_start_failed'].includes(signal)) return { ok: false, result: signal, state };
+                const readyAt = parseInt(state.workerReadyAt || '0', 10) || 0;
+                const heartbeatAt = parseInt(state.workerHeartbeatAt || '0', 10) || 0;
+                if (['ready', 'scanning', 'running'].includes(String(state.status || ''))
+                    && state.workerBootstrapResult === 'ready'
+                    && readyAt > 0 && heartbeatAt >= readyAt && heartbeatAt <= Date.now() + 5000) {
+                    return { ok: true, state };
+                }
+                await Utils.safeSleep(100);
+            }
+            return { ok: false, result: 'worker_bootstrap_timeout', state: Core.ThreeNoWatch.getScanState() };
+        },
+
+        startManualScan: async (options = {}) => {
+            const operationId = Core.RuntimeDiagnostics?.begin('three_no', { foreground: true, background: false, strategy: 'window_open' });
+            Core.RuntimeDiagnostics?.record('three_no', 'precondition', { operationId, foreground: true, background: false, active: true });
+            const endLaunch = (reason, fields = {}) => {
+                Core.RuntimeDiagnostics?.record('three_no', 'error', { operationId, reason, ...fields });
+                Core.RuntimeDiagnostics?.end(operationId, 'terminal', { reason, ok: false, ...fields });
+                return { skipped: reason };
+            };
+            if (!Core.ThreeNoWatch.isChromeExtension()) { Core.RuntimeDiagnostics?.end(operationId, 'terminal', { reason: 'failure', ok: false }); return { skipped: 'not_chrome_extension' }; }
+            if (Core.ThreeNoWatch.isScanPage()) { Core.RuntimeDiagnostics?.end(operationId, 'terminal', { reason: 'failure', ok: false }); return { skipped: 'scan_page' }; }
+
+            const launch = async () => {
+                const today = Core.ThreeNoWatch.getLocalDayKey();
+                const now = Date.now();
+                const lockRecord = Core.ThreeNoWatch.readScanLock();
+                const lock = lockRecord?.createdAt || 0;
+                const scanState = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
+                const freshScanState = Core.ThreeNoWatch.isFreshRunningState(scanState, now);
+                if (lock > 0 && now - lock < 20 * 60 * 1000 && freshScanState) return endLaunch('scan_in_flight');
+                if (lock > 0 && !freshScanState) {
+                    Core.ThreeNoWatch.clearStaleScanIfNeeded('stale_scan_lock_cleared_before_start');
+                }
+
+                const bgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
+                const workerRunning = bgStatus.state === 'running' && (now - (bgStatus.lastUpdate || 0) < 30000);
+                if (workerRunning || Utils.isSweepRunning()) return endLaunch('worker_busy');
+
+                const targetOwner = Core.ThreeNoWatch.normalizeUsername(options.targetOwner || '');
+                const scanId = targetOwner
+                    ? `three-no:target:${targetOwner}:${today}:${now}`
+                    : `three-no:manual:${today}:${now}`;
+                const ownerToken = `${scanId}:${Math.random().toString(36).slice(2, 12)}`;
+                Core.ThreeNoWatch.resetScanDebugLog(scanId);
+                Storage.set(CONFIG.KEYS.THREE_NO_SCAN_LOCK, JSON.stringify({ scanId, token: ownerToken, createdAt: now }));
+                Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_COMMAND);
                 Core.ThreeNoWatch.setScanState({
                     scanId,
+                    ownerToken,
                     scanTargetOwner: targetOwner,
                     scanDate: today,
-                    status: 'running',
+                    status: 'starting',
+                    diagnosticOperationId: operationId,
                     startedAt: now,
                     checkedFollowersCount: 0,
                     threeNoFollowersCount: 0,
                 });
-                return { ok: true, scanId };
-            } catch (err) {
-                Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_LOCK);
-                Core.ThreeNoWatch.setScanState({
-                    scanId,
-                    scanTargetOwner: targetOwner,
-                    scanDate: today,
-                    status: 'failed',
-                    startedAt: now,
-                    completedAt: Date.now(),
-                    error: String(err?.message || err || 'worker_start_failed'),
+
+                const claimedState = Core.ThreeNoWatch.getScanState();
+                const claimedLock = Core.ThreeNoWatch.readScanLock();
+                const ownsClaim = claimedState.scanId === scanId
+                    && claimedState.ownerToken === ownerToken
+                    && claimedLock?.scanId === scanId
+                    && claimedLock?.token === ownerToken;
+                if (!ownsClaim) return endLaunch('scan_in_flight');
+
+                const url = Core.ThreeNoWatch.buildScanUrl(scanId, { targetOwner });
+                let workerWindow = null;
+                try {
+                    workerWindow = window.open(url, 'HegeThreeNoWorker', 'width=800,height=700');
+                    if (!workerWindow || workerWindow.closed) throw new Error('popup_blocked');
+                    Core.RuntimeDiagnostics?.record('three_no', 'worker', { operationId, created: true, foreground: true, background: true });
+                    const ready = await Core.ThreeNoWatch.waitForWorkerReady(scanId, Core.ThreeNoWatch.READY_TIMEOUT_MS, ownerToken);
+                    if (!ready.ok) throw new Error(ready.result || 'worker_bootstrap_timeout');
+                    Core.RuntimeDiagnostics?.record('three_no', 'worker', { operationId, attached: true, active: true });
+                    return { ok: true, scanId };
+                } catch (err) {
+                    const rawError = String(err?.message || err || '');
+                    const errorCode = ['popup_blocked', 'worker_bootstrap_timeout', 'worker_blocked', 'not_logged_in', 'owner_unknown', 'owner_mismatch', 'scan_in_flight', 'worker_start_failed']
+                        .includes(rawError)
+                        ? rawError
+                        : (/popup|blocked/i.test(rawError) ? 'popup_blocked' : 'worker_start_failed');
+                    if (workerWindow && !workerWindow.closed && typeof workerWindow.close === 'function') {
+                        try { workerWindow.close(); } catch (_) {}
+                    }
+                    Core.RuntimeDiagnostics?.record('three_no', 'close', { operationId, closed: !!workerWindow?.closed, failure: true });
+                    Core.RuntimeDiagnostics?.end(operationId, 'error', { reason: errorCode === 'worker_bootstrap_timeout' ? 'timeout' : 'failure', ok: false, closed: !!workerWindow?.closed });
+                    Core.ThreeNoWatch.markTerminalIfOwned(scanId, ownerToken, {
+                        scanTargetOwner: targetOwner,
+                        scanDate: today,
+                        status: 'failed',
+                        startedAt: now,
+                        completedAt: Date.now(),
+                        error: errorCode,
+                        workerBootstrapResult: errorCode,
+                    });
+                    const current = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
+                    if (current.scanId === scanId && current.ownerToken === ownerToken) Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_COMMAND);
+                    return { skipped: errorCode, error: err };
+                }
+            };
+
+            const locks = typeof navigator !== 'undefined' ? navigator.locks : null;
+            if (locks && typeof locks.request === 'function') {
+                return locks.request(Core.ThreeNoWatch.LAUNCHER_LOCK_NAME, { ifAvailable: true }, async (lockHandle) => {
+                    if (!lockHandle) return endLaunch('scan_in_flight');
+                    return launch();
                 });
-                return { skipped: err?.message === 'popup_blocked' ? 'popup_blocked' : 'worker_start_failed', error: err };
             }
+            // Non-Web-Locks environments retain the conservative storage claim; it is not atomic across tabs.
+            return launch();
         },
 
         runScanPage: async () => {
             if (!Core.ThreeNoWatch.isChromeExtension()) return;
-            Core.ThreeNoWatch.startWorkerHeartbeat();
             const params = new URLSearchParams(window.location.search);
+            const scanId = String(params.get('hege_three_no_run') || '').trim();
+            const currentState = Core.ThreeNoWatch.getScanState();
+            if (!scanId || String(currentState.scanId || '') !== scanId) return;
+            if (!Core.ThreeNoWatch.isRunningStatus(currentState.status) || currentState.status === 'stopping') return;
+            if (currentState.ownerToken && !Core.ThreeNoWatch.ownsScan(scanId, currentState.ownerToken)) return;
+            window.__hegeThreeNoWorkerOwnerToken = currentState.ownerToken || '';
+            if (await Core.ThreeNoWatch.observeStop('stop_observed_at_load')) return;
+            if (Core.ThreeNoWatch.isWorkerBlockedPage()) {
+                Core.ThreeNoWatch.markWorkerSignal(scanId, 'worker_blocked');
+                await Core.ThreeNoWatch.finishScan({ status: 'failed', error: 'worker_blocked' });
+                return;
+            }
+            if (Core.ThreeNoWatch.isLoginGateVisible()) {
+                Core.ThreeNoWatch.markWorkerSignal(scanId, 'not_logged_in');
+                await Core.ThreeNoWatch.finishScan({ status: 'failed', error: 'not_logged_in' });
+                return;
+            }
+            Core.ThreeNoWatch.markWorkerSignal(scanId, 'ready');
+            Core.ThreeNoWatch.startWorkerHeartbeat();
             const phase = params.get('hege_three_no_phase') || 'followers';
             try {
                 if (phase === 'bootstrap') await Core.ThreeNoWatch.runBootstrapPhase(params);
                 else if (phase === 'followers') await Core.ThreeNoWatch.runFollowersPhase(params);
                 else await Core.ThreeNoWatch.runProfilePhase(params);
             } catch (err) {
+                const startupError = ['worker_blocked', 'not_logged_in', 'owner_unknown', 'owner_mismatch'].includes(String(err?.message || ''))
+                    ? String(err.message)
+                    : '';
+                if (startupError) Core.ThreeNoWatch.markWorkerSignal(scanId, startupError);
                 await Core.ThreeNoWatch.finishScan({
                     status: 'failed',
-                    error: String(err?.message || err || 'scan_failed'),
+                    error: ['worker_blocked', 'not_logged_in', 'owner_unknown', 'owner_mismatch', 'followers_dialog_not_found'].includes(String(err?.message || ''))
+                        ? String(err.message)
+                        : String(err?.message || err || 'worker_start_failed'),
                 });
             }
         },
@@ -579,18 +972,25 @@ Object.assign(Core, {
             const scanId = String(params.get('hege_three_no_run') || `three-no:${Date.now()}`);
             const scanDate = Core.ThreeNoWatch.getLocalDayKey();
             const startedAt = Date.now();
+            const existing = Core.ThreeNoWatch.getScanState();
+            if (String(existing.scanId || '') !== scanId) return;
+            if (await Core.ThreeNoWatch.observeStop('stop_observed_at_bootstrap')) return;
             Core.ThreeNoWatch.setScanState({
                 scanId,
                 scanDate,
-                status: 'starting',
+                scanTargetOwner: Core.ThreeNoWatch.normalizeUsername(existing.scanTargetOwner || ''),
+                status: 'ready',
                 startedAt,
                 checkedFollowersCount: 0,
                 threeNoFollowersCount: 0,
             });
 
             const targetOwner = Core.ThreeNoWatch.normalizeUsername(params.get('hege_three_no_target_owner') || '');
-            const owner = targetOwner || await Utils.pollUntil(() => Utils.getMyUsername(), 10000, 250);
-            if (!owner) throw new Error('owner_unknown');
+            const stateTargetOwner = Core.ThreeNoWatch.normalizeUsername(existing.scanTargetOwner || '');
+            if (stateTargetOwner && targetOwner && stateTargetOwner !== targetOwner) throw new Error('owner_mismatch');
+            const owner = targetOwner || Core.ThreeNoWatch.normalizeUsername(await Utils.pollUntil(() => Utils.getMyUsername(), 10000, 250));
+            if (await Core.ThreeNoWatch.observeStop('stop_observed_after_bootstrap_identity')) return;
+            if (!owner) throw new Error(Core.ThreeNoWatch.isLoginGateVisible() ? 'not_logged_in' : 'owner_unknown');
 
             const url = new URL(Core.ThreeNoWatch.profileUrl(owner));
             url.searchParams.set('hege_bg', 'true');
@@ -604,11 +1004,37 @@ Object.assign(Core, {
         },
 
         runFollowersPhase: async (params) => {
-            const owner = Core.ThreeNoWatch.normalizeUsername(params.get('hege_three_no_target_owner') || params.get('hege_three_no_owner') || Utils.getMyUsername() || '');
+            const requestedOwner = Core.ThreeNoWatch.normalizeUsername(params.get('hege_three_no_target_owner') || '');
+            const owner = requestedOwner || Core.ThreeNoWatch.normalizeUsername(params.get('hege_three_no_owner') || Utils.getMyUsername() || '');
             const scanId = String(params.get('hege_three_no_run') || `three-no:${Date.now()}`);
+            if (!owner) throw new Error(Core.ThreeNoWatch.isLoginGateVisible() ? 'not_logged_in' : 'owner_unknown');
+            if (requestedOwner) {
+                const currentOwner = Core.ThreeNoWatch.getCurrentProfileUsername();
+                if (!currentOwner) throw new Error('owner_unknown');
+                if (currentOwner.toLowerCase() !== requestedOwner.toLowerCase()) throw new Error('owner_mismatch');
+            }
+            const recoveredRuntime = Core.ThreeNoWatch.getRuntime();
+            if (recoveredRuntime.scanId === scanId
+                && Array.isArray(recoveredRuntime.usernames)
+                && recoveredRuntime.usernames.length > 0
+                && parseInt(recoveredRuntime.index || '0', 10) < recoveredRuntime.usernames.length) {
+                Core.ThreeNoWatch.setScanState({
+                    scanId,
+                    scanTargetOwner: owner,
+                    owner,
+                    status: 'scanning',
+                    phase: 'profile_recovery',
+                    checkedFollowersCount: parseInt(recoveredRuntime.index || '0', 10) || 0,
+                    candidateFollowersCount: recoveredRuntime.usernames.length,
+                    threeNoFollowersCount: Array.isArray(recoveredRuntime.findings) ? recoveredRuntime.findings.length : 0,
+                });
+                await Core.ThreeNoWatch.navigateToProfile(parseInt(recoveredRuntime.index || '0', 10) || 0);
+                return;
+            }
             const scanDate = Core.ThreeNoWatch.getLocalDayKey();
             const startedAt = Date.now();
             const batchSize = Core.ThreeNoWatch.getBatchSize();
+            const ownerToken = String(Core.ThreeNoWatch.getScanState().ownerToken || '');
             const savedCursor = Storage.getThreeNoScanCursor();
             const canResumeCursor = savedCursor.owner === owner && savedCursor.reachedEnd !== true;
             const cursor = canResumeCursor ? savedCursor : {
@@ -622,6 +1048,7 @@ Object.assign(Core, {
             const scannedSet = new Set(cursor.scannedUsers || []);
             Core.ThreeNoWatch.setRuntime({
                 scanId,
+                ownerToken,
                 scanDate,
                 owner,
                 scanTargetOwner: owner,
@@ -637,8 +1064,9 @@ Object.assign(Core, {
             Core.ThreeNoWatch.setScanState({
                 scanId,
                 scanTargetOwner: owner,
+                owner,
                 scanDate,
-                status: 'collecting_followers',
+                status: 'scanning',
                 startedAt,
                 checkedFollowersCount: 0,
                 threeNoFollowersCount: 0,
@@ -647,19 +1075,12 @@ Object.assign(Core, {
             });
 
             await Utils.safeSleep(2500);
-            if (Core.ThreeNoWatch.isStopRequested()) {
-                await Core.ThreeNoWatch.finishScan({
-                    status: 'stopped',
-                    debug: {
-                        step: 'stopped_before_followers_dialog',
-                        url: window.location.href,
-                    },
-                });
-                return;
-            }
+            if (await Core.ThreeNoWatch.observeStop('stopped_before_followers_dialog')) return;
             const dialog = await Core.ThreeNoWatch.openFollowersDialog();
+            if (await Core.ThreeNoWatch.observeStop('stopped_after_followers_dialog_open')) return;
             if (!dialog) throw new Error('followers_dialog_not_found');
             await Core.ThreeNoWatch.waitForFollowersListMedia(dialog);
+            if (await Core.ThreeNoWatch.observeStop('stopped_after_followers_media_wait')) return;
 
             const candidateReportThreshold = Storage.getThreeNoCandidateThreshold
                 ? Storage.getThreeNoCandidateThreshold()
@@ -682,11 +1103,13 @@ Object.assign(Core, {
             const maxAutoRounds = 100;
             const maxNoProgressRounds = 6;
             do {
+                if (await Core.ThreeNoWatch.observeStop('stopped_at_followers_phase_boundary')) return;
                 collection = await Core.ThreeNoWatch.collectFollowerUsernames(dialog, owner, {
                     skipUsers: workingScannedSet,
                     batchSize,
                 });
                 autoRounds++;
+                if (await Core.ThreeNoWatch.observeStop('stopped_after_followers_collection')) return;
                 collection.usernames.forEach(u => allUsernamesSet.add(u));
                 collection.triagedUsernames.forEach(u => {
                     allTriagedSet.add(u);
@@ -751,8 +1174,7 @@ Object.assign(Core, {
                     },
                 });
 
-                if (Core.ThreeNoWatch.isStopRequested()
-                    || collection.stopped === true
+                if (collection.stopped === true
                     || reachedCandidateLimit
                     || collection.reachedEnd
                     || collection.hasMore !== true
@@ -791,7 +1213,7 @@ Object.assign(Core, {
                 scanId,
                 scanTargetOwner: owner,
                 scanDate,
-                status: 'checking_profiles',
+                status: 'scanning',
                 startedAt,
                 checkedFollowersCount: 0,
                 threeNoFollowersCount: 0,
@@ -802,44 +1224,7 @@ Object.assign(Core, {
             });
 
             if (Core.ThreeNoWatch.isStopRequested() || collection?.stopped === true) {
-                if (usernames.length > 0) {
-                    Core.ThreeNoWatch.setRuntime({
-                        ...Core.ThreeNoWatch.getRuntime(),
-                        stopAfterCurrentCandidates: true,
-                        stopRequestedAt: Date.now(),
-                    });
-                    Core.ThreeNoWatch.setScanState({
-                        status: 'stopping',
-                        debug: {
-                            step: 'stop_requested_label_candidates',
-                            candidateSummary: `已抓到備選名單：${usernames.length}`,
-                            autoRounds,
-                            collectedCount: usernames.length,
-                            triagedCount: triagedUsernames.length,
-                            hasMore,
-                            previousScannedCount: scannedSet.size,
-                            collectionEndReason: collection?.endReason || '',
-                            next: 'profile_labeling',
-                            url: window.location.href,
-                        },
-                    });
-                    await Core.ThreeNoWatch.navigateToProfile(0);
-                    return;
-                }
-                await Core.ThreeNoWatch.finishScan({
-                    status: 'stopped',
-                    debug: {
-                        step: 'stopped_after_followers_collection_no_candidates',
-                        candidateSummary: `已抓到備選名單：${usernames.length}`,
-                        autoRounds,
-                        collectedCount: usernames.length,
-                        triagedCount: triagedUsernames.length,
-                        hasMore,
-                        previousScannedCount: scannedSet.size,
-                        collectionEndReason: collection?.endReason || '',
-                        url: window.location.href,
-                    },
-                });
+                await Core.ThreeNoWatch.observeStop('stopped_after_followers_collection_before_profile');
                 return;
             }
 
@@ -893,6 +1278,7 @@ Object.assign(Core, {
 
         runProfilePhase: async () => {
             const runtime = Core.ThreeNoWatch.getRuntime();
+            if (await Core.ThreeNoWatch.observeStop('stopped_at_profile_phase_boundary')) return;
             const usernames = Array.isArray(runtime.usernames) ? runtime.usernames : [];
             const index = parseInt(runtime.index || '0', 10) || 0;
             const username = usernames[index];
@@ -965,12 +1351,15 @@ Object.assign(Core, {
             });
 
             await Utils.safeSleep(CONFIG.THREE_NO_SCAN_PROFILE_DELAY_MS || 1800);
+            if (await Core.ThreeNoWatch.observeStop('stopped_after_profile_delay')) return;
             if ((window.scrollY || window.pageYOffset || 0) > 80) {
                 window.scrollTo(0, 0);
                 await Utils.safeSleep(150);
+                if (await Core.ThreeNoWatch.observeStop('stopped_after_profile_scroll_reset')) return;
             }
 
             const probeResult = await Core.ThreeNoWatch.evaluateCurrentProfileProbe(username, probeKind);
+            if (await Core.ThreeNoWatch.observeStop('stopped_after_profile_probe')) return;
             const nextProbeResults = {
                 ...probeResults,
                 [probeKind]: probeResult,
@@ -1135,6 +1524,7 @@ Object.assign(Core, {
                 });
                 return;
             }
+            if (await Core.ThreeNoWatch.observeStop('stopped_before_next_profile')) return;
             await Core.ThreeNoWatch.navigateToProfile(index + 1);
         },
 
@@ -1451,6 +1841,7 @@ Object.assign(Core, {
                 if (stagnant >= 24 && seen.size > 0) break;
                 await Utils.safeSleep(500);
             }
+            if (Core.ThreeNoWatch.isStopRequested()) stopped = true;
             extract();
             const skippedKnown = Array.from(seen).filter(u => skipUsers.has(u)).length;
             const usernames = Array.from(users).slice(0, max);
@@ -3555,6 +3946,11 @@ Object.assign(Core, {
 
         finishScan: async (patch = {}) => {
             const runtime = Core.ThreeNoWatch.getRuntime();
+            const activeState = Core.ThreeNoWatch.getScanState();
+            const runtimeScanId = String(runtime.scanId || patch.scanId || activeState.scanId || '');
+            const runtimeOwnerToken = String(runtime.ownerToken || patch.ownerToken || activeState.ownerToken || '');
+            if (Core.ThreeNoWatch.isTerminalStatus(activeState.status) || activeState.cancelled === true) return false;
+            if (runtimeOwnerToken && runtimeScanId && !Core.ThreeNoWatch.ownsScan(runtimeScanId, runtimeOwnerToken)) return false;
             const findings = Array.isArray(runtime.findings) ? runtime.findings : [];
             const batchUsernames = Array.isArray(runtime.usernames) ? runtime.usernames : [];
             const triagedUsernames = Array.isArray(runtime.triagedUsernames) && runtime.triagedUsernames.length > 0
@@ -3566,14 +3962,15 @@ Object.assign(Core, {
             const status = patch.status || 'completed';
             const completed = status === 'completed';
             const stopped = status === 'stopped';
-            const shouldPersistFindings = completed || stopped;
+            const failed = status === 'failed';
+            const shouldPersistFindings = completed || stopped || failed;
             const cursor = Storage.getThreeNoScanCursor();
             const cursorMatches = owner && cursor.owner === owner && cursor.reachedEnd !== true;
             const baseScannedUsers = cursorMatches ? cursor.scannedUsers : [];
-            const checkedCandidateCount = stopped
+            const checkedCandidateCount = (stopped || failed)
                 ? Math.max(0, Math.min(batchUsernames.length, parseInt(runtime.index || '0', 10) || 0))
                 : batchUsernames.length;
-            const unprocessedCandidates = new Set(stopped
+            const unprocessedCandidates = new Set((stopped || failed)
                 ? batchUsernames.slice(checkedCandidateCount).map(u => Core.ThreeNoWatch.normalizeUsername(u)).filter(Boolean)
                 : []);
             const scanProgressUsers = completed
@@ -3706,6 +4103,9 @@ Object.assign(Core, {
                 .filter(username => !Storage.isThreeNoUserSafe(username));
             const hasMore = stopped ? true : (completed ? runtime.hasMore === true : runtime.hasMore === true);
             const batchSize = parseInt(runtime.batchSize || CONFIG.THREE_NO_SCAN_BATCH_SIZE || '200', 10) || 200;
+            const beforePersist = Core.ThreeNoWatch.getScanState();
+            if (Core.ThreeNoWatch.isTerminalStatus(beforePersist.status) || beforePersist.cancelled === true) return false;
+            if (runtimeOwnerToken && runtimeScanId && !Core.ThreeNoWatch.ownsScan(runtimeScanId, runtimeOwnerToken)) return false;
             if (shouldPersistFindings && owner) {
                 Storage.setThreeNoScanCursor({
                     owner,
@@ -3739,21 +4139,28 @@ Object.assign(Core, {
                 debugLog,
                 users: shouldPersistFindings ? mergedFindings : findings,
             });
-            Storage.set(CONFIG.KEYS.THREE_NO_LAST_SCAN_DATE, scanDate);
-            Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_LOCK);
-            Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_COMMAND);
-            Storage.setThreeNoUnreadCount(Math.max(Storage.getThreeNoUnreadCount(), newUnignoredFindings.length || payload.threeNoFollowersCount));
-            sessionStorage.removeItem(Core.ThreeNoWatch.stateKey);
-            localStorage.removeItem(Core.ThreeNoWatch.runtimeBackupKey);
-            Core.ThreeNoWatch.setScanState({
+            const finalStateWritten = Core.ThreeNoWatch.setScanState({
                 ...payload,
+                ownerToken: runtimeOwnerToken || undefined,
                 users: undefined,
+                cancelled: true,
+                terminalAt: completedAt,
                 debug: {
                     ...(patch.debug || {}),
                     debugLogCount: debugLog.length,
                     autoBlockRemoved: true,
                 },
             });
+            if (finalStateWritten === false) return false;
+            Storage.set(CONFIG.KEYS.THREE_NO_LAST_SCAN_DATE, scanDate);
+            if (runtimeOwnerToken && runtimeScanId) Core.ThreeNoWatch.clearOwnedScan(runtimeScanId, runtimeOwnerToken);
+            else {
+                Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_LOCK);
+                Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_COMMAND);
+            }
+            Storage.setThreeNoUnreadCount(Math.max(Storage.getThreeNoUnreadCount(), newUnignoredFindings.length || payload.threeNoFollowersCount));
+            sessionStorage.removeItem(Core.ThreeNoWatch.stateKey);
+            localStorage.removeItem(Core.ThreeNoWatch.runtimeBackupKey);
             if (completed) {
                 let statsUploadTimeoutId;
                 try {
@@ -3773,15 +4180,12 @@ Object.assign(Core, {
                     if (statsUploadTimeoutId !== undefined) clearTimeout(statsUploadTimeoutId);
                 }
             }
-            if (!completed && (Utils.isBetaBuild() || stopped)) {
-                return;
-            }
+            // Stopped workers must close only after terminal state, result/cursor
+            // persistence, and owner-scoped cleanup have all succeeded.
             setTimeout(() => {
                 try {
                     window.close();
-                } catch (_) {
-                    window.close();
-                }
+                } catch (_) {}
             }, 800);
         },
     },

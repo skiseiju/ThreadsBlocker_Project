@@ -395,7 +395,7 @@ var PLATFORM_SCHEMA_STMTS = [
   "CREATE INDEX IF NOT EXISTS idx_topic_sample_reviews_status ON topic_sample_reviews(status, created_at DESC)"
 ];
 var index_default = {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") {
       return withCors(new Response(null, { status: 204 }));
@@ -417,7 +417,7 @@ var index_default = {
         }, 200));
       }
       if (url.pathname === "/api/v1/reports/bug" && request.method === "POST") {
-        return withCors(await handleBugIngest(request, env));
+        return withCors(await handleBugIngest(request, env, ctx));
       }
       if (url.pathname === "/api/v1/platform/ingest" && request.method === "POST") {
         return withCors(await handlePlatformIngest(request, env));
@@ -507,7 +507,21 @@ async function sha256Hex(input) {
   return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 __name(sha256Hex, "sha256Hex");
-async function handleBugIngest(request, env) {
+function notifyBugReport(env, ctx, report) {
+  const endpoint = env.GAS_NOTIFY_URL || "";
+  const secret = env.GAS_SHARED_SECRET || "";
+  if (!endpoint || !ctx || typeof ctx.waitUntil !== "function") return;
+  ctx.waitUntil(
+    fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ secret, ...report })
+    }).catch(() => {
+    })
+  );
+}
+__name(notifyBugReport, "notifyBugReport");
+async function handleBugIngest(request, env, ctx) {
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object") {
     return json({ code: 400, message: "Bad Request: invalid json" }, 400);
@@ -581,7 +595,17 @@ async function handleBugIngest(request, env) {
     String(clientEnv.errorMessage || ""),
     String(clientEnv.stack || "")
   ).run();
-  return json({ code: 200, message: "Success", id: insert.meta?.last_row_id || null }, 200);
+  const reportId = insert.meta?.last_row_id || null;
+  notifyBugReport(env, ctx, {
+    id: reportId,
+    source_app: String(body.source_app || ""),
+    version: String(body.version || ""),
+    level: String(body.level || "ERROR"),
+    error_code: String(body.error_code || ""),
+    platform: String(clientEnv.platform || ""),
+    message: String(body.message || "")
+  });
+  return json({ code: 200, message: "Success", id: reportId }, 200);
 }
 __name(handleBugIngest, "handleBugIngest");
 async function handlePlatformIngest(request, env) {

@@ -359,13 +359,19 @@ export const Reporter = {
     }),
 
     submitReport: async (level, message, errorCode = '', metadata = null) => {
-        if (!metadata || metadata.diagnosticConsent !== true) {
-            return { code: 204, skipped: 'diagnostic_consent_required' };
-        }
         const endpoints = Reporter.getReportEndpoints();
         if (endpoints.length === 0 || !CONFIG.BUG_REPORT_SALT) {
             return { code: 500, message: 'Bug Reporter is not properly configured.' };
         }
+
+        const diagnostics = globalThis.__hegeRuntimeDiagnostics;
+        const sharedOperationId = globalThis.__hegeReportOperationId || null;
+        const operationId = sharedOperationId || diagnostics?.begin?.('report', { strategy: 'route' });
+        const ownsOperation = !sharedOperationId;
+        const finish = (value, stage = 'terminal', fields = {}) => {
+            if (ownsOperation && operationId) diagnostics?.end?.(operationId, stage, fields);
+            return value;
+        };
 
         const hwid = Reporter.getHardwareId();
         const timestamp = Math.floor(Date.now() / 1000).toString();
@@ -374,7 +380,10 @@ export const Reporter = {
         const signature = await Reporter.sha256(rawStr);
 
         const safeMessage = Reporter.scrubSensitiveText(message);
-        const safeMetadata = Reporter.scrubSensitiveData(metadata);
+        const diagnosticsEnabled = CONFIG.ENABLE_BETA_DIAGNOSTICS === true && /-beta\d+$/i.test(String(CONFIG.VERSION || ''));
+        // Legacy contract marker: const hasDiagnosticConsent = metadata && metadata.diagnosticConsent === true;
+        const hasDiagnosticConsent = diagnosticsEnabled && metadata && metadata.diagnosticConsent === true;
+        const safeMetadata = hasDiagnosticConsent ? Reporter.scrubSensitiveData(metadata) : null;
         if (safeMetadata && typeof safeMetadata === 'object') delete safeMetadata.diagnosticConsent;
         const basePayload = {
             source_app: Reporter.sourceApp,
@@ -392,41 +401,76 @@ export const Reporter = {
 
         for (const endpoint of endpoints) {
             try {
-                const envMeta = Reporter.collectClientEnv({ endpoint });
                 const payload = {
                     ...basePayload,
-                    metadata: JSON.stringify({
-                        userMetadata: safeMetadata || null,
-                        clientEnv: Reporter.scrubSensitiveData(envMeta)
-                    })
+                    metadata: hasDiagnosticConsent
+                        ? JSON.stringify({ userMetadata: safeMetadata || null })
+                        : ''
                 };
 
-                const result = typeof GM_xmlhttpRequest !== 'undefined'
-                    ? await Reporter.sendViaGM(endpoint, payload)
-                    : await Reporter.sendViaFetch(endpoint, payload);
+                const send = (requestPayload) => typeof GM_xmlhttpRequest !== 'undefined'
+                    ? Reporter.sendViaGM(endpoint, requestPayload)
+                    : Reporter.sendViaFetch(endpoint, requestPayload);
+                const recordReportHttp = (response, diagnosticsAttached, diagnosticsFallback = false) => {
+                    try {
+                        const code = Number(response?.code) || 0;
+                        globalThis.__hegeRuntimeDiagnostics?.record('runtime', 'http', {
+                            statusCode: code,
+                            category: code >= 200 && code < 300 ? 'success' : (code >= 400 && code < 500 ? 'client_error' : (code >= 500 ? 'server_error' : 'network')),
+                            diagnosticsAttached, diagnosticsFallback, operationId,
+                            httpBucket: code >= 200 && code < 300 ? 'success' : (code >= 400 && code < 500 ? 'client_error' : (code >= 500 ? 'server_error' : 'network')),
+                        });
+                    } catch (_) { /* diagnostics must never affect reporting */ }
+                };
+                let result;
+                try {
+                    result = await send(payload);
+                    recordReportHttp(result, hasDiagnosticConsent, false);
+                } catch (err) {
+                    lastError = err || { code: 500, message: 'Network error' };
+                    diagnostics?.record?.('report', 'http', { operationId, statusCode: 0, category: 'network', httpBucket: 'network', diagnosticsAttached: hasDiagnosticConsent, diagnosticsFallback: false, reason: 'network' });
+                    continue;
+                }
 
                 if (result && Number(result.code) === 200) {
-                    return result;
+                    return finish(result, 'finish', { reason: 'success', ok: true });
                 }
 
                 lastError = result || { code: 500, message: 'Unknown response' };
+                // Older report endpoints may reject the optional diagnostics
+                // metadata. Retry once as a message-only report so a backend
+                // schema mismatch never blocks the user's report entirely.
+                const statusCode = Number(lastError.code);
+                if (hasDiagnosticConsent && statusCode >= 400 && statusCode < 500) {
+                    try {
+                        result = await send({ ...basePayload, metadata: '' });
+                        recordReportHttp(result, false, true);
+                    } catch (err) {
+                        lastError = err || { code: 500, message: 'Network error' };
+                        diagnostics?.record?.('report', 'http', { operationId, statusCode: 0, category: 'network', httpBucket: 'network', diagnosticsAttached: false, diagnosticsFallback: true, reason: 'network' });
+                        continue;
+                    }
+                    if (result && Number(result.code) === 200) return finish(result, 'finish', { reason: 'success', ok: true });
+                    lastError = result || lastError;
+                }
                 if (Number(lastError.code) !== 500) {
-                    return lastError;
+                    return finish(lastError, 'finish', { reason: 'report_failed', ok: false });
                 }
             } catch (err) {
                 lastError = err || { code: 500, message: 'Unknown error' };
+                diagnostics?.record?.('report', 'error', { operationId, errorName: err?.name || 'Error', errorCode: 'report_failed', reason: 'report_failed' });
             }
         }
 
         if (lastError) {
-            return {
+            return finish({
                 code: 500,
                 message: Reporter.normalizeErrorMessage(lastError, 'Network error'),
                 detail: lastError
-            };
+            }, 'terminal', { reason: 'network', ok: false });
         }
 
-        return { code: 500, message: 'No endpoint available' };
+        return finish({ code: 500, message: 'No endpoint available' }, 'terminal', { reason: 'failure', ok: false });
     },
 
     submitPlatformPayload: async (payload, options = {}) => {

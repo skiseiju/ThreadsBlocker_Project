@@ -1,3 +1,142 @@
+## v2.7.4-beta64 — wait for lazy Likes rows before clean-list end
+
+* **TL;DR：**移除 verified Likes clean-list 在初始無 scroll range 時的過早 `atBottom` 結束；沿用連續 4 次無進度才結算，讓 Threads 延遲載入的 Likes 名單有機會展開。仍是 beta，未宣稱 live/installed PASS。
+* **範圍：**只改 `Core.collectFullDialogUsers()` clean-list loop；不改 selector、scroll-root、reservoir、owner/self/reply policy 或 enqueue。
+* **驗證：**新增 beta64 lazy-load production-path fixture；測試、build/parity 與 live 人工驗收結果另記於 `docs/QA_2.7.4_BETA64.md`。
+
+## v2.7.4-beta63 — verified Likes owner policy split
+
+* **TL;DR：beta63 修正 verified Likes clean-list 將貼文作者誤當 eligibility skip 的 policy regression；clean-list 保留 Likes 中的 post owner，仍排除 trusted self 與 reply target；post-reservoir／定點絕維持排除 post owner。仍是 beta，不代表 Threads live/installed PASS。**
+* **最小 policy split**：`Core.collectFullDialogUsers()` 在 verified Likes clean-list 預設 `skipPostOwner=false`；`SweepDriver.collectBatch()` 與其 fallback 明確 `skipPostOwner=true`。`buildSkipUsers`／`getSkipUserBreakdown` 共用同一 flag，避免 eligibility 與 diagnostics 分歧；其他 unverified、Quotes、follower 與非 Likes 路徑維持 fail-closed／既有 owner skip。
+* **驗證邊界**：beta63 executable owner-policy fixture **4/4**、targeted **70/70**、privacy **30/30**、full **144/144**、syntax、build/parity 與 `git diff --check` 通過，詳見 `docs/QA_2.7.4_BETA63.md`。未操作使用者 live/installed browser、未 deploy、上傳商店、push 或發布正式版。
+
+## v2.7.4-beta62 — aggregate Likes anchor-filter diagnostics
+
+* **TL;DR：beta62 只補 verified Likes exact-anchor diagnostics，不改任何收集、排除、結算或 enqueue 行為；將 readiness links 與 collector accepted/filtered accounts 拆成可平衡的 privacy-safe aggregate counters。仍是 beta，不代表 Threads live/installed PASS。**
+* **Aggregate boundary**：每個 exact-anchor batch 記錄 `exactLinkCount`、`uniqueExactAccountCount`、`duplicateExactLinkCount`、`acceptedUniqueAccountCount`，以及 invalid、invisible、out-of-bounds、heading/header、navigation、nested-dialog exclusions；`classifiedLinkCount`／`unclassifiedLinkCount` 提供 input balance invariant。
+* **Readiness／runtime diagnostics**：Likes readiness snapshot 另記 `uniqueCandidateCount`，保留 `candidateCount`（links）與 `rowCount`（rows）原有語意；clean-list rows 與 `anchor_filter`、post-reservoir rows 與 `anchor_filter` 都只輸出 allowlisted numeric aggregates。禁止 username、href、URL/path/query、text、DOM/HTML/class、UA/IP/hwid/signature/raw metadata。
+* **驗證邊界**：beta62 fixture **7/7**、targeted **66/66**、privacy **26/26**、full **140/140**、syntax、build/parity 與 `git diff --check` 通過，詳見 `docs/QA_2.7.4_BETA62.md`。未操作瀏覽器、未宣稱 live/installed PASS，未 deploy、上傳商店、push 或發布正式版。
+
+## v2.7.4-beta61 — raw observed Likes evidence before downstream skips
+
+* **TL;DR：beta61 修正 verified Likes exact-anchor collector 先套 owner/self/reply skip、導致整頁只剩被排除帳號時誤判 `rows_missing` 的 regression；先保存 raw observed/valid evidence，再由 clean-list／post-reservoir downstream 產生 eligible 與 skip breakdown。仍是 beta，不代表 Threads live/installed PASS。**
+* **Raw／eligible 分離**：verified Likes readiness 與 exact `/@username` boundary 不變；normalized duplicate、header/nav/tab/profile-header 仍在 collector boundary 排除，但 owner、trusted self、reply target 與 queue 等 eligibility skip 不在 collector 前置過濾。只含被排除帳號的頁面仍可觀測、到達 end/empty outcome，不會被誤標 `rows_missing`。
+* **Diagnostics／fail closed**：rows diagnostics 同時保留 observed row/valid counts、eligible count 與 privacy-safe owner/self/reply skip counts；unverified、Quotes、follower、Likes readiness 失敗與 unknown rows 路徑維持 fail closed／atomic commit。
+* **驗證邊界**：beta61 fixture **4/4**、targeted **59/59**、privacy **19/19**、full **133/133**、syntax、`git diff --check` 與本次 build/parity 通過。未操作瀏覽器、未宣稱 live/installed PASS，未 deploy、上傳商店、push 或發布正式版。
+* **Build artifacts**：`SKIP_SAFARI_DEPLOY=true ./build.sh --no-bump`；Chrome zip 三份內容與 SHA-256 相同，詳見 `docs/QA_2.7.4_BETA61.md`。
+
+## v2.7.4-beta60 — verified Likes exact-anchor recovery
+
+* **TL;DR：beta60 修正 Likes tab live 23→2 refresh 後，真實 liker 只有 exact `/@user` anchors、沒有 synthetic row／Follow／heart shape 時被 strict row gate 誤拒的 regression；仍是 beta，不代表 Threads live/installed PASS。**
+* **Readiness-gated fallback**：只有 `waitForLikesContextReady()` 已驗證 Likes context 後，clean-list 與 post-reservoir 才從該 top live dialog/context 收集 visible exact profile anchors；Quotes、unverified、follower 與切換失敗路徑不啟用。
+* **Boundary / dedupe**：排除 header、navigation、tab、post owner、trusted self、reply target，normalized username 去重；不把 fallback 放回 global 或未知 dialog collector。
+* **驗證邊界**：beta60 fixture **5/5**、targeted **55/55**、privacy **15/15**、full **129/129**、syntax、`git diff --check` 與 build/parity 通過。未操作瀏覽器、未宣稱 live/installed PASS，未 deploy、上傳商店、push 或發布正式版。
+* **Build artifacts**：`SKIP_SAFARI_DEPLOY=true ./build.sh --no-bump`；Chrome zip 三份內容與 SHA-256 相同，詳見 `docs/QA_2.7.4_BETA60.md`。
+
+## v2.7.4-beta59 — clean-list self-scope 與 scroll-root diagnostics 修正
+
+* **TL;DR：beta59 修正 beta58 live diagnostics 暗示的 Likes clean-list regression：dialog liker 不再被誤認為 self，clean-list 與 post-reservoir 改用同一個有證據排名的 scroll root；仍是 beta，不代表 Threads live/installed PASS。**
+* **Self scope**：`Utils.getMyUsername()` 只接受可信 `nav`／`[role="navigation"]`／明確 sidebar profile control；dialog、main/feed、pressable content、profile/activity list 與一般 post/profile header 都 fail closed，沒有可信 self evidence 時回 `null`。
+* **Scroll lifecycle**：兩條收集路徑共用 `DialogCollector.findScrollableRoot()`，依 account-row evidence／深度排名，排除 stacked/background dialog；scroll loop 以真正 root 的 before/after `scrollTop`、`scrollHeight`、`clientHeight` 與 visible unique progress 判斷 end／scroll_stall，progress UI 不再改變 root metrics；結果維持完整才 atomic commit，不完整就 rollback。
+* **Diagnostics**：新增 privacy-safe `selfSkippedCount`、`ownerSkippedCount`、`replySkippedCount`，以及 `scrollAttempt`、before/after scroll metrics、`atBottom`、`progress`、`rootAdvanced`、selected strategy；只保留 counts／booleans／enums，禁止 username、href、URL/path、text、DOM/class、raw metadata。
+* **驗證邊界**：beta58 verified Likes、self/dialog/nav/header、trusted nav list wrapper、outer-overflow nested scroll fixture、raw-link decoy vs verified rows、verified Likes token forwarding、skip breakdown、end vs stall contract 均通過；targeted **35/35**、full **124/124**、privacy **20/20**、syntax、`git diff --check` 與本次 build/parity 通過。未操作瀏覽器、未宣稱 live/installed PASS，未 deploy、上傳商店、push 或發布正式版。
+* **Build artifacts**：`SKIP_SAFARI_DEPLOY=true ./build.sh --no-bump`；Chrome zip 三份內容與 SHA-256 相同，詳見 `docs/QA_2.7.4_BETA59.md`。
+
+## v2.7.4-beta57 — 全流程 observability 與 terminal-safe diagnostics
+
+* **TL;DR：beta57 延續 beta56 的 Likes 23→2 semantic readiness／atomic 修正，將 beta diagnostics 擴至 blocking/report、selection/UI、three-no worker、clean/follower/reservoir、bug report/runtime 全流程；正式版 gate 維持關閉。**
+* **共用 diagnostics core**：所有 operation 可用同一 operationId 記 start→state→terminal；200 筆 bounded ring 對 start/stop/error/commit/rollback/finish 提供 terminal priority，observer/route/scroll 高頻事件維持 change-only/coalesce，export 附 feature summary。
+* **Privacy/stable**：只記 normalized enum、counts、booleans、strategy、reason、timing、HTTP status bucket 與 sanitized error name/code/function/line；不記帳號、內容、URL/path/query/ID、HTML/class、UA/IP/hwid/signature/raw metadata。stable/release flag 關閉時不建立 entries、observers、UI 或 payload。
+* **Reviewer blocker 修正**：panel mount/state/hide/show/reposition/clamp/route suppression/close、selection transaction、clean-list caller→collector、blocking/report safety branches、three-no 跨 window worker lifecycle 全部共用 operationId；HTTP bucket 改為 `success`/`client_error`/`server_error`/`network`，不再被 coalesce 合併。
+* **第二輪 blocker 修正**：primary/fallback network reject 都寫入同一 report operationId 的 `network` bucket 並 terminal；collector/follower/three-no early return 與 exception 收口；retry/cooldown/breaker 補 state/terminal；stable gate 強制移除 diagnostics attachment；舊 report/three-no/DOM debug export 改為 beta-only RuntimeDiagnostics allowlist schema。
+* **第三輪 blocker 修正**：owner-scoped/legacy three-no stop probe 先取得 owned command；Worker init hard-cooldown 與 verify breaker 都寫 retry/failure/breaker/cooldown 並 terminal、清 operation map。
+* **驗證邊界**：新增 adversarial network/collector/stable-export/stop/breaker probes；targeted、privacy、full regression（108/108）、syntax、diff check 與本次 build/parity 均通過。未操作瀏覽器、未宣稱 live/installed PASS，未 deploy、上傳商店、push 或發布正式版。
+
+## v2.7.4-beta56 — Likes semantic readiness 與 diagnostics coalesce
+
+* **TL;DR：beta56 修正 live Likes sequence 在 23→2、selected=false、無 heart evidence 時被舊 gate 誤判 `likes_tab_switch_failed`；改用 context/root/list 變化、semantic rows、非 loading 與穩定觀察確認 readiness。仍是 beta，不代表 live PASS。**
+* **Likes／post-reservoir**：already-Likes、延遲 render、semantic switch 與真正失敗仍共用 strict fail-closed／atomic commit/rollback；no-op click 沒有 context/root/list 變化時仍拒絕。post-reservoir 使用同一 gate。
+* **Diagnostics**：高頻相同 feature/stage/allowlist fields 一秒內 coalesce 為 `repeatCount`，clean-list stage/state-change 不被 message-route noise 淹沒；privacy allowlist、stable disable 與 beta55 attachment fallback 保留。
+* **驗證邊界**：targeted 7/7、privacy 11/11、full 95/95、syntax、privacy、build/parity 通過；未操作瀏覽器、未宣稱 live PASS，仍需使用者重跑實際 clean-list Likes 並複製 sanitized diagnostics；未 deploy、上傳商店、push 或發布正式版。
+
+## v2.7.4-beta55 — session diagnostics、粉絲捲動與回報降級
+
+* **TL;DR：beta55 提供 beta-only 200 筆 session diagnostics ring、複製／清除入口與 deep allowlist sanitizer；stable/release 完全停用。仍是 beta，不代表 live browser 已修好。**
+* **Privacy boundary**：Likes／粉絲／message stage logs 只保留 enum、bounded counts／timing／geometry／布林 signals；不含帳號、訊息、貼文、HTML/class、完整 URL/path/query/ID、UA、IP、hwid、signature 或 raw metadata。診斷 attachment 需明確同意且只送 sanitized schema；backend 拒絕 attachment 時自動降級為 message-only report。
+* **Message route hardening**：route 不匹配時只接受 visible conversation list／active pane、composer/action 同 active pane、共享可見相鄰 layout ancestor 的 cohesive split-view；detached、hidden、global signal 與一般 reply composer 都 fail closed。diagnostics 只記 `visible`／`sameRoot`／`cohesive` 等 allowlisted signals。
+* **Follower lifecycle**：使用實際 nested scroll root、live context refresh、lazy render bounded wait、virtualized accumulation、bounce/retry、stop／timeout／max-scroll 上限；不宣稱 Likes/message live fixed，第三方 extension 關閉後的 clean-list reproduction 仍依 stage log 定位。
+* **驗證邊界**：targeted 10/10、full 87/87、syntax、privacy、build/parity 通過；未操作 Chrome/Edge，未宣稱 live PASS。需要使用者在 beta 實機跑一次並複製 sanitized diagnostics；未 deploy、上傳商店、push 或發布正式版。
+
+## v2.7.4-beta54 — 粉絲摘要、Likes atomic 收集與 SPA 面板生命週期
+
+* **TL;DR：beta54 將粉絲收集結果改為白話摘要、保留未載入數量的明確提示；Likes 清理維持完整成功才一次提交；待命／停止與 message/chat 路由面板生命週期補上回歸契約。仍是 beta，不代表正式版或 live browser 通過。**
+* **Follower summary**：一般確認視窗不顯示 `threads_partial`、bounded cap 或 reason code；175/96/16/80 類型的不完整結果會說明目前只載入 96 位、這次新增 16 位、80 位已在名單中，約 79 位尚未載入。內部 diagnostics 仍可保留 bounded code。
+* **Likes／clean-list**：已在 Likes、成功切換及切換後延遲 render 都等待可證實的 current evidence；只有完整成功才 commit。真正失敗才 rollback，不完整結果不新增 pending/checked side effects，並以 warning/error 白話 toast 呈現。
+* **Panel lifecycle**：無 active task 時顯示「待命中」且隱藏停止操作；active stop latch 與 selection checkbox regression 保留。修正 reviewer blocker 後，只有 `routeMatch && real message shell` 才隱藏 message/chat route 的 floating panel/chip；text-only Messages 與普通頁不誤傷、不清 pending。回到一般 SPA route 重新 attach/measure，stale 或越界位置才 clamp，resize 維持 viewport 內。
+* **驗證邊界**：自動測試、syntax、build 與 artifact parity 需通過；本輪未操作 Chrome/Edge，未宣稱 Threads live、installed extension、CWS 或其他瀏覽器人工 PASS，未 deploy、上傳商店、push 或發布正式版。
+
+## v2.7.4-beta53 — follower coverage breakdown 與 clean-list atomicity
+
+* **TL;DR：beta53 補上粉絲收集的 total hint／observed／eligible／skip breakdown、多輪底部穩定確認與 partial/limited 原因；clean-list Likes 改為 staged atomic commit/rollback；仍是 beta，不代表正式版發布。**
+* **Follower coverage**：UI 顯示 total hint、observed、eligible、duplicate/self-target/blocked/queued/unknown skips；多輪 bottom stability 防止虛擬化部分名單（例如 96/175）誤標 `end`，保留 `threads_partial`、`scroll_stall`、`limited`。
+* **Clean-list atomicity**：已在 Likes context 時可直接使用 current evidence；tab retry、row/timeout failure 均 rollback pending/checked，失敗 toast 使用 warning/error severity；成功才一次 commit。
+* **驗證邊界**：beta52 stop/checkbox manual PASS 與 beta51 A/private/report regression 保留；未宣稱 beta53 live browser PASS，未 deploy、上傳商店、push 或發布正式版。
+
+## v2.7.4-beta52 — bounded row lifecycle、停止 latch 與 selection snapshot
+
+* **TL;DR：beta52 收口 clean-list／粉絲 collector 的 bounded real-row boundary、初始載入終點判斷、停止 visibility latch、selection snapshot/latch 與粉絲收集文案；仍是 beta，不代表正式版發布。**
+* **Clean-list／Likes**：button → row inventory → collector 共用 bounded row helper；shared ancestor 不會借用 heart evidence，找不到可信 row 時 fail closed。
+* **Follower lifecycle**：profile entry → followers dialog → collector → confirm → `BG_QUEUE`；initial-render 以有界 observation gate 等待延遲注入，0 evidence 回 `rows_missing` 且 `ok:false`，unknown rows 回 `rows_unknown`，只有明確空狀態才回 `empty_end`，並維持 bounded stop/50 cap。
+* **Stop／selection UI**：stop visibility 使用 storage-backed latch，terminal drain 後清除；running selection 以 snapshot/latch 與 active queue 分離，避免 queue shift 或 React replacement 造成 checkbox 閃爍或永久 checked。
+* **驗證邊界**：beta51 interest/private/report/failure-list 與 beta50 stop/close/privacy regression 保留；未宣稱 beta52 人工 live Chrome PASS，未 deploy、上傳商店、push 或發布正式版。
+
+## v2.7.4-beta51 — 私人帳號 gate、逐筆失敗處理與粉絲收集
+
+* **TL;DR：beta51 整合 semantic More／私人帳號 gate、逐筆失敗清單與指定 profile 粉絲收集；仍是 beta，不代表正式版發布。**
+* **Auto-block gate**：profile root 只接受 scoped semantic `<button>` More，拒絕 search/tags ancestor；private profile 有 validated More 時繼續走 More → menu → action → confirm，只有 gate 缺失才回 `private_manual_required`。
+* **Private report blocker fix**：私人 profile 的只檢舉流程不再在 More 前提前返回；先完成可信 More → menu → report path，只有缺少後續 gate 才回 `private_manual_required`，並保留佇列前進與非 rate-limit 分流。
+* **Failure queue**：舊 string 與 structured entry 相容；reason 維持 bounded/local-only，支援單筆重試、單筆清除、開啟個人頁與既有全部操作，不會由 profile link 自動封鎖。
+* **Profile followers**：只收明確 row、排除 self/target/blocked/queued、上限 50、virtualization 去重、stall/stop 有界；確認後才加入 `BG_QUEUE`，不做全域盲抓。
+* **驗證邊界**：全套測試、syntax、build/parity 需通過；未宣稱人工 Chrome/live/CWS，未 deploy、上傳商店、push 或發布正式版。
+
+## v2.7.4-beta50 — 整合診斷、名單生命週期與三無停止契約
+
+* **TL;DR：整合 beta47–49 修正並補齊 beta50 regression gate；beta50 仍是 beta，不代表正式版發布。**
+* **Privacy-safe diagnostics**：block/report A/B 路徑使用 closed phase schema 與 bounded counts/timing，未知或敏感欄位 fail closed。
+* **Likes／clean-list**：Likes 只採單列 typed heart evidence，shared ancestor 不會誤收；React replacement/reparent 後 clean-list listener 可重綁且維持 exactly-once。
+* **Controller／三無 lifecycle**：主面板第一列使用明確狀態與 active priority；structured stop command 加入 scan/owner fence，late heartbeat 不可 revive，stopped terminal persist/cleanup 後只 close 一次。
+* **QA follow-up**：stale `BG_STATUS` terminal 不再壓過 fresh three-no；自動問題回報 attachment 改為 closed diagnostics schema 並移除 consent upload 的 client-environment attachment；finish cleanup 的 close exception／duplicate finish 維持 exactly-once。
+* **範圍**：本輪僅做本機版本 bump、測試、build 與 artifact parity；未 deploy、上傳商店、push 或發布正式版。
+
+## v2.7.4-beta49 — Likes 名單只收可證實的按讚列
+
+* **TL;DR：修正貼文互動名單在 virtualization／Quotes 混入時，把非 Likes 使用者加入收集結果的問題；beta49 仍是 beta，不代表正式版發布。**
+* **Likes 分類**：捲動每一批 row 時立即保存 heart evidence；只累積可證實的 Likes，virtualized row 移除後不會遺失分類；分類衝突採保守排除。
+* **Fail closed**：Likes tab、row 結構或 tab switch 無法正面識別時停止並保留明確 reason；heart 篩選為空不再 fallback 全 users。
+* **範圍**：#24 為本輪 bug；#10 保留為功能建議／重複脈絡，不宣稱已修復。profile/post/dialog/composer checkbox 僅做現版 regression，未因歷史報告猜測修改。
+* **隱私／發布**：未新增上傳欄位或帳號清單輸出；未 deploy、上傳商店、push 或發布正式版。
+
+## v2.7.4-beta48 — 三無 worker handshake 與 lifecycle recovery
+
+* **Launcher handshake**：三無掃描先寫 `starting`，只有同一 `scanId` 的 worker ready sentinel/heartbeat 在有界期限內出現，才轉為 `ready`；popup null、bootstrap timeout、blocked、未登入與啟動例外分開回報。
+* **Lifecycle / recovery**：狀態收口為 `starting → ready → scanning → completed/stopped/failed`；失焦、reload、stale heartbeat 可依 cursor/runtime backup 接續，stop/failed/complete 都清除 lock、command 與 runtime，未完成進度可重試。
+* **Owner / privacy**：自己帳號與指定 target owner 維持一致，不以自己帳號 fallback；shared `debug_context_v2` 新增 `three_no` 與固定 `checked/candidates/findings` counts，snapshot 不帶帳號、URL、DOM 或認證資料。三無結果仍只存本機，不會自動封鎖。
+* **邊界**：beta-only 驗證與 build 完成不代表 installed Chrome truth；未 deploy、未上傳商店、未 push 或發布。
+
+## v2.7.4-beta47 — More 安全定位與失敗原因拆分
+
+* **TL;DR：封鎖與只檢舉共用 fail-closed More locator，拒絕 search/tags link 與不可信 shape fallback；空選單、導航不符、私人帳號與明確平台限制不再混為同一種冷卻。**
+* **Profile root contract**：profile More 只在 caller 以 `Core.findProfileRoot(username)` 驗證 username header 與 profile action anchor 後傳入的 root 內尋找；未驗證 root 不使用全頁文字或全域 More 猜測。
+* **流程結果**：`menu_not_found`、`navigation_mismatch`、`private_manual_required`、`vanished`、`rate_limited`、`cooldown` 分開處理；只有明確 Threads 限制訊息可累計。連續 3 次冷卻僅屬 block worker；只檢舉遇到限制時只提示、跳過並繼續佇列，不自動冷卻，找不到選單也會進失敗／可重試路徑。
+* **問題回報**：新增 privacy-safe `debug_context_v2`／failure snapshot（48 小時、最多 25 筆、只含 enum／階段／路由類型／counts）；成功清除。回報可只送問題描述，完整診斷附件維持未預勾且單次同意。
+* **版本／邊界**：runtime 版本升至 `2.7.4-beta47`；未 deploy、未改 production schema、未更新 bug status、未發布商店。
+
+## v2.7.4-beta46 — 只檢舉選單慢載入容錯
+
+* **TL;DR：只檢舉開啟 Threads 選單的等待與重試節奏對齊封鎖 worker，避免 Firefox 同時啟用會延遲選單的擴充功能時，過早誤判為找不到檢舉項目。**
+* **選單容錯**：檢舉選單最長等待 8 秒；3 秒後仍沒有原生 menu item 時只重點一次「更多」，與封鎖機制一致。
+* **路徑容錯**：每層檢舉選項等待放寬為 8 秒；不改檢舉路徑、每日提醒門檻、封鎖 worker、storage key 或同意設定。
+
 ## v2.7.4-beta45 — 三無掃描完成關窗修正
 
 * **TL;DR：三無掃描完成後，統計上傳改為有界等待，正式版與 beta 都會在 `completed` 後排程關閉 worker 分頁；停止／失敗狀態與既有清理流程不變。**
@@ -914,3 +1053,9 @@
 
 ### v1.0.0 (Initial Release)
 *   正式命名為「留友封」。整合歷史資料庫、匯入/匯出功能。確立「時間延遲」機制確保執行穩定性。
+## v2.7.4-beta58 — verified Likes clean-list row classification
+
+* **TL;DR：** Live-derived Likes list 在成功通過 shared readiness 後，純 profile account row 只要具備安全單列 boundary 即可分類為 Likes，不再硬性要求列內 heart marker；未驗證、Quotes、Reposts 與未知 dialog 仍 fail-closed。
+* **唯一證據與 atomicity：** clean-list 與 post-reservoir 共用 `verified_likes_context` contract；同一 username 跨虛擬化／重複 render 只計一次，unknown→valid 會以有效 row 覆蓋，最終仍 unresolved 才 rollback/`rows_unknown`。
+* **Diagnostics/privacy：** rows diagnostics 改報 unique/valid/unknown counts 與 allowlisted `classificationStrategy` enum，不保存 username、href、DOM、class 或文字。
+* **驗證邊界：** 本輪未操作瀏覽器、未宣稱 Threads live/installed PASS；未 deploy、上傳商店、push 或發布正式版。

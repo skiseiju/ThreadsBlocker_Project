@@ -1,6 +1,20 @@
 import { CONFIG } from './config.js';
 import { Utils } from './utils.js';
 import { Storage } from './storage.js';
+
+const panelDiagnostics = (panel, stage, fields = {}) => {
+    try {
+        const diagnostics = globalThis.__hegeRuntimeDiagnostics;
+        if (!diagnostics?.enabled?.() || !panel) return null;
+        const operationId = panel.dataset?.hegeDiagnosticOperationId || null;
+        return diagnostics.record('panel', stage, { ...fields, operationId });
+    } catch (_) { return null; }
+};
+
+export const clampViewportPosition = ({ left = 0, top = 0, width = 0, height = 0, viewportWidth = 0, viewportHeight = 0, margin = 6 } = {}) => ({
+    left: Math.min(Math.max(left, margin), Math.max(margin, viewportWidth - width - margin)),
+    top: Math.min(Math.max(top, margin), Math.max(margin, viewportHeight - height - margin)),
+});
 import { Reporter } from './reporter.js';
 
 export const UI = {
@@ -604,11 +618,24 @@ export const UI = {
                     <span class="status" id="hege-three-no-profile-count">目前頁</span>
                 </div>
 
+                <div class="hege-menu-item" id="hege-collect-profile-followers-item" style="color:#8ab4f8;display:none;">
+                    <span id="hege-collect-profile-followers-label">收集這個帳號的粉絲</span>
+                    <span class="status" id="hege-collect-profile-followers-count">目前頁</span>
+                </div>
+
                 <div class="hege-menu-item" id="hege-settings-item">
                     <span style="display:flex; align-items:center; gap:6px;">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                         <span id="hege-settings-title-text">設定</span>
                     </span>
+                </div>
+
+                <div class="hege-menu-item" id="hege-copy-diagnostics-item" style="display:none; color:#8ab4f8;">
+                    <span>複製診斷資料</span>
+                    <span class="status">Beta</span>
+                </div>
+                <div class="hege-menu-item" id="hege-clear-diagnostics-item" style="display:none; color:#8ab4f8;">
+                    <span>清除診斷資料</span>
                 </div>
 
                 <div class="hege-menu-item danger" id="hege-stop-btn-item" style="border-top:1px solid #333; display:none;">
@@ -618,6 +645,22 @@ export const UI = {
         `;
         Utils.setHTML(panel, htmlContent);
         document.body.appendChild(panel);
+        try {
+            const diagnostics = globalThis.__hegeRuntimeDiagnostics;
+            const operationId = diagnostics?.begin?.('panel', { strategy: 'route', active: true });
+            if (operationId) panel.dataset.hegeDiagnosticOperationId = operationId;
+            const nativeRemove = panel.remove.bind(panel);
+            panel.remove = () => {
+                if (panel.dataset.hegeDiagnosticOperationClosed !== 'true') {
+                    panel.dataset.hegeDiagnosticOperationClosed = 'true';
+                    try {
+                        diagnostics?.end?.(panel.dataset.hegeDiagnosticOperationId, 'close', { reason: 'completed', ok: true, complete: true, closed: true });
+                    } catch (_) { /* diagnostics must never affect panel teardown */ }
+                }
+                nativeRemove();
+            };
+            panelDiagnostics(panel, 'panel', { created: true, visible: true, active: true });
+        } catch (_) { /* diagnostics must never affect panel creation */ }
 
         // Bind Events
         const bindClick = (id, handler) => {
@@ -639,12 +682,21 @@ export const UI = {
         bindClick('hege-main-btn-item', callbacks.onMainClick);
         bindClick('hege-three-no-item', callbacks.onThreeNoFollowers);
         bindClick('hege-three-no-profile-item', callbacks.onThreeNoProfileFollowers);
+        bindClick('hege-collect-profile-followers-item', callbacks.onCollectProfileFollowers);
         bindClick('hege-report-btn-item', callbacks.onStartReport);
         bindClick('hege-clear-sel-item', callbacks.onClearSel);
         bindClick('hege-retry-failed-item', callbacks.onRetryFailed);
         bindClick('hege-endless-queue-item', callbacks.onEndlessQueue);
         bindClick('hege-stop-btn-item', callbacks.onStop);
         bindClick('hege-settings-item', callbacks.onSettings);
+        if (callbacks.onCopyDiagnostics && CONFIG.ENABLE_BETA_DIAGNOSTICS === true && /-beta\d+$/i.test(String(CONFIG.VERSION || ''))) {
+            const diagnosticsItem = document.getElementById('hege-copy-diagnostics-item');
+            if (diagnosticsItem) diagnosticsItem.style.display = '';
+            bindClick('hege-copy-diagnostics-item', callbacks.onCopyDiagnostics);
+            const clearDiagnosticsItem = document.getElementById('hege-clear-diagnostics-item');
+            if (clearDiagnosticsItem) clearDiagnosticsItem.style.display = '';
+            bindClick('hege-clear-diagnostics-item', callbacks.onClearDiagnostics);
+        }
 
         // Header click toggles too
         document.getElementById('hege-header').onclick = (e) => {
@@ -667,14 +719,30 @@ export const UI = {
         return panel;
     },
 
-    showToast: (msg, duration = 2500) => {
+    destroyPanel: (panel = document.getElementById('hege-panel')) => {
+        if (!panel) return false;
+        panelDiagnostics(panel, 'close', { closed: true });
+        if (panel.dataset?.hegeDiagnosticOperationClosed !== 'true') {
+            panel.dataset.hegeDiagnosticOperationClosed = 'true';
+            try {
+                globalThis.__hegeRuntimeDiagnostics?.end?.(panel.dataset?.hegeDiagnosticOperationId, 'close', { reason: 'completed', ok: true, complete: true, closed: true });
+            } catch (_) { /* diagnostics must never affect panel teardown */ }
+        }
+        panel.remove();
+        return true;
+    },
+
+    showToast: (msg, duration = 2500, options = {}) => {
+        if (duration && typeof duration === 'object') { options = duration; duration = 2500; }
+        const severity = options?.severity || 'success';
+        const toastColor = severity === 'error' ? 'rgba(190, 35, 35, 0.97)' : severity === 'warning' ? 'rgba(190, 120, 0, 0.97)' : 'rgba(0, 180, 0, 0.95)';
         const exist = document.getElementById('hege-toast');
         if (exist) exist.remove();
         const toast = document.createElement('div');
         toast.id = 'hege-toast'; toast.textContent = msg;
         toast.style.cssText = `
             position: fixed; top: 10%; left: 50%; transform: translateX(-50%);
-            background: rgba(0, 180, 0, 0.95); color: white; padding: 12px 24px;
+            background: ${toastColor}; color: white; padding: 12px 24px;
             border-radius: 50px; font-size: 16px; font-weight: bold; z-index: 2147483647;
             box-shadow: 0 5px 20px rgba(0,0,0,0.5); pointer-events: none;
             transition: opacity 0.5s; font-family: system-ui; text-align: center;
@@ -683,9 +751,29 @@ export const UI = {
         setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 500); }, duration);
     },
 
+    clampPanelToViewport: (panel = document.getElementById('hege-panel')) => {
+        if (!panel || panel.hidden || panel.style.display === 'none') return false;
+        const rect = panel.getBoundingClientRect?.();
+        if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+        const margin = 6;
+        const clamped = clampViewportPosition({ left: rect.left, top: rect.top, width: rect.width, height: rect.height, viewportWidth: window.innerWidth, viewportHeight: window.innerHeight, margin });
+        const top = clamped.top;
+        const left = clamped.left;
+        const changed = Math.abs(top - rect.top) > 1 || Math.abs(left - rect.left) > 1;
+        if (changed) {
+            panel.style.top = `${top}px`;
+            panel.style.bottom = 'auto';
+            panel.style.left = `${left}px`;
+            panel.style.right = 'auto';
+        }
+        panelDiagnostics(panel, 'clamp', { clamped: changed, active: true, rectLeft: left, rectTop: top, rectWidth: rect.width, rectHeight: rect.height, viewportWidth: window.innerWidth, viewportHeight: window.innerHeight });
+        return changed;
+    },
+
     anchorPanel: () => {
         const panel = document.getElementById('hege-panel');
         if (!panel) return;
+        if (panel.hidden || panel.style.display === 'none') return;
 
         // Optimization: Try to find anchor in a more restricted scope first
         let anchor = null;
@@ -740,17 +828,22 @@ export const UI = {
                 }
                 panel.style.right = rightVal + 'px';
                 panel.style.left = 'auto';
+                UI.clampPanelToViewport(panel);
+                panelDiagnostics(panel, 'reposition', { repositioned: true, active: true });
+                delete panel.dataset.hegeRepositionRequired;
                 if (CONFIG.DEBUG_MODE) console.log(`[留友封] Menu Anchored at ${rect.top}px`);
             }
         } else {
             // console.log('[留友封] No Anchor Found - Using Fallback Position');
             // Force visible on top
-            if (!panel.style.top || parseInt(panel.style.top) > 200 || parseInt(panel.style.top) < 50) {
+            if (panel.dataset.hegeRepositionRequired === 'true' || !panel.style.top || parseInt(panel.style.top) > 200 || parseInt(panel.style.top) < 50) {
                 panel.style.top = '85px';
                 panel.style.right = '16px';
                 panel.style.left = 'auto';
+                panel.style.bottom = 'auto';
                 panel.style.zIndex = '1000000';
                 panel.style.display = 'block';
+                delete panel.dataset.hegeRepositionRequired;
 
                 // Visual Debugging: Force dimensions and color
                 panel.style.minWidth = '50px';
@@ -766,6 +859,8 @@ export const UI = {
                     panel.style.padding = '10px';
                 }
             }
+            UI.clampPanelToViewport(panel);
+            panelDiagnostics(panel, 'reposition', { repositioned: true, active: true });
         }
     },
 
@@ -804,6 +899,100 @@ export const UI = {
             overlay.remove();
             if (onConfirm) onConfirm();
         };
+    },
+
+    showFailedQueueManager: (entries = [], callbacks = {}) => {
+        const existing = document.getElementById('hege-failed-queue-overlay');
+        if (existing) return existing;
+        const safeEntries = (Array.isArray(entries) ? entries : []).map((entry) => ({
+            username: String(entry?.username || '').replace(/^@+/, '').slice(0, 120),
+            type: entry?.type === 'report' ? 'report' : 'block',
+            reason: String(entry?.reason || 'unknown').slice(0, 48),
+            failedAt: Number.isFinite(Number(entry?.failedAt)) ? Number(entry.failedAt) : 0,
+        })).filter(entry => entry.username);
+        const reasonLabel = {
+            legacy_string: '舊版失敗紀錄', unknown: '未知原因', action_failed: '動作失敗',
+            verification_failed: '驗證失敗', menu_not_found: '找不到選單',
+            navigation_mismatch: '導頁不符', private_manual_required: '私人帳號需手動',
+            rate_limited: '平台限制', cooldown: '冷卻保護', timeout: '逾時',
+            network_error: '網路錯誤', report_failed: '檢舉失敗',
+        };
+        const overlay = document.createElement('div');
+        overlay.id = 'hege-failed-queue-overlay';
+        overlay.className = 'hege-manager-overlay';
+        const rows = safeEntries.map((entry, index) => {
+            const date = entry.failedAt > 0 ? new Date(entry.failedAt).toLocaleString('zh-TW') : '時間未記錄';
+            const safeUser = Utils.escapeHTML(entry.username);
+            const safeReason = Utils.escapeHTML(reasonLabel[entry.reason] || entry.reason);
+            return `<div class="hege-failed-row" data-index="${index}" style="display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #2a2a2a;flex-wrap:wrap;">
+                <div style="flex:1 1 180px;min-width:160px;line-height:1.4;"><b>@${safeUser}</b><div style="font-size:11px;color:#888;">${entry.type === 'report' ? '只檢舉' : '封鎖'} · ${safeReason} · ${Utils.escapeHTML(date)}</div></div>
+                <button class="hege-manager-btn secondary" data-action="open-profile" data-username="${safeUser}" style="font-size:11px;padding:6px 8px;">開啟個人頁</button>
+                <button class="hege-manager-btn secondary" data-action="retry-one" data-index="${index}" style="font-size:11px;padding:6px 8px;">單筆重試</button>
+                <button class="hege-manager-btn secondary" data-action="clear-one" data-index="${index}" style="font-size:11px;padding:6px 8px;">單筆清除</button>
+            </div>`;
+        }).join('');
+        Utils.setHTML(overlay, `<div class="hege-manager-box" style="width:min(760px,calc(100vw - 24px));max-height:calc(100dvh - 24px);display:flex;flex-direction:column;overflow:hidden;">
+            <div class="hege-manager-header"><span class="hege-manager-title">逐筆失敗清單（${safeEntries.length}）</span><button class="hege-manager-btn secondary" data-action="close" style="padding:4px 8px;">關閉</button></div>
+            <div style="padding:8px 16px;overflow:auto;min-height:0;">${rows || '<div style="padding:20px;color:#999;">沒有失敗紀錄</div>'}</div>
+            <div class="hege-manager-footer" style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;"><button class="hege-manager-btn secondary" data-action="clear-all">只清除全部</button><button class="hege-manager-btn primary" data-action="retry-all">全部重試</button></div>
+        </div>`);
+        document.body.appendChild(overlay);
+        const once = (button, action) => {
+            button.onclick = (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (button.dataset.hegeHandled === 'true') return;
+                button.dataset.hegeHandled = 'true';
+                action();
+            };
+        };
+        overlay.querySelectorAll('[data-action="open-profile"]').forEach(button => once(button, () => callbacks.onOpenProfile?.(button.dataset.username || '')));
+        overlay.querySelectorAll('[data-action="retry-one"]').forEach(button => once(button, () => {
+            const entry = safeEntries[Number(button.dataset.index)];
+            callbacks.onRetryOne?.(entry);
+            button.closest('.hege-failed-row')?.remove();
+        }));
+        overlay.querySelectorAll('[data-action="clear-one"]').forEach(button => once(button, () => {
+            const entry = safeEntries[Number(button.dataset.index)];
+            callbacks.onClearOne?.(entry);
+            button.closest('.hege-failed-row')?.remove();
+        }));
+        once(overlay.querySelector('[data-action="retry-all"]'), () => { overlay.remove(); callbacks.onRetryAll?.(); });
+        once(overlay.querySelector('[data-action="clear-all"]'), () => { overlay.remove(); callbacks.onClearAll?.(); });
+        once(overlay.querySelector('[data-action="close"]'), () => overlay.remove());
+        return overlay;
+    },
+
+    formatFollowerCollectionMessage: (summary = {}) => {
+        // Internal diagnostics retain the original 停止原因/結束原因 fields; normal UI below uses plain language.
+        const count = Math.max(0, Number(summary.count ?? summary.users?.length ?? 0) || 0);
+        const reason = String(summary.reason || 'completed');
+        const visibleRows = Math.max(0, Number(summary.visibleRows || 0) || 0);
+        const totalHint = Math.max(0, Number(summary.totalHint || 0) || 0);
+        const breakdown = summary.breakdown || {};
+        const alreadyListed = ['duplicate', 'selfTarget', 'blocked', 'queued']
+            .reduce((sum, key) => sum + (Number(breakdown[key]) || 0), 0);
+        const notLoaded = totalHint > 0 && visibleRows < totalHint ? totalHint - visibleRows : 0;
+        if (totalHint > 0 && visibleRows < totalHint && reason !== 'stopped') {
+            return `收集未完成。這個帳號顯示有 ${totalHint} 位粉絲，但 Threads 目前只載入 ${visibleRows} 位。這次新增 ${count} 位，另外 ${alreadyListed} 位已在名單中；約 ${notLoaded} 位尚未載入。留友封已自動嘗試載入，Threads 暫時沒有繼續提供資料；你可以稍後重試。\n\n只收集，不會立即封鎖；確認後才會加入封鎖佇列。`;
+        }
+        const reasonText = {
+            completed: '收集完成。', end: '收集完成。',
+            stopped: '你已停止這次收集。',
+            empty_end: '目前沒有可收集的粉絲。',
+            rows_missing: '粉絲名單尚未載入完成，請稍後重試。',
+            rows_unknown: '目前無法安全辨識粉絲名單；留友封沒有加入不確定的帳號，請稍後重試。',
+            scroll_stall: '已自動嘗試載入粉絲，但 Threads 暫時沒有繼續提供資料，請稍後重試。',
+            limited: '這次收集已達安全上限，名單尚未完整。你可以稍後重試。',
+            timeout: '這次收集等候逾時，名單尚未完整。請稍後重試。',
+            max_scrolls: '這次收集已達安全捲動上限，名單尚未完整。請稍後重試。',
+        }[reason] || '這次收集尚未完成，請稍後重試。';
+        return `${reasonText}\n這次新增 ${count} 位粉絲。\n\n只收集，不會立即封鎖；確認後才會加入封鎖佇列。`;
+    },
+
+    showFollowerCollectionConfirm: (summary = {}, onAccept, onCancel) => {
+        const message = UI.formatFollowerCollectionMessage(summary);
+        UI.showConfirm(message, onAccept, onCancel, { confirm: '加入封鎖清單', cancel: '取消' });
     },
 
     showReleaseNotesModal: (options = {}) => {
@@ -1107,6 +1296,7 @@ export const UI = {
     },
 
     showBugReportModal: (onSubmit) => {
+        const diagnosticsEnabled = CONFIG.ENABLE_BETA_DIAGNOSTICS === true && /-beta\d+$/i.test(String(CONFIG.VERSION || ''));
         if (document.getElementById('hege-report-overlay')) return;
 
         const overlay = document.createElement('div');
@@ -1137,14 +1327,14 @@ export const UI = {
                         <option value="ERROR" selected>❌ 功能壞了</option>
                         <option value="CRITICAL">💀 完全無法使用</option>
                     </select>
-                    <div style="margin-top:16px;background:#151515;border:1px solid #3b3b3b;border-radius:8px;padding:10px 12px;color:#cfcfcf;font-size:12px;line-height:1.6;">
-                        <div style="font-weight:700;color:#f2f2f2;margin-bottom:5px;">本次診斷附件會包含：</div>
+                    <div style="display:${diagnosticsEnabled ? 'block' : 'none'};margin-top:16px;background:#151515;border:1px solid #3b3b3b;border-radius:8px;padding:10px 12px;color:#cfcfcf;font-size:12px;line-height:1.6;">
+                        <div style="font-weight:700;color:#f2f2f2;margin-bottom:5px;">可選的完整診斷附件會包含：</div>
                         <div>目前頁面 URL／標題、工具版本與瀏覽器環境、封鎖／檢舉佇列摘要、來源貼文與操作摘要、必要的 DOM／console 診斷資訊。</div>
-                        <div style="margin-top:5px;color:#ffb8b8;">送出前會 scrub request token、cookie、authorization 與 canary；未勾選同意就不會送出。</div>
+                        <div style="margin-top:5px;color:#ffb8b8;">完整附件送出前會 scrub request token、cookie、authorization 與 canary；不勾選仍可只送問題描述。</div>
                     </div>
-                    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;color:#f2f2f2;font-size:12px;line-height:1.5;cursor:pointer;">
-                        <input id="hege-report-diagnostic-consent" type="checkbox" style="margin-top:3px;flex:0 0 auto;">
-                        <span>我同意本次問題回報附上上述診斷附件；我知道這是單次同意，不會改變平台同步設定。</span>
+                    <label style="display:${diagnosticsEnabled ? 'flex' : 'none'};gap:8px;align-items:flex-start;margin-top:12px;color:#f2f2f2;font-size:12px;line-height:1.5;cursor:pointer;">
+                        <input id="hege-report-diagnostic-consent" type="checkbox" ${diagnosticsEnabled ? '' : 'disabled'} style="margin-top:3px;flex:0 0 auto;">
+                        <span>我同意本次問題回報附上上述完整診斷附件（單次同意，不會改變平台同步設定）。</span>
                     </label>
                 </div>
                 <div class="hege-manager-footer">
@@ -1177,18 +1367,12 @@ export const UI = {
                 statusSpan.style.color = '#ff3b30';
                 return;
             }
-            if (!diagnosticConsent?.checked) {
-                statusSpan.textContent = '送出前請勾選本次診斷附件同意；未同意不會送出回報。';
-                statusSpan.style.color = '#ff3b30';
-                return;
-            }
-
             submitBtn.disabled = true;
             submitBtn.textContent = '傳送中...';
             statusSpan.textContent = '';
             
             try {
-                const result = await onSubmit(levelSelect.value, msg, { diagnosticConsent: true });
+                const result = await onSubmit(levelSelect.value, msg, { diagnosticConsent: diagnosticConsent?.checked === true });
                 if (result && result.code === 200) {
                     UI.showToast('感謝您的回報！已成功送出。');
                     close();

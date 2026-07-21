@@ -3,24 +3,658 @@ import { Utils } from './utils.js';
 import { Storage } from './storage.js';
 import { UI } from './ui.js';
 import { Reporter } from './reporter.js';
+import { ReportDebugContext } from './report-debug-context.js';
+import { DialogCollector } from './dialog-collector.js';
+
+const BETA_DIAGNOSTIC_FEATURES = new Set(['blocking', 'report', 'selection', 'panel', 'three_no', 'followers', 'clean_list', 'reservoir', 'likes', 'message_route', 'runtime', 'unknown']);
+const BETA_DIAGNOSTIC_STAGES = new Set([
+    'start', 'dequeue', 'finish', 'stop', 'route', 'navigation', 'tab', 'wait', 'dialog', 'rows', 'scroll', 'progress',
+    'menu', 'action', 'confirm', 'retry', 'breaker', 'cooldown', 'failure', 'selection', 'snapshot', 'restore', 'anchor_filter',
+    'commit', 'rollback', 'panel', 'chip', 'suppression', 'launch', 'precondition', 'worker', 'request', 'ack',
+    'close', 'timeout', 'report', 'http', 'config', 'layout', 'error', 'status', 'terminal', 'unknown',
+]);
+const BETA_DIAGNOSTIC_REASONS = new Set([
+    'end', 'completed', 'threads_partial', 'scroll_stall', 'timeout', 'stopped',
+    'rows_unknown', 'rows_missing', 'likes_tab_switch_failed', 'limited', 'empty_end',
+    'missing_dialog', 'unknown_dialog_schema', 'max_scrolls', 'unknown', 'error', 'success', 'failure', 'failed', 'private',
+    'protected', 'not_found', 'already_blocked', 'already_unblocked', 'user_stop', 'breaker_open', 'cooldown', 'rate_limited', 'retry',
+    'network', 'worker_closed', 'disappeared', 'vanished', 'navigation_mismatch', 'menu_not_found', 'missing_more_button',
+    'scan_in_flight', 'worker_busy', 'owner_mismatch', 'popup_blocked', 'worker_start_failed', 'not_chrome_extension', 'scan_page',
+    'missing_profile_root', 'submit_not_confirmed', 'exception', 'report_failed',
+]);
+const BETA_DIAGNOSTIC_TABS = new Set(['likes', 'quotes', 'reposts', 'followers', 'unknown']);
+const BETA_DIAGNOSTIC_PATHS = new Set(['message', 'profile', 'post', 'unknown']);
+const BETA_DIAGNOSTIC_STRATEGIES = new Set(['semantic_row', 'scroll_ancestor', 'dialog_context', 'active_tab', 'split_signature', 'route', 'history_replace', 'window_open', 'same_tab', 'background_tab', 'verified_likes_context', 'unknown']);
+const boundedDiagnosticInt = (value, max = 1000000) => Number.isFinite(value)
+    ? Math.max(0, Math.min(max, Math.floor(Number(value)))) : 0;
+const boundedDiagnosticFloat = (value, max = 10000000) => Number.isFinite(value)
+    ? Math.max(0, Math.min(max, Number(value))) : 0;
+const diagnosticBoolean = value => value === true;
+const diagnosticSessionId = () => {
+    try { return crypto.randomUUID().replace(/-/g, '').slice(0, 12); } catch (e) {
+        return Math.random().toString(36).slice(2, 14);
+    }
+};
+
+// Beta-only, session-memory diagnostics. No storage, DOM text, URLs, handles,
+// or user-agent are ever accepted into this ring. Stable channels are a hard
+// no-op so they do not pay observer, memory, copy, or report-payload cost.
+export const RuntimeDiagnostics = {
+    SCHEMA: 'threadsblocker.runtime_diagnostics_v1',
+    LIMIT: 200,
+    _entries: [],
+    _lastBySignature: new Map(),
+    _operations: new Map(),
+    _observersInstalled: false,
+    _observerTarget: null,
+    _sessionId: diagnosticSessionId(),
+    _startedAt: Date.now(),
+    enabled() {
+        const active = CONFIG.ENABLE_BETA_DIAGNOSTICS === true && /-beta\d+$/i.test(String(CONFIG.VERSION || ''));
+        if (!active && (this._entries.length || this._lastBySignature.size)) {
+            this._entries = [];
+            this._lastBySignature.clear();
+        }
+        if (!active && this._operations.size) this._operations.clear();
+        if (!active && this._observersInstalled) this.disposeObservers();
+        return active;
+    },
+    installObservers(target = globalThis) {
+        if (!this.enabled() || this._observersInstalled || !target?.addEventListener) return false;
+        const errorHandler = event => {
+            const error = event?.error || event?.reason || {};
+            this.record('runtime', 'error', {
+                errorName: error?.name || 'Error', errorCode: 'global_error',
+                errorFunction: error?.functionName || 'global', errorLine: error?.lineNumber || 0,
+            });
+        };
+        target.addEventListener('error', errorHandler);
+        target.addEventListener('unhandledrejection', errorHandler);
+        this._observerTarget = { target, errorHandler };
+        this._observersInstalled = true;
+        return true;
+    },
+    disposeObservers() {
+        const state = this._observerTarget;
+        if (state?.target?.removeEventListener) {
+            state.target.removeEventListener('error', state.errorHandler);
+            state.target.removeEventListener('unhandledrejection', state.errorHandler);
+        }
+        this._observerTarget = null;
+        this._observersInstalled = false;
+    },
+    _safeFields(raw = {}) {
+        const source = raw && typeof raw === 'object' ? raw : {};
+        const out = {};
+        const countKeys = [
+            'candidateCount', 'moreCandidates', 'menuItems', 'confirmButtons', 'postFallbackAttempts', 'validCount', 'eligibleCount', 'rejectedCount', 'duplicateCount', 'selectedCount',
+            'visibleCount', 'actionableCount', 'unknownCount', 'observedUnique', 'uniqueBefore',
+            'uniqueAfter', 'uniqueDelta', 'mutationCount', 'retryCount', 'tabCandidates',
+            'rowCandidates', 'validAccountRows', 'rollbackRestoredCount', 'queueCount',
+            'exactLinkCount', 'uniqueCandidateCount', 'uniqueExactAccountCount', 'duplicateExactLinkCount',
+            'acceptedUniqueAccountCount', 'excludedInvalidCount', 'excludedInvisibleCount', 'excludedOutOfBoundsCount',
+            'excludedHeadingHeaderCount', 'excludedNavigationCount', 'excludedNestedDialogCount',
+            'classifiedLinkCount', 'unclassifiedLinkCount',
+            'pendingCount', 'selectedVisualCount', 'dialogCount', 'listCount', 'scrollRootCandidates',
+            'scrollCount', 'totalHint', 'attempt', 'waitMs', 'renderObservations',
+            'repeatCount', 'processedCount', 'failedCount', 'queuedCount', 'remainingCount', 'failureCount',
+            'breakerCount', 'visibleRows', 'uniqueVisibleRows', 'uniqueUnknownRows', 'uniqueEligibleCount', 'uniqueRowCount', 'rowCount', 'operationCount', 'statusCode', 'checkedCount', 'requestCount',
+            'selfSkippedCount', 'ownerSkippedCount', 'replySkippedCount', 'scrollAttempt', 'visibleProgress',
+        ];
+        for (const key of countKeys) {
+            if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = boundedDiagnosticInt(source[key]);
+        }
+        const floatKeys = ['elapsedMs', 'durationMs', 'scrollTop', 'beforeScrollTop', 'afterScrollTop', 'clientHeight', 'scrollHeight', 'beforeScrollHeight', 'afterScrollHeight', 'rectTop', 'rectLeft', 'rectWidth', 'rectHeight', 'viewportWidth', 'viewportHeight'];
+        for (const key of floatKeys) {
+            if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = boundedDiagnosticFloat(source[key]);
+        }
+        const boolKeys = [
+            'routeMatch', 'routeUnchanged', 'messageRoute', 'profileRoute', 'postRoute', 'searchRoute', 'tagRoute', 'conversationList',
+            'activeConversation', 'composer', 'actionArea', 'strongSignature', 'dialogFound', 'listFound',
+            'scrollRootFound', 'scrollRootSelected', 'visible', 'mutation', 'progress', 'atBottom',
+            'loading', 'selectedTab', 'activeTab', 'switchAttempt', 'switchSucceeded', 'clamped',
+            'hidden', 'stopped', 'timedOut', 'aborted', 'complete', 'ok', 'rollback', 'committed',
+            'sameRoot', 'cohesive', 'rootAdvanced',
+            'historyTrigger', 'mutationTrigger', 'resizeTrigger', 'bounce', 'repositioned', 'found', 'clicked', 'created',
+            'attached', 'closed', 'disappeared', 'foreground', 'background', 'fallback', 'diagnosticsAttached', 'diagnosticsFallback',
+            'retry', 'breakerOpen', 'cooldownActive', 'stopRequested', 'stopAcknowledged', 'flickerLatch', 'idle', 'active',
+            'visibleStop', 'manualFollowUp', 'atomic', 'protected', 'private', 'notFound', 'alreadyBlocked', 'success',
+            'failure', 'terminal', 'preserved',
+            'verifiedLikesContext',
+        ];
+        for (const key of boolKeys) {
+            if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = diagnosticBoolean(source[key]);
+        }
+        if (BETA_DIAGNOSTIC_REASONS.has(source.stopReason)) out.stopReason = source.stopReason;
+        if (BETA_DIAGNOSTIC_TABS.has(source.activeTabCategory)) out.activeTabCategory = source.activeTabCategory;
+        if (BETA_DIAGNOSTIC_PATHS.has(source.pathnameCategory)) out.pathnameCategory = source.pathnameCategory;
+        if (BETA_DIAGNOSTIC_STRATEGIES.has(source.strategy)) out.strategy = source.strategy;
+        if (BETA_DIAGNOSTIC_STRATEGIES.has(source.classificationStrategy)) out.classificationStrategy = source.classificationStrategy;
+        if (typeof source.detector === 'string' && BETA_DIAGNOSTIC_STRATEGIES.has(source.detector)) out.detector = source.detector;
+        if (typeof source.errorName === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,40}$/.test(source.errorName)) out.errorName = source.errorName;
+        if (typeof source.errorCode === 'string' && /^[a-z][a-z0-9_]{0,48}$/.test(source.errorCode)) out.errorCode = source.errorCode;
+        if (typeof source.errorStack === 'string' && /^[a-z][a-z0-9_]{0,64}$/.test(source.errorStack)) out.errorStack = source.errorStack;
+        if (typeof source.errorFunction === 'string' && /^[A-Za-z_$][A-Za-z0-9_$]{0,48}$/.test(source.errorFunction)) out.errorFunction = source.errorFunction;
+        if (Object.prototype.hasOwnProperty.call(source, 'errorLine')) out.errorLine = boundedDiagnosticInt(source.errorLine, 100000);
+        if (typeof source.tag === 'string' && /^(?:DIV|SPAN|A|BUTTON|INPUT|TEXTAREA|MAIN|SECTION|ARTICLE)$/i.test(source.tag)) out.tag = source.tag.toUpperCase();
+        if (typeof source.role === 'string' && /^(?:tab|button|link|listitem|log|main|toolbar|textbox)$/i.test(source.role)) out.role = source.role.toLowerCase();
+        if (Object.prototype.hasOwnProperty.call(source, 'ariaSelected')) out.ariaSelected = diagnosticBoolean(source.ariaSelected);
+        if (typeof source.hrefCategory === 'string' && /^(?:account|internal|external|none|unknown)$/.test(source.hrefCategory)) out.hrefCategory = source.hrefCategory;
+        if (typeof source.category === 'string' && /^[a-z][a-z0-9_]{0,32}$/.test(source.category)) out.category = source.category;
+        if (typeof source.httpBucket === 'string' && /^(?:success|client_error|server_error|network)$/.test(source.httpBucket)) out.httpBucket = source.httpBucket;
+        if (typeof source.reason === 'string' && BETA_DIAGNOSTIC_REASONS.has(source.reason)) out.reason = source.reason;
+        if (typeof source.failureType === 'string' && /^[a-z][a-z0-9_]{0,32}$/.test(source.failureType)) out.failureType = source.failureType;
+        if (Object.prototype.hasOwnProperty.call(source, 'ancestorDepth')) out.ancestorDepth = boundedDiagnosticInt(source.ancestorDepth, 32);
+        return out;
+    },
+    begin(feature = 'unknown', fields = {}) {
+        if (!this.enabled()) return null;
+        const safeFeature = BETA_DIAGNOSTIC_FEATURES.has(feature) ? feature : 'unknown';
+        const operationId = `${safeFeature}-${diagnosticSessionId()}`;
+        this._operations.set(operationId, { feature: safeFeature, startedAt: Date.now() });
+        this.record(safeFeature, 'start', { ...fields, operationId });
+        while (this._operations.size > this.LIMIT) this._operations.delete(this._operations.keys().next().value);
+        return operationId;
+    },
+    end(operationId, stage = 'terminal', fields = {}) {
+        if (!operationId) return null;
+        const op = this._operations.get(operationId);
+        const feature = op?.feature || String(operationId).split('-')[0] || 'unknown';
+        const elapsedMs = fields.elapsedMs ?? (op ? Date.now() - op.startedAt : 0);
+        const entry = this.record(feature, stage, { ...fields, operationId, terminal: true, elapsedMs });
+        this._operations.delete(operationId);
+        return entry;
+    },
+    record(feature = 'unknown', stage = 'unknown', fields = {}) {
+        if (!this.enabled()) return null;
+        const now = Date.now();
+        const safeFeature = BETA_DIAGNOSTIC_FEATURES.has(feature) ? feature : 'unknown';
+        const safeStage = BETA_DIAGNOSTIC_STAGES.has(stage) ? stage : 'unknown';
+        const safeFields = this._safeFields(fields);
+        const operationId = typeof fields?.operationId === 'string' && /^[a-z_]+-[a-z0-9]{1,16}$/i.test(fields.operationId)
+            ? fields.operationId : null;
+        const signature = `${safeFeature}|${safeStage}|${operationId || ''}|${JSON.stringify(safeFields)}`;
+        const previous = this._lastBySignature.get(signature);
+        if (previous && now - previous.timestamp <= 1000) {
+            previous.fields.repeatCount = boundedDiagnosticInt((previous.fields.repeatCount || 1) + 1, 1000000);
+            return previous;
+        }
+        const entry = {
+            sessionId: this._sessionId,
+            operationId: operationId || `${safeFeature}-${diagnosticSessionId()}`,
+            timestamp: now,
+            elapsedMs: boundedDiagnosticInt(Number.isFinite(fields?.elapsedMs) ? fields.elapsedMs : now - this._startedAt),
+            feature: safeFeature,
+            stage: safeStage,
+            fields: safeFields,
+        };
+        entry.priority = stage === 'start' ? 2 : (['stop', 'finish', 'commit', 'rollback', 'terminal', 'error', 'close'].includes(stage) || fields?.terminal === true ? 3 : 0);
+        this._entries.push(entry);
+        this._lastBySignature.set(signature, entry);
+        while (this._entries.length > this.LIMIT) {
+            let index = this._entries.findIndex(item => item.priority === 0);
+            if (index < 0) index = this._entries.findIndex(item => item.priority < 3);
+            if (index < 0) index = 0;
+            const removed = this._entries.splice(index, 1)[0];
+            for (const [key, value] of this._lastBySignature.entries()) if (value === removed) this._lastBySignature.delete(key);
+        }
+        return entry;
+    },
+    _sanitizeEntry(entry = {}) {
+        const safeSession = /^[a-z0-9]{1,32}$/i.test(String(entry.sessionId || '')) ? String(entry.sessionId) : this._sessionId;
+        const safeOperation = /^[a-z_]+-[a-z0-9]{1,16}$/i.test(String(entry.operationId || '')) ? String(entry.operationId) : 'unknown-0';
+        const safeFeature = BETA_DIAGNOSTIC_FEATURES.has(entry.feature) ? entry.feature : 'unknown';
+        const safeStage = BETA_DIAGNOSTIC_STAGES.has(entry.stage) ? entry.stage : 'unknown';
+        return {
+            sessionId: safeSession, operationId: safeOperation,
+            timestamp: boundedDiagnosticInt(entry.timestamp, 9999999999999),
+            elapsedMs: boundedDiagnosticInt(entry.elapsedMs), feature: safeFeature, stage: safeStage,
+            fields: this._safeFields(entry.fields),
+        };
+    },
+    get() { return this.enabled() ? this._entries.slice(-this.LIMIT).map(entry => this._sanitizeEntry(entry)) : []; },
+    summary() {
+        const counts = {};
+        for (const entry of this.get()) counts[entry.feature] = (counts[entry.feature] || 0) + 1;
+        return counts;
+    },
+    clear() { this._entries = []; this._lastBySignature.clear(); this._operations.clear(); },
+    export() {
+        return this.enabled() ? { schema: this.SCHEMA, version: CONFIG.VERSION, sessionId: this._sessionId, summary: this.summary(), entries: this.get() } : null;
+    },
+};
+
+// Optional bridge for modules that cannot import Core without creating a cycle.
+try { globalThis.__hegeRuntimeDiagnostics = RuntimeDiagnostics; } catch (_) { /* non-browser bootstrap */ }
+
+export const FAILED_REASON_ENUM = Object.freeze([
+    'unknown', 'legacy_string', 'action_failed', 'verification_failed',
+    'menu_not_found', 'navigation_mismatch', 'private_manual_required',
+    'rate_limited', 'cooldown', 'timeout', 'network_error', 'report_failed',
+]);
+
+const normalizeFailureType = (value) => value === 'report' ? 'report' : 'block';
+const normalizeFailureUsername = (value) => String(value || '').trim().replace(/^@+/, '').split(/[/?#\s]/)[0].replace(/[^A-Za-z0-9._-]/g, '').slice(0, 120);
+const STOP_VISIBILITY_LATCH_KEY = 'hege_stop_visibility_latch';
+const SELECTION_SNAPSHOT_KEY = 'hege_selection_snapshot';
+const readStopLatch = () => {
+    try { return typeof Storage.get === 'function' && Storage.get(STOP_VISIBILITY_LATCH_KEY) === 'true'; } catch (e) { return false; }
+};
+const readSelectionSnapshot = () => {
+    try { return typeof Storage.getSessionJSON === 'function' ? (Storage.getSessionJSON(SELECTION_SNAPSHOT_KEY) || []) : []; } catch (e) { return []; }
+};
+const writeStopLatch = (value) => {
+    try { if (value) Storage.set(STOP_VISIBILITY_LATCH_KEY, 'true'); else Storage.remove(STOP_VISIBILITY_LATCH_KEY); } catch (e) { /* test/runtime storage may be unavailable during bootstrap */ }
+};
+const writeSelectionSnapshot = (value) => {
+    try { if (typeof Storage.setSessionJSON === 'function') Storage.setSessionJSON(SELECTION_SNAPSHOT_KEY, value); } catch (e) { /* best effort across page boot */ }
+};
+
+export const COMPLETE_DIALOG_REASONS = Object.freeze(['end', 'completed']);
+export const normalizeDialogCollectionResult = (raw = {}) => {
+    const source = Array.isArray(raw) ? { users: raw, reason: 'completed', complete: true, ok: true } : (raw || {});
+    const users = Array.isArray(source.users) ? source.users : [];
+    const reason = String(source.reason || 'rows_missing');
+    const counts = { ...(source.counts || {}), users: users.length };
+    const complete = source.complete === true
+        && COMPLETE_DIALOG_REASONS.includes(reason)
+        && !source.truncated && !source.partial
+        && Number(counts.unknownRows || source.unknownRows || 0) === 0;
+    return { ok: complete, complete, users, reason, counts, truncated: !!source.truncated };
+};
+export const shouldCommitDialogCollection = (raw = {}) => normalizeDialogCollectionResult(raw).complete;
+const dialogCollectionFailureText = (reason) => ({
+    missing_dialog: '找不到名單視窗，請稍後重試。',
+    dialog_missing: '找不到名單視窗，請稍後重試。',
+    rows_missing: '已開啟按讚名單，但沒有找到可勾選的帳號，請稍後重試。',
+    rows_unknown: '已開啟按讚名單，但無法安全辨識可勾選的帳號，請稍後重試。',
+    unknown_dialog_schema: '目前無法安全辨識名單，請先讓名單載入後再試。',
+    likes_tab_not_identified: '找不到按讚分頁，請稍後重試。',
+    likes_tab_switch_failed: '已開啟按讚名單，但沒有找到可勾選的帳號，請稍後重試。',
+    scroll_stall: '名單暫時無法繼續載入，請往下捲動後再試。',
+    limited: '名單尚未完整載入，請稍後重試。',
+    timeout: '名單收集逾時，請稍後重試。',
+    empty_end: '目前沒有可收集的帳號。',
+    threads_partial: '名單尚未完整載入，請稍後重試。',
+})[String(reason || '')] || '這次名單尚未完成，請稍後重試。';
+export const isMessageRouteContext = (locationLike = {}, doc = null) => {
+    const path = String(locationLike?.pathname || '').toLowerCase();
+    const routeMatch = /^\/(?:messages?|direct|inbox)(?:\/|$)/i.test(path);
+    // Keep this detector self-contained: report/debug fixtures and early page
+    // bootstrap can evaluate it before the surrounding module helpers exist.
+    const root = doc?.querySelector?.('main, [role="main"]');
+    const all = selector => root?.querySelectorAll
+        ? Array.from(root.querySelectorAll(selector))
+        : (root?.querySelector?.(selector) ? [root.querySelector(selector)] : []);
+    const visible = node => {
+        if (!node) return false;
+        const style = doc?.defaultView?.getComputedStyle?.(node) || (typeof window !== 'undefined' ? window.getComputedStyle?.(node) : null);
+        if (style && (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0')) return false;
+        const rect = node.getBoundingClientRect?.();
+        return !!rect && Number(rect.width || 0) > 0 && Number(rect.height || 0) > 0;
+    };
+    const listNodes = all('[data-testid*="conversation-list" i], [data-testid*="inbox" i], [aria-label*="conversation list" i], [aria-label*="對話列表" i]');
+    const activeNodes = all('[data-testid*="active-conversation" i], [data-testid*="conversation-pane" i], [aria-label*="active conversation" i], [role="log"]');
+    const composerNodes = all('[role="textbox"], textarea, [contenteditable="true"]');
+    const actionNodes = all('[role="toolbar"], [data-testid*="message-action" i], [aria-label*="send message" i], [aria-label*="傳送訊息" i]');
+    const listNode = listNodes.find(visible) || null;
+    const composerNode = composerNodes.find(visible) || null;
+    const actionNode = actionNodes.find(visible) || null;
+    const contains = (parent, child) => !!parent && !!child && (parent === child || parent.contains?.(child) || (() => {
+        for (let node = child; node && node !== root; node = node.parentElement) if (node === parent) return true;
+        return false;
+    })());
+    const activeNode = activeNodes.find(node => visible(node) && contains(node, composerNode) && contains(node, actionNode))
+        || activeNodes.find(visible) || null;
+    const ancestors = node => {
+        const result = [];
+        for (let current = node, depth = 0; current && current !== doc?.body && depth < 12; current = current.parentElement, depth += 1) result.push(current);
+        return result;
+    };
+    const listAncestors = ancestors(listNode);
+    const activeAncestors = ancestors(activeNode);
+    const commonRoot = listAncestors.find(candidate => activeAncestors.includes(candidate)) || null;
+    const commonRootVisible = visible(commonRoot);
+    const sameRoot = !!commonRoot && commonRoot !== doc?.body && commonRootVisible;
+    const branchInfo = node => {
+        let current = node;
+        let depth = 0;
+        while (current?.parentElement && current.parentElement !== commonRoot && depth < 6) {
+            current = current.parentElement;
+            depth += 1;
+        }
+        return { branch: current, depth };
+    };
+    const listBranch = branchInfo(listNode);
+    const activeBranch = branchInfo(activeNode);
+    const adjacentLayout = !!listBranch.branch && !!activeBranch.branch
+        && listBranch.branch !== activeBranch.branch && listBranch.depth <= 5 && activeBranch.depth <= 5;
+    const sameLayout = sameRoot && adjacentLayout
+        && (commonRoot === root || /^(?:MAIN|SECTION|DIV|ARTICLE)$/i.test(String(commonRoot.tagName || '')));
+    const composerInActive = contains(activeNode, composerNode);
+    const actionInActive = contains(activeNode, actionNode);
+    const signals = {
+        conversationList: visible(listNode),
+        activeConversation: visible(activeNode),
+        composer: visible(composerNode),
+        actionArea: visible(actionNode),
+        visible: visible(listNode) && visible(activeNode) && visible(composerNode) && visible(actionNode),
+        sameRoot: sameRoot && sameLayout,
+        cohesive: sameRoot && sameLayout && composerInActive && actionInActive,
+    };
+    const strongSignature = signals.visible && signals.sameRoot && signals.cohesive;
+    // A recognized message route may be rendered before the split panes are
+    // fully assembled. Keep the route path authoritative only when at least
+    // one real, visible message-shell signal exists; route-unchanged overlays
+    // must satisfy the complete cohesive signature above.
+    const result = (routeMatch && (signals.conversationList || signals.activeConversation || signals.composer || signals.actionArea)) || strongSignature;
+    if (typeof RuntimeDiagnostics !== 'undefined') RuntimeDiagnostics.record('message_route', 'route', {
+        routeMatch, messageRoute: routeMatch, conversationList: signals.conversationList,
+        activeConversation: signals.activeConversation, composer: signals.composer,
+        actionArea: signals.actionArea, visible: signals.visible, sameRoot: signals.sameRoot,
+        cohesive: signals.cohesive, strongSignature, routeUnchanged: !routeMatch,
+    });
+    return result;
+};
+export const getMessageShellSignals = (doc = null) => {
+    const root = doc?.querySelector?.('main, [role="main"]');
+    const has = selector => !!root?.querySelector?.(selector);
+    return {
+        conversationList: has('[data-testid*="conversation-list" i], [data-testid*="inbox" i], [aria-label*="conversation list" i], [aria-label*="對話列表" i]'),
+        activeConversation: has('[data-testid*="conversation-pane" i], [data-testid*="active-conversation" i], [aria-label*="active conversation" i], [role="log"]'),
+        composer: has('[role="textbox"], textarea, [contenteditable="true"]'),
+        actionArea: has('[role="toolbar"], [data-testid*="message-action" i], [aria-label*="send message" i], [aria-label*="傳送訊息" i]'),
+        visible: false,
+        sameRoot: false,
+        cohesive: false,
+    };
+};
+export const buildCollectionDiagnosticContext = (input = {}) => {
+    const path = String(input.pathname || '').split('?')[0].toLowerCase();
+    const pathnameCategory = /^\/(?:messages?|direct|inbox)(?:\/|$)/i.test(path) ? 'message'
+        : /\/post\//i.test(path) ? 'post' : /^\/@[^/]+/i.test(path) ? 'profile' : 'unknown';
+    const bounded = value => Number.isInteger(value) && value >= 0 && value <= 1000000 ? value : 0;
+    return {
+        appVersion: /^\d+\.\d+\.\d+(?:-beta\d+)?$/i.test(String(input.appVersion || ''))
+            ? String(input.appVersion).slice(0, 32) : 'unknown',
+        pathnameCategory,
+        feature: ['followers', 'clean_list', 'likes', 'message_route'].includes(input.feature) ? input.feature : 'unknown',
+        stage: ['collect', 'tab_switch', 'row_discovery', 'route'].includes(input.stage) ? input.stage : 'unknown',
+        activeTabCategory: ['likes', 'quotes', 'reposts', 'followers'].includes(input.activeTabCategory) ? input.activeTabCategory : 'unknown',
+        dialogFound: input.dialogFound === true,
+        listFound: input.listFound === true,
+        scrollRootFound: input.scrollRootFound === true,
+        candidateCount: bounded(input.candidateCount),
+        eligibleCount: bounded(input.eligibleCount),
+        selectedCount: bounded(input.selectedCount),
+        routeSignals: {
+            messageRoute: input.routeSignals?.messageRoute === true,
+            profileRoute: input.routeSignals?.profileRoute === true,
+            postRoute: input.routeSignals?.postRoute === true,
+            routeUnchanged: input.routeSignals?.routeUnchanged === true,
+        },
+        messageShellSignals: {
+            conversationList: input.messageShellSignals?.conversationList === true,
+            activeConversation: input.messageShellSignals?.activeConversation === true,
+            composer: input.messageShellSignals?.composer === true,
+            actionArea: input.messageShellSignals?.actionArea === true,
+        },
+        stopReason: ['end', 'completed', 'threads_partial', 'scroll_stall', 'timeout', 'stopped', 'rows_unknown', 'likes_tab_switch_failed', 'limited', 'max_scrolls'].includes(input.stopReason) ? input.stopReason : 'unknown',
+    };
+};
+
+export const normalizeFailedQueueEntry = (raw, type = 'block') => {
+    const normalizedType = normalizeFailureType(type);
+    if (typeof raw === 'string') {
+        const username = normalizeFailureUsername(raw);
+        return username ? { username, type: normalizedType, reason: 'legacy_string', failedAt: 0 } : null;
+    }
+    if (!raw || typeof raw !== 'object') return null;
+    const username = normalizeFailureUsername(raw.username || raw.user || raw.target);
+    if (!username) return null;
+    const reason = FAILED_REASON_ENUM.includes(String(raw.reason || '')) ? String(raw.reason) : 'unknown';
+    const failedAtValue = Number(raw.failedAt);
+    const failedAt = Number.isFinite(failedAtValue) && failedAtValue >= 0
+        ? Math.min(Math.floor(failedAtValue), Date.now() + 365 * 24 * 60 * 60 * 1000)
+        : 0;
+    return { username, type: normalizedType, reason, failedAt };
+};
+
+export const normalizeFailedQueue = (raw, type = 'block') => {
+    const entries = Array.isArray(raw) ? raw : [];
+    const seen = new Set();
+    return entries.map(item => normalizeFailedQueueEntry(item, type)).filter(entry => {
+        if (!entry || seen.has(entry.username)) return false;
+        seen.add(entry.username);
+        return true;
+    });
+};
+
+export const CONTROLLER_STATUS = Object.freeze([
+    'idle', 'block', 'report', 'three_no', 'sweep', 'stopping', 'stopped', 'failed',
+]);
+export const CONTROLLER_STATUS_LABELS = Object.freeze({
+    idle: '待命中', block: '封鎖執行中', report: '檢舉執行中', three_no: '三無掃描中',
+    sweep: '定點絕執行中', stopping: '停止中', stopped: '已停止', failed: '執行失敗',
+});
+
+// Resolve the first-line controller state from bounded, timestamped signals.
+// Fresh active work always outranks stale BG_STATUS; terminal/stop states win
+// over every active badge so the panel never renders an empty/ambiguous state.
+export const resolveControllerStatus = (input = {}) => {
+    const now = Number.isFinite(input.now) ? input.now : Date.now();
+    const staleMs = Number.isFinite(input.staleMs) ? Math.max(1000, input.staleMs) : 10000;
+    const bg = input.bgStatus && typeof input.bgStatus === 'object' ? input.bgStatus : {};
+    const bgUpdated = Number(bg.lastUpdate);
+    const bgFresh = bgUpdated > 0 && now - bgUpdated >= 0 && now - bgUpdated < staleMs;
+    const scan = input.threeNoState && typeof input.threeNoState === 'object' ? input.threeNoState : {};
+    const scanState = String(scan.status || '').toLowerCase();
+    const terminal = [scanState, String(input.terminalState || '').toLowerCase()];
+    if (bgFresh) terminal.push(String(bg.state || '').toLowerCase());
+    if (terminal.includes('failed')) return 'failed';
+    if (terminal.includes('stopping')) return 'stopping';
+    if (terminal.includes('stopped')) return 'stopped';
+
+    const threeNoActive = input.threeNoActive === true || ['starting', 'ready', 'scanning', 'collecting_followers', 'followers_collected', 'checking_profiles'].includes(scanState);
+    if (threeNoActive) return 'three_no';
+    if (input.sweepActive === true || input.sweepStatus === 'running') return 'sweep';
+    if (input.reportActive === true || String(input.reportState || '').toLowerCase() === 'running') return 'report';
+    if (bgFresh && bg.state === 'running') return 'block';
+    if (input.reportQueueCount > 0) return 'report';
+    if (input.blockQueueCount > 0) return 'block';
+    return 'idle';
+};
+
+const resolveStopVisibility = (input = {}) => {
+    const bg = input.bgStatus && typeof input.bgStatus === 'object' ? input.bgStatus : {};
+    const state = String(bg.state || input.state || '').toLowerCase();
+    const terminal = ['idle', 'completed', 'stopped', 'failed', 'error'].includes(state)
+        || input.terminal === true;
+    const activeQueue = Number(input.blockQueueCount || 0) > 0
+        || Number(input.reportQueueCount || 0) > 0
+        || Number(input.cooldownQueueCount || 0) > 0;
+    const activeSession = input.sessionActive === true
+        || input.threeNoActive === true
+        || state === 'running'
+        || state === 'stopping';
+    if (!activeQueue && !activeSession && state !== 'stopping') return false;
+    // A stop latch survives stale heartbeat/navigation.  It is released only
+    // after a terminal state is observed with no remaining active work.
+    if (terminal && !activeQueue && !activeSession) return false;
+    return !!(input.stopLatch || activeQueue || activeSession);
+};
 
 export const Core = {
+    RuntimeDiagnostics,
     blockQueue: new Set(),
     pendingUsers: new Set(),
+    _selectionSnapshot: new Set(readSelectionSnapshot()),
+    _stopVisibilityLatch: readStopLatch(),
+    _selectionDiagnosticOperationId: null,
+    lastDialogCollectionResult: null,
     lastClickedBtn: null, // Track for shift-click
     lastClickedUsername: null, // Fallback if DOM node is lost
     lastClickedState: null, // null, 'checked', or 'unchecked'
 
-    buildSkipUsers: (ctx) => {
+    // Running selection snapshot is independent from the mutable active queue.
+    isSelectionLatched: (username = '') => Core._stopVisibilityLatch && Core._selectionSnapshot.has(username),
+
+    beginBlockSession: (usernames = []) => {
+        const users = Array.isArray(usernames) ? usernames : [];
+        const operationId = RuntimeDiagnostics.begin('selection', { strategy: 'semantic_row', active: true });
+        Core._selectionDiagnosticOperationId = operationId;
+        RuntimeDiagnostics.record('selection', 'snapshot', { selectedCount: users.length, flickerLatch: true, active: true, operationId });
+        users.filter(Boolean).forEach(u => Core._selectionSnapshot.add(u));
+        Core._stopVisibilityLatch = true;
+        writeSelectionSnapshot([...Core._selectionSnapshot]);
+        writeStopLatch(true);
+        RuntimeDiagnostics.record('selection', 'restore', { selectedCount: Core._selectionSnapshot.size, flickerLatch: true, active: true, operationId });
+        RuntimeDiagnostics.end(operationId, 'commit', { committed: true, complete: true, selectedCount: Core._selectionSnapshot.size });
+        Core._selectionDiagnosticOperationId = null;
+        return Core._selectionSnapshot.size;
+    },
+
+    markStopRequested: () => {
+        const operationId = RuntimeDiagnostics.begin('selection', { strategy: 'semantic_row', active: true });
+        RuntimeDiagnostics.record('selection', 'stop', { stopRequested: true, visibleStop: true, flickerLatch: true, operationId });
+        Core._stopVisibilityLatch = true;
+        writeStopLatch(true);
+        const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
+        Storage.setJSON(CONFIG.KEYS.BG_STATUS, { ...status, state: 'stopping', lastUpdate: Date.now() });
+        Storage.set(CONFIG.KEYS.BG_CMD, 'stop');
+        RuntimeDiagnostics.end(operationId, 'rollback', { reason: 'stopped', ok: false, complete: false, rollback: true });
+        return true;
+    },
+
+    getFailedQueueEntries: () => [
+        ...normalizeFailedQueue(Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []), 'block'),
+        ...normalizeFailedQueue(Storage.getJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, []), 'report'),
+    ],
+
+    recordFailure: (type, username, reason = 'unknown') => {
+        const normalizedType = normalizeFailureType(type);
+        const key = normalizedType === 'report' ? CONFIG.KEYS.REPORT_FAILED_QUEUE : CONFIG.KEYS.FAILED_QUEUE;
+        const entry = normalizeFailedQueueEntry({ username, type: normalizedType, reason, failedAt: Date.now() }, normalizedType);
+        if (!entry) return null;
+        const entries = normalizeFailedQueue(Storage.getJSON(key, []), normalizedType)
+            .filter(item => item.username !== entry.username);
+        entries.push(entry);
+        Storage.setJSON(key, entries);
+        return entry;
+    },
+
+    removeFailure: (entryOrUsername, type = 'block') => {
+        const normalizedType = normalizeFailureType(type || entryOrUsername?.type);
+        const key = normalizedType === 'report' ? CONFIG.KEYS.REPORT_FAILED_QUEUE : CONFIG.KEYS.FAILED_QUEUE;
+        const username = normalizeFailureUsername(typeof entryOrUsername === 'string' ? entryOrUsername : entryOrUsername?.username);
+        if (!username) return false;
+        const current = normalizeFailedQueue(Storage.getJSON(key, []), normalizedType);
+        const next = current.filter(item => item.username !== username);
+        Storage.setJSON(key, next);
+        return next.length !== current.length;
+    },
+
+    startFailureRetry: (type) => {
+        const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
+        const isRunning = Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running';
+        if (isRunning) return false;
+        const nextMode = normalizeFailureType(type);
+        Storage.remove(CONFIG.KEYS.BG_CMD);
+        Storage.set(CONFIG.KEYS.WORKER_MODE, nextMode);
+        if (Utils.isMobile()) {
+            Core.runSameTabWorker();
+        } else {
+            const workerWindow = Utils.openWorkerWindow();
+            if (!workerWindow || workerWindow.closed) Core.runSameTabWorker();
+        }
+        return true;
+    },
+
+    retryFailedEntry: (entry) => {
+        const normalized = normalizeFailedQueueEntry(entry, entry?.type || 'block');
+        if (!normalized) return false;
+        const key = normalized.type === 'report' ? CONFIG.KEYS.REPORT_QUEUE : CONFIG.KEYS.BG_QUEUE;
+        const queue = Storage.getJSON(key, []);
+        if (!queue.includes(normalized.username)) Storage.setJSON(key, [...queue, normalized.username]);
+        Core.removeFailure(normalized, normalized.type);
+        Core.startFailureRetry(normalized.type);
+        Core.updateControllerUI();
+        return true;
+    },
+
+    clearFailedEntry: (entry) => {
+        const normalized = normalizeFailedQueueEntry(entry, entry?.type || 'block');
+        if (!normalized) return false;
+        const changed = Core.removeFailure(normalized, normalized.type);
+        Core.updateControllerUI();
+        return changed;
+    },
+
+    openFailureProfile: (username) => {
+        const normalized = normalizeFailureUsername(username);
+        if (!normalized) return false;
+        const path = `/@${normalized}`;
+        const url = `https://www.threads.com${path}`;
+        if (Utils.isMobile()) {
+            history.replaceState(null, '', path);
+            location.reload();
+            return true;
+        }
+        const opened = window.open(url, '_blank', 'noopener,noreferrer');
+        return !!opened;
+    },
+
+    ensureCleanListBinding: (btn, handler) => {
+        if (!btn || typeof handler !== 'function') return false;
+        if (btn.dataset.hegeCleanListBound === 'true' && btn.__hegeCleanListBoundHandler) return false;
+        const wrapped = (event) => {
+            // A picker is a single-flight action.  This also absorbs a
+            // touchend + synthetic click pair and React's duplicate dispatch.
+            if (document.getElementById('hege-clean-list-picker-overlay')) return;
+            const now = Date.now();
+            if (btn.__hegeCleanListLastActivation && now - btn.__hegeCleanListLastActivation < 300) return;
+            btn.__hegeCleanListLastActivation = now;
+            return handler(event);
+        };
+        if (Utils.isMobile()) btn.addEventListener('touchend', wrapped, { passive: false, capture: true });
+        else btn.addEventListener('click', wrapped, true);
+        btn.__hegeCleanListBoundHandler = wrapped;
+        btn.dataset.hegeCleanListBound = 'true';
+        btn.dataset.hegeEventBound = 'true';
+        return true;
+    },
+
+    buildSkipUsers: (ctx, options = {}) => {
         const skipUsers = new Set();
         const myUser = Utils.getMyUsername();
         const postOwner = Utils.getPostOwner();
-        if (myUser) skipUsers.add(myUser);
-        if (postOwner) skipUsers.add(postOwner);
+        const normalize = value => String(value || '').replace(/^@+/, '').toLowerCase();
+        if (myUser) skipUsers.add(normalize(myUser));
+        if (options.skipPostOwner !== false && postOwner) skipUsers.add(normalize(postOwner));
         const allText = ctx?.innerText || ctx?.textContent || "";
         const replyMatch = allText.match(/(?:正在回覆|Replying to)\s*@([a-zA-Z0-9._]+)/i);
-        if (replyMatch && replyMatch[1]) skipUsers.add(replyMatch[1]);
+        if (replyMatch && replyMatch[1]) skipUsers.add(normalize(replyMatch[1]));
         return skipUsers;
+    },
+
+    getSkipUserBreakdown: (ctx, usernames = [], options = {}) => {
+        const normalize = value => String(value || '').replace(/^@+/, '').toLowerCase();
+        const self = normalize(Utils.getMyUsername?.() || '');
+        const owner = normalize(Utils.getPostOwner?.() || '');
+        const text = ctx?.innerText || ctx?.textContent || '';
+        const replyMatch = String(text).match(/(?:正在回覆|Replying to)\s*@([a-zA-Z0-9._]+)/i);
+        const reply = normalize(replyMatch?.[1] || '');
+        const breakdown = { selfSkippedCount: 0, ownerSkippedCount: 0, replySkippedCount: 0 };
+        const seen = new Set();
+        for (const username of Array.isArray(usernames) ? usernames : []) {
+            const value = normalize(username);
+            if (!value || seen.has(value)) continue;
+            seen.add(value);
+            if (self && value === self) breakdown.selfSkippedCount += 1;
+            else if (options.skipPostOwner !== false && owner && value === owner) breakdown.ownerSkippedCount += 1;
+            else if (reply && value === reply) breakdown.replySkippedCount += 1;
+        }
+        return breakdown;
     },
 
     filterNewUsers: (rawUsers) => {
@@ -141,6 +775,11 @@ export const Core = {
     },
 
     createCheckboxContainer: (username = '', options = {}) => {
+        const operationId = RuntimeDiagnostics.begin('selection', { strategy: 'semantic_row', active: true });
+        RuntimeDiagnostics.record('selection', 'selection', {
+            created: true, eligibleCount: username ? 1 : 0, rejectedCount: username ? 0 : 1,
+            strategy: 'semantic_row', operationId,
+        });
         const container = document.createElement('div');
         container.className = 'hege-checkbox-container';
         if (options.inlineBadge === true) container.dataset.hegeInlineBadge = 'true';
@@ -169,6 +808,7 @@ export const Core = {
         svgIcon.appendChild(rect); svgIcon.appendChild(path);
         container.appendChild(svgIcon);
         Core.bindCheckboxEvents(container);
+        RuntimeDiagnostics.end(operationId, 'finish', { reason: username ? 'success' : 'failure', ok: !!username, complete: true, created: true });
         return container;
     },
 
@@ -177,10 +817,17 @@ export const Core = {
         const db = new Set(Storage.getBlockDB());
         const cdq = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
         const bgq = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
+        const liveBgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
+        const liveState = String(liveBgStatus.state || '').toLowerCase();
+        const liveSession = liveState === 'running' || liveState === 'stopping'
+            || bgq.size > 0 || Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []).length > 0;
+        if (liveSession) {
+            Core.beginBlockSession([...Core.pendingUsers, ...bgq]);
+        }
         if (db.has(username)) {
             container.classList.add('finished');
             container.classList.remove('checked');
-        } else if (Core.pendingUsers.has(username) || cdq.has(username) || bgq.has(username)) {
+        } else if (Core.pendingUsers.has(username) || Core.isSelectionLatched(username) || cdq.has(username) || bgq.has(username)) {
             container.classList.add('checked');
             container.classList.remove('finished');
             if (queueElement) Core.blockQueue.add(queueElement);
@@ -228,19 +875,30 @@ export const Core = {
 
     findProfileActionAnchor: (root) => {
         if (!root) return null;
-        const candidates = Array.from(root.querySelectorAll('a, div[role="button"]'))
+        const moreLabelRe = /更多|More|もっと見る|더 보기|เพิ่มเติม|Lainnya|Más|Plus|Mehr|Altro|Mais|Ещё|Więcej|Diğer|Thêm|المزيد|और|Meer|Higit pa/i;
+        const candidates = Array.from(root.querySelectorAll('a, div[role="button"], button'))
             .map(el => {
                 const rect = el.getBoundingClientRect();
                 const svgs = Array.from(el.querySelectorAll('svg'));
                 const hasInstagram = svgs.some(svg => /instagram/i.test(svg.getAttribute('aria-label') || ''));
                 const hasBell = svgs.some(svg => svg.getAttribute('viewBox') === '0 0 25 24' && svg.querySelectorAll('path').length >= 2);
-                const hasProfileMore = svgs.some(svg => svg.querySelectorAll('circle').length === 1 && svg.querySelectorAll('path').length >= 3);
-                return { el, rect, hasInstagram, hasBell, hasProfileMore };
+                const hasProfileMoreShape = svgs.some(svg => svg.querySelectorAll('circle').length === 1 && svg.querySelectorAll('path').length >= 3);
+                const label = [
+                    el.getAttribute('aria-label') || '',
+                    el.getAttribute('title') || '',
+                    ...svgs.map(svg => svg.getAttribute('aria-label') || ''),
+                ].join(' ');
+                const hasSemanticMore = moreLabelRe.test(label);
+                const href = el.getAttribute('href') || el.closest('a')?.getAttribute('href') || '';
+                const unsafeSearchOrTagLink = !!el.closest('a, [role="link"]')
+                    && (/(^|\/)search(?:\/|$)/i.test(href) || /(^|\/)tags(?:\/|$)/i.test(href) || /(?:^|[?&])serp_type=tags(?:&|$)/i.test(href));
+                return { el, rect, hasInstagram, hasBell, hasProfileMore: hasProfileMoreShape || hasSemanticMore, unsafeSearchOrTagLink };
             })
             .filter(item => item.rect.width >= 24 && item.rect.height >= 24 && item.rect.top >= 120 && item.rect.top < Math.min(window.innerHeight, 460))
+            .filter(item => !item.unsafeSearchOrTagLink)
             .filter(item => item.hasInstagram || item.hasBell || item.hasProfileMore)
             .sort((a, b) => {
-                const rank = (item) => item.hasInstagram ? 0 : item.hasBell ? 1 : 2;
+                const rank = (item) => item.hasInstagram ? 0 : item.hasBell ? 1 : item.hasProfileMore ? 2 : 3;
                 return rank(a) - rank(b) || a.rect.left - b.rect.left;
             });
         return candidates[0]?.el || null;
@@ -249,7 +907,6 @@ export const Core = {
     findProfileRoot: (username) => {
         const roots = [
             ...document.querySelectorAll('main, [role="main"], [aria-label="直欄內文"], [aria-label="Column body"], [aria-label="Column Body"]'),
-            document.body,
         ].filter(Boolean);
         return roots
             .map(root => ({
@@ -260,9 +917,8 @@ export const Core = {
             }))
             .filter(item => item.usernameEl && item.actionAnchor)
             .sort((a, b) => {
-                const bodyScore = (item) => item.root === document.body ? 1000000 : 0;
                 const area = (item) => Math.max(0, item.rect.width) * Math.max(0, item.rect.height);
-                return bodyScore(a) - bodyScore(b) || area(a) - area(b);
+                return area(a) - area(b);
             })[0]?.root || null;
     },
 
@@ -325,140 +981,347 @@ export const Core = {
         }).filter(Boolean);
 
         const skipUsers = Core.buildSkipUsers(ctx);
-        rawUsers = [...new Set(rawUsers)].filter(u => !skipUsers.has(u));
+        const normalizeUser = value => String(value || '').replace(/^@+/, '').toLowerCase();
+        const normalizedSkipUsers = new Set([...skipUsers].map(normalizeUser));
+        rawUsers = [...new Set(rawUsers)].filter(u => !normalizedSkipUsers.has(normalizeUser(u)));
         return rawUsers;
     },
 
     collectFullDialogUsers: async (ctx, options = {}) => {
-        if (!ctx) return [];
-
-        let isActivityDialog = false;
-
-        // Activity dialog: auto-switch to likes tab to avoid mixing reposts/quotes/replies
+        const operationId = options.operationId || RuntimeDiagnostics.begin('clean_list', { strategy: 'dialog_context' });
+        const ownsOperation = !options.operationId;
+        // Keep lifecycle call sites explicit for audit tooling:
+        // record('clean_list', 'start'), record('clean_list', 'tab'), record('clean_list', 'wait'),
+        // record('clean_list', 'dialog'), record('clean_list', 'rows'), record('clean_list', 'commit'),
+        // record('clean_list', 'rollback').
+        const recordCleanDiagnostic = (stage, fields = {}) => RuntimeDiagnostics.record('clean_list', stage, { ...fields, operationId });
+        const diagnosticPath = buildCollectionDiagnosticContext({ pathname: typeof window !== 'undefined' ? window.location?.pathname : '' }).pathnameCategory;
         try {
-            // Detect if this is an Activity dialog by checking for activity-related text in headers
-            const headerElements = ctx.querySelectorAll('span[dir="auto"], h1, h2');
-            for (const el of headerElements) {
-                const text = (el.innerText || el.textContent || '').trim();
-                if (CONFIG.ACTIVITY_TEXTS.some(t => text === t)) {
-                    isActivityDialog = true;
-                    console.log('[collectFullDialogUsers] Detected Activity dialog, attempting to switch to likes tab');
-                    break;
-                }
-            }
+        recordCleanDiagnostic('start', {
+            pathnameCategory: diagnosticPath, dialogFound: !!ctx, listFound: !!ctx,
+            candidateCount: ctx?.querySelectorAll?.('a[href^="/@"]')?.length || 0,
+            activeTabCategory: 'unknown', operationId,
+        });
+        const fail = (reason, extra = {}) => {
+            const result = normalizeDialogCollectionResult({ users: [], reason, complete: false, ...extra });
+            Core.lastDialogCollectionResult = result;
+            recordCleanDiagnostic('stop', {
+                stopReason: reason, complete: false, ok: false,
+                candidateCount: extra.visibleRows || extra.activityVisibleCount || 0,
+                selectedCount: 0,
+                dialogFound: !!ctx, listFound: !!ctx, operationId,
+            });
+            if (ownsOperation) RuntimeDiagnostics.end(operationId, 'terminal', { reason, ok: false, complete: false });
+            return result;
+        };
+        if (!ctx) return fail('missing_dialog');
 
-            if (isActivityDialog) {
-                const likesTab = Core.SweepDriver.findLikesTab(ctx);
-                if (likesTab) {
+        const headerText = Array.from(ctx.querySelectorAll?.('span[dir="auto"], h1, h2, [role="heading"]') || [])
+            .map(el => (el.innerText || el.textContent || '').trim());
+        const activityByHeader = headerText.some(text => CONFIG.ACTIVITY_TEXTS.some(t => text === t));
+        const rawListByHeader = headerText.some(text => /followers|following|追蹤者|追蹤中|粉絲|關注|フォロワー|フォロー中/i.test(text));
+        const rawDialogReason = String(options.dialogReason || '').toLowerCase();
+        const knownRawList = rawListByHeader || rawDialogReason === 'followers' || rawDialogReason === 'following';
+        const initialLikesTab = DialogCollector.findLikesTab(ctx, CONFIG.LIKES_TAB_TEXTS);
+        const currentLikesEvidence = DialogCollector.hasCurrentLikesEvidence(ctx);
+        const isActivityDialog = activityByHeader || !!initialLikesTab || currentLikesEvidence
+            || Array.from(ctx.querySelectorAll?.('[role="tab"], [role="button"], button') || [])
+                .some(el => /quotes|引用|repost|轉發/i.test(el.getAttribute?.('aria-label') || el.innerText || el.textContent || ''));
+
+        let verifiedLikesContext = false;
+        let classificationStrategy = 'unknown';
+
+        if (isActivityDialog) {
+            const likesTab = initialLikesTab || Core.SweepDriver?.findLikesTab?.(ctx);
+            if (!likesTab) {
+                if (!DialogCollector.hasCurrentLikesEvidence(ctx)
+                    && !DialogCollector.isLikesContextReady(ctx, CONFIG.LIKES_TAB_TEXTS)) return fail('likes_tab_not_identified');
+            }
+            const waitForLikesRender = async (initialCtx, requireSwitch = false) => {
+                let previousSignature = '';
+                const readiness = await DialogCollector.waitForLikesContextReady(initialCtx, {
+                    likesTexts: CONFIG.LIKES_TAB_TEXTS,
+                    getLiveContext: () => Core.getTopContext?.() || initialCtx,
+                    requireChange: requireSwitch,
+                    maxAttempts: 12,
+                    waitMs: 150,
+                    onObservation: ({ attempt, snapshot, selected, evidence, contextChanged, rootChanged, stableObservations }) => {
+                        const signature = `${contextChanged ? 'new' : 'same'}:${selected}:${evidence}:${snapshot.signature}`;
+                        const previous = previousSignature;
+                        previousSignature = signature;
+                        recordCleanDiagnostic('wait', {
+                            attempt, tabCandidates: snapshot.context?.querySelectorAll?.('[role="tab"], [role="button"], button, [role="link"]')?.length || 0,
+                            candidateCount: snapshot.candidateCount, uniqueCandidateCount: snapshot.uniqueCandidateCount,
+                            rowCount: snapshot.rowCount, selectedTab: selected, activeTab: selected,
+                            loading: snapshot.loading, dialogFound: !!snapshot.context, listFound: snapshot.candidateCount > 0,
+                            mutation: contextChanged || rootChanged, progress: signature !== previous,
+                            uniqueAfter: snapshot.rowCount, retryCount: stableObservations,
+                        });
+                    },
+                });
+                return readiness || null;
+            };
+            if (likesTab && !DialogCollector.isSelectedTab(likesTab)) {
+                recordCleanDiagnostic('tab', {
+                    tabCandidates: ctx?.querySelectorAll?.('[role="tab"], [role="button"], button, [role="link"]')?.length || 0,
+                    switchAttempt: true, selectedTab: false, activeTabCategory: 'likes',
+                });
+                try {
                     Utils.simClick(likesTab);
+                    // v2.6 semantics: Threads swaps tab content in place, so the
+                    // context element identity does not change. Demanding a
+                    // *different* element rejected the correct container and
+                    // latched onto a smaller sibling holding only the post author.
+                    // Let the swapped content settle, then accept the live context.
                     await Utils.safeSleep(500);
-                    const newCtx = Core.getTopContext();
-                    if (newCtx && newCtx !== document.body) {
-                        ctx = newCtx;
-                        console.log('[collectFullDialogUsers] Successfully switched to likes tab, using updated context');
+                    const readiness = await waitForLikesRender(ctx, false);
+                    if (!readiness) {
+                        return fail('likes_tab_switch_failed');
                     }
+                    ctx = readiness.ctx;
+                    verifiedLikesContext = readiness.verifiedLikesContext === true;
+                    classificationStrategy = readiness.classificationStrategy || 'unknown';
+                    recordCleanDiagnostic('tab', {
+                        switchAttempt: true, switchSucceeded: true, activeTab: true, activeTabCategory: 'likes',
+                        classificationStrategy, verifiedLikesContext,
+                        candidateCount: readiness.snapshot?.candidateCount || 0,
+                        uniqueCandidateCount: readiness.snapshot?.uniqueCandidateCount || 0,
+                        rowCount: readiness.snapshot?.rowCount || 0,
+                        uniqueVisibleRows: readiness.snapshot?.rowCount || 0,
+                    });
+                } catch (err) {
+                    recordCleanDiagnostic('error', {
+                        errorName: err?.name || 'Error', errorCode: 'tab_switch_failed', errorStack: 'tab_switch', errorFunction: 'collectFullDialogUsers',
+                        switchAttempt: true, switchSucceeded: false, activeTabCategory: 'likes',
+                    });
+                    return fail('likes_tab_switch_failed');
                 }
+            } else {
+                const readiness = await waitForLikesRender(ctx, false);
+                if (!readiness) return fail(likesTab ? 'likes_tab_switch_failed' : 'likes_tab_not_identified');
+                ctx = readiness.ctx;
+                verifiedLikesContext = readiness.verifiedLikesContext === true;
+                classificationStrategy = readiness.classificationStrategy || 'unknown';
+                recordCleanDiagnostic('tab', {
+                    switchAttempt: false, switchSucceeded: true, activeTab: true, activeTabCategory: 'likes',
+                    classificationStrategy, verifiedLikesContext,
+                    candidateCount: readiness.snapshot?.candidateCount || 0,
+                    uniqueCandidateCount: readiness.snapshot?.uniqueCandidateCount || 0,
+                    rowCount: readiness.snapshot?.rowCount || 0,
+                    uniqueVisibleRows: readiness.snapshot?.rowCount || 0,
+                });
             }
-        } catch (err) {
-            console.warn('[collectFullDialogUsers] activity tab switch failed, fallback to raw ctx', err);
         }
 
-        let scrollBox = ctx;
-        if (ctx.scrollHeight === ctx.clientHeight) {
-            const innerBoxes = ctx.querySelectorAll('div');
-            for (let b of innerBoxes) {
-                if (b.scrollHeight > b.clientHeight && window.getComputedStyle(b).overflowY !== 'hidden') {
-                    scrollBox = b;
-                    break;
-                }
-            }
-        }
+        const skipPostOwner = options.skipPostOwner !== undefined
+            ? options.skipPostOwner === true
+            : !verifiedLikesContext;
+        const collectionSkipUsers = () => Core.buildSkipUsers(ctx, { skipPostOwner });
+        const collectionSkipBreakdown = usernames => Core.getSkipUserBreakdown(ctx, usernames, { skipPostOwner });
+        // Evidence-only survey: live runs keep landing on a container holding a
+        // single account, while the rendered list clearly holds many. Record the
+        // safe shape of every candidate container so the real list container can
+        // be identified without guessing selectors. Counts and sizes only: never
+        // accounts, links, text or DOM.
+        const recordContextSurvey = (attemptOffset = 0) => {
+            try {
+                const surveyRoots = [...document.querySelectorAll('[role="dialog"]'), document.body];
+                surveyRoots.forEach((node, index) => {
+                    if (!node?.querySelectorAll) return;
+                    const exactLinks = Array.from(node.querySelectorAll('a[href^="/@"]'))
+                        .filter(link => /^\/@[^/?#]+\/?$/.test(link.getAttribute?.('href') || '')).length;
+                    recordCleanDiagnostic('dialog', {
+                        attempt: attemptOffset + index,
+                        dialogFound: node !== document.body,
+                        activeTab: node === ctx,
+                        exactLinkCount: exactLinks,
+                        tabCandidates: node.querySelectorAll('[role="tab"], [role="button"], button, [role="link"]').length,
+                        scrollRootCandidates: Array.from(node.querySelectorAll('*'))
+                            .filter(el => Number(el.scrollHeight || 0) > Number(el.clientHeight || 0) + 4).length,
+                        clientHeight: Number(node.clientHeight || 0),
+                        scrollHeight: Number(node.scrollHeight || 0),
+                    });
+                });
+            } catch (_) { /* diagnostics must never break collection */ }
+        };
+        recordContextSurvey(0);
+        let scrollBox = DialogCollector.findScrollableRoot(ctx, { verifiedLikesContext, classificationStrategy });
+        recordCleanDiagnostic('dialog', {
+            dialogFound: !!ctx, listFound: (ctx?.querySelectorAll?.('a[href^="/@"]')?.length || 0) > 0,
+            scrollRootFound: !!scrollBox, scrollRootSelected: scrollBox !== ctx,
+            scrollRootCandidates: ctx?.querySelectorAll?.('div')?.length || 0,
+            strategy: 'scroll_ancestor',
+        });
 
         const maxLimit = window.__DEBUG_HEGE_LIKES_LIMIT || 1000;
         const label = options.label || '掃描整串帳號名單';
-        const collectedLinks = new Set();
+        const state = isActivityDialog ? DialogCollector.createState() : DialogCollector.createFollowerState();
+        // Require an initial load/render observation before classifying an
+        // unchanged dialog as empty/end; this prevents a transient 0-row pass.
+        let renderObservations = 0;
+        let sawVisibleRows = false;
+        const initialRenderDeadlineMs = Number.isFinite(options.initialRenderDeadlineMs)
+            ? Math.max(300, Math.min(3000, Math.floor(options.initialRenderDeadlineMs)))
+            : 1200;
+        const initialRenderStartedAt = Date.now();
+        let initialGateComplete = false;
+        let initialGateExpired = false;
+        let stableEmptyObservations = 0;
+        let explicitEmptyState = false;
         let isAborted = false;
         let unchangedCount = 0;
-        let lastCollectedSize = 0;
         let scrollCount = 0;
+        let reachedEnd = false;
+        let stalled = false;
+        let truncated = false;
         const maxScrolls = 800;
-
-        const progressId = 'hege-full-dialog-progress-' + Date.now();
         const progressUI = document.createElement('div');
-        progressUI.id = progressId;
+        progressUI.id = 'hege-full-dialog-progress-' + Date.now();
         progressUI.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.86);color:#fff;padding:10px 16px;border-radius:18px;z-index:99999;display:flex;align-items:center;gap:12px;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,0.3);';
-
         const countSpan = document.createElement('span');
         countSpan.textContent = `${label}... 已收集: 0 人`;
-
         const stopBtn = document.createElement('button');
         stopBtn.textContent = '停止並結算';
         stopBtn.style.cssText = 'background:#ff3b30;color:white;border:none;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;font-weight:700;';
         stopBtn.onclick = () => { isAborted = true; };
-
-        progressUI.appendChild(countSpan);
-        progressUI.appendChild(stopBtn);
-
-        const currentPos = window.getComputedStyle(scrollBox).position;
-        if (currentPos === 'static') scrollBox.style.position = 'relative';
-        scrollBox.appendChild(progressUI);
-
+        progressUI.append(countSpan, stopBtn);
+        // Keep progress UI outside the scroll root: its own layout must not
+        // change scrollHeight or be mistaken for list progress.
+        progressUI.style.position = 'fixed';
+        (document.body || ctx).appendChild(progressUI);
         const escListener = (e) => { if (e.key === 'Escape') isAborted = true; };
         document.addEventListener('keydown', escListener);
 
         const collectRendered = () => {
-            const links = ctx.querySelectorAll('a[href^="/@"]');
-            let lastLink = null;
-            Array.from(links).forEach(a => {
-                const isHeaderLink = a.closest('h1, h2, [role="heading"]');
-                if (isHeaderLink) return;
-
-                const href = a.getAttribute('href') || '';
-                const match = href.match(/^\/@([^/?#]+)/);
-                if (!match || !match[1]) return;
-
-                collectedLinks.add(match[1]);
-                lastLink = a;
-            });
-            return lastLink;
+            const listContext = scrollBox || ctx;
+            const batch = isActivityDialog
+                ? DialogCollector.collectVisible(listContext, state, {
+                    verifiedLikesContext, classificationStrategy,
+                    allowVerifiedLikesAnchorFallback: verifiedLikesContext === true,
+                    anchorContext: ctx, skipUsers: collectionSkipUsers(),
+                })
+                : DialogCollector.collectFollowerRows(listContext, state, {
+                    maxLimit, skipUsers: collectionSkipUsers(), selfUser: Utils.getMyUsername?.() || '',
+                });
+            if (isActivityDialog && batch?.anchorDiagnostics) {
+                recordCleanDiagnostic('anchor_filter', { ...batch.anchorDiagnostics, classificationStrategy });
+            }
+            renderObservations += 1;
+            sawVisibleRows = sawVisibleRows || Number(batch?.visibleRows || 0) > 0;
+            const visibleUsers = isActivityDialog
+                ? DialogCollector.usersFromState(state, collectionSkipUsers(), maxLimit)
+                : (batch?.users || []).slice(0, maxLimit);
+            countSpan.textContent = `${label}... 已收集: ${visibleUsers.length} 人`;
+            return batch;
         };
-
         try {
             while (scrollCount < maxScrolls && !isAborted) {
-                const lastNode = collectRendered();
-                countSpan.textContent = `${label}... 已收集: ${collectedLinks.size} 人`;
-
-                if (collectedLinks.size >= maxLimit) {
+                // The Likes list only gains scroll range once lazy rows arrive,
+                // so the first resolution can find no candidate and fall back to
+                // the non-scrollable dialog shell. Keep re-resolving until a real
+                // root appears; scrolling the shell is a silent no-op.
+                if (scrollBox === ctx) {
+                    const resolved = DialogCollector.findScrollableRoot(ctx, { verifiedLikesContext, classificationStrategy });
+                    if (resolved && resolved !== ctx) {
+                        scrollBox = resolved;
+                        recordCleanDiagnostic('dialog', {
+                            scrollRootFound: true, scrollRootSelected: true,
+                            scrollRootCandidates: [ctx, ...Array.from(ctx.querySelectorAll?.('*') || [])]
+                                .filter(node => Number(node.scrollHeight || 0) > Number(node.clientHeight || 0) + 4).length,
+                            strategy: 'scroll_ancestor',
+                        });
+                    }
+                }
+                const before = {
+                    scrollTop: Number(scrollBox?.scrollTop || 0),
+                    clientHeight: Number(scrollBox?.clientHeight || 0),
+                    scrollHeight: Number(scrollBox?.scrollHeight || 0),
+                    uniqueRows: Number(state.entries?.size || state.users?.size || 0),
+                };
+                const batch = collectRendered();
+                recordCleanDiagnostic('rows', {
+                    rowCandidates: batch?.visibleRows || state.visibleRows || 0,
+                    validAccountRows: batch?.validAccountRows || batch?.activityVisibleCount || 0,
+                    eligibleCount: isActivityDialog ? DialogCollector.usersFromState(state, collectionSkipUsers(), maxLimit).length : state.users?.size || 0,
+                    duplicateCount: state.breakdown?.duplicate || 0,
+                    unknownCount: batch?.unknownRows || state.unknownRows || 0,
+                    uniqueVisibleRows: batch?.uniqueVisibleRows || batch?.visibleRows || 0,
+                    uniqueUnknownRows: batch?.uniqueUnknownRows || batch?.unknownRows || 0,
+                    uniqueEligibleCount: isActivityDialog ? DialogCollector.usersFromState(state, collectionSkipUsers(), maxLimit).length : state.users?.size || 0,
+                    classificationStrategy,
+                    renderObservations,
+                    ...(isActivityDialog ? (batch?.anchorDiagnostics || {}) : {}),
+                });
+                const visibleUnique = Number(state.entries?.size || state.users?.size || 0);
+                const observedForBreakdown = isActivityDialog
+                    ? [...(state.entries?.values?.() || [])].map(entry => entry.username || '')
+                    : [...(state.users || [])];
+                const liveSkipBreakdown = collectionSkipBreakdown(observedForBreakdown);
+                recordCleanDiagnostic('rows', {
+                    ...liveSkipBreakdown,
+                    eligibleCount: isActivityDialog ? DialogCollector.usersFromState(state, collectionSkipUsers(), maxLimit).length : state.users?.size || 0,
+                    ...(isActivityDialog ? (batch?.anchorDiagnostics || {}) : {}),
+                });
+                const hasRowEvidence = Number(batch?.visibleRows || 0) > 0 || Number(batch?.unknownRows || 0) > 0;
+                if (hasRowEvidence) {
+                    initialGateComplete = true;
+                } else if (!initialGateComplete) {
+                    stableEmptyObservations += 1;
+                    explicitEmptyState = /(?:no followers|no users|沒有粉絲|沒有追蹤者|沒有帳號)/i.test(
+                        String(ctx.innerText || ctx.textContent || '')
+                    );
+                    const elapsed = Date.now() - initialRenderStartedAt;
+                    if (!explicitEmptyState && elapsed < initialRenderDeadlineMs) {
+                        await Utils.safeSleep(Math.min(120, initialRenderDeadlineMs - elapsed));
+                        scrollCount += 1;
+                        continue;
+                    }
+                    initialGateComplete = true;
+                    initialGateExpired = !explicitEmptyState;
+                    if (explicitEmptyState || stableEmptyObservations >= 3) {
+                        reachedEnd = true;
+                        break;
+                    }
+                }
+                const currentUsers = isActivityDialog
+                    ? DialogCollector.usersFromState(state, collectionSkipUsers(), maxLimit)
+                    : [...state.users].slice(0, maxLimit);
+                if (currentUsers.length >= maxLimit) {
+                    truncated = true;
                     UI.showToast(`已達最大安全上限 (${maxLimit} 人)，自動結算。`, 3000);
                     break;
                 }
-
-                if (scrollBox && typeof scrollBox.scrollBy === 'function') {
-                    const step = Math.max(900, Math.round((scrollBox.clientHeight || 700) * 1.25));
-                    scrollBox.scrollBy({ top: step, behavior: 'auto' });
-                } else if (lastNode) {
-                    lastNode.scrollIntoView({ behavior: 'auto', block: 'end' });
-                } else {
-                    scrollBox.scrollTo(0, scrollBox.scrollHeight + 100);
-                }
-
+                // Only visible rows are harvested each pass, so the step must
+                // never exceed the visible window: anything skipped over is lost
+                // for good. Keep a small overlap so boundary rows are not missed.
+                const scrollStep = Math.max(120, Math.round((Number(scrollBox?.clientHeight) || 700) * 0.8));
+                if (typeof scrollBox?.scrollBy === 'function') scrollBox.scrollBy({ top: scrollStep, behavior: 'auto' });
+                else if (typeof scrollBox?.scrollTo === 'function') scrollBox.scrollTo(0, Number(scrollBox.scrollTop || 0) + scrollStep);
                 await Utils.safeSleep(180);
-
-                if (collectedLinks.size === lastCollectedSize) {
-                    unchangedCount++;
-                    if (unchangedCount >= 4) break;
-                    if (scrollBox && typeof scrollBox.scrollBy === 'function') {
-                        scrollBox.scrollBy({ top: 1600, behavior: 'auto' });
-                    }
-                    await Utils.safeSleep(160);
-                } else {
-                    unchangedCount = 0;
-                    lastCollectedSize = collectedLinks.size;
+                const after = {
+                    scrollTop: Number(scrollBox?.scrollTop || 0),
+                    clientHeight: Number(scrollBox?.clientHeight || 0),
+                    scrollHeight: Number(scrollBox?.scrollHeight || 0),
+                };
+                const rootAdvanced = after.scrollTop > before.scrollTop || after.scrollHeight > before.scrollHeight;
+                const visibleProgress = Math.max(0, visibleUnique - before.uniqueRows);
+                const progress = rootAdvanced || visibleProgress > 0;
+                const atBottom = after.scrollTop + after.clientHeight >= after.scrollHeight - 2;
+                recordCleanDiagnostic('scroll', {
+                    scrollAttempt: scrollCount, beforeScrollTop: before.scrollTop, afterScrollTop: after.scrollTop,
+                    scrollTop: after.scrollTop, clientHeight: after.clientHeight,
+                    beforeScrollHeight: before.scrollHeight, afterScrollHeight: after.scrollHeight, scrollHeight: after.scrollHeight,
+                    atBottom, progress, visibleProgress, rootAdvanced, strategy: 'scroll_ancestor',
+                });
+                if (!progress) unchangedCount += 1;
+                else unchangedCount = 0;
+                if (unchangedCount >= 4 && renderObservations >= 2) {
+                    reachedEnd = atBottom;
+                    stalled = !reachedEnd;
+                    break;
                 }
-
-                scrollCount++;
+                scrollCount += 1;
             }
-
             collectRendered();
         } finally {
             document.removeEventListener('keydown', escListener);
@@ -466,57 +1329,382 @@ export const Core = {
             if (scrollBox && typeof scrollBox.scrollTo === 'function') scrollBox.scrollTo(0, 0);
         }
 
-        const skipUsers = Core.buildSkipUsers(ctx);
-        let rawUsers = Array.from(collectedLinks).filter(u => !skipUsers.has(u));
+        // Evidence-only end-of-run survey: capture final container state with
+        // attemptOffset=100 to distinguish from start-of-run survey (attemptOffset=0)
+        recordContextSurvey(100);
 
-        // Activity dialog row filter: keep only rows with heart icon (likes)
-        if (isActivityDialog && rawUsers.length > 0) {
-            const filteredUsers = [];
-            for (const username of rawUsers) {
-                // Find all links with this username
-                const userLinks = Array.from(ctx.querySelectorAll('a[href^="/@"]')).filter(link => {
-                    const href = link.getAttribute('href') || '';
-                    return href === `/@${username}` || href.startsWith(`/@${username}?`) || href.startsWith(`/@${username}/`);
+        const skipUsers = collectionSkipUsers();
+        const observedUsers = isActivityDialog
+            ? [...(state.entries?.values?.() || [])].map(entry => entry.username || '')
+            : [...(state.users || [])];
+        const skipBreakdown = collectionSkipBreakdown(observedUsers);
+        if (!isActivityDialog && !knownRawList) {
+            return fail('unknown_dialog_schema', {
+                activity: false,
+                batches: state.batches,
+                visibleRows: state.visibleRows,
+                unknownRows: state.unknownRows,
+                counts: { ...skipBreakdown },
+            });
+        }
+        const users = isActivityDialog
+            ? DialogCollector.usersFromState(state, skipUsers, maxLimit)
+            : [...state.users].filter(username => !skipUsers.has(String(username || '').replace(/^@+/, '').toLowerCase())).slice(0, maxLimit);
+        let reason = 'completed';
+        if (isAborted) reason = 'stopped';
+        else if (Number(state.unknownRows || 0) > 0) reason = 'rows_unknown';
+        else if (!sawVisibleRows) {
+            reason = explicitEmptyState && initialGateComplete && !initialGateExpired ? 'empty_end' : 'rows_missing';
+        } else if (truncated) reason = 'limited';
+        else if (reachedEnd) reason = 'end';
+        else if (stalled) reason = 'scroll_stall';
+        else if (scrollCount >= maxScrolls) reason = 'max_scrolls';
+        const result = normalizeDialogCollectionResult({
+            users,
+            reason,
+            complete: COMPLETE_DIALOG_REASONS.includes(reason) && Number(state.unknownRows || 0) === 0,
+            truncated,
+            activity: isActivityDialog,
+            batches: state.batches,
+            visibleRows: state.visibleRows,
+            activityVisibleCount: state.activityVisibleCount || state.validAccountRows || 0,
+            likeRows: state.likeRows || 0,
+            collectorLikedCount: users.length,
+            nonLikeRows: state.nonLikeRows || 0,
+            unknownRows: state.unknownRows || 0,
+            renderObservations,
+            counts: {
+                visibleRows: state.visibleRows, uniqueVisibleRows: state.uniqueVisibleRows || state.visibleRows,
+                validAccountRows: state.validAccountRows || state.activityVisibleCount || 0,
+                unknownRows: state.unknownRows || 0, uniqueUnknownRows: state.uniqueUnknownRows || state.unknownRows || 0,
+                ...skipBreakdown,
+                ...(isActivityDialog ? (state.anchorDiagnostics || {}) : {}),
+                renderObservations,
+            },
+        });
+        Core.lastDialogCollectionResult = result;
+        recordCleanDiagnostic(result.complete ? 'commit' : 'stop', {
+            complete: result.complete, ok: result.ok, stopReason: reason,
+            candidateCount: result.counts?.visibleRows || state.visibleRows || 0,
+            validAccountRows: result.activityVisibleCount || state.validAccountRows || 0,
+            eligibleCount: users.length, selectedCount: users.length,
+            duplicateCount: state.breakdown?.duplicate || 0,
+            unknownCount: state.unknownRows || 0,
+            uniqueVisibleRows: state.uniqueVisibleRows || state.visibleRows || 0,
+            uniqueUnknownRows: state.uniqueUnknownRows || state.unknownRows || 0,
+            uniqueEligibleCount: users.length, classificationStrategy, operationId,
+            ...skipBreakdown,
+            ...(isActivityDialog ? (state.anchorDiagnostics || {}) : {}),
+            rootAdvanced: !stalled,
+            strategy: 'scroll_ancestor',
+        });
+        if (ownsOperation) RuntimeDiagnostics.end(operationId, result.complete ? 'commit' : 'rollback', { reason, ok: result.ok, complete: result.complete, atomic: true });
+        return result;
+        } catch (err) {
+            recordCleanDiagnostic('error', { errorName: err?.name || 'Error', errorCode: 'collector_exception', reason: 'exception' });
+            RuntimeDiagnostics.end(operationId, 'terminal', { reason: 'exception', ok: false, complete: false });
+            throw err;
+        }
+    },
+
+    findProfileFollowersControl: (profileRoot) => {
+        if (!profileRoot?.querySelectorAll) return null;
+        const candidates = Array.from(profileRoot.querySelectorAll('a, button, [role="button"], [role="link"]'));
+        return candidates.find((candidate) => {
+            const href = candidate.getAttribute?.('href') || '';
+            if (/^\/(?:search|tags)\b/i.test(href) || candidate.closest?.('a[href^="/search"], a[href^="/tags"]')) return false;
+            const text = [candidate.getAttribute?.('aria-label'), candidate.innerText, candidate.textContent]
+                .filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+            return /followers|粉絲|追蹤者|フォロワー|followers list/i.test(text);
+        }) || null;
+    },
+
+    enqueueFollowerUsers: (users, targetOwner = '') => {
+        const normalizedTarget = normalizeFailureUsername(targetOwner).toLowerCase();
+        const self = normalizeFailureUsername(Utils.getMyUsername?.() || '').toLowerCase();
+        const db = new Set(Storage.getBlockDB().map(u => normalizeFailureUsername(u).toLowerCase()));
+        const queue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+        const queued = new Set(queue.map(u => normalizeFailureUsername(u).toLowerCase()));
+        const targets = [...new Set((Array.isArray(users) ? users : [])
+            .map(u => normalizeFailureUsername(u))
+            .filter(Boolean))];
+        const toAdd = targets.filter(username => {
+            const lower = username.toLowerCase();
+            return lower !== normalizedTarget && lower !== self && !db.has(lower) && !queued.has(lower);
+        });
+        if (toAdd.length > 0) {
+            Storage.setJSON(CONFIG.KEYS.BG_QUEUE, [...queue, ...toAdd]);
+            Core.setBlockContext(toAdd, { reason: 'followers', batch: `followers_${Date.now()}` }, { preserveExisting: true });
+        }
+        Core.updateControllerUI();
+        return { added: toAdd.length, skipped: targets.length - toAdd.length, users: toAdd };
+    },
+
+    collectFollowersForProfile: async (targetOwner = '', options = {}) => {
+        const followerOperationId = typeof RuntimeDiagnostics !== 'undefined'
+            ? RuntimeDiagnostics.begin('followers', { strategy: 'scroll_ancestor' }) : null;
+        const recordFollowerDiagnostic = (...args) => {
+            try {
+                if (typeof RuntimeDiagnostics === 'undefined') return null;
+                const fields = args[2] && typeof args[2] === 'object' ? { ...args[2], operationId: followerOperationId } : { operationId: followerOperationId };
+                return RuntimeDiagnostics.record(args[0], args[1], fields);
+            } catch (e) { return null; }
+        };
+        if (Core._followerCollectionRunning) {
+            recordFollowerDiagnostic('followers', 'stop', { stopReason: 'stopped', stopped: true, complete: false });
+            if (typeof RuntimeDiagnostics !== 'undefined') RuntimeDiagnostics.end(followerOperationId, 'terminal', { reason: 'failure', ok: false });
+            return { ok: false, reason: 'already_running', users: [] };
+        }
+        const normalizedTarget = normalizeFailureUsername(targetOwner || Core.ThreeNoWatch?.getCurrentProfileUsername?.());
+        if (!normalizedTarget) {
+            recordFollowerDiagnostic('followers', 'stop', { stopReason: 'rows_missing', complete: false });
+            if (typeof RuntimeDiagnostics !== 'undefined') RuntimeDiagnostics.end(followerOperationId, 'terminal', { reason: 'rows_missing', ok: false });
+            return { ok: false, reason: 'missing_profile', users: [] };
+        }
+        const profileRoot = Core.findProfileRoot(normalizedTarget);
+        const control = Core.findProfileFollowersControl(profileRoot);
+        if (!profileRoot || !control) {
+            recordFollowerDiagnostic('followers', 'stop', { stopReason: 'rows_missing', dialogFound: false, complete: false });
+            if (typeof RuntimeDiagnostics !== 'undefined') RuntimeDiagnostics.end(followerOperationId, 'terminal', { reason: 'rows_missing', ok: false });
+            return { ok: false, reason: 'followers_control_not_found', users: [] };
+        }
+        Core._followerCollectionRunning = true;
+        const totalHintMatch = String(profileRoot.innerText || profileRoot.textContent || '')
+            .match(/(?:followers|粉絲|追蹤者)[^\d]{0,24}(\d{1,6})|([\d,]{1,7})[^\d]{0,8}(?:followers|粉絲|追蹤者)/i);
+        const totalHintValue = Number(String(totalHintMatch?.[1] || totalHintMatch?.[2] || '').replace(/,/g, ''));
+        const totalHint = Number.isFinite(totalHintValue) && totalHintValue > 0 && totalHintValue <= 100000 ? totalHintValue : 0;
+        const maxLimit = Math.max(50, Math.min(1000, totalHint || 200));
+        recordFollowerDiagnostic('followers', 'start', {
+            pathnameCategory: /^\/(?:messages?|direct|inbox)(?:\/|$)/i.test(String(typeof window !== 'undefined' ? window.location?.pathname : ''))
+                ? 'message' : (/^\/@[^/]+/i.test(String(typeof window !== 'undefined' ? window.location?.pathname : '')) ? 'profile' : 'unknown'),
+            totalHint, candidateCount: 0, pendingCount: Core.pendingUsers?.size || 0,
+        });
+        const state = DialogCollector.createFollowerState();
+        const blockedFollowerUsers = typeof Storage !== 'undefined' && Storage.getBlockDB ? Storage.getBlockDB() : [];
+        const queuedFollowerUsers = typeof Storage !== 'undefined' && Storage.getJSON ? Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []) : [];
+        let stopped = false;
+        let stalled = false;
+        let reachedEnd = false;
+        let scrollCount = 0;
+        let lastFingerprint = '';
+        let unchangedCount = 0;
+        let bottomObservations = 0;
+        let stallRounds = 0;
+        let uniqueObserved = 0;
+        let timedOut = false;
+        let renderObservations = 0;
+        let sawVisibleRows = false;
+        let sawUnknownRows = false;
+        const initialRenderDeadlineMs = Number.isFinite(options.initialRenderDeadlineMs)
+            ? Math.max(300, Math.min(3000, Math.floor(options.initialRenderDeadlineMs)))
+            : 1200;
+        const initialRenderStartedAt = Date.now();
+        let initialGateComplete = false;
+        let initialGateExpired = false;
+        let stableEmptyObservations = 0;
+        let explicitEmptyState = false;
+        const maxScrolls = 60;
+        const maxDurationMs = Number.isFinite(options.maxDurationMs)
+            ? Math.max(3000, Math.min(30000, Math.floor(options.maxDurationMs)))
+            : 18000;
+        const collectionStartedAt = Date.now();
+        const stop = () => { stopped = true; recordFollowerDiagnostic('followers', 'stop', { stopped: true, stopReason: 'stopped', scrollCount }); };
+        const keyListener = (event) => { if (event.key === 'Escape') stop(); };
+        const progress = document.createElement('div');
+        progress.id = 'hege-profile-followers-progress';
+        progress.style.cssText = 'position:fixed;top:12%;left:50%;transform:translateX(-50%);z-index:2147483647;background:rgba(0,0,0,.9);color:#fff;padding:12px 16px;border-radius:12px;display:flex;gap:12px;align-items:center;font-size:13px;';
+        const progressText = document.createElement('span');
+        progressText.textContent = '收集粉絲中…';
+        const progressStop = document.createElement('button');
+        progressStop.textContent = '停止並結算';
+        progressStop.style.cssText = 'background:#ff3b30;color:#fff;border:0;border-radius:6px;padding:5px 9px;font-weight:700;';
+        progressStop.onclick = stop;
+        progress.append(progressText, progressStop);
+        document.body.appendChild(progress);
+        document.addEventListener('keydown', keyListener);
+        try {
+            Utils.simClick(control);
+            let ctx = null;
+            for (let attempt = 0; attempt < 20; attempt += 1) {
+                await Utils.safeSleep(150);
+                const candidate = Core.getTopContext();
+                const followerLabels = CONFIG.FOLLOWERS_TEXTS || ['Followers', '粉絲'];
+                const marker = candidate && Array.from(candidate.querySelectorAll?.('h1, h2, [role="heading"], [role="tab"], span[dir="auto"]') || [])
+                    .some(node => followerLabels.some(label => String(node.innerText || node.textContent || '').trim() === label));
+                if (candidate && candidate !== document.body && marker) {
+                    ctx = candidate;
+                    break;
+                }
+            }
+            if (!ctx) {
+                recordFollowerDiagnostic('followers', 'stop', { dialogFound: false, stopReason: 'missing_dialog', complete: false });
+                RuntimeDiagnostics.end(followerOperationId, 'terminal', { reason: 'missing_dialog', ok: false, complete: false });
+                return { ok: false, reason: 'followers_dialog_not_found', users: [] };
+            }
+            let scrollBox = DialogCollector.findScrollableRoot(ctx);
+            recordFollowerDiagnostic('followers', 'dialog', {
+                dialogFound: true, listFound: (ctx.querySelectorAll?.('a[href^="/@"]')?.length || 0) > 0,
+                scrollRootFound: !!scrollBox, scrollRootSelected: scrollBox !== ctx,
+                scrollRootCandidates: [ctx, ...Array.from(ctx.querySelectorAll?.('*') || [])].filter(node => Number(node.scrollHeight || 0) > Number(node.clientHeight || 0) + 4).length,
+                strategy: 'scroll_ancestor', totalHint,
+            });
+            const waitForFollowerProgress = async (timeoutMs = 260) => {
+                if (typeof MutationObserver !== 'function') {
+                    await Utils.safeSleep(timeoutMs);
+                    return false;
+                }
+                let observed = false;
+                await new Promise(resolve => {
+                    const observer = new MutationObserver(() => { observed = true; });
+                    observer.observe(ctx, { childList: true, subtree: true, attributes: true });
+                    setTimeout(() => { observer.disconnect(); resolve(); }, timeoutMs);
                 });
-                let hasHeartIcon = false;
-
-                for (const link of userLinks) {
-                    // Walk up to find row-like ancestor (listitem or data-* container)
-                    let row = link.closest('[role="listitem"]');
-                    if (!row) {
-                        let parent = link;
-                        for (let i = 0; i < 5 && parent && parent !== ctx; i++) {
-                            parent = parent.parentElement;
-                            if (parent && parent.hasAttribute && (parent.hasAttribute('data-testid') || parent.hasAttribute('data-key'))) {
-                                row = parent;
-                                break;
-                            }
-                        }
+                recordFollowerDiagnostic('followers', 'wait', { waitMs: timeoutMs, mutation: observed, progress: observed });
+                return observed;
+            };
+            const refreshFollowerContext = () => {
+                const candidate = Core.getTopContext?.();
+                const followerLabels = CONFIG.FOLLOWERS_TEXTS || ['Followers', '粉絲'];
+                const marker = candidate && Array.from(candidate.querySelectorAll?.('h1, h2, [role="heading"], [role="tab"], span[dir="auto"]') || [])
+                    .some(node => followerLabels.some(label => String(node.innerText || node.textContent || '').trim() === label));
+                if (candidate && candidate !== document.body && marker && candidate !== ctx) {
+                    ctx = candidate;
+                    scrollBox = DialogCollector.findScrollableRoot(ctx);
+                    recordFollowerDiagnostic('followers', 'dialog', { dialogFound: true, listFound: (ctx.querySelectorAll?.('a[href^="/@"]')?.length || 0) > 0, scrollRootFound: !!scrollBox, scrollRootSelected: scrollBox !== ctx, mutation: true, strategy: 'dialog_context' });
+                    return true;
+                }
+                return false;
+            };
+            while (!stopped && !options.shouldStop?.() && scrollCount < maxScrolls) {
+                if (Date.now() - collectionStartedAt >= maxDurationMs) {
+                    timedOut = true;
+                    break;
+                }
+                refreshFollowerContext();
+                const batch = DialogCollector.collectFollowerRows(ctx, state, {
+                    maxLimit, targetOwner: normalizedTarget, selfUser: Utils.getMyUsername?.() || '',
+                    blockedUsers: blockedFollowerUsers, queuedUsers: queuedFollowerUsers,
+                });
+                renderObservations += 1;
+                uniqueObserved = Math.max(uniqueObserved, Number(batch.breakdown?.observedUnique || 0));
+                recordFollowerDiagnostic('followers', 'rows', {
+                    observedUnique: uniqueObserved, uniqueBefore: Math.max(0, uniqueObserved - Number(batch.breakdown?.eligibleNew || 0)),
+                    uniqueAfter: uniqueObserved, uniqueDelta: Number(batch.breakdown?.eligibleNew || 0),
+                    candidateCount: batch.visibleRows, validAccountRows: batch.visibleRows - (batch.unknownRows || 0),
+                    eligibleCount: batch.breakdown?.eligibleNew, duplicateCount: batch.breakdown?.duplicate,
+                    unknownCount: batch.unknownRows, totalHint, renderObservations,
+                });
+                sawVisibleRows = sawVisibleRows || batch.visibleRows > 0;
+                sawUnknownRows = sawUnknownRows || batch.unknownRows > 0;
+                progressText.textContent = totalHint > 0
+                    ? `收集粉絲中… 已看到 ${uniqueObserved}/${totalHint} 位`
+                    : `收集粉絲中… 已看到 ${uniqueObserved} 位`;
+                const hasRowEvidence = batch.visibleRows > 0 || batch.unknownRows > 0;
+                if (hasRowEvidence) {
+                    initialGateComplete = true;
+                } else if (!initialGateComplete) {
+                    stableEmptyObservations += 1;
+                    explicitEmptyState = /(?:no followers|no users|沒有粉絲|沒有追蹤者|沒有帳號)/i.test(
+                        String(ctx.innerText || ctx.textContent || '')
+                    );
+                    const elapsed = Date.now() - initialRenderStartedAt;
+                    if (!explicitEmptyState && elapsed < initialRenderDeadlineMs) {
+                        // Initial dialog mount is not evidence of an empty list.
+                        // Keep observing within a bounded deadline and honour stop.
+                        await Utils.safeSleep(Math.min(120, initialRenderDeadlineMs - elapsed));
+                        scrollCount += 1;
+                        continue;
                     }
-                    if (!row) {
-                        row = link.parentElement?.parentElement?.parentElement?.parentElement?.parentElement;
-                    }
-
-                    // Check for heart icon in this row
-                    if (row && row.querySelector('svg[viewBox="0 0 18 18"] path[d*="8.33956"]')) {
-                        hasHeartIcon = true;
+                    initialGateComplete = true;
+                    initialGateExpired = !explicitEmptyState;
+                    if (explicitEmptyState || stableEmptyObservations >= 3) {
+                        reachedEnd = true;
                         break;
                     }
                 }
-
-                if (hasHeartIcon) {
-                    filteredUsers.push(username);
+                if (batch.users.length >= maxLimit || batch.truncated) break;
+                const fingerprint = `${state.seenUsernames?.size || batch.users.length}:${scrollBox.scrollTop || 0}:${scrollBox.scrollHeight || 0}:${ctx.querySelectorAll('a[href^="/@"]').length}`;
+                const sameFingerprint = fingerprint === lastFingerprint;
+                if (sameFingerprint) unchangedCount += 1;
+                else { unchangedCount = 0; lastFingerprint = fingerprint; }
+                const atBottom = (scrollBox.scrollTop + scrollBox.clientHeight >= scrollBox.scrollHeight - 2);
+                recordFollowerDiagnostic('followers', 'scroll', {
+                    scrollCount, scrollTop: scrollBox.scrollTop, clientHeight: scrollBox.clientHeight,
+                    scrollHeight: scrollBox.scrollHeight, atBottom, progress: !sameFingerprint,
+                    mutation: false, observedUnique: uniqueObserved, totalHint,
+                });
+                if (atBottom) bottomObservations += 1;
+                else bottomObservations = 0;
+                if (sameFingerprint && atBottom) stallRounds += 1;
+                else if (!atBottom || !sameFingerprint) stallRounds = 0;
+                if (unchangedCount >= 4 && renderObservations >= 2 && bottomObservations >= 2) {
+                    if (totalHint > 0 && uniqueObserved < totalHint && stallRounds < 8) {
+                        // Virtualized lists can pause at the same bottom height. Nudge
+                        // upward and return to bottom to re-trigger lazy rendering.
+                        const nudge = Math.min(180, Math.max(80, Math.round((scrollBox.clientHeight || 500) / 3)));
+                        recordFollowerDiagnostic('followers', 'scroll', { bounce: true, retryCount: stallRounds, scrollTop: scrollBox.scrollTop, clientHeight: scrollBox.clientHeight, scrollHeight: scrollBox.scrollHeight, observedUnique: uniqueObserved, totalHint, strategy: 'scroll_ancestor' });
+                        scrollBox.scrollTo?.(0, Math.max(0, (scrollBox.scrollTop || 0) - nudge));
+                        await waitForFollowerProgress(180);
+                        scrollBox.scrollTo?.(0, scrollBox.scrollHeight);
+                        await waitForFollowerProgress(260);
+                        unchangedCount = 0;
+                        bottomObservations = 0;
+                        scrollCount += 1;
+                        continue;
+                    }
+                    reachedEnd = true;
+                    stalled = totalHint > 0 && uniqueObserved < totalHint;
+                    break;
                 }
+                const previousTop = scrollBox.scrollTop || 0;
+                scrollBox.scrollBy?.({ top: Math.max(700, Math.round((scrollBox.clientHeight || 500) * 1.25)), behavior: 'auto' });
+                await Utils.safeSleep(180);
+                if ((scrollBox.scrollTop || 0) === previousTop && scrollBox.scrollHeight <= scrollBox.clientHeight) {
+                    bottomObservations += 1;
+                    if (bottomObservations >= 2) reachedEnd = true;
+                }
+                await waitForFollowerProgress(220);
+                recordFollowerDiagnostic('followers', 'scroll', {
+                    scrollCount, scrollTop: scrollBox.scrollTop, clientHeight: scrollBox.clientHeight,
+                    scrollHeight: scrollBox.scrollHeight, progress: (scrollBox.scrollTop || 0) !== previousTop,
+                    observedUnique: uniqueObserved, totalHint,
+                });
+                scrollCount += 1;
             }
-
-            if (filteredUsers.length > 0) {
-                rawUsers = filteredUsers;
-            } else {
-                console.warn('[collectFullDialogUsers] Heart icon filter returned 0 users, falling back to unfiltered results');
-            }
+            const final = DialogCollector.collectFollowerRows(ctx, state, {
+                maxLimit, targetOwner: normalizedTarget, selfUser: Utils.getMyUsername?.() || '',
+                blockedUsers: blockedFollowerUsers, queuedUsers: queuedFollowerUsers,
+            });
+            renderObservations += 1;
+            sawVisibleRows = sawVisibleRows || final.visibleRows > 0;
+            sawUnknownRows = sawUnknownRows || final.unknownRows > 0;
+            uniqueObserved = Math.max(uniqueObserved, Number(final.breakdown?.observedUnique || 0));
+            const partial = totalHint > 0 && uniqueObserved < totalHint;
+            const reason = stopped || options.shouldStop?.() ? 'stopped'
+                : (timedOut ? 'timeout'
+                : (sawUnknownRows ? 'rows_unknown'
+                    : (!sawVisibleRows ? (explicitEmptyState && initialGateComplete && !initialGateExpired ? 'empty_end' : 'rows_missing')
+                        : (final.truncated ? 'limited' : (reachedEnd
+                            ? (partial ? (bottomObservations >= 2 ? 'threads_partial' : 'scroll_stall') : 'end')
+                            : (stalled ? (partial ? 'threads_partial' : 'scroll_stall') : (scrollCount >= maxScrolls ? (partial ? 'limited' : 'max_scrolls') : 'completed')))))));
+            const valid = !['rows_missing', 'rows_unknown'].includes(reason);
+            recordFollowerDiagnostic('followers', valid ? 'stop' : 'error', {
+                complete: reason === 'end' || reason === 'completed', ok: valid, stopReason: reason,
+                observedUnique: uniqueObserved, totalHint, candidateCount: final.visibleRows,
+                eligibleCount: final.breakdown?.eligibleNew, duplicateCount: final.breakdown?.duplicate,
+                unknownCount: final.unknownRows, scrollCount, timedOut, stopped,
+            });
+            if (typeof RuntimeDiagnostics !== 'undefined') RuntimeDiagnostics.end(followerOperationId, valid ? 'finish' : 'error', { reason, ok: valid, complete: reason === 'end' || reason === 'completed', observedUnique: uniqueObserved, scrollCount });
+            return { ok: valid, users: valid ? final.users : [], count: valid ? final.users.length : 0, visibleRows: final.visibleRows, unknownRows: final.unknownRows, reason, truncated: final.truncated, cap: maxLimit, renderObservations, totalHint, observedUnique: uniqueObserved, breakdown: final.breakdown || state.breakdown };
+        } catch (err) {
+            recordFollowerDiagnostic('followers', 'error', { errorName: err?.name || 'Error', errorCode: 'collector_exception', reason: 'exception' });
+            RuntimeDiagnostics.end(followerOperationId, 'terminal', { reason: 'exception', ok: false, complete: false });
+            throw err;
+        } finally {
+            document.removeEventListener('keydown', keyListener);
+            progress.remove();
+            Core._followerCollectionRunning = false;
         }
-
-        return rawUsers;
     },
 
     normalizeSourceUrl: (url) => {
@@ -586,15 +1774,9 @@ export const Core = {
 
     hasVisibleDialogUserLinks: (ctx) => {
         if (!ctx || !ctx.querySelectorAll) return false;
-        const users = new Set();
-        Array.from(ctx.querySelectorAll('a[href^="/@"]')).forEach(a => {
-            const href = a.getAttribute('href') || '';
-            const match = href.match(/^\/@([^/?#]+)/);
-            if (!match || href.includes('/post/')) return;
-            const rect = a.getBoundingClientRect();
-            if (rect.width > 0 && rect.height > 0) users.add(Core.normalizeUsername ? Core.normalizeUsername(match[1]) : String(match[1] || ''));
-        });
-        return users.size >= 2;
+        // The injection gate and collector share the same bounded row
+        // inventory.  A link in a shared dialog ancestor is not evidence.
+        return DialogCollector.inventoryVisibleRows(ctx).length >= 2;
     },
 
     isReplyComposerDialog: (ctx) => {
@@ -682,6 +1864,8 @@ export const Core = {
     },
 
     init: () => {
+        RuntimeDiagnostics.record('runtime', 'config', { category: 'runtime_config', active: RuntimeDiagnostics.enabled(), foreground: typeof document !== 'undefined' });
+        RuntimeDiagnostics.installObservers(typeof window !== 'undefined' ? window : globalThis);
         Core.pendingUsers = new Set(Storage.getSessionJSON(CONFIG.KEYS.PENDING));
 
         const hasAgreed = Storage.get(CONFIG.KEYS.DISCLAIMER_AGREED);
@@ -718,11 +1902,13 @@ export const Core = {
     _scanDebounce: null,
     _scanInterval: null,
     _navScanHooksInstalled: false,
+    _resizeHookInstalled: false,
     runScannerPass: (updateUI = true) => {
         Core.scanAndInject();
         Core.injectDialogBlockAll();
         Core.injectDialogCheckboxes();
         if (updateUI) Core.updateControllerUI();
+        Core.updatePanelRouteVisibility();
     },
     scheduleScannerPass: (delay = 120) => {
         clearTimeout(Core._scanDebounce);
@@ -731,15 +1917,74 @@ export const Core = {
     scheduleNavigationScannerPass: () => {
         [80, 400, 1000].forEach(delay => setTimeout(() => Core.runScannerPass(false), delay));
     },
+    isMessageRouteContext: (locationLike = window.location, doc = document) => isMessageRouteContext(locationLike, doc),
+    updatePanelRouteVisibility: () => {
+        const panel = document.getElementById('hege-panel');
+        if (!panel) return false;
+        const hidden = Core.isMessageRouteContext(window.location, document);
+        const rect = panel.getBoundingClientRect?.() || {};
+        RuntimeDiagnostics.record('message_route', hidden ? 'route' : 'layout', {
+            routeMatch: /^\/(?:messages?|direct|inbox)(?:\/|$)/i.test(String(window.location?.pathname || '')),
+            pathnameCategory: /^\/(?:messages?|direct|inbox)(?:\/|$)/i.test(String(window.location?.pathname || '')) ? 'message'
+                : (/^\/@[^/]+/i.test(String(window.location?.pathname || '')) ? 'profile' : (/\/post\//i.test(String(window.location?.pathname || '')) ? 'post' : 'unknown')),
+            hidden,
+            rectLeft: rect.left, rectTop: rect.top, rectWidth: rect.width, rectHeight: rect.height,
+            viewportWidth: window.innerWidth, viewportHeight: window.innerHeight,
+            mutationTrigger: false,
+        });
+        try {
+            RuntimeDiagnostics.record('panel', hidden ? 'suppression' : 'route', {
+                operationId: panel.dataset?.hegeDiagnosticOperationId,
+                hidden, active: !hidden, visible: !hidden, routeMatch: hidden,
+            });
+        } catch (_) { /* panel diagnostics must never affect route handling */ }
+        const wasHidden = panel.dataset.hegeMessageHidden === 'true';
+        if (hidden && !wasHidden) {
+            panel.dataset.hegeMessageHidden = 'true';
+            RuntimeDiagnostics.record('panel', 'hide', { operationId: panel.dataset?.hegeDiagnosticOperationId, hidden: true, active: false });
+        }
+        if (!hidden && wasHidden) panel.dataset.hegeRepositionRequired = 'true';
+        panel.hidden = hidden;
+        panel.setAttribute('aria-hidden', hidden ? 'true' : 'false');
+        panel.style.display = hidden ? 'none' : '';
+        if (!hidden) {
+            if (wasHidden) RuntimeDiagnostics.record('panel', 'show', { operationId: panel.dataset?.hegeDiagnosticOperationId, hidden: false, visible: true, active: true });
+            delete panel.dataset.hegeMessageHidden;
+        }
+        if (!hidden && wasHidden) {
+            UI.anchorPanel?.();
+            const after = panel.getBoundingClientRect?.() || {};
+            RuntimeDiagnostics.record('message_route', 'layout', {
+                hidden: false, repositioned: true,
+                rectLeft: after.left, rectTop: after.top, rectWidth: after.width, rectHeight: after.height,
+                viewportWidth: window.innerWidth, viewportHeight: window.innerHeight,
+            });
+            RuntimeDiagnostics.record('panel', 'reposition', {
+                operationId: panel.dataset?.hegeDiagnosticOperationId,
+                repositioned: true, active: true,
+                rectLeft: after.left, rectTop: after.top, rectWidth: after.width, rectHeight: after.height,
+                viewportWidth: window.innerWidth, viewportHeight: window.innerHeight,
+            });
+        }
+        return hidden;
+    },
     installNavigationScanHooks: () => {
         if (Core._navScanHooksInstalled) return;
         Core._navScanHooksInstalled = true;
         window.addEventListener('popstate', Core.scheduleNavigationScannerPass);
         window.addEventListener('pageshow', Core.scheduleNavigationScannerPass);
+        if (!Core._resizeHookInstalled) {
+            Core._resizeHookInstalled = true;
+            window.addEventListener('resize', () => {
+                UI.anchorPanel?.();
+                Core.updatePanelRouteVisibility();
+            }, { passive: true });
+        }
         ['pushState', 'replaceState'].forEach(name => {
             const original = history[name];
             history[name] = function (...args) {
                 const result = original.apply(this, args);
+                RuntimeDiagnostics.record('message_route', 'route', { historyTrigger: true, routeUnchanged: true });
                 Core.scheduleNavigationScannerPass();
                 return result;
             };
@@ -759,6 +2004,7 @@ export const Core = {
                     break;
                 }
             }
+            if (shouldScan) RuntimeDiagnostics.record('message_route', 'route', { mutationTrigger: true, routeUnchanged: true });
             if (shouldScan) Core.scheduleScannerPass();
         });
 
@@ -952,7 +2198,9 @@ export const Core = {
         if (progressUI.parentNode) progressUI.parentNode.removeChild(progressUI);
 
         const skipUsers = Core.buildSkipUsers(ctx);
-        let rawUsers = Array.from(collectedLinks).filter(u => !skipUsers.has(u));
+        const normalizeUser = value => String(value || '').replace(/^@+/, '').toLowerCase();
+        const normalizedSkipUsers = new Set([...skipUsers].map(normalizeUser));
+        let rawUsers = Array.from(collectedLinks).filter(u => !normalizedSkipUsers.has(normalizeUser(u)));
         const newUsers = Core.filterNewUsers(rawUsers);
 
         if (newUsers.length === 0) {
@@ -1018,18 +2266,21 @@ export const Core = {
             }
         }
 
-        const existingCleanList = localCtx.querySelector('.hege-clean-list-btn');
+        const cleanListNodes = Array.from(ctx.querySelectorAll?.('.hege-clean-list-btn') || []);
+        const existingCleanList = localCtx.querySelector('.hege-clean-list-btn') || cleanListNodes[0] || null;
+        cleanListNodes.filter(btn => btn !== existingCleanList).forEach(btn => btn.remove());
         localCtx.querySelectorAll('.hege-block-all-btn, .hege-report-only-btn, .hege-endless-sweep-btn').forEach(btn => btn.remove());
-        if (Core.isProfileListReason(dialogReason) || !Core.hasVisibleDialogUserLinks(ctx)) {
+        // Keep an already injected button through transient virtualization/lazy
+        // loading when visible links <2 temporarily; a fresh dialog
+        // still waits for evidence before injecting.
+        const hasVisibleLinks = Core.hasVisibleDialogUserLinks(ctx);
+        if (Core.isProfileListReason(dialogReason) || (!hasVisibleLinks && !existingCleanList)) {
             if (existingCleanList) existingCleanList.remove();
             return;
         }
 
         let cleanListBtn = existingCleanList;
-        
-        const shouldAddCleanList = !existingCleanList || !document.body.contains(existingCleanList);
-
-        if (!shouldAddCleanList) return;
+        const shouldAddCleanList = !cleanListBtn;
 
         if (shouldAddCleanList) {
             cleanListBtn = document.createElement('div');
@@ -1063,9 +2314,16 @@ export const Core = {
             // Beta 56: Re-calculate context and bounds at click-time for maximum precision
             const activeCtx = Core.getTopContext();
 
-            const rawUsers = Array.isArray(rawUsersOverride)
-                ? rawUsersOverride
-                : await Core.collectFullDialogUsers(activeCtx);
+            let rawUsers;
+            if (Array.isArray(rawUsersOverride)) rawUsers = rawUsersOverride;
+            else {
+                const collection = await Core.collectFullDialogUsers(activeCtx);
+                if (!collection.complete) {
+                    UI.showToast(`封鎖名單未完成：${dialogCollectionFailureText(collection.reason)}`, 3000, { severity: 'error' });
+                    return 0;
+                }
+                rawUsers = collection.users;
+            }
             const newUsers = Core.filterNewUsers(rawUsers);
 
             if (newUsers.length === 0) {
@@ -1126,9 +2384,16 @@ export const Core = {
 
             const activeCtx = Core.getTopContext();
             if (Core.ReportDriver) Core.ReportDriver.rememberDialogContext(activeCtx);
-            const rawUsers = Array.isArray(rawUsersOverride)
-                ? rawUsersOverride
-                : await Core.collectFullDialogUsers(activeCtx);
+            let rawUsers;
+            if (Array.isArray(rawUsersOverride)) rawUsers = rawUsersOverride;
+            else {
+                const collection = await Core.collectFullDialogUsers(activeCtx);
+                if (!collection.complete) {
+                    UI.showToast(`檢舉名單未完成：${dialogCollectionFailureText(collection.reason)}`, 3000, { severity: 'error' });
+                    return 0;
+                }
+                rawUsers = collection.users;
+            }
 
             if (rawUsers.length === 0) {
                 UI.showToast('沒有帳號可加入只檢舉佇列');
@@ -1208,24 +2473,55 @@ export const Core = {
                 UI.showToast('目前正在「解除封鎖」，請先暫停任務再清理名單');
                 return;
             }
+            if (document.getElementById('hege-clean-list-picker-overlay')) return;
             if (e) {
                 e.stopPropagation();
                 e.preventDefault();
             }
 
             UI.showCleanListPicker(async (actions) => {
+                const operationId = RuntimeDiagnostics.begin('clean_list', { strategy: 'dialog_context', active: true });
+                const finishCleanOperation = (stage, fields = {}) => {
+                    if (!operationId) return;
+                    RuntimeDiagnostics.end(operationId, stage, { ...fields, complete: fields.complete !== false });
+                };
                 let fullUsers = null;
+                const stagedPending = new Set(Core.pendingUsers);
+                const stagedChecked = new Set(Array.from(document.querySelectorAll('.hege-checkbox-container[data-username]'))
+                    .filter(box => box.querySelector('input')?.checked)
+                    .map(box => box.dataset.username));
+                const rollbackStagedCollection = () => {
+                    Core.pendingUsers = new Set(stagedPending);
+                    document.querySelectorAll('.hege-checkbox-container[data-username] input').forEach(input => {
+                        input.checked = stagedChecked.has(input.closest('.hege-checkbox-container')?.dataset.username || '');
+                    });
+                    Core.updateControllerUI();
+                    RuntimeDiagnostics.record('clean_list', 'rollback', {
+                        rollback: true, rollbackRestoredCount: stagedPending.size, pendingCount: stagedPending.size,
+                        selectedVisualCount: stagedChecked.size, operationId,
+                    });
+                };
                 if (actions.collect) {
                     const activeCtx = Core.getTopContext();
-                    fullUsers = await Core.collectFullDialogUsers(activeCtx);
-                    if (fullUsers.length === 0 && !actions.endless) {
-                        UI.showToast('整串名單沒有可加入的帳號');
+                    const collection = normalizeDialogCollectionResult(await Core.collectFullDialogUsers(activeCtx, { operationId }));
+                    fullUsers = collection.users;
+                    if (!shouldCommitDialogCollection(collection)) {
+                        const reason = collection.reason || 'rows_missing';
+                        const observed = Number(collection.counts?.visibleRows || collection.counts?.activityVisibleCount || 0);
+                        const candidate = Number(collection.counts?.likeRows || collection.counts?.users || collection.users?.length || 0);
+                        const reasonText = ['likes_tab_switch_failed', 'rows_missing', 'rows_unknown'].includes(reason)
+                            ? `已開啟按讚名單，但沒有找到可勾選的帳號（看到 ${observed} 個帳號列，可勾選 ${candidate} 個）。`
+                            : dialogCollectionFailureText(reason);
+                        rollbackStagedCollection();
+                        UI.showToast(`清理名單未完成：${reasonText}`, 3000, { severity: 'error' });
+                        finishCleanOperation('rollback', { reason, ok: false, atomic: true });
                         return;
                     }
                 }
 
                 if (actions.collect) {
                     await handleBlockAll(null, fullUsers);
+                    RuntimeDiagnostics.record('clean_list', 'commit', { committed: true, complete: true, selectedCount: fullUsers.length, pendingCount: Core.pendingUsers.size, operationId });
                 }
                 if (actions.endless) {
                     handleEndlessSweep(null, { longTermLoop: actions.longTermLoop });
@@ -1233,6 +2529,7 @@ export const Core = {
                 if (actions.collect) {
                     await handleReportOnly(null, fullUsers);
                 }
+                finishCleanOperation(actions.collect ? 'commit' : 'finish', { reason: actions.collect ? 'completed' : 'success', ok: true, atomic: !!actions.collect });
             });
         };
 
@@ -1261,7 +2558,9 @@ export const Core = {
             }
         };
 
-        if (shouldAddCleanList) attachEvents(cleanListBtn, handleCleanList);
+        // Re-run this on every scanner pass so React clone/replace/reparented
+        // nodes receive exactly one listener without relying on stale closures.
+        Core.ensureCleanListBinding(cleanListBtn, handleCleanList);
 
         if (sortSpan && sortSpan.closest('[role="button"]')) {
             const sortBtn = sortSpan.closest('[role="button"]');
@@ -1291,7 +2590,8 @@ export const Core = {
     },
 
     injectDialogCheckboxes: () => {
-        const ctx = Core.getTopContext();
+        const fallbackCtx = Core.getTopContext();
+        const ctx = DialogCollector.pickBestAccountDialog(fallbackCtx);
         const titleInfo = Core.getSupportedDialogTitle(ctx);
         if (!titleInfo) return;
         const dialogReason = Core.resolveBlockReasonFromTitle(titleInfo.titleText);
@@ -1300,7 +2600,8 @@ export const Core = {
         const links = Array.from(ctx.querySelectorAll('a[href^="/@"]')).filter(a => {
             // Only filter truly invisible elements (display:none, zero-size); allow off-screen items
             const rect = a.getBoundingClientRect();
-            return rect.height > 0 && rect.width > 0;
+            if (rect.height === 0 || rect.width === 0) return false;
+            return true;
         });
 
         const dbRef = new Set(Storage.getBlockDB());
@@ -1335,6 +2636,7 @@ export const Core = {
             let flexRow = null;
             let followBtnContainer = null;
 
+            // Branch 1: If follow button exists, walk up to find a container holding both user info and follow button
             if (followBtn) {
                 let child = followBtn;
                 while (child && child !== topContainer) {
@@ -1361,6 +2663,12 @@ export const Core = {
                     (followBtn ? followBtn.parentElement : null);
             }
 
+            // Beta 73 fallback: For post preview cards and other nested dialogs where standard row detection fails,
+            // anchor the checkbox to the link's immediate parent. This positions it visually beside the account name.
+            if (!flexRow) {
+                flexRow = a.parentElement;
+            }
+
             if (!flexRow) return;
 
             // Beta 54: Absolute deduplication. Check the whole row for THIS user's box.
@@ -1376,7 +2684,7 @@ export const Core = {
                     else checkboxHost.appendChild(existingBox);
                     existingBox.classList.toggle('hege-profile-list-checkbox', isProfileList);
                 }
-                const isChecked = Core.pendingUsers.has(username);
+                const isChecked = Core.pendingUsers.has(username) || Core.isSelectionLatched(username);
                 if (isChecked !== existingBox.classList.contains('checked')) {
                     existingBox.classList.toggle('checked', isChecked);
                 }
@@ -1435,7 +2743,7 @@ export const Core = {
                 container.classList.add('finished');
             } else if (activeSet.has(username)) {
                 container.classList.add('pending');
-            } else if (Core.pendingUsers.has(username)) {
+            } else if (Core.pendingUsers.has(username) || Core.isSelectionLatched(username)) {
                 container.classList.add('checked');
             }
 
@@ -1716,6 +3024,10 @@ export const Core = {
 
             if (targetAction === 'reset' && box.classList.contains('finished')) {
                 if (u) {
+                    if (Core._stopVisibilityLatch) {
+                        Core._selectionSnapshot.add(u);
+                        writeSelectionSnapshot([...Core._selectionSnapshot]);
+                    }
                     currentDB.delete(u);
                     box.classList.remove('finished');
                     box.classList.add('checked');
@@ -1744,6 +3056,10 @@ export const Core = {
                     if (b.dataset && b.dataset.username === u) Core.blockQueue.delete(b);
                 });
                 if (u) {
+                    if (!Core._stopVisibilityLatch) {
+                        Core._selectionSnapshot.delete(u);
+                        writeSelectionSnapshot([...Core._selectionSnapshot]);
+                    }
                     Core.pendingUsers.delete(u);
                     Core.removeReportContext(u);
                     let bg = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
@@ -1757,6 +3073,10 @@ export const Core = {
                 if (btnElement) btnElement.dataset.username = u;
                 if (btnElement) Core.blockQueue.add(btnElement);
                 if (u) {
+                    if (Core._stopVisibilityLatch) {
+                        Core._selectionSnapshot.add(u);
+                        writeSelectionSnapshot([...Core._selectionSnapshot]);
+                    }
                     Core.pendingUsers.add(u);
                     const sourceUrl = Core.findSourcePostUrl(box);
                     Core.setReportContext(u, {
@@ -1991,7 +3311,7 @@ export const Core = {
                     el.classList.add('finished');
                     el.classList.remove('checked');
                 }
-            } else if (Core.pendingUsers.has(u) || cdq.has(u) || bgq.has(u)) {
+            } else if (Core.pendingUsers.has(u) || Core.isSelectionLatched(u) || cdq.has(u) || bgq.has(u)) {
                 if (!el.classList.contains('checked') && !el.classList.contains('finished')) {
                     el.classList.add('checked');
                 } else if (el.classList.contains('finished')) {
@@ -2000,7 +3320,7 @@ export const Core = {
                 }
             } else {
                 el.classList.remove('finished');
-                el.classList.remove('checked');
+                if (!Core._selectionSnapshot.has(u)) el.classList.remove('checked');
             }
             Core.syncInlineFakeAccountBadge(el, inlineThreeNoResults);
         });
@@ -2015,8 +3335,8 @@ export const Core = {
         const panel = document.getElementById('hege-panel');
         if (!panel) return;
 
-        const failedQueue = Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []);
-        const reportFailedQueue = Storage.getJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, []);
+        const failedQueue = normalizeFailedQueue(Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []), 'block');
+        const reportFailedQueue = normalizeFailedQueue(Storage.getJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, []), 'report');
         const retryItem = document.getElementById('hege-retry-failed-item');
         if (retryItem) {
             const totalFailed = failedQueue.length + reportFailedQueue.length;
@@ -2043,6 +3363,8 @@ export const Core = {
         const threeNoAlert = document.getElementById('hege-three-no-alert');
         const profileThreeNoItem = document.getElementById('hege-three-no-profile-item');
         const profileThreeNoCount = document.getElementById('hege-three-no-profile-count');
+        const profileFollowersItem = document.getElementById('hege-collect-profile-followers-item');
+        const profileFollowersCount = document.getElementById('hege-collect-profile-followers-count');
         const currentProfile = Core.ThreeNoWatch?.getCurrentProfileUsername?.() || '';
         const myUsername = Utils.getMyUsername ? Core.ThreeNoWatch?.normalizeUsername?.(Utils.getMyUsername() || '') : '';
         const profileRootText = (document.querySelector('main, div[role="main"]')?.innerText || '').replace(/\s+/g, ' ').slice(0, 900);
@@ -2103,6 +3425,17 @@ export const Core = {
                 ? (scanRunning ? getThreeNoProgressText(scanState) : `@${currentProfile}`)
                 : '';
         }
+        if (profileFollowersItem) {
+            const collecting = Core._followerCollectionRunning === true;
+            profileFollowersItem.style.display = showProfileScan ? 'flex' : 'none';
+            profileFollowersItem.style.color = collecting ? '#30d158' : '#8ab4f8';
+            profileFollowersItem.title = showProfileScan
+                ? (collecting ? `正在收集 @${currentProfile} 的粉絲` : `收集 @${currentProfile} 的粉絲（確認後才加入佇列）`)
+                : '';
+            if (profileFollowersCount) profileFollowersCount.textContent = showProfileScan
+                ? (collecting ? '收集中' : `@${currentProfile}`)
+                : '';
+        }
 
         // 檢舉計數：已在 REPORT_QUEUE + 目前勾選但尚未加入檢舉佇列的人
         const reportQueue = Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []);
@@ -2127,9 +3460,24 @@ export const Core = {
         const reservoirEntries = Storage.postReservoir.getAll();
         const endlessQueueBadge = document.getElementById('hege-endless-queue-count');
         const bgStatusLineEl = document.getElementById('hege-bg-status');
+        const bgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
 
         const pendingEndlessCount = reservoirEntries.filter(p => p.advanceOnComplete && p.status !== 'done').length;
         const isEndlessRunning = Core.SweepDriver ? Core.SweepDriver.isRunning() : false;
+        const controllerStatus = resolveControllerStatus({
+            bgStatus,
+            threeNoState: scanState,
+            threeNoActive: scanRunning,
+            sweepActive: isEndlessRunning,
+            reportQueueCount: reportTotalCount,
+            blockQueueCount: bgq.size,
+        });
+        if (bgStatusLineEl) {
+            bgStatusLineEl.dataset.hegeControllerStatus = controllerStatus;
+            if (bgStatusLineEl.dataset.hegeSweepStatus !== 'running') {
+                bgStatusLineEl.textContent = `狀態：${CONTROLLER_STATUS_LABELS[controllerStatus] || '待命中'}`;
+            }
+        }
         let endlessStatusApplied = false;
 
         // Panel badge：有定點絕待跑時變紅，否則顯示總篇數
@@ -2166,7 +3514,7 @@ export const Core = {
 
         // 定點絕收尾：僅清理由 sweep 狀態寫入的狀態列，避免字串比對造成耦合
         if (!endlessStatusApplied && bgStatusLineEl && bgStatusLineEl.dataset.hegeSweepStatus === 'running') {
-            bgStatusLineEl.textContent = '執行狀態...';
+            bgStatusLineEl.textContent = `狀態：${CONTROLLER_STATUS_LABELS[controllerStatus] || '待命中'}`;
             delete bgStatusLineEl.dataset.hegeSweepStatus;
         }
 
@@ -2189,7 +3537,6 @@ export const Core = {
             const cdEta = getQueueEtaText(cdQueueSize);
             badgeText = `${cdQueueSize}${cdEta ? ' (' + cdEta + ')' : ''}`;
         } else {
-            const bgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
             if (bgStatus.state === 'running' && (Date.now() - (bgStatus.lastUpdate || 0) < 10000)) {
                 shouldShowStop = true;
                 const bgEta = getQueueEtaText(bgStatus.total);
@@ -2204,14 +3551,26 @@ export const Core = {
                 badgeText = `${bgq.size}${bgEta ? ' (' + bgEta + ')' : ''}`;
             }
         }
-        if (scanRunning) shouldShowStop = true;
+        shouldShowStop = resolveStopVisibility({
+            bgStatus,
+            blockQueueCount: bgq.size,
+            reportQueueCount: reportQueue.length,
+            threeNoActive: scanRunning,
+            stopLatch: Core._stopVisibilityLatch,
+        });
+        if (!shouldShowStop) {
+            Core._stopVisibilityLatch = false;
+            Core._selectionSnapshot.clear();
+            writeStopLatch(false);
+            writeSelectionSnapshot([]);
+        }
 
         const badge = document.getElementById('hege-queue-badge');
         if (badge) badge.textContent = badgeText;
 
         const stopBtn = document.getElementById('hege-stop-btn-item'); if (stopBtn) stopBtn.style.display = shouldShowStop ? 'flex' : 'none';
         const mainItem = document.getElementById('hege-main-btn-item');
-        if (mainItem) { mainItem.querySelector('span').textContent = mainText; mainItem.style.color = shouldShowStop ? headerColor : '#f5f5f5'; }
+        if (mainItem) { mainItem.querySelector('span').textContent = mainText; mainItem.style.color = (shouldShowStop && headerColor !== 'transparent') ? headerColor : '#f5f5f5'; }
         const header = document.getElementById('hege-header'); if (header) header.style.borderColor = headerColor;
 
         // Mutex: Dynamic state for all checkboxes and buttons on the page
@@ -2270,6 +3629,8 @@ export const Core = {
             UI.showToast('沒有待處理的帳號');
             return;
         }
+
+        Core.beginBlockSession([...newQ, ...toAdd]);
 
         Storage.setJSON(CONFIG.KEYS.BG_QUEUE, newQ);
         Storage.remove(CONFIG.KEYS.BG_CMD);
@@ -2376,7 +3737,42 @@ export const Core = {
         return true;
     },
 
+    recordReportFailureSnapshot: ({ stage = 'unknown', result = 'unknown', routeType = '', counts = {}, context = null } = {}) => {
+        const now = Date.now();
+        const queueLength = (value) => Array.isArray(value) ? value.length : 0;
+        const safeCounts = {
+            queue: counts.queue ?? queueLength(Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, [])),
+            failed: counts.failed ?? queueLength(Storage.getJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, [])),
+            success: counts.success ?? 0,
+            skipped: counts.skipped ?? 0,
+            vanished: counts.vanished ?? 0,
+        };
+        const previous = Storage.getJSON(CONFIG.KEYS.REPORT_FAILURE_SNAPSHOT, null);
+        const snapshot = ReportDebugContext.append(previous, {
+            ts: now,
+            stage,
+            result,
+            routeType,
+            counts: safeCounts,
+            context,
+        }, now);
+        if (!snapshot) return null;
+        Storage.setJSON(CONFIG.KEYS.REPORT_FAILURE_SNAPSHOT, snapshot);
+        Storage.setJSON(CONFIG.KEYS.REPORT_DEBUG_CONTEXT_V2, ReportDebugContext.contextFromSnapshot(snapshot, now));
+        return snapshot;
+    },
+
+    clearReportFailureSnapshots: () => {
+        Storage.remove(CONFIG.KEYS.REPORT_FAILURE_SNAPSHOT);
+        Storage.remove(CONFIG.KEYS.REPORT_DEBUG_CONTEXT_V2);
+    },
+
     buildReportDebugExport: (status = 'completed', extra = {}) => {
+        if (!RuntimeDiagnostics.enabled()) return null;
+        return RuntimeDiagnostics.export();
+        /* Legacy report batch data intentionally unreachable: diagnostics exports
+         * are beta-only and must remain allowlisted summaries. */
+        /* istanbul ignore next */
         const batch = Storage.getJSON(CONFIG.KEYS.REPORT_DEBUG_BATCH, null);
         if (!batch || typeof batch !== 'object') return null;
 
@@ -2441,6 +3837,11 @@ export const Core = {
                 return true;
             })
             .slice(-(batchUsers.length + 20));
+
+        const safeFailureSnapshot = ReportDebugContext.sanitizeSnapshot(
+            Storage.getJSON(CONFIG.KEYS.REPORT_FAILURE_SNAPSHOT, null)
+        );
+        const safeDebugContext = ReportDebugContext.contextFromSnapshot(safeFailureSnapshot);
 
         return {
             type: 'report_debug_export',
@@ -2569,6 +3970,10 @@ export const Core = {
     },
 
     buildThreeNoDebugExport: () => {
+        if (!RuntimeDiagnostics.enabled()) return null;
+        return RuntimeDiagnostics.export();
+        /* Legacy scan state/results/debug logs intentionally unreachable. */
+        /* istanbul ignore next */
         Storage.invalidateMulti([
             CONFIG.KEYS.THREE_NO_SCAN_STATE,
             CONFIG.KEYS.THREE_NO_SCAN_RESULTS,
@@ -2904,57 +4309,35 @@ export const Core = {
 
     retryFailedQueue: () => {
         Storage.invalidateMulti([CONFIG.KEYS.FAILED_QUEUE, CONFIG.KEYS.REPORT_FAILED_QUEUE]);
-        const failedUsers = [...new Set(Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, [])
-            .map(user => String(user || '').trim())
-            .filter(Boolean))];
-        const reportFailedUsers = [...new Set(Storage.getJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, [])
-            .map(user => String(user || '').trim())
-            .filter(Boolean))];
-        const totalFailed = failedUsers.length + reportFailedUsers.length;
-        if (totalFailed === 0) {
-            Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, []);
-            Storage.setJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, []);
+        const entries = Core.getFailedQueueEntries();
+        if (entries.length === 0) {
             UI.showToast('沒有失敗紀錄可重試');
             Core.updateControllerUI();
             return;
         }
-
-        const clearFailedQueues = () => {
-            Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, []);
-            Storage.setJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, []);
-            Core.updateControllerUI();
-            UI.showToast(`已清除封鎖失敗 ${failedUsers.length} 筆、檢舉失敗 ${reportFailedUsers.length} 筆`);
-        };
-
-        UI.showConfirm(`發現封鎖失敗 ${failedUsers.length} 筆、檢舉失敗 ${reportFailedUsers.length} 筆。\n\n按「重試」會重新加入佇列並清除失敗紀錄。\n按「只清除」會只清掉失敗紀錄，不啟動 worker。`, () => {
-            let activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
-            const combinedQueue = [...new Set([...activeQueue, ...failedUsers])];
-            Storage.setJSON(CONFIG.KEYS.BG_QUEUE, combinedQueue);
-            Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, []); // Clear it out
-            const activeReportQueue = Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []);
-            const combinedReportQueue = [...new Set([...activeReportQueue, ...reportFailedUsers])];
-            Storage.setJSON(CONFIG.KEYS.REPORT_QUEUE, combinedReportQueue);
-            Storage.setJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, []);
-            UI.showToast(`已重送封鎖 ${failedUsers.length} 筆、檢舉 ${reportFailedUsers.length} 筆`);
-
-            Core.updateControllerUI();
-
-            const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
-            const isRunning = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
-            if (!isRunning) {
-                const nextMode = combinedQueue.length > 0 ? 'block' : (combinedReportQueue.length > 0 ? 'report' : '');
-                if (nextMode) Storage.set(CONFIG.KEYS.WORKER_MODE, nextMode);
-                if (Utils.isMobile()) {
-                    Core.runSameTabWorker();
-                } else {
-                    const workerWindow = Utils.openWorkerWindow();
-                    if (!workerWindow || workerWindow.closed) {
-                        UI.showToast('彈出視窗被阻擋，改用目前視窗執行。');
-                        Core.runSameTabWorker();
-                    }
-                }
-            }
-        }, clearFailedQueues, { confirm: '重試', cancel: '只清除' });
+        UI.showFailedQueueManager(entries, {
+            onRetryOne: (entry) => Core.retryFailedEntry(entry),
+            onClearOne: (entry) => Core.clearFailedEntry(entry),
+            onOpenProfile: (username) => Core.openFailureProfile(username),
+            onRetryAll: () => {
+                const current = Core.getFailedQueueEntries();
+                const blockUsers = current.filter(item => item.type === 'block').map(item => item.username);
+                const reportUsers = current.filter(item => item.type === 'report').map(item => item.username);
+                const blockQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+                const reportQueue = Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []);
+                Storage.setJSON(CONFIG.KEYS.BG_QUEUE, [...new Set([...blockQueue, ...blockUsers])]);
+                Storage.setJSON(CONFIG.KEYS.REPORT_QUEUE, [...new Set([...reportQueue, ...reportUsers])]);
+                Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, []);
+                Storage.setJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, []);
+                Core.startFailureRetry(blockUsers.length > 0 ? 'block' : 'report');
+                Core.updateControllerUI();
+            },
+            onClearAll: () => {
+                Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, []);
+                Storage.setJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, []);
+                Core.updateControllerUI();
+            },
+        });
     },
 
     importList: () => {
@@ -3209,7 +4592,98 @@ export const Core = {
         };
     },
 
+    // The user-consented bug-report attachment must stay separate from the
+    // beta-only local debug exports below. Keep only the closed diagnostic
+    // event shape here; batch users, traces, logs, history, source and URL
+    // evidence remain available only through explicit local export actions.
+    buildBugReportDiagnosticsBundle: () => {
+        const now = Date.now();
+        const snapshot = ReportDebugContext.sanitizeSnapshot(
+            Storage.getJSON(CONFIG.KEYS.REPORT_FAILURE_SNAPSHOT, null),
+            now
+        );
+        const event = [...(snapshot?.events || [])].reverse().find(item => item?.phase) || {};
+        const safeCount = (value) => Number.isInteger(value) && value >= 0 && value <= ReportDebugContext.MAX_COUNT ? value : 0;
+        const counts = ReportDebugContext.DIAGNOSTIC_COUNT_KEYS.reduce((out, key) => {
+            out[key] = safeCount(event.counts?.[key]);
+            return out;
+        }, {});
+        const phase = ReportDebugContext.PHASES.has(event.phase) ? event.phase : 'queue_advance';
+        const result = ReportDebugContext.RESULTS.has(event.result) ? event.result : 'unknown';
+        const routeType = ReportDebugContext.ROUTES.has(event.routeType) ? event.routeType : 'unknown';
+        const elapsedMs = Number.isInteger(event.elapsedMs) && event.elapsedMs >= 0
+            ? Math.min(event.elapsedMs, ReportDebugContext.MAX_ELAPSED_MS)
+            : 0;
+        const retryCount = Number.isInteger(event.retryCount) && event.retryCount >= 0
+            ? Math.min(event.retryCount, ReportDebugContext.MAX_RETRY_COUNT)
+            : 0;
+        const bgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
+        const reportBatch = Storage.getJSON(CONFIG.KEYS.REPORT_DEBUG_BATCH, {});
+        const scanState = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
+        const rawStatus = String(
+            ['starting', 'ready', 'scanning', 'collecting_followers', 'followers_collected', 'checking_profiles'].includes(String(scanState.status || '').toLowerCase())
+                ? 'three_no'
+                : (String(reportBatch.status || '').toLowerCase() === 'running'
+                    ? 'report'
+                    : (String(bgStatus.state || '').toLowerCase() === 'running' ? 'block' : String(bgStatus.state || '').toLowerCase())))
+            .toLowerCase();
+        const status = CONTROLLER_STATUS.includes(rawStatus) ? rawStatus : 'idle';
+        const bundle = {
+            type: 'bug_report_diagnostics_v2',
+            collectedAt: now,
+            version: CONFIG.VERSION,
+            status,
+            phase,
+            result,
+            routeType,
+            counts,
+            elapsedMs,
+            retryCount,
+        };
+        const runtimeDiagnostics = RuntimeDiagnostics.export();
+        if (runtimeDiagnostics?.entries?.length) bundle.runtimeDiagnostics = runtimeDiagnostics;
+        return bundle;
+    },
+
+    copyRuntimeDiagnostics: async () => {
+        if (!RuntimeDiagnostics.enabled()) return { ok: false, reason: 'disabled' };
+        const payload = RuntimeDiagnostics.export();
+        // Export is already closed-schema; stringify once more so callers can
+        // never copy a live object that could be mutated after the click.
+        const text = JSON.stringify(payload);
+        try {
+            if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+            else {
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                textarea.setAttribute('readonly', 'true');
+                textarea.style.cssText = 'position:fixed;left:-9999px;top:-9999px;';
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand?.('copy');
+                textarea.remove();
+            }
+            UI.showToast('已複製診斷資料（不含帳號、文字與網址）', 2500, { severity: 'success' });
+            return { ok: true, payload };
+        } catch (error) {
+            RuntimeDiagnostics.record('unknown', 'error', { errorName: error?.name || 'ClipboardError', errorCode: 'copy_failed', errorStack: 'copy_runtime_diagnostics', errorFunction: 'copyRuntimeDiagnostics' });
+            UI.showToast('無法複製診斷資料，請稍後重試', 2500, { severity: 'warning' });
+            return { ok: false, reason: 'copy_failed' };
+        }
+    },
+
+    clearRuntimeDiagnostics: () => {
+        if (!RuntimeDiagnostics.enabled()) return false;
+        RuntimeDiagnostics.clear();
+        UI.showToast('已清除本次診斷資料', 2000, { severity: 'success' });
+        return true;
+    },
+
     collectDiagnosticsBundle: () => {
+        if (!RuntimeDiagnostics.enabled()) return null;
+        return RuntimeDiagnostics.export();
+        /* Legacy DOM/UA/queue/raw-state bundle intentionally unreachable. */
+        /* istanbul ignore next */
         const _platform = navigator.userAgentData?.platform || navigator.platform || '';
         const isIPad = (_platform === 'macOS' || _platform === 'MacIntel') && navigator.maxTouchPoints > 1;
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || isIPad;
@@ -3225,6 +4699,10 @@ export const Core = {
             String(reportDebugBatch?.status || 'completed'),
             (reportDebugBatch?.finalExtra && typeof reportDebugBatch.finalExtra === 'object') ? reportDebugBatch.finalExtra : {}
         );
+        const safeFailureSnapshot = ReportDebugContext.sanitizeSnapshot(
+            Storage.getJSON(CONFIG.KEYS.REPORT_FAILURE_SNAPSHOT, null)
+        );
+        const safeDebugContext = ReportDebugContext.contextFromSnapshot(safeFailureSnapshot);
 
         let injectionMethod = 'unknown';
         if (typeof GM_info !== 'undefined') injectionMethod = 'Tampermonkey/Userscripts';
@@ -3260,14 +4738,16 @@ export const Core = {
                 sweepRuntime: Utils.getSweepRuntimeState(),
                 pendingUsers: Storage.getSessionJSON(CONFIG.KEYS.PENDING, []).slice(0, 120),
                 blockQueue: Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []).slice(0, 120),
-                blockFailedQueue: Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []).slice(0, 120),
+                blockFailedQueueCount: normalizeFailedQueue(Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []), 'block').length,
                 cooldownQueue: Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []).slice(0, 120),
                 cooldownUntil: parseInt(Storage.get(CONFIG.KEYS.COOLDOWN) || '0', 10) || 0,
                 reportQueue: reportQueue.slice(0, 120),
-                reportFailedQueue: reportFailedQueue.slice(0, 120),
+                reportFailedQueueCount: normalizeFailedQueue(reportFailedQueue, 'report').length,
                 reportBatchUsers: reportBatchUsers.slice(0, 120),
                 reportCompletedUsers: reportCompletedUsers.slice(0, 120),
                 reportContextPreview: Object.entries(reportContext || {}).slice(0, 40).map(([username, ctx]) => ({ username, ...(ctx || {}) })),
+                reportDebugContextV2: safeDebugContext,
+                reportFailureSnapshot: safeFailureSnapshot,
             },
             diagnostics: {
                 summaryText: Core.collectDiagnosticsSummaryText(),
@@ -3291,17 +4771,19 @@ export const Core = {
 
     showReportDialog: () => {
         UI.showBugReportModal(async (level, message, consent = {}) => {
-            if (consent.diagnosticConsent !== true) {
-                return { code: 204, skipped: 'diagnostic_consent_required' };
-            }
-            const diagnosticsBundle = Core.collectDiagnosticsBundle();
-            return await Reporter.submitReport(level, message, "UI_REPORT", {
-                diagnosticConsent: true,
-                diagnostics: diagnosticsBundle.diagnostics.summaryText,
-                diagnosticsBundle,
-                speedMode: Utils.getSpeedMode(),
-                checkboxDiag: Utils.getDiagLogs()
-            });
+            const diagnosticsEnabled = RuntimeDiagnostics.enabled();
+            const metadata = diagnosticsEnabled && consent.diagnosticConsent === true
+                ? (() => {
+                    const diagnosticsBundle = Core.buildBugReportDiagnosticsBundle();
+                    return {
+                        diagnosticConsent: true,
+                        diagnosticsBundle,
+                    };
+                })()
+                : { diagnosticConsent: false };
+            const result = await Reporter.submitReport(level, message, "UI_REPORT", metadata);
+            if (result && Number(result.code) === 200) Core.clearReportFailureSnapshots();
+            return result;
         });
     },
 };

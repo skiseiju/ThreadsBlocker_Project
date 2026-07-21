@@ -30,7 +30,7 @@
     *   支援獨立 `REPORT_QUEUE`、每批次由 picker 明確選擇檢舉路徑與 worker 分流，讓只檢舉模式可單獨執行。
     *   擴充功能版支援一鍵上傳來源分析資料；platform-sync-v3 未決定前 auto、repair、manual 與三無統計都不送，舊 v2 / 數字版同意不會 migration 成 v3。iOS / Safari 以手動提醒為主；上傳資料用於「可疑帶風向行為」的整體樣本分析。
     *   上傳可能包含公開帳號/profile 連結、來源貼文連結、公開文字片段、檢舉/封鎖分類、批次統計、工具版本與匿名來源 ID；不包含 Chrome 加速三無本機處理的 token/cookie、Threads 密碼、瀏覽器歷史、私人訊息、Email、Google 帳號或真實姓名。
-    *   問題回報會在送出前列明診斷附件，未勾選本次同意不會送出；request token、cookie、authorization 與 canary 會先 scrub。
+    *   問題回報會在送出前列明可選診斷附件；未勾選時仍可只送問題描述，勾選後才附上完整診斷，request token、cookie、authorization 與 canary 會先 scrub。
 *   **跨設備加密回報包**：
     *   可將本機封鎖 / 檢舉摘要匯出成加密 `.tb-reportpack`，再匯入其他設備作為本機提示。
     *   回報包使用瀏覽器 Web Crypto 加密，不由留友封上傳；內容只包含帳號層摘要、來源數級距與月份 bucket，不包含來源貼文 URL、貼文全文或精確時間。

@@ -5,9 +5,15 @@ import { UI } from '../ui.js';
 import { Utils } from '../utils.js';
 import { Core } from '../core.js';
 import { Worker } from '../worker.js';
+import { MoreLocator } from '../more-locator.js';
 
 const ACCOUNT_CONTENT_REASON = '該帳號發佈的內容不應該顯示在 Threads 上。';
 const DEFAULT_REPORT_PATH = ['這是垃圾訊息'];
+// Keep report menu timing aligned with Worker.autoBlock: tolerate a slow Threads
+// menu for up to 8 seconds and retry the original More button once after 3s.
+const REPORT_MENU_TIMEOUT_MS = 8000;
+const REPORT_MENU_RETRY_AFTER_MS = 3000;
+const REPORT_OPTION_TIMEOUT_MS = 8000;
 const REPORT_TEXTS = ['檢舉', '举报', 'Report'];
 const REPORT_ACCOUNT_TEXTS = ['檢舉帳號', '檢舉賬號', '檢舉帐号', '檢舉用戶', '檢舉用户', '檢舉個人檔案', 'Report account', 'Report profile', 'Report user'];
 const REPORT_CONTENT_TEXTS = ['檢舉貼文、訊息或留言', '檢舉貼文', '檢舉留言', '檢舉訊息', '檢舉內容', 'Report post', 'Report comment', 'Report message', 'Report content'];
@@ -66,6 +72,7 @@ Object.assign(Core, {
         _dialogContext: null,
         _blankDialogFirstSeenAt: 0,
         _blankDialogSignature: '',
+        _diagnosticOperationId: null,
 
         rememberDialogContext(ctx) {
             if (ctx && ctx !== document.body && ctx.isConnected) {
@@ -135,6 +142,12 @@ Object.assign(Core, {
             return reminder;
         },
 
+        hasExplicitRestrictionSignal() {
+            const phrases = ['稍後再試', 'Try again later', '為了保護', 'protect our community', '受到限制', 'restrict certain activity', 'rate limit', '頻率限制'];
+            const roots = [...Core.ReportDriver.getVisibleDialogs(), ...Array.from(document.querySelectorAll('[role="alert"]'))];
+            return roots.some(root => phrases.some(phrase => (root.innerText || root.textContent || '').includes(phrase)));
+        },
+
         recordDebugTrace(kind, user = '', options = {}, extra = {}, includeSnapshot = false) {
             const payload = {
                 user,
@@ -149,6 +162,37 @@ Object.assign(Core, {
                 payload.snapshot = Core.ReportDriver.getDebugSnapshot(user, options, kind, extra);
             }
             Core.appendReportDebugTrace(kind, payload);
+        },
+
+        diagnosticPhaseForReason(reason = '') {
+            if (['missing_dialog', 'missing_profile_root'].includes(reason)) return 'root_resolve';
+            if (['missing_more_button'].includes(reason)) return 'more_resolve';
+            if (['private_manual_required'].includes(reason)) return 'menu_resolve';
+            if (['navigation_mismatch', 'navigated_to_post_during_report_flow'].includes(reason)) return 'navigation_check';
+            if (['menu_not_found', 'missing_report_menu_item'].includes(reason)) return 'menu_resolve';
+            if (['missing_report_option', 'blank_dialog_stuck', 'blank_report_dialog_stuck'].includes(reason)) return 'action_resolve';
+            if (['submit_not_confirmed'].includes(reason)) return 'confirm_resolve';
+            return 'action_resolve';
+        },
+
+        recordSafetyDiagnostic(phase, result = 'unknown', extra = {}, timing = {}) {
+            const counts = {
+                moreCandidates: extra.moreCandidates ?? 0,
+                menuItems: extra.menuItems ?? 0,
+                confirmButtons: extra.confirmButtons ?? 0,
+                postFallbackAttempts: extra.postFallbackAttempts ?? 0,
+            };
+            return Worker.recordSafetyDiagnostic(
+                phase,
+                result,
+                MoreLocator.routeType(),
+                counts,
+                {
+                    elapsedMs: timing.elapsedMs ?? extra.elapsedMs ?? 0,
+                    retryCount: timing.retryCount ?? extra.retryCount ?? 0,
+                },
+                { feature: 'report', operationId: Core.ReportDriver._diagnosticOperationId },
+            );
         },
 
         findClickableByText(text, { exact = true, root = document, visibleOnly = false } = {}) {
@@ -321,6 +365,22 @@ Object.assign(Core, {
         },
 
         skipOrPauseForDebug(user, options = {}, reason, message, extra = {}) {
+            const explicitRestriction = Core.ReportDriver.hasExplicitRestrictionSignal();
+            const privateManualGate = extra.privateProfile === true
+                && ['missing_more_button', 'menu_not_found', 'missing_report_menu_item', 'missing_report_option', 'blank_dialog_stuck', 'blank_report_dialog_stuck', 'submit_not_confirmed'].includes(reason);
+            const result = explicitRestriction ? 'rate_limited'
+                : privateManualGate ? 'private_manual_required'
+                : reason === 'navigation_mismatch' ? 'navigation_mismatch'
+                : reason === 'private_manual_required' ? 'private_manual_required'
+                    : reason === 'navigated_to_post_during_report_flow' ? 'navigated_to_post'
+                    : ['missing_profile_root', 'missing_more_button', 'missing_report_menu_item', 'missing_report_option'].includes(reason) ? 'menu_not_found'
+                        : reason;
+            Core.ReportDriver.recordSafetyDiagnostic(
+                Core.ReportDriver.diagnosticPhaseForReason(reason),
+                result,
+                { menuItems: extra.menuItems, confirmButtons: extra.confirmButtons },
+                { elapsedMs: extra.elapsedSinceMenuClickMs, retryCount: extra.retryCount },
+            );
             Core.ReportDriver.recordDebugTrace(`skip:${reason}`, user, options, { message, ...extra }, true);
             if (options.keepWorkerOpenOnError) {
                 return Core.ReportDriver.pauseForDebug(user, options, reason, message, extra);
@@ -446,46 +506,7 @@ Object.assign(Core, {
         },
 
         findMoreButtonCandidates(root = document, mode = 'row') {
-            const seen = new Set();
-            const rootRect = root?.getBoundingClientRect?.() || { left: 0, right: window.innerWidth, top: 0, bottom: window.innerHeight };
-            return Array.from((root || document).querySelectorAll([
-                'button',
-                'div[role="button"]',
-                '[tabindex="0"]',
-                CONFIG.SELECTORS.MORE_SVG,
-                'svg[aria-label]',
-            ].join(',')))
-                .map(node => Core.ReportDriver.getMoreButtonClickable(node))
-                .filter(el => {
-                    if (!el || seen.has(el)) return false;
-                    seen.add(el);
-                    if (el.closest('#hege-panel, #hege-worker-cover, #hege-three-no-worker-overlay')) return false;
-                    if (mode !== 'row' && el.closest('[role="dialog"], [role="menu"]')) return false;
-                    return Core.ReportDriver.isElementVisible(el) && Core.ReportDriver.looksLikeMoreButton(el);
-                })
-                .map(el => {
-                    const rect = el.getBoundingClientRect();
-                    const text = Core.ReportDriver.getMoreButtonText(el);
-                    const contextText = Core.ReportDriver.compactDebugText(el.closest('article, [role="article"], [data-pressable-container], [role="listitem"], main, div[role="main"]')?.innerText || '', 260);
-                    let score = 100;
-                    if (mode === 'profile') {
-                        const inProfileColumn = rect.left >= rootRect.left - 8 && rect.right <= rootRect.right + 8;
-                        const nearProfileHeader = rect.top >= Math.max(0, rootRect.top - 8) && rect.top < Math.min(430, rootRect.top + 370);
-                        if (inProfileColumn) score -= 24;
-                        if (nearProfileHeader) score -= 22;
-                        if (/Instagram|IG|粉絲|位粉絲|Followers|追蹤|Follow|發送訊息|Message|提及|Mention|回覆|Replies/i.test(contextText)) score -= 18;
-                        if (/外觀|設定|已讀|封存|登出|Appearance|Settings|Archive|Log out/i.test(contextText) || rect.left < 72) score += 80;
-                    } else if (mode === 'post') {
-                        if (el.closest('article, [role="article"], [data-pressable-container], [role="listitem"]')) score -= 34;
-                        if (rect.top < 90) score += 32;
-                        if (/讚|回覆|轉發|分享|Like|Reply|Repost|Share/i.test(contextText)) score -= 12;
-                    } else {
-                        score -= Math.max(0, rect.left - rootRect.left) / 100;
-                    }
-                    if (/更多|More/i.test(text)) score -= 6;
-                    return { el, rect, score };
-                })
-                .sort((a, b) => a.score - b.score || a.rect.top - b.rect.top);
+            return MoreLocator.findCandidates(root, { mode });
         },
 
         findRowMoreButton(row) {
@@ -493,13 +514,15 @@ Object.assign(Core, {
             return Core.ReportDriver.findMoreButtonCandidates(row, 'row')[0]?.el || null;
         },
 
-        findProfileMoreButton() {
-            if (Worker?.findMoreButton) return Worker.findMoreButton(12000);
-            return Utils.pollUntil(() => Core.ReportDriver.findMoreButtonCandidates(document, 'profile')[0]?.el || null, 12000, 150);
+        findProfileMoreButton(user = '') {
+            if (Worker?.findMoreButton) return Worker.findMoreButton(12000, user);
+            const profileRoot = Core.findProfileRoot?.(user);
+            if (!profileRoot) return null;
+            return Utils.pollUntil(() => MoreLocator.find(profileRoot, { mode: 'profile', trustedRoot: true }), 12000, 150);
         },
 
         findPostContentMoreButton() {
-            return Utils.pollUntil(() => Core.ReportDriver.findMoreButtonCandidates(document, 'post')[0]?.el || null, 12000, 150);
+            return Utils.pollUntil(() => MoreLocator.find(document, { mode: 'post' }), 12000, 150);
         },
 
         findConfirmationButton() {
@@ -704,7 +727,7 @@ Object.assign(Core, {
                 Core.ReportDriver.logVisibleOptions('檢舉對象選擇後', { target: kind, advanced: !!chooserStillVisible });
                 if (!chooserStillVisible) {
                     Core.ReportDriver.recordDebugTrace('target_chooser_not_advanced', user, options, { target: kind }, true);
-                    Core.ReportDriver.remindReportRateLimit(user, 'target_chooser_not_advanced');
+                    if (Core.ReportDriver.hasExplicitRestrictionSignal()) Core.ReportDriver.remindReportRateLimit(user, 'target_chooser_not_advanced');
                     return false;
                 }
                 Core.ReportDriver.recordDebugTrace('target_chooser_advanced', user, options, { target: kind }, false);
@@ -787,6 +810,11 @@ Object.assign(Core, {
             }
 
             Core.ReportDriver._running = true;
+            const operationId = Core.RuntimeDiagnostics?.begin('report', { strategy: 'route', queuedCount: queue.length });
+            Core.ReportDriver._diagnosticOperationId = operationId;
+            Core.RuntimeDiagnostics?.record('report', 'report', { operationId, queuedCount: queue.length, active: true });
+            const diagnosticStartedAt = Date.now();
+            let diagnosticRetryCount = 0;
             try {
                 Storage.setJSON(CONFIG.KEYS.BG_STATUS, {
                     state: 'running',
@@ -803,36 +831,72 @@ Object.assign(Core, {
                     if (options.keepWorkerOpenOnError) {
                         return Core.ReportDriver.pauseForDebug(user, options, 'missing_dialog', '找不到互動名單 dialog');
                     }
-                    Storage.setJSON(CONFIG.KEYS.BG_STATUS, {
-                        state: 'paused',
-                        current: '只檢舉等待互動名單 dialog',
-                        progress: 0,
-                        total: queue.length,
-                        lastUpdate: Date.now(),
-                    });
-                    UI.showToast('找不到互動名單 dialog，只檢舉佇列已保留', 3500);
-                    return false;
+                    return Core.ReportDriver.skipOrPauseForDebug(user, options, 'missing_dialog', '找不到互動名單 dialog');
                 }
+                if (needsDialog) Core.ReportDriver.recordSafetyDiagnostic('root_resolve', 'success');
 
                 const row = mode === 'profile' || mode === 'post' ? null : Core.ReportDriver.findRowForUser(ctx, user);
+                const profileRoot = mode === 'profile' ? Core.findProfileRoot?.(user) : null;
+                if (mode === 'profile' && !profileRoot) {
+                    return Core.ReportDriver.skipOrPauseForDebug(user, options, 'missing_profile_root', `找不到 @${user} 的可信 profile root`);
+                }
+                if (mode === 'profile') Core.ReportDriver.recordSafetyDiagnostic('root_resolve', 'success');
+                const privateState = mode === 'profile' ? MoreLocator.detectPrivateProfileState(profileRoot) : { private: false };
+                const routeBeforeMore = MoreLocator.routeType();
                 const moreBtn = mode === 'post'
                     ? await Core.ReportDriver.findPostContentMoreButton()
                     : (mode === 'profile'
-                        ? await Core.ReportDriver.findProfileMoreButton()
+                        ? await Core.ReportDriver.findProfileMoreButton(user)
                         : Core.ReportDriver.findRowMoreButton(row));
                 if (!moreBtn) {
-                    return Core.ReportDriver.skipOrPauseForDebug(user, options, 'missing_more_button', `找不到 @${user} 的更多按鈕`);
+                    return Core.ReportDriver.skipOrPauseForDebug(user, options, 'missing_more_button', `找不到 @${user} 的可信更多按鈕`, {
+                        privateProfile: privateState.private,
+                    });
                 }
+                Core.ReportDriver.recordSafetyDiagnostic('more_resolve', 'success', { moreCandidates: 1 });
 
                 await Core.ReportDriver.visualStep(options, user, mode === 'post' ? '準備點來源貼文的更多' : '準備點使用者主頁的更多', moreBtn, 320);
                 Utils.simClick(moreBtn);
-                const reportMenuItem = await Utils.pollUntil(() => {
-                    return Core.ReportDriver.findAnyText(REPORT_TEXTS, { exact: false });
-                }, 2000, 120);
-                if (!reportMenuItem) {
-                    return Core.ReportDriver.skipOrPauseForDebug(user, options, 'missing_report_menu_item', `@${user} 選單內找不到檢舉項目`);
+                await Utils.safeSleep(60);
+                if (!MoreLocator.routeMatches(routeBeforeMore, MoreLocator.routeType(), mode === 'post' ? 'post' : 'profile')) {
+                    return Core.ReportDriver.skipOrPauseForDebug(user, options, 'navigation_mismatch', `@${user} 的 More 點擊後路由不符`, {
+                        routeBefore: routeBeforeMore,
+                        routeAfter: MoreLocator.routeType(),
+                    });
                 }
+                Core.ReportDriver.recordSafetyDiagnostic('navigation_check', 'success');
+                let reportMenuClickRetried = false;
+                const reportMenuStartedAt = Date.now();
+                const reportMenuItem = await Utils.pollUntil(() => {
+                    const item = Core.ReportDriver.findAnyText(REPORT_TEXTS, { exact: false });
+                    if (item) return item;
 
+                    // Match the block worker's recovery path: only retry when no
+                    // native menu item appeared, so an already-open menu is not toggled closed.
+                    if (!reportMenuClickRetried && Date.now() - reportMenuStartedAt > REPORT_MENU_RETRY_AFTER_MS) {
+                        const menuItems = document.querySelectorAll('div[role="menuitem"]');
+                        if (menuItems.length === 0) {
+                            reportMenuClickRetried = true;
+                            diagnosticRetryCount++;
+                            if (window.hegeLog) window.hegeLog('[只檢舉] 選單未開啟，重試 simClick...');
+                            Utils.simClick(moreBtn);
+                        }
+                    }
+                    return null;
+                }, REPORT_MENU_TIMEOUT_MS, 150);
+                if (!reportMenuItem) {
+                    return Core.ReportDriver.skipOrPauseForDebug(user, options, 'menu_not_found', `@${user} 選單內找不到可信檢舉項目`, {
+                        privateProfile: privateState.private,
+                    });
+                }
+                Core.ReportDriver.recordSafetyDiagnostic('menu_resolve', 'success', {
+                    menuItems: document.querySelectorAll('div[role="menuitem"], div[role="button"]').length,
+                }, { retryCount: diagnosticRetryCount });
+
+                Core.ReportDriver.recordSafetyDiagnostic('action_resolve', 'success', {}, {
+                    elapsedMs: Date.now() - diagnosticStartedAt,
+                    retryCount: diagnosticRetryCount,
+                });
                 await Core.ReportDriver.visualStep(options, user, '準備點「檢舉」', reportMenuItem, 300);
                 Core.ThreeNoWatch?.appendNetworkActionMarker?.('report_menu_click', {
                     user,
@@ -846,11 +910,12 @@ Object.assign(Core, {
                 await Core.ReportDriver.selectReportTargetIfShown(mode === 'post' ? 'content' : 'account', options, user);
                 const blankDialogAfterMenu = Core.ReportDriver.getBlankDialogState();
                 if (blankDialogAfterMenu) {
-                    Core.ReportDriver.remindReportRateLimit(user, 'blank_report_dialog_after_menu');
+                    if (Core.ReportDriver.hasExplicitRestrictionSignal()) Core.ReportDriver.remindReportRateLimit(user, 'blank_report_dialog_after_menu');
                     return Core.ReportDriver.skipOrPauseForDebug(user, options, 'blank_report_dialog_stuck', `@${user} 的檢舉視窗出現空白 dialog，內容沒有載入`, {
                         blankDialogs: blankDialogAfterMenu.dialogs,
                         blankCount: blankDialogAfterMenu.blankCount,
                         elapsedSinceMenuClickMs: Date.now() - reportMenuClickAt,
+                        privateProfile: privateState.private,
                     });
                 }
 
@@ -866,7 +931,7 @@ Object.assign(Core, {
                             return { done: true };
                         }
                         return Core.ReportDriver.findNextReportOption(path, pathIndex);
-                    }, 3500, 120);
+                    }, REPORT_OPTION_TIMEOUT_MS, 150);
                     const waitElapsedMs = Date.now() - waitStartedAt;
                     const sinceMenuClickMs = Date.now() - reportMenuClickAt;
                     if (!loggedFirstPathResolution && pathIndex === 0) {
@@ -904,13 +969,14 @@ Object.assign(Core, {
                     if (!match) {
                         const blankDialogState = Core.ReportDriver.getBlankDialogState();
                         if (blankDialogState) {
-                            Core.ReportDriver.remindReportRateLimit(user, 'blank_report_dialog_mid_flow');
+                            if (Core.ReportDriver.hasExplicitRestrictionSignal()) Core.ReportDriver.remindReportRateLimit(user, 'blank_report_dialog_mid_flow');
                             return Core.ReportDriver.skipOrPauseForDebug(user, options, 'blank_report_dialog_stuck', `@${user} 的檢舉視窗出現空白 dialog，內容沒有載入`, {
                                 pathIndex,
                                 remainingPath: path.slice(pathIndex),
                                 blankDialogs: blankDialogState.dialogs,
                                 blankCount: blankDialogState.blankCount,
                                 elapsedSinceMenuClickMs: Date.now() - reportMenuClickAt,
+                                privateProfile: privateState.private,
                             });
                         }
                         const visibleOptions = Core.ReportDriver.getVisibleReportOptionTexts();
@@ -919,12 +985,13 @@ Object.assign(Core, {
                             window.hegeLog(`[只檢舉] 目前可見選項=${JSON.stringify(visibleOptions)}`);
                         }
                         if (pathIndex === 0) {
-                            Core.ReportDriver.remindReportRateLimit(user, 'missing_first_report_option');
+                            if (Core.ReportDriver.hasExplicitRestrictionSignal()) Core.ReportDriver.remindReportRateLimit(user, 'missing_first_report_option');
                         }
                         return Core.ReportDriver.skipOrPauseForDebug(user, options, 'missing_report_option', `找不到檢舉選項「${path[pathIndex]}」`, {
                             pathIndex,
                             remainingPath: path.slice(pathIndex),
                             visibleOptions,
+                            privateProfile: privateState.private,
                         });
                     }
                     if (match.done) break;
@@ -943,6 +1010,10 @@ Object.assign(Core, {
                         phase: 'before_click',
                     });
                     Utils.simClick(match.option);
+                    Core.ReportDriver.recordSafetyDiagnostic('action_resolve', 'success', {}, {
+                        elapsedMs: Date.now() - diagnosticStartedAt,
+                        retryCount: diagnosticRetryCount,
+                    });
                     pathIndex += match.offset + 1;
                     await Utils.safeSleep(700);
                     Core.ReportDriver.logVisibleOptions(`選擇「${match.step}」後`, { nextPath: path.slice(pathIndex) });
@@ -990,8 +1061,15 @@ Object.assign(Core, {
                         remainingPath: path.slice(pathIndex),
                         visibleOptions: Core.ReportDriver.getVisibleReportOptionTexts(),
                         hadConfirmDialog: !!submitOriginDialog,
+                        privateProfile: privateState.private,
                     });
                 }
+                Core.ReportDriver.recordSafetyDiagnostic('confirm_resolve', 'success', {
+                    confirmButtons: submitOriginDialog ? submitOriginDialog.querySelectorAll('div[role="button"], button').length : 0,
+                }, {
+                    elapsedMs: Date.now() - diagnosticStartedAt,
+                    retryCount: diagnosticRetryCount,
+                });
                 Core.ReportDriver.recordDebugTrace('report_success', user, options, {
                     finalSignal: finalSubmitState.signal || 'unknown',
                     totalElapsedMs: Date.now() - reportMenuClickAt,
@@ -1004,24 +1082,35 @@ Object.assign(Core, {
                 });
 
                 Storage.recordReport();
+                Core.clearReportFailureSnapshots?.();
                 Core.ReportDriver.recordHistory(user, options);
                 if (typeof options.onSuccess === 'function') {
                     options.onSuccess(user);
                 }
                 Core.ReportDriver.removeCurrent(user);
+                Core.ReportDriver.recordSafetyDiagnostic('queue_advance', 'success', {}, {
+                    elapsedMs: Date.now() - diagnosticStartedAt,
+                    retryCount: diagnosticRetryCount,
+                });
                 if (window.hegeLog) window.hegeLog(`[只檢舉] @${user} 檢舉流程已記錄完成，剩餘 queue=${Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []).length}`);
                 UI.showToast(`已送出 @${user} 的只檢舉流程`, 2500);
                 Core.ReportDriver.scheduleNext(options);
+                Core.RuntimeDiagnostics?.end(operationId, 'finish', { reason: 'success', ok: true, complete: true, committed: true, elapsedMs: Date.now() - diagnosticStartedAt });
                 return true;
             } catch (err) {
                 console.error('[ReportDriver] processNext failed:', err);
+                Core.RuntimeDiagnostics?.record('report', 'error', { operationId, reason: 'failure', ok: false, errorName: err?.name || 'Error', errorCode: 'process_failed', elapsedMs: Date.now() - diagnosticStartedAt });
                 return Core.ReportDriver.skipOrPauseForDebug(user, options, 'exception', `只檢舉流程發生錯誤：${err.message || err}`, {
                     errorName: err?.name || '',
                     errorMessage: err?.message || String(err),
                     stack: String(err?.stack || '').slice(0, 800),
                 });
             } finally {
+                if (Core.RuntimeDiagnostics?.enabled?.() && operationId && Core.RuntimeDiagnostics.get().some(entry => entry.operationId === operationId && entry.fields?.terminal === true) === false) {
+                    Core.RuntimeDiagnostics.end(operationId, 'terminal', { reason: 'failure', ok: false, elapsedMs: Date.now() - diagnosticStartedAt });
+                }
                 Core.ReportDriver._running = false;
+                Core.ReportDriver._diagnosticOperationId = null;
             }
         },
     },

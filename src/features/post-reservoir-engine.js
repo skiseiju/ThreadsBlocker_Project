@@ -4,6 +4,7 @@ import { Storage } from '../storage.js';
 import { UI } from '../ui.js';
 import { Utils } from '../utils.js';
 import { Core } from '../core.js';
+import { DialogCollector } from '../dialog-collector.js';
 
 const SWEEP_KEYS = {
     STATE: 'hege_sweep_state',
@@ -26,6 +27,7 @@ Object.assign(Core, {
     SweepDriver: {
         _drainTimer: null,
         _running: false,
+        _lastOpenReason: null,
 
         keys: SWEEP_KEYS,
 
@@ -317,8 +319,9 @@ Object.assign(Core, {
                 UI.showToast('貼文水庫：正在讀取互動名單...', 4000);
                 const ctx = await Core.SweepDriver.openEngagementList();
                 if (!ctx) {
-                    console.log('[SweepDriver] runCurrentPage finalizeEntry path: no ctx');
-                    await Core.SweepDriver.finalizeEntry(entry, 'no_list');
+                    const reason = Core.SweepDriver._lastOpenReason || 'no_list';
+                    console.log('[SweepDriver] runCurrentPage finalizeEntry path:', reason);
+                    await Core.SweepDriver.finalizeEntry(entry, reason);
                     return;
                 }
 
@@ -351,8 +354,40 @@ Object.assign(Core, {
         },
 
         async openEngagementList() {
+            this._lastOpenReason = null;
+            const confirmSelectedLikesContext = async (dialog) => {
+                let ctx = dialog;
+                let tab = DialogCollector.findLikesTab(ctx, CONFIG.LIKES_TAB_TEXTS);
+                if (!tab) {
+                    this._lastOpenReason = 'likes_tab_not_identified';
+                    return null;
+                }
+                if (!DialogCollector.isSelectedTab(tab)) {
+                    try {
+                        Utils.simClick(tab);
+                    } catch (err) {
+                        this._lastOpenReason = 'likes_tab_switch_failed';
+                        return null;
+                    }
+                    const readiness = await DialogCollector.waitForLikesContextReady(ctx, {
+                        likesTexts: CONFIG.LIKES_TAB_TEXTS,
+                        getLiveContext: () => Core.getTopContext?.() || ctx,
+                        requireChange: true,
+                        maxAttempts: 12,
+                        waitMs: 150,
+                    });
+                    if (!readiness) {
+                        this._lastOpenReason = 'likes_tab_switch_failed';
+                        return null;
+                    }
+                    ctx = readiness.ctx;
+                }
+                return ctx;
+            };
             const existingDialog = Core.getTopContext();
-            if (existingDialog && existingDialog !== document.body) return existingDialog;
+            if (existingDialog && existingDialog !== document.body) {
+                return confirmSelectedLikesContext(existingDialog);
+            }
 
             const getCurrentPostScope = () => {
                 const currentPath = (() => {
@@ -500,10 +535,10 @@ Object.assign(Core, {
                     }
                     if (likesTab) {
                         console.log('[SweepDriver] findLikesTab found in dialog #' + Array.from(document.querySelectorAll('[role="dialog"]')).indexOf(foundInDialog));
-                        Utils.simClick(likesTab);
+                        const finalCtx = await confirmSelectedLikesContext(foundInDialog);
+                        if (!finalCtx) return null;
 
                         // 等 user 連結載入（最多 20 秒，含 lazy scroll）
-                        const finalCtx = Core.getTopContext();
                         const scrollBoxForLazy = Core.SweepDriver.findScrollBox(finalCtx);
                         for (let i = 0; i < CONFIG.SWEEP_POLL_USER_LINKS_TIMES; i++) {
                             if (finalCtx.querySelectorAll('a[href*="/@"]').length > 0) break;
@@ -515,9 +550,13 @@ Object.assign(Core, {
                         const userCount = finalCtx.querySelectorAll('a[href*="/@"]').length;
                         console.log('[SweepDriver] openEngagementList ready – userLinks:', userCount);
                         if (userCount > 0) return finalCtx;
-                        console.log('[SweepDriver] Activity dialog 內 0 user 連結，fallback 到 Strategy 2');
+                        this._lastOpenReason = 'likes_rows_not_loaded';
+                        console.log('[SweepDriver] Activity dialog 內 0 user 連結，fail closed');
+                        return null;
                     } else {
-                        console.log('[SweepDriver] findLikesTab failed after 20s in Activity dialog – fallback to Strategy 2');
+                        this._lastOpenReason = 'likes_tab_not_identified';
+                        console.log('[SweepDriver] findLikesTab failed after 20s in Activity dialog – fail closed');
+                        return null;
                     }
                 } else {
                     console.log('[SweepDriver] Activity click 後 dialog 沒出現，fallback 到 Strategy 2');
@@ -540,19 +579,19 @@ Object.assign(Core, {
             for (let i = 0; i < 40; i++) {
                 await Utils.safeSleep(500);
                 const ctx = Core.getTopContext();
-                if (ctx && ctx !== document.body && ctx.querySelectorAll('a[href*="/@"]').length > 0) return ctx;
+                if (ctx && ctx !== document.body && ctx.querySelectorAll('a[href*="/@"]').length > 0) {
+                    const confirmedCtx = await confirmSelectedLikesContext(ctx);
+                    if (confirmedCtx) return confirmedCtx;
+                    return null;
+                }
             }
+            this._lastOpenReason = 'likes_dialog_timeout';
             return null;
         },
 
         findLikesTab(ctx) {
-            const spans = ctx.querySelectorAll('span[dir="auto"]');
-            for (const span of spans) {
-                const text = (span.innerText || span.textContent || '').trim();
-                if (CONFIG.LIKES_TAB_TEXTS.some(t => text === t)) {
-                    return span.closest('div[role="tab"], div[role="button"], div[class*="x6s0dn4"][class*="x1qv9dbp"]');
-                }
-            }
+            const tab = DialogCollector.findLikesTab(ctx, CONFIG.LIKES_TAB_TEXTS);
+            if (tab) return tab;
             // diagnostic: findLikesTab 找不到 likes tab 時，dump 所有可用的 span 文字
             const allTexts = Array.from(ctx.querySelectorAll('span[dir="auto"]'))
                 .map(s => (s.innerText || s.textContent || '').trim())
@@ -563,30 +602,43 @@ Object.assign(Core, {
         },
 
         findScrollBox(ctx) {
-            let scrollBox = ctx;
-            if (ctx.scrollHeight === ctx.clientHeight) {
-                const innerBoxes = ctx.querySelectorAll('div');
-                for (const box of innerBoxes) {
-                    if (box.scrollHeight > box.clientHeight && window.getComputedStyle(box).overflowY !== 'hidden') {
-                        scrollBox = box;
-                        break;
-                    }
-                }
-            }
-            return scrollBox;
+            return DialogCollector.findScrollableRoot(ctx);
         },
 
         async collectBatch(ctx) {
+            const readiness = await DialogCollector.waitForLikesContextReady(ctx, {
+                likesTexts: CONFIG.LIKES_TAB_TEXTS,
+                getLiveContext: () => Core.getTopContext?.() || ctx,
+                requireChange: false,
+                maxAttempts: 12,
+                waitMs: 150,
+            });
+            if (!readiness) {
+                this._lastOpenReason = 'likes_tab_switch_failed';
+                return { users: [], reason: 'likes_tab_switch_failed' };
+            }
+            ctx = readiness.ctx;
+            const classificationStrategy = readiness.classificationStrategy || 'verified_likes_context';
+            const verifiedLikesContext = readiness.verifiedLikesContext === true;
             const collectedLinks = new Set();
-            const scrollBox = Core.SweepDriver.findScrollBox(ctx);
-            console.log('[SweepDriver] collectBatch scrollBox selected', JSON.stringify({
-                sameAsCtx: scrollBox === ctx,
-                scrollHeight: scrollBox.scrollHeight,
-                clientHeight: scrollBox.clientHeight,
-            }));
+            const typedState = DialogCollector.createState();
+            const scrollBox = DialogCollector.findScrollableRoot(ctx, { verifiedLikesContext, classificationStrategy });
+            Core.RuntimeDiagnostics?.record('reservoir', 'dialog', {
+                scrollRootFound: !!scrollBox, scrollRootSelected: scrollBox !== ctx,
+                scrollRootCandidates: ctx?.querySelectorAll?.('div')?.length || 0,
+                strategy: 'scroll_ancestor', classificationStrategy, verifiedLikesContext,
+            });
 
             const collectVisible = () => {
-                const links = ctx.querySelectorAll('a[href^="/@"]');
+                const batch = DialogCollector.collectVisible(scrollBox || ctx, typedState, {
+                    verifiedLikesContext, classificationStrategy,
+                    allowVerifiedLikesAnchorFallback: verifiedLikesContext === true,
+                    anchorContext: ctx, skipUsers: Core.buildSkipUsers?.(ctx, { skipPostOwner: true }) || new Set(),
+                });
+                if (batch?.anchorDiagnostics) {
+                    Core.RuntimeDiagnostics?.record('reservoir', 'anchor_filter', { ...batch.anchorDiagnostics, classificationStrategy });
+                }
+                const links = (scrollBox || ctx).querySelectorAll('a[href^="/@"]');
                 Array.from(links).forEach(a => {
                     const rect = a.getBoundingClientRect();
                     const isVisible = rect.width > 0 && rect.height > 0 && rect.right > 0;
@@ -598,36 +650,84 @@ Object.assign(Core, {
                 });
             };
 
-            let prevSize = 0;
             let stallCount = 0;
+            let collectionReason = 'completed';
+            let reachedEnd = false;
+            let scrollStall = false;
+            let timedOut = false;
             for (let i = 0; i < 50; i++) {
+                const beforeScrollTop = Number(scrollBox?.scrollTop || 0);
+                const beforeScrollHeight = Number(scrollBox?.scrollHeight || 0);
+                const beforeClientHeight = Number(scrollBox?.clientHeight || 0);
+                const beforeUnique = Number(typedState.uniqueVisibleRows || typedState.visibleRows || 0);
                 collectVisible();
-                if (collectedLinks.size === prevSize) {
-                    stallCount++;
-                    if (stallCount >= 4) break; // 4 連續無新進度 → 收工（節省時間）
-                } else {
-                    stallCount = 0;
-                    prevSize = collectedLinks.size;
+                const visibleUnique = Number(typedState.uniqueVisibleRows || typedState.visibleRows || 0);
+                const beforeAtBottom = beforeScrollTop + beforeClientHeight >= beforeScrollHeight - 2;
+                if (beforeAtBottom && i > 0) {
+                    reachedEnd = true;
+                    Core.RuntimeDiagnostics?.record('reservoir', 'scroll', {
+                        scrollAttempt: i, beforeScrollTop, afterScrollTop: beforeScrollTop,
+                        scrollTop: beforeScrollTop, clientHeight: beforeClientHeight,
+                        beforeScrollHeight, afterScrollHeight: beforeScrollHeight,
+                        atBottom: true, progress: visibleUnique > beforeUnique,
+                        visibleProgress: Math.max(0, visibleUnique - beforeUnique), rootAdvanced: false,
+                        strategy: 'scroll_ancestor',
+                    });
+                    break;
                 }
-                if (i > 0) scrollBox.scrollBy({ top: 400, behavior: 'auto' });
+                if (typeof scrollBox?.scrollBy === 'function') scrollBox.scrollBy({ top: 400, behavior: 'auto' });
+                else if (typeof scrollBox?.scrollTo === 'function') scrollBox.scrollTo(0, beforeScrollHeight + 100);
                 await Utils.safeSleep(350);
+                const afterScrollTop = Number(scrollBox?.scrollTop || 0);
+                const afterScrollHeight = Number(scrollBox?.scrollHeight || 0);
+                const rootAdvanced = afterScrollTop > beforeScrollTop || afterScrollHeight > beforeScrollHeight;
+                const visibleProgress = Math.max(0, visibleUnique - beforeUnique);
+                const progress = rootAdvanced || visibleProgress > 0;
+                const atBottom = afterScrollTop + beforeClientHeight >= afterScrollHeight - 2;
+                Core.RuntimeDiagnostics?.record('reservoir', 'scroll', {
+                    scrollAttempt: i, beforeScrollTop, afterScrollTop,
+                    scrollTop: afterScrollTop, clientHeight: beforeClientHeight,
+                    beforeScrollHeight, afterScrollHeight, scrollHeight: afterScrollHeight,
+                    atBottom, progress, visibleProgress, rootAdvanced, strategy: 'scroll_ancestor',
+                });
+                if (!progress) stallCount += 1;
+                else stallCount = 0;
+                if (stallCount >= 4) {
+                    reachedEnd = atBottom;
+                    collectionReason = reachedEnd ? 'end' : 'scroll_stall';
+                    scrollStall = !reachedEnd;
+                    break;
+                }
+                if (i === 49) {
+                    timedOut = true;
+                    collectionReason = 'timeout';
+                }
             }
-            console.log('[SweepDriver] collectBatch collection loop finished', JSON.stringify({
-                collectedLinksSize: collectedLinks.size,
-            }));
+            Core.RuntimeDiagnostics?.record('reservoir', 'progress', {
+                queuedCount: collectedLinks.size, scrollCount: 50, reason: collectionReason,
+            });
 
-            const skipUsers = Core.buildSkipUsers(ctx);
-            console.log('[SweepDriver] collectBatch skipUsers built', JSON.stringify({
-                skipUsers: [...skipUsers],
-            }));
-            let rawUsers = [...collectedLinks].filter(u => !skipUsers.has(u));
-            console.log('[SweepDriver] collectBatch after skipUsers filter', JSON.stringify({
-                rawUsersLength: rawUsers.length,
-            }));
+            // Keep reservoir enqueue atomic with clean-list: a verified Likes
+            // batch that still has unresolved unique rows must not enqueue the
+            // valid subset and silently commit a partial sweep.
+            if (Number(typedState.unknownRows || 0) > 0) {
+                return {
+                    users: [], reason: 'rows_unknown',
+                    visibleRows: typedState.uniqueVisibleRows || typedState.visibleRows || 0,
+                    unknownRows: typedState.uniqueUnknownRows || typedState.unknownRows || 0,
+                    validAccountRows: typedState.validAccountRows || 0,
+                };
+            }
+
+            const skipUsers = Core.buildSkipUsers(ctx, { skipPostOwner: true });
+            let rawUsers = DialogCollector.usersFromState(typedState, skipUsers);
+            const skipBreakdown = Core.getSkipUserBreakdown?.(ctx, [...(typedState.entries?.values?.() || [])].map(entry => entry.username || ''), { skipPostOwner: true }) || {};
+            Core.RuntimeDiagnostics?.record('reservoir', 'rows', {
+                validAccountRows: typedState.validAccountRows || 0, uniqueVisibleRows: typedState.uniqueVisibleRows || 0,
+                unknownCount: typedState.unknownRows || 0, eligibleCount: rawUsers.length,
+                ...skipBreakdown, ...(typedState.anchorDiagnostics || {}), classificationStrategy, strategy: 'scroll_ancestor',
+            });
             rawUsers = Core.filterNewUsers(rawUsers);
-            console.log('[SweepDriver] collectBatch after filterNewUsers', JSON.stringify({
-                rawUsersLength: rawUsers.length,
-            }));
 
             const processedSetKey = 'hege_sweep_processed_' + window.location.pathname;
             const processedList = Storage.getJSON(processedSetKey, []);
@@ -650,8 +750,11 @@ Object.assign(Core, {
                 newUsersLength: newUsers.length,
             }));
             if (newUsers.length === 0) {
-                const fallbackUsers = await Core.collectFullDialogUsers(ctx, { label: '定點絕掃描名單' });
-                const fallbackNewUsers = Core.filterNewUsers(fallbackUsers).filter(u => !processedSet.has(u));
+                const fallbackCollection = await Core.collectFullDialogUsers(ctx, { label: '定點絕掃描名單', skipPostOwner: true });
+                if (!fallbackCollection?.complete) {
+                    return { users: [], reason: fallbackCollection?.reason || 'collection_incomplete' };
+                }
+                const fallbackNewUsers = Core.filterNewUsers(fallbackCollection.users).filter(u => !processedSet.has(u));
                 if (fallbackNewUsers.length > 0) {
                     const fallbackBatch = fallbackNewUsers;
                     Storage.setJSON(processedSetKey, [...new Set([...processedList, ...fallbackBatch])]);
@@ -659,18 +762,19 @@ Object.assign(Core, {
                     sessionStorage.setItem(SWEEP_KEYS.LAST_FIRST_USER, fallbackBatch[0]);
                     sessionStorage.setItem(SWEEP_KEYS.AUTO_TRIGGERED_ONCE, 'true');
                     console.log('[SweepDriver] collectBatch fallback Core.collectFullDialogUsers success', JSON.stringify({
-                        fallbackUsersLength: fallbackUsers.length,
+                        fallbackUsersLength: fallbackCollection.users.length,
                         fallbackNewUsersLength: fallbackNewUsers.length,
                     }));
-                    return { users: fallbackBatch, reason: 'batch_fallback_full_dialog' };
+                    return { users: fallbackBatch, reason: Core.lastDialogCollectionResult?.reason || `batch_fallback_full_dialog` };
                 }
+                const fallbackReason = Core.lastDialogCollectionResult?.reason;
                 console.log('[SweepDriver] collectBatch return empty', JSON.stringify({
-                    reason: 'exhausted',
+                    reason: fallbackReason || collectionReason || 'exhausted',
                     collectedLinksSize: collectedLinks.size,
                     rawUsersLength: rawUsers.length,
                     processedSetSize: processedSet.size,
                 }));
-                return { users: [], reason: 'exhausted' };
+                return { users: [], reason: fallbackReason || collectionReason || 'exhausted' };
             }
 
             const lastFirst = sessionStorage.getItem(SWEEP_KEYS.LAST_FIRST_USER);
@@ -678,8 +782,6 @@ Object.assign(Core, {
             if (shouldCompareFirst && lastFirst && lastFirst === newUsers[0]) {
                 console.log('[SweepDriver] collectBatch return empty', JSON.stringify({
                     reason: 'first_user_loop',
-                    lastFirst,
-                    firstNewUser: newUsers[0],
                     newUsersLength: newUsers.length,
                     processedSetSize: processedSet.size,
                 }));
@@ -694,7 +796,7 @@ Object.assign(Core, {
                     const intersection = batchUsers.filter(u => lastBatch.includes(u));
                     const overlapRate = intersection.length / batchUsers.length;
                     if (overlapRate > 0.8) {
-                        console.error('[SweepDriver] Loop breaker triggered.', { lastBatch, batchUsers });
+                        console.error('[SweepDriver] Loop breaker triggered.', { overlapRate });
                         console.log('[SweepDriver] collectBatch return empty', {
                             reason: 'batch_overlap_loop',
                             overlapRate,
@@ -711,10 +813,12 @@ Object.assign(Core, {
             sessionStorage.setItem(lastBatchKey, JSON.stringify(batchUsers));
             sessionStorage.setItem(SWEEP_KEYS.LAST_FIRST_USER, batchUsers[0]);
             sessionStorage.setItem(SWEEP_KEYS.AUTO_TRIGGERED_ONCE, 'true');
-            return { users: batchUsers, reason: 'batch' };
+            return { users: batchUsers, reason: timedOut ? 'timeout' : (scrollStall ? 'scroll_stall' : (reachedEnd ? 'end' : collectionReason)) };
         },
 
         enqueueBatch(entry, batchUsers) {
+            const operationId = Core.RuntimeDiagnostics?.begin('reservoir', { strategy: 'semantic_row', queuedCount: Array.isArray(batchUsers) ? batchUsers.length : 0 });
+            Core.RuntimeDiagnostics?.record('reservoir', 'progress', { operationId, queuedCount: Array.isArray(batchUsers) ? batchUsers.length : 0, active: true });
             const activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
             Storage.setJSON(CONFIG.KEYS.BG_QUEUE, [...new Set([...activeQueue, ...batchUsers])]);
 
@@ -757,6 +861,7 @@ Object.assign(Core, {
                     Core.runSameTabWorker(batchUsers);
                 }
             }
+            Core.RuntimeDiagnostics?.end(operationId, 'commit', { reason: 'completed', ok: true, complete: true, atomic: true, queuedCount: batchUsers.length });
         },
 
         waitForWorkerDrain() {
