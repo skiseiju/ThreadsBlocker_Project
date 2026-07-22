@@ -24,6 +24,9 @@ const BETA_DIAGNOSTIC_REASONS = new Set([
 ]);
 const BETA_DIAGNOSTIC_TABS = new Set(['likes', 'quotes', 'reposts', 'followers', 'unknown']);
 const BETA_DIAGNOSTIC_PATHS = new Set(['message', 'profile', 'post', 'unknown']);
+// Checkbox-overlap observations use a separate path vocabulary. These are
+// not pathname categories and must not change the meaning of `pathnameCategory`.
+const BETA_DIAGNOSTIC_CHECKBOX_PATHS = new Set(['dialog_injection', 'inline_post_injection']);
 const BETA_DIAGNOSTIC_STRATEGIES = new Set(['semantic_row', 'scroll_ancestor', 'dialog_context', 'active_tab', 'split_signature', 'route', 'history_replace', 'window_open', 'same_tab', 'background_tab', 'verified_likes_context', 'unknown']);
 const boundedDiagnosticInt = (value, max = 1000000) => Number.isFinite(value)
     ? Math.max(0, Math.min(max, Math.floor(Number(value)))) : 0;
@@ -95,7 +98,7 @@ export const RuntimeDiagnostics = {
             'acceptedUniqueAccountCount', 'excludedInvalidCount', 'excludedInvisibleCount', 'excludedOutOfBoundsCount',
             'excludedHeadingHeaderCount', 'excludedNavigationCount', 'excludedNestedDialogCount',
             'classifiedLinkCount', 'unclassifiedLinkCount',
-            'pendingCount', 'selectedVisualCount', 'dialogCount', 'listCount', 'scrollRootCandidates',
+            'pendingCount', 'selectedVisualCount', 'dialogCount', 'accountRowCount', 'listCount', 'scrollRootCandidates',
             'scrollCount', 'totalHint', 'attempt', 'waitMs', 'renderObservations',
             'repeatCount', 'processedCount', 'failedCount', 'queuedCount', 'remainingCount', 'failureCount',
             'breakerCount', 'visibleRows', 'uniqueVisibleRows', 'uniqueUnknownRows', 'uniqueEligibleCount', 'uniqueRowCount', 'rowCount', 'operationCount', 'statusCode', 'checkedCount', 'requestCount',
@@ -122,6 +125,7 @@ export const RuntimeDiagnostics = {
             'visibleStop', 'manualFollowUp', 'atomic', 'protected', 'private', 'notFound', 'alreadyBlocked', 'success',
             'failure', 'terminal', 'preserved',
             'verifiedLikesContext', 'activityDialog', 'contextMatch',
+            'ctxIsRoleDialog', 'ctxVisible', 'isMessageRoute', 'didInject', 'insideRoleDialog',
         ];
         for (const key of boolKeys) {
             if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = diagnosticBoolean(source[key]);
@@ -129,6 +133,7 @@ export const RuntimeDiagnostics = {
         if (BETA_DIAGNOSTIC_REASONS.has(source.stopReason)) out.stopReason = source.stopReason;
         if (BETA_DIAGNOSTIC_TABS.has(source.activeTabCategory)) out.activeTabCategory = source.activeTabCategory;
         if (BETA_DIAGNOSTIC_PATHS.has(source.pathnameCategory)) out.pathnameCategory = source.pathnameCategory;
+        if (BETA_DIAGNOSTIC_CHECKBOX_PATHS.has(source.path)) out.path = source.path;
         if (BETA_DIAGNOSTIC_STRATEGIES.has(source.strategy)) out.strategy = source.strategy;
         if (BETA_DIAGNOSTIC_STRATEGIES.has(source.classificationStrategy)) out.classificationStrategy = source.classificationStrategy;
         if (typeof source.detector === 'string' && BETA_DIAGNOSTIC_STRATEGIES.has(source.detector)) out.detector = source.detector;
@@ -223,6 +228,60 @@ export const RuntimeDiagnostics = {
     export() {
         return this.enabled() ? { schema: this.SCHEMA, version: CONFIG.VERSION, sessionId: this._sessionId, summary: this.summary(), entries: this.get() } : null;
     },
+};
+
+// Checkbox overlap diagnostics are intentionally narrower than the global
+// runtime ring. Repeated scanner passes should not evict unrelated evidence.
+const CHECKBOX_OVERLAP_OBSERVATION_LIMIT = 40;
+const checkboxOverlapObservationState = {
+    count: 0,
+    lastSignatureByPath: new Map(),
+};
+
+export const resetCheckboxOverlapObservation = () => {
+    checkboxOverlapObservationState.count = 0;
+    checkboxOverlapObservationState.lastSignatureByPath.clear();
+};
+
+export const recordCheckboxOverlapObservation = (fields = {}) => {
+    try {
+        if (!RuntimeDiagnostics.enabled()) {
+            resetCheckboxOverlapObservation();
+            return null;
+        }
+        const source = fields && typeof fields === 'object' ? fields : {};
+        const path = BETA_DIAGNOSTIC_CHECKBOX_PATHS.has(source.path) ? source.path : null;
+        if (!path || checkboxOverlapObservationState.count >= CHECKBOX_OVERLAP_OBSERVATION_LIMIT) return null;
+
+        const safeFields = path === 'dialog_injection'
+            ? {
+                ctxIsRoleDialog: diagnosticBoolean(source.ctxIsRoleDialog),
+                ctxVisible: diagnosticBoolean(source.ctxVisible),
+                isMessageRoute: diagnosticBoolean(source.isMessageRoute),
+                dialogCount: boundedDiagnosticInt(source.dialogCount),
+                accountRowCount: boundedDiagnosticInt(source.accountRowCount),
+                didInject: diagnosticBoolean(source.didInject),
+                path,
+            }
+            : {
+                insideRoleDialog: diagnosticBoolean(source.insideRoleDialog),
+                isMessageRoute: diagnosticBoolean(source.isMessageRoute),
+                didInject: diagnosticBoolean(source.didInject),
+                path,
+            };
+        const signature = JSON.stringify(safeFields);
+        // Scanner polling can be slower than RuntimeDiagnostics' 1000ms
+        // coalesce window. Keep one last safe state per path so an unchanged
+        // DOM shape never consumes the dedicated evidence quota over time.
+        if (checkboxOverlapObservationState.lastSignatureByPath.get(path) === signature) return null;
+        if (checkboxOverlapObservationState.count >= CHECKBOX_OVERLAP_OBSERVATION_LIMIT) return null;
+
+        checkboxOverlapObservationState.lastSignatureByPath.set(path, signature);
+        checkboxOverlapObservationState.count += 1;
+        return RuntimeDiagnostics.record('selection', 'layout', safeFields);
+    } catch (_) {
+        return null;
+    }
 };
 
 // Optional bridge for modules that cannot import Core without creating a cycle.
@@ -572,8 +631,51 @@ export const resolveStopVisibility = (input = {}) => {
     return false;
 };
 
+const safeCheckboxContextVisible = (ctx) => {
+    try {
+        const rect = ctx?.getBoundingClientRect?.();
+        const style = document?.defaultView?.getComputedStyle?.(ctx)
+            || (typeof window !== 'undefined' ? window.getComputedStyle?.(ctx) : null);
+        if (!rect || !style) return false;
+        const visibility = String(style.visibility || '').toLowerCase();
+        const opacity = Number(style.opacity);
+        return Number(rect.width) > 0 && Number(rect.height) > 0
+            && String(style.display || '').toLowerCase() !== 'none'
+            && !['hidden', 'collapse'].includes(visibility)
+            && !(Number.isFinite(opacity) && opacity === 0);
+    } catch (_) {
+        return false;
+    }
+};
+
+const safeCheckboxIsRoleDialog = (ctx) => {
+    try { return ctx?.matches?.('[role="dialog"]') === true; } catch (_) { return false; }
+};
+
+const safeCheckboxInsideRoleDialog = (btn) => {
+    try { return !!btn?.closest?.('div[role="dialog"]'); } catch (_) { return false; }
+};
+
+const safeCheckboxMessageRoute = () => {
+    try {
+        return Core.isMessageRouteContext(window.location, document) === true;
+    } catch (_) {
+        return false;
+    }
+};
+
+const safeCheckboxDialogCount = () => {
+    try { return document.querySelectorAll('[role="dialog"]').length; } catch (_) { return 0; }
+};
+
+const safeCheckboxAccountRowCount = (ctx) => {
+    try { return ctx?.querySelectorAll?.('a[href^="/@"]')?.length || 0; } catch (_) { return 0; }
+};
+
 export const Core = {
     RuntimeDiagnostics,
+    recordCheckboxOverlapObservation,
+    resetCheckboxOverlapObservation,
     blockQueue: new Set(),
     pendingUsers: new Set(),
     _selectionSnapshot: new Set(readSelectionSnapshot()),
@@ -2690,8 +2792,26 @@ export const Core = {
     injectDialogCheckboxes: () => {
         const fallbackCtx = Core.getTopContext();
         const ctx = DialogCollector.pickBestAccountDialog(fallbackCtx);
+        let didInject = false;
+        let observationRecorded = false;
+        const recordObservation = () => {
+            if (observationRecorded) return;
+            observationRecorded = true;
+            recordCheckboxOverlapObservation({
+                path: 'dialog_injection',
+                ctxIsRoleDialog: safeCheckboxIsRoleDialog(ctx),
+                ctxVisible: safeCheckboxContextVisible(ctx),
+                isMessageRoute: safeCheckboxMessageRoute(),
+                dialogCount: safeCheckboxDialogCount(),
+                accountRowCount: safeCheckboxAccountRowCount(ctx),
+                didInject,
+            });
+        };
         const titleInfo = Core.getSupportedDialogTitle(ctx);
-        if (!titleInfo) return;
+        if (!titleInfo) {
+            recordObservation();
+            return;
+        }
         const dialogReason = Core.resolveBlockReasonFromTitle(titleInfo.titleText);
         const isProfileList = Core.isProfileListReason(dialogReason);
 
@@ -2861,12 +2981,16 @@ export const Core = {
                 host.style.alignItems = 'center';
                 host.style.gap = host.style.gap || '8px';
                 host.insertBefore(container, followBtn);
+                didInject = true;
             } else if (followBtnContainer && followBtnContainer.parentElement === flexRow) {
                 flexRow.insertBefore(container, followBtnContainer);
+                didInject = true;
             } else {
                 flexRow.appendChild(container);
+                didInject = true;
             }
         });
+        recordObservation();
     },
 
     scanAndInject: () => {
@@ -3055,6 +3179,12 @@ export const Core = {
                     container.style.transform = 'translateY(-50%)';
                     container.style.marginRight = '2px';
                     parent.appendChild(container);
+                    recordCheckboxOverlapObservation({
+                        path: 'inline_post_injection',
+                        insideRoleDialog: safeCheckboxInsideRoleDialog(btn),
+                        isMessageRoute: safeCheckboxMessageRoute(),
+                        didInject: true,
+                    });
                     Core.syncInlineFakeAccountBadge(container, inlineThreeNoResults);
                 }
             } catch (e) { }
@@ -4779,6 +4909,7 @@ export const Core = {
     clearRuntimeDiagnostics: () => {
         if (!RuntimeDiagnostics.enabled()) return false;
         RuntimeDiagnostics.clear();
+        resetCheckboxOverlapObservation();
         UI.showToast('已清除本次診斷資料', 2000, { severity: 'success' });
         return true;
     },

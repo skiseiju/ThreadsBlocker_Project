@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.7.4-beta83', // beta debug-log gate: stable boot purges raw three-no PII and disables network discovery
+    VERSION: '2.7.4-beta84', // checkbox overlap diagnostics
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // Beta-only, in-memory diagnostics. Stable/release channels must keep this
     // disabled even if a stale setting is present.
