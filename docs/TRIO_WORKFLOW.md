@@ -35,6 +35,7 @@ git rev-parse HEAD       # 記進任務書，這是 rollback 錨點
 - base commit: <sha>
 - 工作樹狀態: clean
 - 檔案擁有權: <本任務期間歸 luna 的檔案清單>
+- 回報對象 surface: <Orchestrator 的 surface ref，worker 完成後往這裡送通知>
 
 ## 先讀
 <檔案路徑清單>
@@ -53,30 +54,47 @@ git rev-parse HEAD       # 記進任務書，這是 rollback 錨點
 - 不准：commit、push、deploy、碰其他檔案
 
 ## 回報
-完成後把結果寫到 docs/handoff/<task-id>.done.md，格式：
-狀態／修改檔案／驗證命令與結果／未驗證項／尚待 Orchestrator 決定
+完成或受阻後寫到 docs/handoff/<task-id>.done.md（狀態／修改檔案／驗證命令與結果／
+未驗證項／尚待 Orchestrator 決定），接著用 cmux send 主動通知回報對象 surface。
 ```
 
-## 3. 來回機制（解決「不是空等就是要人提醒」）
+## 3. 來回機制：完成方主動通知，不輪詢
 
-派工後**立刻**掛一個背景等待，完成時會自動通知 Orchestrator：
+`cmux send` 是**雙向**的。worker 做完直接對 Orchestrator 的 surface 送一句話，那句話會落進 Orchestrator 的輸入並被處理——這就是通知，不需要任何等待或輪詢。
 
-```bash
-until [ -f docs/handoff/<task-id>.done.md ]; do sleep 20; done
-```
+Orchestrator 掛背景等待是錯的：浪費一個 process、延遲取決於 sleep 間隔、worker 掛掉時等待端毫無所覺。**誰完成誰負責通知。**
 
-用 Bash `run_in_background` 執行。它在檔案出現的那一刻結束，Orchestrator 收到通知後直接讀該檔——**使用者完全不需要轉述**。
-
-派工指令因此固定為兩步：
+### 派工（Orchestrator → worker）
 
 ```bash
-cmux send --surface surface:6 "讀 docs/handoff/<task-id>.md 並執行，完成後把結果寫到 docs/handoff/<task-id>.done.md"
+cmux send --surface surface:6 "讀 docs/handoff/<task-id>.md 並執行"
 cmux send-key --surface surface:6 Enter
 ```
 
-`send` 之後**一定要補 `send-key Enter`**，否則文字只會停在輸入列。
+`send` 之後**必須補 `send-key Enter`**，否則文字只停在輸入列。
 
-超過預期時間（建議 30 分鐘）仍無 `.done.md`：先 `cmux tree --all` 確認 pane 還活著，再依第 5 節接管。
+### 回報（worker → Orchestrator）
+
+任務書的「錨點」段必須寫明 Orchestrator 的 surface ref，worker 完成後執行：
+
+```bash
+cmux send --surface <orchestrator-surface> "<task-id> 完成／受阻，結果見 docs/handoff/<task-id>.done.md"
+cmux send-key --surface <orchestrator-surface> Enter
+```
+
+**受阻也要通知**，不能沉默。沉默與「還在做」無法區分，那正是今天要解決的問題。
+
+### luna ↔ sol
+
+同一機制。sol 指派 luna 時把自己的 surface ref 寫進任務書，luna 完成後通知 sol，sol 彙整後再通知 Orchestrator。
+
+### surface ref 怎麼查
+
+會變動，不要寫死在文件裡。派工當下用 `cmux tree --all` 查，或各自用 `cmux identify` 取得自己的 `surface_ref`，寫進任務書。
+
+### 逾時的唯一情況
+
+worker 崩潰到連通知都送不出來。此時是使用者察覺異常後告知，或 Orchestrator 在下次接觸時發現——依第 5 節接管。這種情況不該用輪詢來預防，成本高而收益低。
 
 ## 4. 分工判準
 
@@ -121,12 +139,43 @@ Orchestrator 直接對 luna（`surface:7`）派工，任務書格式不變。sol
 
 **中斷後絕對不做的事**：在不知道誰動過哪些檔案的情況下直接繼續改。先 `git status` 盤點，再決定。
 
-### 額度耗盡的預防
+## 6. Fail-safe：Codex 整個不能用
 
-- 大任務先拆成可獨立交付的段落，每段結束由 Orchestrator commit——commit 就是天然的存檔點
-- 不要把「改 50 個檔案」當成一個任務丟出去，斷在中間會很難收
+指 Codex 額度耗盡、訂閱到期或服務中斷，**sol 與 luna 都沒得用**。這不是「某個 worker 掛了」，是整層執行工人消失。
 
-## 6. 開 trio 的固定指令
+### 判斷
+
+pane 回 quota / 認證錯誤，或 `codex` 指令直接失敗。不要重試三次以上——額度問題重試不會好，只是浪費時間。
+
+### 立即處置
+
+1. 停止一切派工，不要留半完成的任務
+2. `git status --short` 盤點 dirty tree，依第 5 節決定保留或還原
+3. 告知使用者：哪些工作卡住、預計用什麼替代、成本差在哪
+
+### 降級順序
+
+| 層級 | 用什麼 | 適合 | 代價 |
+|---|---|---|---|
+| 1 | Claude subagent（Agent tool，haiku） | 機械性編輯、大範圍掃描、測試撰寫 | 不同額度池，多半還能用；品質略降，回報需更嚴格驗收 |
+| 2 | Orchestrator 自己做 | 需要判斷、或 subagent 也不可用時 | 燒 context，長任務會撞上壓縮 |
+| 3 | 延後 | 非緊急的大量機械工作 | 進度延後，但不會做壞 |
+
+**選擇原則**：不可逆或有時效的（deploy、送審、修 production bug）不論多貴都由 Orchestrator 自己做完；純粹省時間的整理工作直接延後，不要為了做而降低品質。
+
+### 自己做的時候
+
+- 先拆成 commit 大小的段落，每段做完就 commit——context 壓縮不會弄丟已完成的部分
+- 大量重複編輯用腳本（python/sed）批次處理並自我驗證，不要逐行手改
+- 驗收標準不降低。沒有 worker 不代表可以少跑測試
+
+### 預防
+
+- 大任務一律拆成可獨立交付的段落，每段結束由 Orchestrator commit——commit 就是天然存檔點
+- 不要把「改 50 個檔案」當成一個任務丟出去，斷在中間很難收
+- 高價值不可逆的事（發版、deploy）盡量不依賴 worker，這樣 Codex 消失時關鍵路徑不受影響
+
+## 7. 開 trio 的固定指令
 
 開新 pane 後第一句話固定為：
 

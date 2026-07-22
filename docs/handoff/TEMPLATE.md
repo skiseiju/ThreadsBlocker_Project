@@ -4,6 +4,7 @@
 - base commit: <git rev-parse HEAD>
 - 工作樹狀態: clean
 - 檔案擁有權: 本任務期間 <檔案清單> 歸 luna，Orchestrator 不動
+- 回報對象 surface: <surface ref>
 
 ## 先讀
 - <路徑>
@@ -23,7 +24,16 @@
 - secrets 只引用路徑，不得輸出值或寫進 repo
 
 ## 回報
-完成後寫到 `docs/handoff/<task-id>.done.md`：
+完成或受阻後寫到 `docs/handoff/<task-id>.done.md`，**接著主動通知**：
+
+```bash
+cmux send --surface <回報對象 surface> "<task-id> 完成／受阻，結果見 docs/handoff/<task-id>.done.md"
+cmux send-key --surface <回報對象 surface> Enter
+```
+
+受阻也要送，沉默與「還在做」無法區分。
+
+`.done.md` 格式：
 
 ```
 狀態：
