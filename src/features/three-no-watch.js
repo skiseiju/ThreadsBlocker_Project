@@ -87,6 +87,7 @@ Object.assign(Core, {
 
         READY_TIMEOUT_MS: 10000,
         HEARTBEAT_STALE_MS: 30000,
+        STOP_GRACE_MS: 10000,
         LAUNCHER_LOCK_NAME: 'threadsblocker:three-no-scan-launcher',
 
         readScanLock: () => {
@@ -200,8 +201,29 @@ Object.assign(Core, {
             const state = Core.ThreeNoWatch.getScanState();
             const scanId = String(state.scanId || '');
             const ownerToken = String(state.ownerToken || '');
-            if (!scanId || !ownerToken || Core.ThreeNoWatch.isTerminalStatus(state.status) || state.cancelled === true) return false;
-            if (!Core.ThreeNoWatch.ownsScan(scanId, ownerToken)) return false;
+            const appendRejectDebug = (step = '') => {
+                try {
+                    Core.ThreeNoWatch.appendScanDebugLog({
+                        scanId,
+                        status: String(state.status || ''),
+                        debug: { step },
+                    });
+                } catch (_) {}
+            };
+            if (!scanId || !ownerToken || Core.ThreeNoWatch.isTerminalStatus(state.status) || state.cancelled === true) {
+                let rejectStep = 'stop_rejected_missing_ids';
+                if (scanId && ownerToken) {
+                    rejectStep = Core.ThreeNoWatch.isTerminalStatus(state.status)
+                        ? 'stop_rejected_already_terminal'
+                        : 'stop_rejected_cancelled';
+                }
+                appendRejectDebug(rejectStep);
+                return false;
+            }
+            if (!Core.ThreeNoWatch.ownsScan(scanId, ownerToken)) {
+                appendRejectDebug('stop_rejected_not_owned');
+                return false;
+            }
             const requestedAt = Date.now();
             Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_COMMAND, {
                 command: 'stop',
@@ -209,7 +231,7 @@ Object.assign(Core, {
                 ownerToken,
                 requestedAt,
             });
-            Core.RuntimeDiagnostics?.record('three_no', 'request', { operationId: state.diagnosticOperationId, stopRequested: true, active: true });
+            Core.RuntimeDiagnostics?.record('three_no', 'request', { operationId: state.diagnosticOperationId, stopRequested: true, active: true, ok: true });
             const accepted = Core.ThreeNoWatch.setScanState({
                 scanId,
                 ownerToken,
@@ -222,6 +244,7 @@ Object.assign(Core, {
             if (accepted === false) {
                 const command = Core.ThreeNoWatch.readStopCommand();
                 if (command?.scanId === scanId && command?.ownerToken === ownerToken) Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_COMMAND);
+                appendRejectDebug('stop_rejected_set_state');
                 return false;
             }
             return true;
@@ -466,7 +489,12 @@ Object.assign(Core, {
         clearStaleScanIfNeeded: (reason = 'stale_scan_worker_missing') => {
             const state = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
             if (!Core.ThreeNoWatch.isRunningStatus(state.status)) return false;
-            if (Core.ThreeNoWatch.isFreshRunningState(state)) return false;
+            const stopCommand = Core.ThreeNoWatch.readStopCommand();
+            const stopRequestedAt = parseInt(stopCommand?.requestedAt || '0', 10) || 0;
+            const staleStopping = String(state.status || '') === 'stopping'
+                && stopRequestedAt > 0
+                && Date.now() - stopRequestedAt >= Core.ThreeNoWatch.STOP_GRACE_MS;
+            if (!staleStopping && Core.ThreeNoWatch.isFreshRunningState(state)) return false;
             if (state.scanId && state.ownerToken) {
                 return Core.ThreeNoWatch.markTerminalIfOwned(state.scanId, state.ownerToken, {
                     status: 'stopped',
@@ -495,6 +523,19 @@ Object.assign(Core, {
                     staleUpdatedAt: state.updatedAt || 0,
                     staleWorkerHeartbeatAt: state.workerHeartbeatAt || 0,
                 },
+            });
+            return true;
+        },
+
+        clearTerminalScanBeforeStart: () => {
+            const state = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
+            const isTerminal = Core.ThreeNoWatch.isTerminalStatus(state.status) || state.cancelled === true;
+            if (!isTerminal) return false;
+            Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_STATE);
+            Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_LOCK);
+            Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_COMMAND);
+            Core.RuntimeDiagnostics?.record('three_no', 'precondition', {
+                reason: 'stopped', failureType: 'cleared_terminal_before_start', active: false,
             });
             return true;
         },
@@ -807,7 +848,14 @@ Object.assign(Core, {
                     await Utils.safeSleep(50);
                     continue;
                 }
-                if (ownerToken && String(state.ownerToken || '') !== String(ownerToken)) return { ok: false, result: 'scan_in_flight', state };
+                if (ownerToken && String(state.ownerToken || '') !== String(ownerToken)) {
+                    Core.RuntimeDiagnostics?.record('three_no', 'precondition', {
+                        reason: 'scan_in_flight',
+                        failureType: 'gate_worker_ready_owner',
+                        active: true,
+                    });
+                    return { ok: false, result: 'scan_in_flight', state };
+                }
                 if (ownerToken && (state.cancelled === true || Core.ThreeNoWatch.isTerminalStatus(state.status))) {
                     return { ok: false, result: state.error || 'worker_start_failed', state };
                 }
@@ -839,10 +887,44 @@ Object.assign(Core, {
             const launch = async () => {
                 const today = Core.ThreeNoWatch.getLocalDayKey();
                 const now = Date.now();
-                const lockRecord = Core.ThreeNoWatch.readScanLock();
-                const lock = lockRecord?.createdAt || 0;
-                const scanState = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
-                const freshScanState = Core.ThreeNoWatch.isFreshRunningState(scanState, now);
+                let lockRecord = Core.ThreeNoWatch.readScanLock();
+                let lock = lockRecord?.createdAt || 0;
+                let scanState = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
+                let freshScanState = Core.ThreeNoWatch.isFreshRunningState(scanState, now);
+                const stopCommand = Core.ThreeNoWatch.readStopCommand();
+                const stoppingStatus = String(scanState.status || '') === 'stopping';
+                const stopRequestedAt = parseInt(stopCommand?.requestedAt || 0, 10) || 0;
+                if (stoppingStatus && stopRequestedAt > 0 && now - stopRequestedAt >= Core.ThreeNoWatch.STOP_GRACE_MS) {
+                    Core.ThreeNoWatch.clearStaleScanIfNeeded('stale_stopping_scan_cleared_before_start');
+                    lockRecord = Core.ThreeNoWatch.readScanLock();
+                    lock = lockRecord?.createdAt || 0;
+                    scanState = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
+                    freshScanState = Core.ThreeNoWatch.isFreshRunningState(scanState, now);
+                    if (Core.ThreeNoWatch.isTerminalStatus(scanState.status) || scanState.cancelled === true) {
+                        Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_STATE);
+                        scanState = {};
+                        freshScanState = false;
+                    }
+                }
+                if (stoppingStatus && (!stopRequestedAt || now - stopRequestedAt < Core.ThreeNoWatch.STOP_GRACE_MS)) {
+                    return endLaunch('stopping_in_progress');
+                }
+                if (lock > 0 && now - lock < 20 * 60 * 1000 && freshScanState) Core.RuntimeDiagnostics?.record('three_no', 'precondition', {
+                    operationId,
+                    reason: 'scan_in_flight',
+                    failureType: 'gate_state_fresh',
+                    category: (() => {
+                        const candidate = `status_${String(scanState.status || '').toLowerCase()}`;
+                        return /^[a-z][a-z0-9_]{0,32}$/.test(candidate) ? candidate : 'status_unknown';
+                    })(),
+                    stopRequested: !!Core.ThreeNoWatch.readStopCommand(),
+                    elapsedMs: now - lock,
+                    durationMs: (() => {
+                        const activeAt = parseInt(scanState.workerHeartbeatAt || scanState.updatedAt || 0, 10) || 0;
+                        return activeAt > 0 ? Math.max(0, now - activeAt) : 0;
+                    })(),
+                    active: freshScanState,
+                });
                 if (lock > 0 && now - lock < 20 * 60 * 1000 && freshScanState) return endLaunch('scan_in_flight');
                 if (lock > 0 && !freshScanState) {
                     Core.ThreeNoWatch.clearStaleScanIfNeeded('stale_scan_lock_cleared_before_start');
@@ -852,6 +934,7 @@ Object.assign(Core, {
                 const workerRunning = bgStatus.state === 'running' && (now - (bgStatus.lastUpdate || 0) < 30000);
                 if (workerRunning || Utils.isSweepRunning()) return endLaunch('worker_busy');
 
+                Core.ThreeNoWatch.clearTerminalScanBeforeStart();
                 const targetOwner = Core.ThreeNoWatch.normalizeUsername(options.targetOwner || '');
                 const scanId = targetOwner
                     ? `three-no:target:${targetOwner}:${today}:${now}`
@@ -878,7 +961,16 @@ Object.assign(Core, {
                     && claimedState.ownerToken === ownerToken
                     && claimedLock?.scanId === scanId
                     && claimedLock?.token === ownerToken;
-                if (!ownsClaim) return endLaunch('scan_in_flight');
+                if (!ownsClaim) {
+                    Core.RuntimeDiagnostics?.record('three_no', 'precondition', {
+                        operationId,
+                        reason: 'scan_in_flight',
+                        failureType: 'gate_claim_lost',
+                        active: true,
+                        stopRequested: !!Core.ThreeNoWatch.readStopCommand(),
+                    });
+                    return endLaunch('scan_in_flight');
+                }
 
                 const url = Core.ThreeNoWatch.buildScanUrl(scanId, { targetOwner });
                 let workerWindow = null;
@@ -919,7 +1011,12 @@ Object.assign(Core, {
             const locks = typeof navigator !== 'undefined' ? navigator.locks : null;
             if (locks && typeof locks.request === 'function') {
                 return locks.request(Core.ThreeNoWatch.LAUNCHER_LOCK_NAME, { ifAvailable: true }, async (lockHandle) => {
-                    if (!lockHandle) return endLaunch('scan_in_flight');
+                    if (!lockHandle) {
+                        Core.RuntimeDiagnostics?.record('three_no', 'precondition', {
+                            operationId, reason: 'scan_in_flight', failureType: 'gate_launcher_lock', active: true,
+                        });
+                        return endLaunch('scan_in_flight');
+                    }
                     return launch();
                 });
             }
@@ -3949,8 +4046,23 @@ Object.assign(Core, {
             const activeState = Core.ThreeNoWatch.getScanState();
             const runtimeScanId = String(runtime.scanId || patch.scanId || activeState.scanId || '');
             const runtimeOwnerToken = String(runtime.ownerToken || patch.ownerToken || activeState.ownerToken || '');
-            if (Core.ThreeNoWatch.isTerminalStatus(activeState.status) || activeState.cancelled === true) return false;
-            if (runtimeOwnerToken && runtimeScanId && !Core.ThreeNoWatch.ownsScan(runtimeScanId, runtimeOwnerToken)) return false;
+            const appendFinishDebug = (step = '', statusValue = '', scanIdValue = runtimeScanId) => {
+                try {
+                    Core.ThreeNoWatch.appendScanDebugLog({
+                        scanId: String(scanIdValue || ''),
+                        status: String(statusValue || ''),
+                        debug: { step },
+                    });
+                } catch (_) {}
+            };
+            if (Core.ThreeNoWatch.isTerminalStatus(activeState.status) || activeState.cancelled === true) {
+                appendFinishDebug('finish_rejected_early_terminal', activeState.status);
+                return false;
+            }
+            if (runtimeOwnerToken && runtimeScanId && !Core.ThreeNoWatch.ownsScan(runtimeScanId, runtimeOwnerToken)) {
+                appendFinishDebug('finish_rejected_early_not_owned', activeState.status);
+                return false;
+            }
             const findings = Array.isArray(runtime.findings) ? runtime.findings : [];
             const batchUsernames = Array.isArray(runtime.usernames) ? runtime.usernames : [];
             const triagedUsernames = Array.isArray(runtime.triagedUsernames) && runtime.triagedUsernames.length > 0
@@ -4104,8 +4216,14 @@ Object.assign(Core, {
             const hasMore = stopped ? true : (completed ? runtime.hasMore === true : runtime.hasMore === true);
             const batchSize = parseInt(runtime.batchSize || CONFIG.THREE_NO_SCAN_BATCH_SIZE || '200', 10) || 200;
             const beforePersist = Core.ThreeNoWatch.getScanState();
-            if (Core.ThreeNoWatch.isTerminalStatus(beforePersist.status) || beforePersist.cancelled === true) return false;
-            if (runtimeOwnerToken && runtimeScanId && !Core.ThreeNoWatch.ownsScan(runtimeScanId, runtimeOwnerToken)) return false;
+            if (Core.ThreeNoWatch.isTerminalStatus(beforePersist.status) || beforePersist.cancelled === true) {
+                appendFinishDebug('finish_rejected_late_terminal', beforePersist.status);
+                return false;
+            }
+            if (runtimeOwnerToken && runtimeScanId && !Core.ThreeNoWatch.ownsScan(runtimeScanId, runtimeOwnerToken)) {
+                appendFinishDebug('finish_rejected_late_not_owned', beforePersist.status);
+                return false;
+            }
             if (shouldPersistFindings && owner) {
                 Storage.setThreeNoScanCursor({
                     owner,
@@ -4182,7 +4300,9 @@ Object.assign(Core, {
             }
             // Stopped workers must close only after terminal state, result/cursor
             // persistence, and owner-scoped cleanup have all succeeded.
+            appendFinishDebug('worker_close_scheduled', status, scanId);
             setTimeout(() => {
+                appendFinishDebug('worker_close_called', status, scanId);
                 try {
                     window.close();
                 } catch (_) {}

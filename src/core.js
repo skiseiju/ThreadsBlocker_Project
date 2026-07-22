@@ -11,7 +11,7 @@ const BETA_DIAGNOSTIC_STAGES = new Set([
     'start', 'dequeue', 'finish', 'stop', 'route', 'navigation', 'tab', 'wait', 'dialog', 'rows', 'scroll', 'progress',
     'menu', 'action', 'confirm', 'retry', 'breaker', 'cooldown', 'failure', 'selection', 'snapshot', 'restore', 'anchor_filter',
     'commit', 'rollback', 'panel', 'chip', 'suppression', 'launch', 'precondition', 'worker', 'request', 'ack',
-    'close', 'timeout', 'report', 'http', 'config', 'layout', 'error', 'status', 'terminal', 'unknown',
+    'close', 'timeout', 'report', 'http', 'config', 'layout', 'error', 'status', 'terminal', 'reposition', 'clamp', 'hide', 'show', 'unknown',
 ]);
 const BETA_DIAGNOSTIC_REASONS = new Set([
     'end', 'completed', 'threads_partial', 'scroll_stall', 'timeout', 'stopped',
@@ -19,7 +19,7 @@ const BETA_DIAGNOSTIC_REASONS = new Set([
     'missing_dialog', 'unknown_dialog_schema', 'max_scrolls', 'unknown', 'error', 'success', 'failure', 'failed', 'private',
     'protected', 'not_found', 'already_blocked', 'already_unblocked', 'user_stop', 'breaker_open', 'cooldown', 'rate_limited', 'retry',
     'network', 'worker_closed', 'disappeared', 'vanished', 'navigation_mismatch', 'menu_not_found', 'missing_more_button',
-    'scan_in_flight', 'worker_busy', 'owner_mismatch', 'popup_blocked', 'worker_start_failed', 'not_chrome_extension', 'scan_page',
+    'scan_in_flight', 'stopping_in_progress', 'worker_busy', 'owner_mismatch', 'popup_blocked', 'worker_start_failed', 'not_chrome_extension', 'scan_page',
     'missing_profile_root', 'submit_not_confirmed', 'exception', 'report_failed',
 ]);
 const BETA_DIAGNOSTIC_TABS = new Set(['likes', 'quotes', 'reposts', 'followers', 'unknown']);
@@ -100,6 +100,7 @@ export const RuntimeDiagnostics = {
             'repeatCount', 'processedCount', 'failedCount', 'queuedCount', 'remainingCount', 'failureCount',
             'breakerCount', 'visibleRows', 'uniqueVisibleRows', 'uniqueUnknownRows', 'uniqueEligibleCount', 'uniqueRowCount', 'rowCount', 'operationCount', 'statusCode', 'checkedCount', 'requestCount',
             'selfSkippedCount', 'ownerSkippedCount', 'replySkippedCount', 'scrollAttempt', 'visibleProgress',
+            'bestExactLinkCount', 'checkedInputCount', 'checkboxContainerCount', 'newUserCount', 'rawUserCount',
         ];
         for (const key of countKeys) {
             if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = boundedDiagnosticInt(source[key]);
@@ -120,7 +121,7 @@ export const RuntimeDiagnostics = {
             'retry', 'breakerOpen', 'cooldownActive', 'stopRequested', 'stopAcknowledged', 'flickerLatch', 'idle', 'active',
             'visibleStop', 'manualFollowUp', 'atomic', 'protected', 'private', 'notFound', 'alreadyBlocked', 'success',
             'failure', 'terminal', 'preserved',
-            'verifiedLikesContext',
+            'verifiedLikesContext', 'activityDialog', 'contextMatch',
         ];
         for (const key of boolKeys) {
             if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = diagnosticBoolean(source[key]);
@@ -226,6 +227,91 @@ export const RuntimeDiagnostics = {
 
 // Optional bridge for modules that cannot import Core without creating a cycle.
 try { globalThis.__hegeRuntimeDiagnostics = RuntimeDiagnostics; } catch (_) { /* non-browser bootstrap */ }
+
+export const buildCleanListOutcomeFields = (input = {}) => {
+    const source = input && typeof input === 'object' ? input : {};
+    const category = String(source.category || '');
+    const toCount = value => typeof value === 'number' && Number.isFinite(value)
+        ? Math.max(0, Math.floor(value))
+        : 0;
+    return {
+        category: /^[a-z][a-z0-9_]{0,32}$/.test(category) ? category : 'unknown',
+        rawUserCount: toCount(source.rawUserCount),
+        newUserCount: toCount(source.newUserCount),
+        pendingCount: toCount(source.pendingCount),
+        checkedInputCount: toCount(source.checkedInputCount),
+        checkboxContainerCount: toCount(source.checkboxContainerCount),
+        exactLinkCount: toCount(source.exactLinkCount),
+        bestExactLinkCount: toCount(source.bestExactLinkCount),
+        contextMatch: !!source.contextMatch,
+        activityDialog: !!source.activityDialog,
+        committed: !!source.committed,
+        rollback: !!source.rollback,
+    };
+};
+
+export const projectScanDebugLogForExport = (rows = [], limit = 300) => {
+    if (!Array.isArray(rows)) return [];
+    const toNonNegativeInt = value => {
+        const numeric = Number(value);
+        return Number.isFinite(numeric) && numeric >= 0 ? Math.floor(numeric) : 0;
+    };
+    const statusPattern = /^[a-z_]{0,32}$/i;
+    const stepPattern = /^[a-z][a-z0-9_]{0,64}$/i;
+    const maxRows = (() => {
+        const numeric = Number(limit);
+        return Number.isFinite(numeric) && numeric >= 0 ? Math.floor(numeric) : 0;
+    })();
+    const projected = rows
+        .map((row) => {
+            const source = row && typeof row === 'object' ? row : {};
+            return {
+                seq: toNonNegativeInt(source.seq),
+                ts: toNonNegativeInt(source.ts),
+                scanElapsedMs: toNonNegativeInt(source.scanElapsedMs),
+                index: toNonNegativeInt(source.index),
+                status: typeof source.status === 'string' && statusPattern.test(source.status) ? source.status : '',
+                step: typeof source.step === 'string' && stepPattern.test(source.step) ? source.step : '',
+            };
+        })
+        .filter(row => row.step !== '')
+        .sort((a, b) => a.ts - b.ts);
+    return maxRows > 0 ? projected.slice(-maxRows) : [];
+};
+
+export const countDialogCheckboxes = () => {
+    try {
+        return {
+            checkedInputCount: document.querySelectorAll('.hege-checkbox-container[data-username] input:checked').length,
+            checkboxContainerCount: document.querySelectorAll('.hege-checkbox-container[data-username]').length,
+        };
+    } catch (_) {
+        return {
+            checkedInputCount: 0,
+            checkboxContainerCount: 0,
+        };
+    }
+};
+
+export const measureCleanListContext = (collectCtx) => {
+    try {
+        const bestCtx = DialogCollector.pickBestAccountDialog(Core.getTopContext());
+        return {
+            contextMatch: collectCtx === bestCtx,
+            exactLinkCount: DialogCollector.countExactAccountLinks(collectCtx),
+            bestExactLinkCount: DialogCollector.countExactAccountLinks(bestCtx),
+            ...countDialogCheckboxes(),
+        };
+    } catch (_) {
+        return {
+            contextMatch: false,
+            exactLinkCount: 0,
+            bestExactLinkCount: 0,
+            checkedInputCount: 0,
+            checkboxContainerCount: 0,
+        };
+    }
+};
 
 export const FAILED_REASON_ENUM = Object.freeze([
     'unknown', 'legacy_string', 'action_failed', 'verification_failed',
@@ -347,7 +433,7 @@ export const isMessageRouteContext = (locationLike = {}, doc = null) => {
     // fully assembled. Keep the route path authoritative only when at least
     // one real, visible message-shell signal exists; route-unchanged overlays
     // must satisfy the complete cohesive signature above.
-    const result = (routeMatch && (signals.conversationList || signals.activeConversation || signals.composer || signals.actionArea)) || strongSignature;
+    const result = routeMatch || strongSignature;
     if (typeof RuntimeDiagnostics !== 'undefined') RuntimeDiagnostics.record('message_route', 'route', {
         routeMatch, messageRoute: routeMatch, conversationList: signals.conversationList,
         activeConversation: signals.activeConversation, composer: signals.composer,
@@ -1152,6 +1238,8 @@ export const Core = {
             dialogFound: !!ctx, listFound: (ctx?.querySelectorAll?.('a[href^="/@"]')?.length || 0) > 0,
             scrollRootFound: !!scrollBox, scrollRootSelected: scrollBox !== ctx,
             scrollRootCandidates: ctx?.querySelectorAll?.('div')?.length || 0,
+            ...measureCleanListContext(ctx),
+            activityDialog: isActivityDialog,
             strategy: 'scroll_ancestor',
         });
 
@@ -2329,6 +2417,7 @@ export const Core = {
             const newUsers = Core.filterNewUsers(rawUsers);
 
             if (newUsers.length === 0) {
+                RuntimeDiagnostics.record('clean_list', 'status', buildCleanListOutcomeFields({ category: 'clean_toast_no_new_users', ...measureCleanListContext(activeCtx), rawUserCount: rawUsers.length, newUserCount: 0, pendingCount: Core.pendingUsers.size }));
                 UI.showToast('整串名單沒有新帳號可加入');
                 return;
             }
@@ -2357,8 +2446,10 @@ export const Core = {
                 const activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
                 const combinedQueue = [...activeQueue, ...Core.pendingUsers];
                 Storage.setJSON(CONFIG.KEYS.BG_QUEUE, [...new Set(combinedQueue)]);
+                RuntimeDiagnostics.record('clean_list', 'status', buildCleanListOutcomeFields({ category: 'clean_toast_queued', ...measureCleanListContext(activeCtx), rawUserCount: rawUsers.length, newUserCount: newUsers.length, pendingCount: Core.pendingUsers.size, committed: true }));
                 UI.showToast(`已將整串名單 ${newUsers.length} 筆帳號加入背景排隊`);
             } else {
+                RuntimeDiagnostics.record('clean_list', 'status', buildCleanListOutcomeFields({ category: 'clean_toast_pending_added', ...measureCleanListContext(activeCtx), rawUserCount: rawUsers.length, newUserCount: newUsers.length, pendingCount: Core.pendingUsers.size, committed: true }));
                 UI.showToast(`已加入「${Core.pendingUsers.size} 選取」，請至清單「開始封鎖」`);
             }
             
@@ -2398,6 +2489,7 @@ export const Core = {
             }
 
             if (rawUsers.length === 0) {
+                RuntimeDiagnostics.record('clean_list', 'status', buildCleanListOutcomeFields({ category: 'clean_toast_report_empty', ...measureCleanListContext(activeCtx), rawUserCount: rawUsers.length, newUserCount: 0 }));
                 UI.showToast('沒有帳號可加入只檢舉佇列');
                 return;
             }
@@ -2416,6 +2508,7 @@ export const Core = {
                 if (Storage.queueAddUnique(CONFIG.KEYS.REPORT_QUEUE, u)) added++;
             });
 
+            RuntimeDiagnostics.record('clean_list', 'status', buildCleanListOutcomeFields({ category: 'clean_toast_report_added', ...measureCleanListContext(activeCtx), rawUserCount: rawUsers.length, newUserCount: added }));
             UI.showToast(`已將整串名單 ${added} 人加入檢舉清單，請回主面板按「開始檢舉」`);
             Core.updateControllerUI();
         };
@@ -2501,6 +2594,7 @@ export const Core = {
                     RuntimeDiagnostics.record('clean_list', 'rollback', {
                         rollback: true, rollbackRestoredCount: stagedPending.size, pendingCount: stagedPending.size,
                         selectedVisualCount: stagedChecked.size, operationId,
+                        ...countDialogCheckboxes(),
                     });
                 };
                 if (actions.collect) {
@@ -2514,7 +2608,9 @@ export const Core = {
                         const reasonText = ['likes_tab_switch_failed', 'rows_missing', 'rows_unknown'].includes(reason)
                             ? `已開啟按讚名單，但沒有找到可勾選的帳號（看到 ${observed} 個帳號列，可勾選 ${candidate} 個）。`
                             : dialogCollectionFailureText(reason);
+                        const preRollbackMeasurement = measureCleanListContext(activeCtx);
                         rollbackStagedCollection();
+                        RuntimeDiagnostics.record('clean_list', 'status', buildCleanListOutcomeFields({ category: 'clean_toast_collect_failed', ...preRollbackMeasurement, rollback: true, pendingCount: Core.pendingUsers.size }));
                         UI.showToast(`清理名單未完成：${reasonText}`, 3000, { severity: 'error' });
                         finishCleanOperation('rollback', { reason, ok: false, atomic: true });
                         return;
@@ -3973,7 +4069,13 @@ export const Core = {
 
     buildThreeNoDebugExport: () => {
         if (!RuntimeDiagnostics.enabled()) return null;
-        return RuntimeDiagnostics.export();
+        const payload = RuntimeDiagnostics.export();
+        try {
+            const rows = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, []);
+            const projected = projectScanDebugLogForExport(rows);
+            if (projected.length) payload.scanDebugLog = projected;
+        } catch (_) { /* export must never throw */ }
+        return payload;
         /* Legacy scan state/results/debug logs intentionally unreachable. */
         /* istanbul ignore next */
         Storage.invalidateMulti([

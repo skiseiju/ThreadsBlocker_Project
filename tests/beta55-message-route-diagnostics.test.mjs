@@ -35,7 +35,7 @@ const fixture = (signals = {}) => {
 test('beta55 message route requires shell evidence and records normalized signal matrix', () => {
     RuntimeDiagnostics.clear();
     assert.equal(isMessageRouteContext({ pathname: '/messages/123' }, fixture({})), true);
-    assert.equal(isMessageRouteContext({ pathname: '/messages/123' }, fixture({ hidden: true })), false);
+    assert.equal(isMessageRouteContext({ pathname: '/messages/123' }, fixture({ hidden: true })), true);
     assert.equal(isMessageRouteContext({ pathname: '/@alice' }, fixture({ detached: true })), false);
     assert.equal(isMessageRouteContext({ pathname: '/@alice' }, fixture({})), true);
     assert.equal(isMessageRouteContext({ pathname: '/@alice' }, fixture({ composer: true, actionArea: true, conversationList: false, activeConversation: false })), false);

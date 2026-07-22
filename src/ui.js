@@ -11,6 +11,78 @@ const panelDiagnostics = (panel, stage, fields = {}) => {
     } catch (_) { return null; }
 };
 
+const safePanelDiagnosticRect = (node = null) => {
+    try {
+        const rect = node?.getBoundingClientRect?.();
+        return {
+            top: Number.isFinite(rect?.top) ? rect.top : 0,
+            left: Number.isFinite(rect?.left) ? rect.left : 0,
+            width: Number.isFinite(rect?.width) ? rect.width : 0,
+            height: Number.isFinite(rect?.height) ? rect.height : 0,
+        };
+    } catch (_) {
+        return { top: 0, left: 0, width: 0, height: 0 };
+    }
+};
+
+const safePanelDiagnosticViewport = () => {
+    try {
+        return {
+            width: typeof window !== 'undefined' && Number.isFinite(window.innerWidth) ? window.innerWidth : 0,
+            height: typeof window !== 'undefined' && Number.isFinite(window.innerHeight) ? window.innerHeight : 0,
+        };
+    } catch (_) {
+        return { width: 0, height: 0 };
+    }
+};
+
+const safePanelMessageRoute = () => {
+    try {
+        const path = typeof window !== 'undefined' ? String(window.location?.pathname || '') : '';
+        return /^\/(?:messages?|direct|inbox)(?:\/|$)/i.test(path);
+    } catch (_) {
+        return false;
+    }
+};
+
+let panelRepositionRecordCount = 0;
+let lastPanelRepositionSignature = '';
+const PANEL_REPOSITION_RECORD_LIMIT = 30;
+
+export const shouldRecordPanelReposition = (fields = {}) => {
+    try {
+        if (panelRepositionRecordCount >= PANEL_REPOSITION_RECORD_LIMIT) return false;
+        const rounded = value => {
+            const number = Number(value);
+            return Number.isFinite(number) ? Math.round(number) : 0;
+        };
+        const signature = [
+            `found:${fields?.found ? 1 : 0}`,
+            `fallback:${fields?.fallback ? 1 : 0}`,
+            `messageRoute:${fields?.messageRoute ? 1 : 0}`,
+            `rectTop:${rounded(fields?.rectTop)}`,
+            `rectLeft:${rounded(fields?.rectLeft)}`,
+            `rectWidth:${rounded(fields?.rectWidth)}`,
+            `rectHeight:${rounded(fields?.rectHeight)}`,
+            `viewportWidth:${rounded(fields?.viewportWidth)}`,
+            `viewportHeight:${rounded(fields?.viewportHeight)}`,
+            `menuItems:${rounded(fields?.menuItems)}`,
+            `candidateCount:${rounded(fields?.candidateCount)}`,
+        ].join('|');
+        if (signature === lastPanelRepositionSignature) return false;
+        lastPanelRepositionSignature = signature;
+        panelRepositionRecordCount += 1;
+        return true;
+    } catch (_) {
+        return false;
+    }
+};
+
+export const resetPanelRepositionRecordStateForTest = () => {
+    panelRepositionRecordCount = 0;
+    lastPanelRepositionSignature = '';
+};
+
 export const clampViewportPosition = ({ left = 0, top = 0, width = 0, height = 0, viewportWidth = 0, viewportHeight = 0, margin = 6 } = {}) => ({
     left: Math.min(Math.max(left, margin), Math.max(margin, viewportWidth - width - margin)),
     top: Math.min(Math.max(top, margin), Math.max(margin, viewportHeight - height - margin)),
@@ -777,6 +849,8 @@ export const UI = {
 
         // Optimization: Try to find anchor in a more restricted scope first
         let anchor = null;
+        let scannedSvgCount = 0;
+        let matchedLabelCount = 0;
         const navSelectors = ['div[role="navigation"]', 'header', 'nav', 'div[style*="position: fixed"]'];
 
         for (const selector of navSelectors) {
@@ -785,8 +859,10 @@ export const UI = {
 
             const svgs = container.querySelectorAll('svg');
             for (let svg of svgs) {
+                scannedSvgCount += 1;
                 const label = (svg.getAttribute('aria-label') || '').trim();
                 if (label === '功能表' || label === 'Menu' || label === 'Settings' || label === '設定' || label === '更多選項') {
+                    matchedLabelCount += 1;
                     anchor = svg.closest('div[role="button"]') || svg;
                     break;
                 }
@@ -803,8 +879,10 @@ export const UI = {
         if (!anchor) {
             const svgs = document.querySelectorAll('svg');
             for (let svg of svgs) {
+                scannedSvgCount += 1;
                 const label = (svg.getAttribute('aria-label') || '').trim();
                 if (label === '功能表' || label === 'Menu' || label === 'Settings' || label === '設定' || label === '更多選項') {
+                    matchedLabelCount += 1;
                     anchor = svg.closest('div[role="button"]') || svg;
                     break;
                 }
@@ -829,7 +907,17 @@ export const UI = {
                 panel.style.right = rightVal + 'px';
                 panel.style.left = 'auto';
                 UI.clampPanelToViewport(panel);
-                panelDiagnostics(panel, 'reposition', { repositioned: true, active: true });
+                const viewport = safePanelDiagnosticViewport();
+                const anchorRect = safePanelDiagnosticRect(anchor);
+                const fields = {
+                    repositioned: true, active: true,
+                    found: true, fallback: false,
+                    messageRoute: safePanelMessageRoute(),
+                    rectTop: anchorRect.top, rectLeft: anchorRect.left, rectWidth: anchorRect.width, rectHeight: anchorRect.height,
+                    viewportWidth: viewport.width, viewportHeight: viewport.height,
+                    menuItems: scannedSvgCount, candidateCount: matchedLabelCount,
+                };
+                if (shouldRecordPanelReposition(fields)) panelDiagnostics(panel, 'reposition', fields);
                 delete panel.dataset.hegeRepositionRequired;
                 if (CONFIG.DEBUG_MODE) console.log(`[留友封] Menu Anchored at ${rect.top}px`);
             }
@@ -860,7 +948,17 @@ export const UI = {
                 }
             }
             UI.clampPanelToViewport(panel);
-            panelDiagnostics(panel, 'reposition', { repositioned: true, active: true });
+            const viewport = safePanelDiagnosticViewport();
+            const panelRect = safePanelDiagnosticRect(panel);
+            const fields = {
+                repositioned: true, active: true,
+                found: false, fallback: true,
+                messageRoute: safePanelMessageRoute(),
+                rectTop: panelRect.top, rectLeft: panelRect.left, rectWidth: panelRect.width, rectHeight: panelRect.height,
+                viewportWidth: viewport.width, viewportHeight: viewport.height,
+                menuItems: scannedSvgCount, candidateCount: matchedLabelCount,
+            };
+            if (shouldRecordPanelReposition(fields)) panelDiagnostics(panel, 'reposition', fields);
         }
     },
 

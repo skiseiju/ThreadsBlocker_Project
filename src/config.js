@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.7.4-beta76', // release the stop latch when worker state is unknown, not just terminal
+    VERSION: '2.7.4-beta82', // fix: clear terminal scan state before start so stop-then-restart no longer hits gate_claim_lost
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // Beta-only, in-memory diagnostics. Stable/release channels must keep this
     // disabled even if a stale setting is present.

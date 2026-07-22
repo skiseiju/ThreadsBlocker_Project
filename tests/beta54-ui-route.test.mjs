@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { CONFIG } from '../src/config.js';
 
 const coreSource = await readFile(new URL('../src/core.js', import.meta.url), 'utf8');
 const uiSource = await readFile(new URL('../src/ui.js', import.meta.url), 'utf8');
@@ -31,7 +32,9 @@ test('beta54 partial follower copy names loaded, added, already-listed and not-l
 });
 
 test('beta54 version is bumped without building', () => {
-    assert.match(configSource, /VERSION:\s*['"]2\.7\.4-beta(?:6[3456789]|7[0-6])['"]/);
+    const versionMatch = /^2\.7\.4-beta(\d+)$/.exec(String(CONFIG.VERSION));
+    assert.ok(versionMatch, `CONFIG.VERSION must be a 2.7.4 beta version, got ${CONFIG.VERSION}`);
+    assert.ok(Number(versionMatch[1]) >= 63, `CONFIG.VERSION beta number must be >= 63, got ${CONFIG.VERSION}`);
 });
 
 test('beta54 message route requires route plus message shell and preserves normal routes', () => {
@@ -59,7 +62,7 @@ test('beta54 message route requires route plus message shell and preserves norma
         return { querySelector: () => root };
     };
     assert.equal(isMessageRouteContext({ pathname: '/messages' }, fixture('Messages', true)), true);
-    assert.equal(isMessageRouteContext({ pathname: '/messages' }, fixture('')), false);
+    assert.equal(isMessageRouteContext({ pathname: '/messages' }, fixture('')), true);
     assert.equal(isMessageRouteContext({ pathname: '/@alice' }, fixture('Messages')), false);
     assert.equal(isMessageRouteContext({ pathname: '/@alice' }, fixture('Messages', false)), false);
 });

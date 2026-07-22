@@ -734,6 +734,7 @@ import './features/three-no-watch.js';
                     const textMap = {
                         not_chrome_extension: '三無掃描目前只支援 Chrome 擴充功能版',
                         scan_in_flight: '三無掃描已在執行中',
+                        stopping_in_progress: '上一次掃描正在停止中，請等幾秒再重新開始',
                         worker_busy: '背景任務執行中，稍後再掃描',
                         owner_unknown: '找不到自己的 Threads 帳號，請先打開個人頁或重新整理',
                         owner_mismatch: '掃描目標與 worker 目前頁面不一致，未改掃描自己的粉絲',

@@ -96,7 +96,9 @@ test('beta58 verified contract is shared by clean-list and post-reservoir and di
     assert.match(reservoirSource, /typedState\.unknownRows/);
     assert.match(coreSource, /uniqueVisibleRows|uniqueUnknownRows/);
     assert.match(coreSource, /BETA_DIAGNOSTIC_STRATEGIES/);
-    assert.match(configSource, /2\.7\.4-beta(?:6[3456789]|7[0-6])/);
+    const versionMatch = /^2\.7\.4-beta(\d+)$/.exec(String(CONFIG.VERSION));
+    assert.ok(versionMatch, `CONFIG.VERSION must be a 2.7.4 beta version, got ${CONFIG.VERSION}`);
+    assert.ok(Number(versionMatch[1]) >= 63, `CONFIG.VERSION beta number must be >= 63, got ${CONFIG.VERSION}`);
     assert.doesNotMatch(coreSource, /record\('clean_list',[\s\S]{0,300}(?:username|href|outerHTML|innerText)/i);
     const previous = { version: CONFIG.VERSION, enabled: CONFIG.ENABLE_BETA_DIAGNOSTICS };
     CONFIG.VERSION = '2.7.4-beta63';
