@@ -6,6 +6,8 @@ import { UI } from '../ui.js';
 import { Core } from '../core.js';
 import { ReportDebugContext } from '../report-debug-context.js';
 
+const isThreeNoDebugLogActive = () => CONFIG.ENABLE_BETA_DIAGNOSTICS === true && Utils.isBetaBuild();
+
 Object.assign(Core, {
     ThreeNoWatch: {
         stateKey: 'hege_three_no_scan_runtime',
@@ -187,7 +189,7 @@ Object.assign(Core, {
         getDebugSchemaVersion: () => 'network-discovery-v6',
 
         resetOldDebugSchemaIfNeeded: () => {
-            if (!Utils.isBetaBuild()) return false;
+            if (!isThreeNoDebugLogActive()) return false;
             const key = CONFIG.KEYS.THREE_NO_SCAN_DEBUG_SCHEMA || 'hege_three_no_scan_debug_schema';
             const next = Core.ThreeNoWatch.getDebugSchemaVersion();
             const previous = Storage.get(key, '');
@@ -321,6 +323,7 @@ Object.assign(Core, {
         },
 
         resetScanDebugLog: (scanId = '') => {
+            if (!isThreeNoDebugLogActive()) return;
             const target = String(scanId || '').trim();
             if (!target) {
                 Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, []);
@@ -332,6 +335,7 @@ Object.assign(Core, {
         },
 
         appendScanDebugLog: (state = {}) => {
+            if (!isThreeNoDebugLogActive()) return;
             const debug = state.debug && typeof state.debug === 'object' ? state.debug : null;
             if (!debug || !debug.step) return;
             const scanId = String(state.scanId || debug.scanId || '').trim();
@@ -363,7 +367,7 @@ Object.assign(Core, {
         },
 
         appendNetworkDiscoveryLog: (detail = {}) => {
-            if (!Utils.isBetaBuild()) return;
+            if (!isThreeNoDebugLogActive()) return;
             const state = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
             Core.ThreeNoWatch.recordNetworkContentHint(detail, state);
             const rows = Core.ThreeNoWatch.getScanDebugLog();
@@ -438,7 +442,7 @@ Object.assign(Core, {
         },
 
         appendNetworkActionMarker: (kind = '', detail = {}) => {
-            if (!Utils.isBetaBuild()) return;
+            if (!isThreeNoDebugLogActive()) return;
             const state = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
             const rows = Core.ThreeNoWatch.getScanDebugLog();
             const now = Date.now();
@@ -474,6 +478,15 @@ Object.assign(Core, {
         },
 
         installNetworkDiscoveryListener: () => {
+            const active = isThreeNoDebugLogActive();
+            if (!active) {
+                Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG);
+                Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_SCHEMA);
+                window.dispatchEvent(new CustomEvent('hege:threads-network-discovery-toggle', {
+                    detail: { enabled: false },
+                }));
+                return;
+            }
             if (window.__hegeThreeNoNetworkDiscoveryInstalled) return;
             window.__hegeThreeNoNetworkDiscoveryInstalled = true;
             Core.ThreeNoWatch.resetOldDebugSchemaIfNeeded();
@@ -482,7 +495,7 @@ Object.assign(Core, {
                 Core.ThreeNoWatch.appendNetworkDiscoveryLog(detail);
             });
             window.dispatchEvent(new CustomEvent('hege:threads-network-discovery-toggle', {
-                detail: { enabled: Utils.isBetaBuild() === true },
+                detail: { enabled: active },
             }));
         },
 

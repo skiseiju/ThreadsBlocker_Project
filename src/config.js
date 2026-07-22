@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.7.4-beta82', // fix: clear terminal scan state before start so stop-then-restart no longer hits gate_claim_lost
+    VERSION: '2.7.4-beta83', // beta debug-log gate: stable boot purges raw three-no PII and disables network discovery
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // Beta-only, in-memory diagnostics. Stable/release channels must keep this
     // disabled even if a stale setting is present.
