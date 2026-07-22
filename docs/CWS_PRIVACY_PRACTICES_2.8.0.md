@@ -29,6 +29,7 @@
 - A problem report is sent only after the user presses submit. Without the beta diagnostic checkbox, the content portion is the user-entered description; service-required fields still include a persistent random report ID, version, timestamp, type, error code, signature, and ordinary HTTPS request metadata.
 - The beta diagnostic checkbox is unchecked by default and applies once. Before an attachment is sent, request token, cookie, authorization, and authorization-canary values are scrubbed. The formal 2.8.0 artifact must have beta diagnostics disabled.
 - Problem report content and its persistent random ID are retained until the issue is handled or the data is no longer needed, then manually deleted by an authorized operator. A user may request deletion earlier. There is no fixed-day automated purge. A non-content handling record may remain, but it must not contain the report content or report ID.
+- Problem report content and its persistent random ID are also copied once per day into an internal Google Sheet used only for tracking issue handling. The sheet is restricted to authorized personnel, is never public, and is not used for advertising or sale. A deletion request removes both the D1 record and the sheet row; see `docs/BUG_REPORT_DELETION_RUNBOOK.md`.
 - Public overview GET is read-only. Candidate review queues are produced only by ingest/admin refresh paths, never by the public GET.
 - Authorized personnel may review uploaded public content, including potentially identifiable raw text, when necessary for abuse detection, data-quality maintenance, or review of reported cases. This access is not described as anonymous or deidentified-only, and is not used for advertising or sale.
 - Public sample publication defaults to `description`. `reviewed_text` requires exact legal policy-version matching plus threshold, de-identification, and human approval; pending and rejected rows never enter public JSON.
@@ -39,7 +40,7 @@
 - Is authentication information collected? `No.`
 - Is data sold or used for advertising? `No.`
 - Is data used for unrelated purposes? `No.`
-- Is data transferred to a third party? `Yes, only to disclosed service infrastructure for user-triggered reports, consented platform uploads, and ordinary announcement/update requests.`
+- Is data transferred to a third party? `Yes, only to disclosed service infrastructure for user-triggered reports, consented platform uploads, ordinary announcement/update requests, and an internal Google Sheet used solely to track handling of user-submitted problem reports.`
 - Is a privacy policy provided? `Yes` — use the URL above.
 
 ## Final pre-submission checks
@@ -48,4 +49,5 @@
 - Confirm the final 2.8.0 artifact has no page bridge/interceptor for authentication information and has beta diagnostics disabled.
 - Confirm `dist/extension.zip` is built from the reviewed source and is the only package used for submission.
 - Confirm privacy page, listing, README, CWS answers, manifest, and artifact describe the same 2.8.0 behavior.
+- Confirm the privacy page discloses the internal problem-report tracking sheet and that the deletion runbook covers both D1 and the sheet.
 - This draft does not publish, submit, build, or set the 2.8.0 version.

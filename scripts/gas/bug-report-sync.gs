@@ -6,16 +6,9 @@
  *
  * ── 安裝步驟 ──────────────────────────────────────────────
  * 1. 開啟目標試算表 → 擴充功能 → Apps Script，把本檔內容整份貼上。
- * 2. 專案設定 → 指令碼屬性，新增下列 5 個屬性：
- *
- *      ENDPOINT      https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/admin/bugs
- *      TOKEN         <Bearer token；先用 ADMIN_TOKEN，換成 scoped token 後改這裡即可>
- *      SHEET_NAME    回報
- *      NOTIFY_EMAIL  skiseiju@gmail.com
- *      CURSOR_ID     0
- *
- *    CURSOR_ID 由腳本自行維護，初次設 0 即可。
- *    TOKEN 只放在指令碼屬性，永遠不要寫進程式碼或 commit 進 repo。
+ * 2. 在 setupProperties() 頂端填入 TOKEN 與 NOTIFY_EMAIL，手動執行一次。
+ *    ENDPOINT、SHEET_NAME、CURSOR_ID 會自動使用安全預設值。
+ *    執行成功後，把 TOKEN 變數清回空字串；token 最終只留在指令碼屬性。
  *
  * 3. 先手動執行一次 syncBugReports()，確認授權與寫入正常。
  * 4. 觸發條件 → 新增觸發條件 → syncBugReports / 時間driven / 每日 / 上午 9-10 點。
@@ -49,9 +42,36 @@ function props_() {
   return PropertiesService.getScriptProperties();
 }
 
+/**
+ * 一次性設定：只需填入下列 TOKEN 與 NOTIFY_EMAIL，手動執行一次。
+ * repo 版本的 TOKEN 必須永遠維持空字串；不得提交真實 token。
+ */
+function setupProperties() {
+  const TOKEN = '';
+  const NOTIFY_EMAIL = '';
+
+  const token = TOKEN.trim();
+  const notifyEmail = NOTIFY_EMAIL.trim();
+  if (!token) throw new Error('請先在 setupProperties() 頂端填入 TOKEN。');
+  if (!notifyEmail) throw new Error('請先在 setupProperties() 頂端填入 NOTIFY_EMAIL。');
+
+  const properties = props_();
+  properties.setProperties({
+    ENDPOINT: 'https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/admin/bugs',
+    TOKEN: token,
+    SHEET_NAME: '回報',
+    NOTIFY_EMAIL: notifyEmail,
+    CURSOR_ID: properties.getProperty('CURSOR_ID') || '0',
+  }, false);
+
+  console.log('已設定指令碼屬性：ENDPOINT、TOKEN、SHEET_NAME、NOTIFY_EMAIL、CURSOR_ID（未輸出任何屬性值）。');
+}
+
 function requireProp_(key) {
   const value = (props_().getProperty(key) || '').trim();
-  if (!value) throw new Error(`缺少指令碼屬性：${key}`);
+  if (!value) {
+    throw new Error(`缺少指令碼屬性：${key}。請先在 setupProperties() 頂端填入 TOKEN 與 NOTIFY_EMAIL，並執行 setupProperties()。`);
+  }
   return value;
 }
 
@@ -114,7 +134,13 @@ function fetchReports_() {
 
 function formatTime_(value) {
   if (!value) return '';
-  const date = new Date(String(value).replace(' ', 'T') + (String(value).endsWith('Z') ? '' : 'Z'));
+  const raw = String(value).trim();
+  let normalized = raw.replace(' ', 'T');
+  const isIsoLike = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/i.test(normalized);
+  const hasTimeZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
+  // D1/SQLite 可能回傳無時區的 UTC datetime；只有這種 ISO-like 值才補 Z。
+  if (isIsoLike && !hasTimeZone) normalized += 'Z';
+  const date = new Date(normalized);
   if (isNaN(date.getTime())) return String(value);
   return Utilities.formatDate(date, TZ, 'yyyy-MM-dd HH:mm');
 }
@@ -154,10 +180,6 @@ function syncBugReports() {
   const rows = fresh.map(toRow_);
   const startRow = sheet.getLastRow() + 1;
   sheet.getRange(startRow, 1, rows.length, SCRIPT_WRITTEN_COLUMNS).setValues(rows);
-
-  // H 欄預設「待處理」，只在建立該列時寫一次，之後永不覆蓋。
-  sheet.getRange(startRow, 8, rows.length, 1)
-       .setValues(rows.map(() => ['待處理']));
 
   // 全部寫入成功後才推進 cursor 與 last-sync。
   const maxId = Math.max(...fresh.map(r => Number(r.id)));
