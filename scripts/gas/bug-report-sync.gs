@@ -77,14 +77,37 @@ function requireProp_(key) {
   return value;
 }
 
-/** 取得（必要時建立）工作表，並確保標題列存在。 */
+/**
+ * 取得（必要時建立）工作表，並確保標題列存在。
+ *
+ * 以 gid 為主要依據：分頁一旦建立就把 gid 存進屬性，之後永遠認同一個分頁。
+ * 只靠名稱查找不夠可靠——名稱被改、前後有空白、或 getSheetByName 沒對上，
+ * 都會讓每次執行又插一個新分頁。
+ */
 function getSheet_() {
-  const name = props_().getProperty('SHEET_NAME') || '回報';
+  const properties = props_();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(name);
-  if (!sheet) {
-    sheet = ss.insertSheet(name);
+  const name = (properties.getProperty('SHEET_NAME') || '回報').trim();
+  let sheet = null;
+
+  const gid = properties.getProperty('SHEET_GID');
+  if (gid) {
+    sheet = ss.getSheets().filter(s => String(s.getSheetId()) === String(gid))[0] || null;
   }
+  if (!sheet) {
+    sheet = ss.getSheets().filter(s => s.getName().trim() === name)[0] || null;
+  }
+  if (!sheet) {
+    try {
+      sheet = ss.insertSheet(name);
+    } catch (err) {
+      // 名稱已存在時 insertSheet 會丟例外，重新查一次比再插一個安全。
+      sheet = ss.getSheets().filter(s => s.getName().trim() === name)[0] || null;
+      if (!sheet) throw err;
+    }
+  }
+  properties.setProperty('SHEET_GID', String(sheet.getSheetId()));
+
   if (sheet.getLastRow() === 0) {
     sheet.getRange(1, 1, 1, COLUMNS.length).setValues([COLUMNS]);
     sheet.setFrozenRows(1);
