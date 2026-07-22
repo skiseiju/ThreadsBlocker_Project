@@ -46,6 +46,11 @@ else
     echo "Building current version: $APP_VERSION"
 fi
 
+# Compile the manual intro plus CONFIG.VERSION/CHANGELOG-derived release notes.
+# This must run after a possible version bump so the generated content follows
+# the version that is actually being packaged.
+node "$SCRIPT_DIR/scripts/generate-release-content.mjs"
+
 STORE_VERSION="$APP_VERSION"
 IS_BETA_BUILD=false
 if [[ "$APP_VERSION" == *"-beta"* ]]; then
@@ -60,6 +65,7 @@ echo "    console.log('[HegeBlock] Content Script Injected, Version: $APP_VERSIO
 FILES=(
     "config.js"
     "announcements.js"
+    "release-notes.js"
     "utils.js"
     "storage.js"
     "dialog-collector.js"

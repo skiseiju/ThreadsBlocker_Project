@@ -143,9 +143,9 @@
 * **Worker lifecycle**：aggregate stats upload 最多等待 1.5 秒；上傳端點永遠 pending 時仍會繼續關窗，不改寫掃描狀態。
 * **Storage / preference**：未新增三無結果、lock、command、runtime backup 的 migration；`platform-sync-v3`、`credentials-processing-v1`、資料上傳同意與既有自動／手動偏好均不變。
 
-## v2.7.4 — 隱私一致性正式版收口
+## v2.7.4 — 使用者回報修正與設定介面整理
 
-* **TL;DR：2.7.4 正式版將 beta44 的隱私同意、上傳 gate、問題回報 scrub 與公開樣本 legal gate 收口；既有同意與每日自動／手動偏好不因去除 beta 標籤而重置。**
+* **TL;DR：2.7.4 主要修正有興趣標籤造成封鎖流程中斷、訊息頁面板位置錯亂、清理名單收集不穩與三無掃描無法順利停止或重新啟動等問題，並重新整理設定介面。**
 * **Credentials opt-in**：Chrome 加速三無維持獨立版本化 `credentials-processing-v1` 同意，預設關閉；token 與同站 session cookie 只在 Threads 同站本機暫時處理，不送到 ThreadsBlocker、平台或問題回報端點。
 * **Platform consent**：平台同步維持 `platform-sync-v3`；舊版或舊政策同意不會因正式版轉換自動升級，auto、repair、manual 與三無統計偏好沿用原值並繼續受 policy gate 保護。
 * **問題回報**：每次送出前重新取得未預勾的診斷附件同意，request token、cookie、authorization 與 canary 先 scrub；正式版不提供手動匯出 beta-only 檢舉／三無診斷入口。

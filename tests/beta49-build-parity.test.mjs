@@ -12,7 +12,7 @@ const shOrder = [...buildSh.matchAll(/FILES=\(([\s\S]*?)\n\)/g)][0][1]
 
 test('beta49 build paths use the same runtime module order', () => {
     assert.deepEqual(jsOrder, shOrder);
-    for (const required of ['announcements.js', 'dialog-collector.js', 'features/report-flow.js', 'features/three-no-watch.js']) {
+    for (const required of ['announcements.js', 'release-notes.js', 'dialog-collector.js', 'features/report-flow.js', 'features/three-no-watch.js']) {
         assert.ok(jsOrder.includes(required), `${required} must be present in both build paths`);
     }
 });

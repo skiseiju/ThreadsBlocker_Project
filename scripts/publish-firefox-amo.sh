@@ -127,6 +127,9 @@ if [[ "$UPLOAD_SOURCE_CODE" == "true" ]]; then
     fi
     mkdir -p "$SOURCE_ROOT/src"
     (cd "$ROOT_DIR" && tar -cf - src) | (cd "$SOURCE_ROOT" && tar -xf -)
+    mkdir -p "$SOURCE_ROOT/scripts"
+    cp "$ROOT_DIR/scripts/generate-release-content.mjs" "$SOURCE_ROOT/scripts/generate-release-content.mjs"
+    (cd "$ROOT_DIR" && tar -cf - release-content) | (cd "$SOURCE_ROOT" && tar -xf -)
 
     cat > "$SOURCE_ROOT/AMO_SOURCE_README.txt" <<EOF
 ThreadsBlocker Firefox AMO Source Package
@@ -152,6 +155,7 @@ Build environment
 -----------------
 Required tools:
 - bash 3.2+ or compatible shell
+- Node.js 18+
 - sed
 - cat
 - cp

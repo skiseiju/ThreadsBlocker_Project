@@ -1,6 +1,7 @@
 import { CONFIG } from './config.js';
 import { Utils } from './utils.js';
 import { Storage } from './storage.js';
+import { BUNDLED_RELEASE_NOTES } from './release-notes.js';
 
 const panelDiagnostics = (panel, stage, fields = {}) => {
     try {
@@ -98,6 +99,88 @@ export const UI = {
         } catch (err) {
             console.warn(`[留友封] ${label} seen state save failed:`, err);
         }
+    },
+
+    getReleaseNotesModalData: (content = BUNDLED_RELEASE_NOTES) => {
+        const source = content && typeof content === 'object' ? content : {};
+        const notice = source.developerNotice && typeof source.developerNotice === 'object'
+            ? source.developerNotice
+            : {};
+        const normalizeSegments = (segments) => (Array.isArray(segments) ? segments : []).map(segment => {
+            const entry = segment && typeof segment === 'object' ? segment : {};
+            const text = String(entry.text || '');
+            if (text) return { text };
+            const label = String(entry.label || '').trim();
+            const url = String(entry.url || '').trim();
+            return label && /^https?:\/\//i.test(url) ? { label, url } : null;
+        }).filter(Boolean).slice(0, 20);
+        const normalizeSection = (section, type) => {
+            const sourceSection = section && typeof section === 'object' ? section : {};
+            const items = Array.isArray(sourceSection.items) ? sourceSection.items : [];
+            return {
+                title: String(sourceSection.title || '').trim(),
+                items: items.map(item => {
+                    const entry = item && typeof item === 'object' ? item : {};
+                    return type === 'updates'
+                        ? { version: String(entry.version || '').trim(), text: String(entry.text || '').trim() }
+                        : { title: String(entry.title || '').trim(), body: String(entry.body || '').trim() };
+                }).filter(item => type === 'updates'
+                    ? !!(item.version && item.text)
+                    : !!(item.title && item.body)).slice(0, type === 'updates' ? 20 : 12),
+            };
+        };
+        return {
+            developerNotice: {
+                title: String(notice.title || '').trim(),
+                paragraphs: (Array.isArray(notice.paragraphs) ? notice.paragraphs : []).map(paragraph => {
+                    const entry = paragraph && typeof paragraph === 'object' ? paragraph : {};
+                    return { segments: normalizeSegments(entry.segments) };
+                }).filter(paragraph => paragraph.segments.length > 0).slice(0, 8),
+            },
+            featureSection: normalizeSection(source.featureSection, 'features'),
+            updateSection: normalizeSection(source.updateSection, 'updates'),
+            supportMessage: String(source.supportMessage || '').trim(),
+        };
+    },
+
+    renderReleaseNotesContent: (content = BUNDLED_RELEASE_NOTES, options = {}) => {
+        const data = UI.getReleaseNotesModalData(content);
+        const notice = data.developerNotice;
+        const noticeHtml = notice.title && notice.paragraphs.length > 0 ? `
+            <div data-hege-release-section="developer-notice" style="margin:0 0 16px;padding:13px 14px;border:1px solid rgba(236,195,81,0.42);border-radius:10px;background:rgba(236,195,81,0.10);color:#f4e2a2;line-height:1.65;">
+                <div style="font-weight:800;color:#ffe69a;margin-bottom:6px;">${Utils.escapeHTML(notice.title)}</div>
+                ${notice.paragraphs.map((paragraph, index) => `
+                    <div style="${index > 0 ? 'margin-top:8px;' : ''}color:#eadfbf;">
+                        ${paragraph.segments.map(segment => segment.text !== undefined
+                            ? Utils.escapeHTML(segment.text)
+                            : `<a href="${Utils.escapeHTML(segment.url)}" target="_blank" rel="noopener noreferrer" style="color:#ffe69a;">${Utils.escapeHTML(segment.label)}</a>`).join('')}
+                    </div>
+                `).join('')}
+            </div>
+        ` : '';
+        const featuresHtml = data.featureSection.title && data.featureSection.items.length > 0 ? `
+            <p data-hege-release-section="features" style="margin:0 0 12px;color:#f2f2f2;font-weight:700;">${Utils.escapeHTML(data.featureSection.title)}</p>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-bottom:18px;">
+                ${data.featureSection.items.map(item => `
+                    <div style="border:1px solid #303030;border-radius:8px;padding:12px 13px;background:#141414;">
+                        <div style="font-weight:700;color:#fff;margin-bottom:4px;">${Utils.escapeHTML(item.title)}</div>
+                        <div style="font-size:12px;color:#aaa;line-height:1.55;">${Utils.escapeHTML(item.body)}</div>
+                    </div>
+                `).join('')}
+            </div>
+        ` : '';
+        const updatesHtml = data.updateSection.title && data.updateSection.items.length > 0 ? `
+            <p data-hege-release-section="updates" style="margin:0 0 10px;color:#f2f2f2;font-weight:700;">${Utils.escapeHTML(data.updateSection.title)}</p>
+            <ul style="margin:0 0 14px;padding-left:18px;">
+                ${data.updateSection.items.map(item => `<li style="margin-bottom:6px;"><b>${Utils.escapeHTML(item.version)}</b>：${Utils.escapeHTML(item.text)}</li>`).join('')}
+            </ul>
+        ` : '';
+        const supportHtml = data.supportMessage ? `
+            <div data-hege-release-section="support" style="margin:0 0 ${options.hasAnnouncement ? '16px' : '0'};padding:12px 14px;border:1px solid rgba(236,195,81,0.35);border-radius:10px;background:rgba(236,195,81,0.10);color:#f6df92;font-weight:700;line-height:1.55;">
+                ${Utils.escapeHTML(data.supportMessage)}
+            </div>
+        ` : '';
+        return `${noticeHtml}${featuresHtml}${updatesHtml}${supportHtml}`;
     },
 
     getAnnouncementModalData: (announcement = {}) => {
@@ -1158,43 +1241,7 @@ export const UI = {
                             </div>
                         ` : ''}
                         <p style="margin:0 0 8px;color:#888;font-size:12px;">版本 ${Utils.escapeHTML(CONFIG.VERSION)}</p>
-                        <div style="margin:0 0 16px;padding:13px 14px;border:1px solid rgba(236,195,81,0.42);border-radius:10px;background:rgba(236,195,81,0.10);color:#f4e2a2;line-height:1.65;">
-                            <div style="font-weight:800;color:#ffe69a;margin-bottom:6px;">開發者近況提醒</div>
-                            <div style="color:#eadfbf;">
-                                開發者帳號已經回來了，之後會持續用真實 Threads 介面做回歸測試。也歡迎 follow <a href="https://www.threads.com/@skiseiju" target="_blank" rel="noopener noreferrer" style="color:#ffe69a;">@skiseiju</a> 追蹤後續修正。
-                            </div>
-                            <div style="margin-top:8px;color:#eadfbf;">
-                                這次 Meta 大封鎖提醒我們：數位帳號、社群連結與創作成果，都不該被平台單方面封住卻求助無門。希望大家一起附議「推動跨境數位平台設立臺灣實體據點法定代理人與常駐真人客服申訴機制」，讓台灣使用者有基本申訴管道，也讓自己的數位資產更自由、更有保障。<a href="https://join.gov.tw/idea/detail/78f0ba59-bcde-42e2-9920-43d9f293fa0c" target="_blank" rel="noopener noreferrer" style="color:#ffe69a;">前往附議</a>
-                            </div>
-                            <div style="margin-top:8px;color:#eadfbf;">
-                                另外也想請大家看看新的公共連署「社群媒體反詐騙，強制揭露電信國碼與其他來源資訊」。這個提案主張提高社群帳號來源透明度，讓使用者在面對陌生帳號、廣告或大量轉傳內容時，有更多線索判斷可信度；這和留友封希望幫大家保護社群生活的方向很接近。<a href="https://join.gov.tw/idea/detail/2c8c07a0-bdd4-49ad-a5ff-75b1cad58cf0" target="_blank" rel="noopener noreferrer" style="color:#ffe69a;">前往附議</a>
-                            </div>
-                        </div>
-                        <p style="margin:0 0 12px;color:#f2f2f2;font-weight:700;">功能介紹</p>
-                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-bottom:18px;">
-                            <div style="border:1px solid #303030;border-radius:8px;padding:12px 13px;background:#141414;">
-                                <div style="font-weight:700;color:#fff;margin-bottom:4px;">2.7 大功能：三無追蹤者掃描</div>
-                                <div style="font-size:12px;color:#aaa;line-height:1.55;">Chrome 版可掃自己或指定帳號粉絲，找出疑似三無帳號，結果只存在本機。</div>
-                            </div>
-                            <div style="border:1px solid #303030;border-radius:8px;padding:12px 13px;background:#141414;">
-                                <div style="font-weight:700;color:#fff;margin-bottom:4px;">三無管理流程</div>
-                                <div style="font-size:12px;color:#aaa;line-height:1.55;">掃描後可續掃、清除、加入安全名單或加入封鎖清單；不會自動封鎖。</div>
-                            </div>
-                            <div style="border:1px solid #303030;border-radius:8px;padding:12px 13px;background:#141414;">
-                                <div style="font-weight:700;color:#fff;margin-bottom:4px;">目前限制</div>
-                                <div style="font-size:12px;color:#aaa;line-height:1.55;">大型帳號可能只載入部分粉絲；留友封只判斷 Threads 當下顯示出的名單。</div>
-                            </div>
-                        </div>
-                        <p style="margin:0 0 10px;color:#f2f2f2;font-weight:700;">最近更新</p>
-                        <ul style="margin:0 0 14px;padding-left:18px;">
-                            <li style="margin-bottom:6px;"><b>2.7.3</b>：補上 Firefox AMO 自動發布流程，並修正 Firefox package 與 source archive 送審產物來源。</li>
-                            <li style="margin-bottom:6px;"><b>2.7.2</b>：加強封鎖/檢舉名單的加密，與「分享到其他設備」功能，並加入多檔匯入；三無清單可顯示本機匯入命中次數；也修正回文彈窗誤出現「清理名單」。</li>
-                            <li style="margin-bottom:6px;"><b>2.7.1</b>：修正三無判斷、新版三點選單、失敗清單清除與設定分區。</li>
-                            <li style="margin-bottom:6px;"><b>2.7.0</b>：加入 Chrome 三無追蹤者掃描，可掃自己或指定帳號粉絲並用本機清單管理。</li>
-                        </ul>
-                        <div style="margin:0 0 ${announcementData ? '16px' : '0'};padding:12px 14px;border:1px solid rgba(236,195,81,0.35);border-radius:10px;background:rgba(236,195,81,0.10);color:#f6df92;font-weight:700;line-height:1.55;">
-                            如果留友封有幫上你的忙，也歡迎贊助我來維持功能更新；或到 Chrome Web Store 留一句評價，讓更多人敢安心安裝。謝謝大家的支持。
-                        </div>
+                        ${UI.renderReleaseNotesContent(BUNDLED_RELEASE_NOTES, { hasAnnouncement: !!announcementData })}
                     ` : ''}
                     ${announcementData ? UI.renderAnnouncementSection(announcementData, { inlineCta: showReleaseBlock }) : ''}
                 </div>
@@ -2323,9 +2370,9 @@ export const UI = {
         overlay.className = 'hege-manager-overlay';
 
         Utils.setHTML(overlay, `
-            <div class="hege-manager-box hege-settings-box" style="max-width: 760px; width: 92vw;">
+            <div class="hege-manager-box hege-settings-box" style="max-width:760px;width:92vw;">
                 <div class="hege-manager-header">
-                    <span class="hege-manager-title" style="display:flex; align-items:center; gap:6px;">
+                    <span class="hege-manager-title" style="display:flex;align-items:center;gap:6px;">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                         設定
                     </span>
@@ -2333,48 +2380,15 @@ export const UI = {
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
                     </span>
                 </div>
-                <div class="hege-settings-content" style="padding: 16px; display:block;">
-                    <div data-hege-settings-view-panel="home" style="display:flex; flex-direction:column; gap:14px;">
-                        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px;">
-                            <div class="hege-menu-item" data-hege-settings-open="data" style="border:1px solid #2d2d2d; border-radius:8px; min-height:112px; align-items:flex-start; flex-direction:column; gap:7px;">
-                                <span style="font-size:14px;font-weight:700;">資料與工具</span>
-                                <span style="font-size:11px;color:#888;line-height:1.4;">觀測上傳、名單水庫、資料移轉與診斷</span>
-                            </div>
-                            <div class="hege-menu-item" data-hege-settings-open="block" style="border:1px solid #2d2d2d; border-radius:8px; min-height:112px; align-items:flex-start; flex-direction:column; gap:7px;">
-                                <span style="font-size:14px;font-weight:700;">通用設定</span>
-                                <span style="font-size:11px;color:#888;line-height:1.4;">速度、每日提醒門檻、封鎖/檢舉流程可視化</span>
-                            </div>
-                        </div>
-
-                        <div style="height:1px;background:#2a2a2a;"></div>
-                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:6px;">
-                            <div class="hege-menu-item" id="hege-s-report" style="flex:1;border-bottom:none;">
-                                <span style="display:flex;align-items:center;gap:4px;font-size:12px;">
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"></path></svg>
-                                    回報問題
-                                </span>
-                            </div>
-                            <a href="https://threadsblocker.skiseiju.com" target="_blank" rel="noopener noreferrer" title="留友封產品說明" class="hege-menu-item" style="flex:1;border-bottom:none;text-decoration:none;color:#5ac8fa;">
-                                <span style="font-size:12px;">📋 產品說明</span>
-                            </a>
-                            <div class="hege-menu-item" id="hege-s-sponsor" title="贊助我喝咖啡" style="flex:1;color:#ecc351;border-bottom:none;">
-                                <span style="font-size:12px;">☕️ 贊助我喝咖啡</span>
-                            </div>
-                            <a id="hege-s-platform" href="${CONFIG.OBSERVATION_PLATFORM_URL}" target="_blank" rel="noopener noreferrer" title="留友封觀測平台" class="hege-menu-item" style="flex:1;color:#30d158;border-bottom:none;text-decoration:none;">
-                                <span style="font-size:12px;">📊 觀測平台</span>
-                            </a>
-                            <a href="${CONFIG.DEVELOPER_SITE_URL}" target="_blank" rel="noopener noreferrer" title="開發者網站" class="hege-menu-item" style="flex:1;color:#8ab4f8;border-bottom:none;text-decoration:none;">
-                                <span style="font-size:12px;">🌐 開發者網站</span>
-                            </a>
-                        </div>
-                        <p style="color:#555;font-size:11px;text-align:right;margin:0;">v${CONFIG.VERSION}</p>
+                <div class="hege-settings-content" style="padding:16px;display:block;">
+                    <div role="tablist" aria-label="設定分類" data-hege-settings-tabs style="display:flex;gap:4px;margin-bottom:16px;padding:4px;border:1px solid #2d2d2d;border-radius:9px;background:#121212;">
+                        <button type="button" role="tab" class="hege-menu-item" data-hege-settings-tab="data" style="flex:1;justify-content:center;border:0;border-bottom:none;padding:9px 6px;">資料</button>
+                        <button type="button" role="tab" class="hege-menu-item" data-hege-settings-tab="tools" style="flex:1;justify-content:center;border:0;border-bottom:none;padding:9px 6px;">工具</button>
+                        <button type="button" role="tab" class="hege-menu-item" data-hege-settings-tab="common" style="flex:1;justify-content:center;border:0;border-bottom:none;padding:9px 6px;">通用設定</button>
                     </div>
 
-                    <div data-hege-settings-view-panel="data" style="display:none; flex-direction:column; gap:10px;">
-                        <div class="hege-menu-item" data-hege-settings-back style="border-bottom:none;color:#aaa;">
-                            <span>← 返回</span>
-                        </div>
-                        <div style="${settingsSectionTitleStyle}">名單與水庫</div>
+                    <div role="tabpanel" data-hege-settings-view-panel="data" style="display:flex;flex-direction:column;gap:10px;">
+                        <div style="${settingsSectionTitleStyle}">你的名單與備份</div>
                         <div class="hege-menu-item" id="hege-s-manage">
                             <span>管理已封鎖</span>
                             <span class="status">${db.length}</span>
@@ -2387,9 +2401,21 @@ export const UI = {
                             <span>貼文水庫</span>
                             <span class="status">${Storage.postReservoir.getAll().length}</span>
                         </div>
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px;">
+                            <div class="hege-menu-item" id="hege-s-import" style="border-bottom:none;"><span>匯入名單</span></div>
+                            <div class="hege-menu-item" id="hege-s-export" style="border-bottom:none;"><span>匯出紀錄</span></div>
+                        </div>
+                    </div>
+
+                    <div role="tabpanel" data-hege-settings-view-panel="tools" style="display:none;flex-direction:column;gap:10px;">
+                        <div style="${settingsSectionTitleStyle}">功能操作</div>
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px;">
+                            <div class="hege-menu-item" id="hege-s-reportpack-export" style="border-bottom:none;color:#cfe8ff;"><span>分享到其他設備</span></div>
+                            <div class="hege-menu-item" id="hege-s-reportpack-import" style="border-bottom:none;color:#cfe8ff;"><span>匯入其他設備</span></div>
+                        </div>
                         <div style="${settingsSectionTitleStyle}">三無掃描</div>
-                        <div class="hege-menu-item" id="hege-s-three-no-threshold-row" style="display:flex; flex-direction:column; align-items:stretch; gap:5px;">
-                            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                        <div class="hege-menu-item" id="hege-s-three-no-threshold-row" style="display:flex;flex-direction:column;align-items:stretch;gap:5px;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
                                 <span>備選名單門檻</span>
                                 <input id="hege-s-three-no-threshold" type="number" min="10" max="1000" step="10" value="${Storage.getThreeNoCandidateThreshold()}" style="width:82px;background:#1a1a1a;border:1px solid #444;color:#f5f5f5;padding:3px 6px;border-radius:4px;font-size:11px;text-align:right;">
                             </div>
@@ -2397,48 +2423,25 @@ export const UI = {
                         </div>
                         ${isChromeExtension ? `
                         <div style="${settingsSectionTitleStyle}">Chrome 隱私與加速</div>
-                        <div class="hege-menu-item" id="hege-s-credentials-consent" style="display:flex; flex-direction:column; align-items:stretch; gap:5px;border-color:${credentialsConsentEnabled ? '#8f6d1f' : '#3d3030'};">
+                        <div class="hege-menu-item" id="hege-s-credentials-consent" style="display:flex;flex-direction:column;align-items:stretch;gap:5px;border-color:${credentialsConsentEnabled ? '#8f6d1f' : '#3d3030'};">
                             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-                                <span style="font-weight:700;">加速三無的認證欄位處理</span>
+                                <span style="font-weight:700;">加速三無檢查（進階）</span>
                                 <span class="status" style="color:${credentialsConsentEnabled ? '#ff9f0a' : '#aaa'};">${credentialsConsentEnabled ? '已明確同意並開啟' : '預設關閉'}</span>
                             </div>
                             <span style="color:#777;font-size:11px;line-height:1.35;">只在 Threads 同站請求中本機暫時處理 token；不存檔、不上傳，拒絕時保留一般三點 fallback。</span>
                         </div>
                         ` : ''}
-                        <div style="${settingsSectionTitleStyle}">資料移轉</div>
-                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px;">
-                            <div class="hege-menu-item" id="hege-s-import" style="border-bottom:none;">
-                                <span>匯入名單</span>
-                            </div>
-                            <div class="hege-menu-item" id="hege-s-export" style="border-bottom:none;">
-                                <span>匯出紀錄</span>
-                            </div>
-                            <div class="hege-menu-item" id="hege-s-reportpack-export" style="border-bottom:none;color:#cfe8ff;">
-                                <span>分享到其他設備</span>
-                            </div>
-                            <div class="hege-menu-item" id="hege-s-reportpack-import" style="border-bottom:none;color:#cfe8ff;">
-                                <span>匯入其他設備</span>
-                            </div>
-                        </div>
                         <div style="${settingsSectionTitleStyle}">觀測與上傳</div>
-                        <div class="hege-menu-item" id="hege-s-analytics" style="color: #5ac8fa;">
-                            <span style="display:flex; align-items:center; gap:6px;">
+                        <div class="hege-menu-item" id="hege-s-analytics" style="color:#5ac8fa;">
+                            <span style="display:flex;align-items:center;gap:6px;">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="12" width="4" height="9"/><rect x="10" y="7" width="4" height="14"/><rect x="17" y="3" width="4" height="18"/></svg>
                                 來源分析報告
                             </span>
                         </div>
                         ${(callbacks.onExportReportDebug || callbacks.onExportThreeNoDebug) ? `
                         <div style="${settingsSectionTitleStyle}">診斷</div>
-                        ${callbacks.onExportThreeNoDebug && threeNoDebugExportId ? `
-                        <div class="hege-menu-item" id="${threeNoDebugExportId}">
-                            <span>${threeNoDebugExportLabel}</span>
-                        </div>
-                        ` : ''}
-                        ${callbacks.onExportReportDebug && reportDebugExportId ? `
-                        <div class="hege-menu-item" id="${reportDebugExportId}">
-                            <span>${reportDebugExportLabel}</span>
-                        </div>
-                        ` : ''}
+                        ${callbacks.onExportThreeNoDebug && threeNoDebugExportId ? `<div class="hege-menu-item" id="${threeNoDebugExportId}"><span>${threeNoDebugExportLabel}</span></div>` : ''}
+                        ${callbacks.onExportReportDebug && reportDebugExportId ? `<div class="hege-menu-item" id="${reportDebugExportId}"><span>${reportDebugExportLabel}</span></div>` : ''}
                         ` : ''}
                         ${callbacks.onDevReloadExtension && devReloadId ? `
                         <div style="${settingsSectionTitleStyle}">${devReloadSectionLabel}</div>
@@ -2448,57 +2451,74 @@ export const UI = {
                         </div>
                         ` : ''}
                         <div style="${settingsDangerTitleStyle}">危險操作</div>
-                        <div class="hege-menu-item danger" id="hege-s-clear-db" style="border-bottom: none;">
-                            <span>清除所有歷史</span>
-                        </div>
+                        <div class="hege-menu-item danger" id="hege-s-clear-db" style="border-bottom:none;"><span>清除所有歷史</span></div>
                     </div>
 
-                    <div data-hege-settings-view-panel="block" style="display:none; flex-direction:column; gap:10px;">
-                        <div class="hege-menu-item" data-hege-settings-back style="border-bottom:none;color:#aaa;">
-                            <span>← 返回</span>
-                        </div>
-                        <div style="${settingsSectionTitleStyle}">通用設定</div>
+                    <div role="tabpanel" data-hege-settings-view-panel="common" style="display:none;flex-direction:column;gap:10px;">
+                        <div style="${settingsSectionTitleStyle}">行為偏好</div>
                         <div class="hege-menu-item" id="hege-s-speed">
                             <span>速度模式</span>
                             <span class="status" id="hege-s-speed-status">🧠 智慧</span>
                         </div>
-                        <div class="hege-menu-item" id="hege-s-daily-limit" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
-                            <div style="display:flex; align-items:center; justify-content:space-between;">
+                        <div class="hege-menu-item" id="hege-s-daily-limit" style="display:flex;flex-direction:column;align-items:stretch;gap:4px;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;">
                                 <span>封鎖每日提醒門檻</span>
-                                <select id="hege-s-daily-limit-select" style="background:#1a1a1a; border:1px solid #444; color:#f5f5f5; padding:2px 6px; border-radius:4px; font-size:11px;">
+                                <select id="hege-s-daily-limit-select" style="background:#1a1a1a;border:1px solid #444;color:#f5f5f5;padding:2px 6px;border-radius:4px;font-size:11px;">
                                     ${CONFIG.DAILY_LIMIT_OPTIONS.map(n => `<option value="${n}">${n}</option>`).join('')}
                                 </select>
                             </div>
-                            <span style="font-size:10px; color:#ff9f0a; line-height:1.3;">超過此數仍會繼續執行，但會顯示醒目的上限提醒</span>
+                            <span style="font-size:10px;color:#ff9f0a;line-height:1.3;">超過此數仍會繼續執行，但會顯示醒目的上限提醒</span>
                         </div>
-                        <div class="hege-menu-item" id="hege-s-daily-report-limit" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
-                            <div style="display:flex; align-items:center; justify-content:space-between;">
+                        <div class="hege-menu-item" id="hege-s-daily-report-limit" style="display:flex;flex-direction:column;align-items:stretch;gap:4px;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;">
                                 <span>檢舉每日提醒門檻</span>
-                                <select id="hege-s-daily-report-limit-select" style="background:#1a1a1a; border:1px solid #444; color:#f5f5f5; padding:2px 6px; border-radius:4px; font-size:11px;">
+                                <select id="hege-s-daily-report-limit-select" style="background:#1a1a1a;border:1px solid #444;color:#f5f5f5;padding:2px 6px;border-radius:4px;font-size:11px;">
                                     ${CONFIG.DAILY_REPORT_LIMIT_OPTIONS.map(n => `<option value="${n}">${n}</option>`).join('')}
                                 </select>
                             </div>
-                            <span style="font-size:10px; color:#ff9f0a; line-height:1.3;">超過此數仍會繼續執行，但會顯示醒目的上限提醒</span>
+                            <span style="font-size:10px;color:#ff9f0a;line-height:1.3;">超過此數仍會繼續執行，但會顯示醒目的上限提醒</span>
                         </div>
-                        <div class="hege-menu-item" id="hege-s-auto-mark-leader-row" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
-                            <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
-                                <span>定點絕時自動標頭目</span>
-                                <input type="checkbox" id="hege-s-auto-mark-leader" style="width:16px; height:16px;">
+                        <div class="hege-menu-item" id="hege-s-auto-mark-leader-row" style="display:flex;flex-direction:column;align-items:stretch;gap:4px;">
+                            <label style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;">
+                                <span>定點絕：自動列入大蟑螂名單</span>
+                                <input type="checkbox" id="hege-s-auto-mark-leader" style="width:16px;height:16px;">
                             </label>
-                            <span style="font-size:10px; color:#888; line-height:1.3;">按下定點絕時自動把貼文作者加入大蟑螂名單，10 天後提醒回查</span>
+                            <span style="font-size:10px;color:#888;line-height:1.3;">按下定點絕時自動把貼文作者加入大蟑螂名單，10 天後提醒回查</span>
                         </div>
-                        <div class="hege-menu-item" id="hege-s-block-visual-debug-row" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
-                            <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
-                                <span>封鎖流程可視化</span>
-                                <input type="checkbox" id="hege-s-block-visual-debug-toggle" style="width:16px; height:16px;">
-                            </label>
-                        </div>
-                        <div class="hege-menu-item" id="hege-s-report-visual-debug-row" style="display:flex; flex-direction:column; align-items:stretch; gap:4px;">
-                            <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
-                                <span>檢舉流程可視化</span>
-                                <input type="checkbox" id="hege-s-report-visual-debug-toggle" style="width:16px; height:16px;">
+                        <div class="hege-menu-item" id="hege-s-block-visual-debug-row" style="display:flex;flex-direction:column;align-items:stretch;gap:4px;">
+                            <label style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;">
+                                <span>顯示封鎖即時進度</span>
+                                <input type="checkbox" id="hege-s-block-visual-debug-toggle" style="width:16px;height:16px;">
                             </label>
                         </div>
+                        <div class="hege-menu-item" id="hege-s-report-visual-debug-row" style="display:flex;flex-direction:column;align-items:stretch;gap:4px;">
+                            <label style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;">
+                                <span>顯示檢舉即時進度</span>
+                                <input type="checkbox" id="hege-s-report-visual-debug-toggle" style="width:16px;height:16px;">
+                            </label>
+                        </div>
+                    </div>
+
+                    <div data-hege-settings-footer style="display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:6px;margin-top:16px;padding-top:10px;border-top:1px solid #2a2a2a;">
+                        <div class="hege-menu-item" id="hege-s-report" data-hege-settings-footer-item style="border-bottom:none;">
+                            <span style="display:flex;align-items:center;gap:4px;font-size:12px;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"></path></svg>
+                                回報問題
+                            </span>
+                        </div>
+                        <a href="https://threadsblocker.skiseiju.com" target="_blank" rel="noopener noreferrer" title="留友封產品說明" class="hege-menu-item" data-hege-settings-footer-item style="border-bottom:none;text-decoration:none;color:#5ac8fa;">
+                            <span style="font-size:12px;">📋 產品說明</span>
+                        </a>
+                        <div class="hege-menu-item" id="hege-s-sponsor" title="贊助我喝咖啡" data-hege-settings-footer-item style="color:#ecc351;border-bottom:none;">
+                            <span style="font-size:12px;">☕️ 贊助我喝咖啡</span>
+                        </div>
+                        <a id="hege-s-platform" href="${CONFIG.OBSERVATION_PLATFORM_URL}" target="_blank" rel="noopener noreferrer" title="留友封觀測平台" class="hege-menu-item" data-hege-settings-footer-item style="color:#30d158;border-bottom:none;text-decoration:none;">
+                            <span style="font-size:12px;">📊 觀測平台</span>
+                        </a>
+                        <a href="${CONFIG.DEVELOPER_SITE_URL}" target="_blank" rel="noopener noreferrer" title="開發者網站" class="hege-menu-item" data-hege-settings-footer-item style="color:#8ab4f8;border-bottom:none;text-decoration:none;">
+                            <span style="font-size:12px;">🌐 開發者網站</span>
+                        </a>
+                        <p style="grid-column:1/-1;color:#555;font-size:11px;text-align:right;margin:0;">v${CONFIG.VERSION}</p>
                     </div>
                 </div>
             </div>
@@ -2508,26 +2528,24 @@ export const UI = {
         const close = () => overlay.remove();
         overlay.querySelector('.hege-manager-close').onclick = close;
 
-        const titleText = overlay.querySelector('#hege-settings-title-text');
-        const settingViewLabels = { home: '設定', data: '資料與工具', block: '通用設定' };
         const showSettingsView = (view) => {
             overlay.querySelectorAll('[data-hege-settings-view-panel]').forEach(panel => {
                 const isActive = panel.dataset.hegeSettingsViewPanel === view;
                 panel.style.display = isActive ? 'flex' : 'none';
             });
-            if (titleText) titleText.textContent = settingViewLabels[view] || '設定';
+            overlay.querySelectorAll('[data-hege-settings-tab]').forEach(tab => {
+                const isActive = tab.dataset.hegeSettingsTab === view;
+                tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+                tab.style.background = isActive ? '#2a2a2a' : 'transparent';
+                tab.style.color = isActive ? '#fff' : '#aaa';
+            });
         };
-        showSettingsView(callbacks.initialView || 'home');
-        overlay.querySelectorAll('[data-hege-settings-open]').forEach(card => {
-            card.onclick = (e) => {
+        const settingsViewAliases = { home: 'data', data: 'data', tools: 'tools', block: 'common', common: 'common' };
+        showSettingsView(settingsViewAliases[callbacks.initialView] || 'data');
+        overlay.querySelectorAll('[data-hege-settings-tab]').forEach(tab => {
+            tab.onclick = (e) => {
                 e.stopPropagation();
-                showSettingsView(card.dataset.hegeSettingsOpen);
-            };
-        });
-        overlay.querySelectorAll('[data-hege-settings-back]').forEach(back => {
-            back.onclick = (e) => {
-                e.stopPropagation();
-                showSettingsView('home');
+                showSettingsView(tab.dataset.hegeSettingsTab);
             };
         });
 

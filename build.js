@@ -1,13 +1,20 @@
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const SRC_DIR = path.join(__dirname, 'src');
 const DIST_DIR = path.join(__dirname, 'dist');
 const OUT_FILE = path.join(DIST_DIR, 'threads_block_tool.user.js');
 
+execFileSync(process.execPath, [path.join(__dirname, 'scripts', 'generate-release-content.mjs')], {
+    cwd: __dirname,
+    stdio: 'inherit'
+});
+
 const ORDER = [
     'config.js',
     'announcements.js',
+    'release-notes.js',
     'utils.js',
     'storage.js',
     'dialog-collector.js',
