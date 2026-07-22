@@ -490,17 +490,37 @@ function getAdminToken(request) {
   return auth.slice(prefix.length).trim();
 }
 __name(getAdminToken, "getAdminToken");
-function assertAdmin(request, env) {
-  const adminToken = env.ADMIN_TOKEN || "";
-  const token = getAdminToken(request);
-  if (!adminToken || !token || token !== adminToken) {
-    throw new Response(JSON.stringify({ code: 401, message: "Unauthorized" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json; charset=utf-8" }
-    });
-  }
+// Scoped admin tokens. ADMIN_TOKEN keeps full access for backward
+// compatibility; every other token may only reach the scopes listed here.
+// Least privilege matters because a single shared token would let any holder
+// (including a third-party script) reach raw platform content through
+// /admin/platform/overview. See docs/adr/0011-bug-report-sheet-sync.md.
+const TOKEN_SCOPES = {
+  ADMIN_TOKEN: ["reports:read", "reports:write", "stats:read", "platform:read", "reviews:read", "reviews:write", "events:write"],
+  REPORT_EXPORT_TOKEN: ["reports:read"],
+  REVIEWER_TOKEN: ["reviews:read", "reviews:write"]
+};
+function unauthorized() {
+  return new Response(JSON.stringify({ code: 401, message: "Unauthorized" }), {
+    status: 401,
+    headers: { "Content-Type": "application/json; charset=utf-8" }
+  });
 }
-__name(assertAdmin, "assertAdmin");
+__name(unauthorized, "unauthorized");
+function assertScope(request, env, scope) {
+  const token = getAdminToken(request);
+  if (!token || !scope) throw unauthorized();
+  for (const [name, scopes] of Object.entries(TOKEN_SCOPES)) {
+    const configured = (env[name] || "").trim();
+    // An unset variable must never authorize anything, otherwise a missing
+    // binding would silently turn into an empty-string match.
+    if (!configured || configured !== token) continue;
+    if (scopes.includes(scope)) return name;
+    throw unauthorized();
+  }
+  throw unauthorized();
+}
+__name(assertScope, "assertScope");
 async function sha256Hex(input) {
   const data = new TextEncoder().encode(input);
   const hash = await crypto.subtle.digest("SHA-256", data);
@@ -982,7 +1002,7 @@ async function handlePlatformIngest(request, env) {
 }
 __name(handlePlatformIngest, "handlePlatformIngest");
 async function handleAdminList(request, env) {
-  assertAdmin(request, env);
+  assertScope(request, env, "reports:read");
   const url = new URL(request.url);
   const limit = clampInt(url.searchParams.get("limit"), 1, 200, 50);
   const status = (url.searchParams.get("status") || "").trim();
@@ -1019,7 +1039,7 @@ async function handleAdminList(request, env) {
 }
 __name(handleAdminList, "handleAdminList");
 async function handleAdminStats(request, env) {
-  assertAdmin(request, env);
+  assertScope(request, env, "stats:read");
   const url = new URL(request.url);
   const hours = clampInt(url.searchParams.get("hours"), 1, 24 * 30, 24);
   const levelRows = await env.DB.prepare(
@@ -1056,7 +1076,7 @@ async function handleAdminStats(request, env) {
 }
 __name(handleAdminStats, "handleAdminStats");
 async function handleAdminPlatformOverview(request, env) {
-  assertAdmin(request, env);
+  assertScope(request, env, "platform:read");
   const url = new URL(request.url);
   const days = clampInt(url.searchParams.get("days"), 1, 365, 30);
   const top = clampInt(url.searchParams.get("top"), 5, 50, 15);
@@ -1065,7 +1085,7 @@ async function handleAdminPlatformOverview(request, env) {
 }
 __name(handleAdminPlatformOverview, "handleAdminPlatformOverview");
 async function handleAdminSampleReviews(request, env) {
-  assertAdmin(request, env);
+  assertScope(request, env, "reviews:read");
   await ensurePlatformTables(env);
   const url = new URL(request.url);
   const requestedStatus = (url.searchParams.get("status") || "pending").trim().toLowerCase();
@@ -1085,7 +1105,7 @@ async function handleAdminSampleReviews(request, env) {
 }
 __name(handleAdminSampleReviews, "handleAdminSampleReviews");
 async function handleAdminSampleReviewDecision(request, env, match) {
-  assertAdmin(request, env);
+  assertScope(request, env, "reviews:write");
   await ensurePlatformTables(env);
   const id = Number.parseInt(match?.[1] || "", 10);
   const action = safeString(match?.[2] || "", 20);
@@ -1128,10 +1148,7 @@ async function handlePublicTopicDetails(request, env) {
 __name(handlePublicTopicDetails, "handlePublicTopicDetails");
 async function handleAdminPoliticalEventsIngest(request, env) {
   await ensurePlatformTables(env);
-  const authHeader = request.headers.get("Authorization") || "";
-  if (!env.ADMIN_TOKEN || authHeader !== `Bearer ${env.ADMIN_TOKEN}`) {
-    return json({ code: 401, message: "Unauthorized" }, 401);
-  }
+  assertScope(request, env, "events:write");
   let body;
   try {
     body = await request.json();
@@ -2358,7 +2375,7 @@ async function ensurePlatformTables(env) {
 }
 __name(ensurePlatformTables, "ensurePlatformTables");
 async function handleAdminUpdateStatus(request, env, pathname) {
-  assertAdmin(request, env);
+  assertScope(request, env, "reports:write");
   const id = Number.parseInt(pathname.split("/").pop() || "", 10);
   if (!Number.isFinite(id) || id <= 0) {
     return json({ code: 400, message: "Invalid id" }, 400);
