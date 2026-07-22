@@ -39,7 +39,7 @@ function resetStorage() {
   Storage.cache = {};
 }
 
-test("platform consent migration never promotes old consent to platform-sync-v3", () => {
+test("platform consent migration never promotes old consent to platform-sync-v4", () => {
   resetStorage();
   localStorage.setItem(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, "true");
   localStorage.setItem(CONFIG.KEYS.PLATFORM_SYNC_CONSENT_VERSION, "2.7.3");
@@ -50,9 +50,20 @@ test("platform consent migration never promotes old consent to platform-sync-v3"
   assert.equal(Storage.getPlatformSyncEnabled(), false);
 
   Storage.setPlatformSyncConsentDecision(true);
-  assert.equal(Storage.getPlatformSyncConsentVersion(), "platform-sync-v3");
+  assert.equal(Storage.getPlatformSyncConsentVersion(), "platform-sync-v4");
   assert.equal(Storage.hasPlatformSyncConsentForCurrentVersion(), true);
   assert.equal(Storage.getPlatformSyncEnabled(), true);
+});
+
+test("stored platform-sync-v3 consent is not promoted to v4 and stays blocked", () => {
+  resetStorage();
+  localStorage.setItem(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, "true");
+  localStorage.setItem(CONFIG.KEYS.PLATFORM_SYNC_CONSENT_VERSION, "platform-sync-v3");
+
+  Storage.migratePlatformSyncConsent();
+  assert.equal(Storage.getPlatformSyncConsentVersion(), "platform-sync-v3");
+  assert.equal(Storage.hasPlatformSyncConsentForCurrentVersion(), false);
+  assert.equal(Storage.getPlatformSyncEnabled(), false);
 });
 
 test("all platform upload paths retain the pending-version gate", async () => {
@@ -266,21 +277,39 @@ test("consent and public copy stay aligned", () => {
   const methodology = source("site/platform/methodology/index.html");
   const nextPage = source("site/platform/next/index.html");
   const listing = source("docs/CWS_LISTING_DRAFT.md");
-  const cwsPractices = source("docs/CWS_PRIVACY_PRACTICES_2.7.4.md");
+  const cwsPractices = source("docs/CWS_PRIVACY_PRACTICES_2.8.0.md");
   const topicSdd = source("docs/SDD_Topic_Amplification.md");
   const adr = source("docs/adr/0009-deidentified-sample-publication.md");
   const combined = `${ui}\n${readme}\n${changelog}\n${home}\n${privacy}\n${methodology}\n${nextPage}\n${listing}\n${cwsPractices}\n${topicSdd}\n${adr}`;
-  assert.match(config, /VERSION: '2\.7\.4-beta92'/);
-  assert.match(config, /PLATFORM_SYNC_CONSENT_POLICY_VERSION: 'platform-sync-v3'/);
+  assert.match(config, /VERSION: '2\.8\.0'/);
+  assert.match(config, /PLATFORM_SYNC_CONSENT_POLICY_VERSION: 'platform-sync-v4'/);
   assert.match(ui, /id="hege-report-diagnostic-consent" type="checkbox"/);
   assert.equal(ui.includes('id="hege-report-diagnostic-consent" type="checkbox" checked'), false);
-  assert.match(combined, /platform-sync-v3/);
+  assert.match(combined, /platform-sync-v4/);
   assert.doesNotMatch(ui, /credentials-processing-v1|hege:threads-credentials-processing-consent/);
+  for (const currentDisclosure of [readme, home, privacy, listing, cwsPractices]) {
+    assert.doesNotMatch(currentDisclosure, /credentials-processing-v1|Chrome 加速三無|fb_dtsg|jazoest|__user/);
+  }
+  assert.match(cwsPractices, /Authentication information \| No/);
+  assert.match(ui, /我或我授權的人也可能會實際讀到/);
+  assert.match(ui, /公開文字片段可能由人工讀取/);
+  assert.doesNotMatch(ui, /\?mock=1|示範觀測平台/);
+  assert.match(privacy, /授權人員可能在必要範圍內讀取使用者已同意上傳的公開內容/);
+  assert.match(cwsPractices, /Authorized personnel may review uploaded public content/);
+  assert.doesNotMatch(privacy, /TODO（送審前完成）/);
+  // 隱私頁宣告「套件不包含擷取 request token 的 page bridge」，runtime 必須沒有殘留字樣可供對撞。
+  for (const runtimeFile of ["src/features/three-no-watch.js", "src/three-no.js", "src/reporter.js"]) {
+    if (!fs.existsSync(path.join(root, runtimeFile))) continue;
+    assert.doesNotMatch(source(runtimeFile), /page_?bridge/i, `${runtimeFile} 不得出現 page bridge 字樣`);
+  }
+  const manifest = JSON.parse(source("src/manifest.json"));
+  assert.equal(manifest.web_accessible_resources, undefined);
+  assert.equal(manifest.permissions, undefined);
   assert.match(combined, /pending_version_consent/);
   assert.match(combined, /description/);
   assert.match(combined, /reviewed_text/);
-  assert.match(readme, /目前正式版：`v2\.7\.4`/);
-  assert.match(changelog, /^## v2\.7\.4 —/m);
+  assert.match(readme, /目前正式版：`v2\.8\.0`/);
+  assert.match(changelog, /^## v2\.8\.0 —/m);
   assert.match(changelog, /v2\.7\.4-beta44/);
   assert.match(changelog, /歷史口徑更正.*beta44/);
   assert.match(methodology, /samplePublicationMode/);

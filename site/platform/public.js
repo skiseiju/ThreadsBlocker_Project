@@ -2,165 +2,10 @@
   const PLATFORM_VERSION = '0.1.0-beta23';
   const API_BASE = 'https://threadsblocker-bug-admin.skiseiju.workers.dev';
   const DEFAULT_DAYS = 90;
-  const MOCK_DAYS = 60;
   const DEFAULT_TOP = 24;
   const EVENT_DAYS = 90;
   const EVENT_LIMIT = 300;
   const QUERY = new URLSearchParams(window.location.search);
-  const FORCE_MOCK = QUERY.get('mock') === '1';
-
-  const MOCK_TEMPLATE = {
-    schema: 'threadsblocker.platform_public.v1',
-    generatedAt: '2026-04-21T00:00:00Z',
-    taxonomyVersion: 'topic-taxonomy.v1',
-    sampleScope: 'trusted',
-    samplePublicationMode: 'description',
-    days: 30,
-    summary: {
-      headline: 'Threads 公開行為的集中與擴散，正在如何變化？',
-      subtitle: '留友封觀測站用匿名聚合資料整理可觀察的行為模式'
-    },
-    overview: {
-      uploadCount: 286,
-      blockEventCount: 94108,
-      reportEventCount: 54624,
-      totalEventCount: 148732,
-      sourcePostCount: 6924,
-      topicSeedCount: 438,
-      sourceCoveragePct: 72,
-      reportSourceCoveragePct: 64
-    },
-    dateRange: {
-      start: '2026-03-23',
-      end: '2026-04-21',
-      activeDays: 30
-    },
-    credibility: {
-      effectiveUploadCount: 286,
-      activeObservationDays: 30,
-      sourceCoveragePct: 72,
-      reportSourceCoveragePct: 64
-    },
-    thresholds: {
-      categoryMinEvents: 5,
-      narrativeMinSources: 2,
-      narrativeMinEvents: 20,
-      highSignalScore: 65,
-      mediumSignalScore: 45
-    },
-    signals: {
-      sourceConcentrationPct: 24.6,
-      repeatedNarrativePct: 41.2,
-      shortTermDiffusionPct: 37.8,
-      coordinatedAccountEstimate: 928,
-      coordinatedSourceCount: 17
-    },
-    dailyTrend: [
-      { day_key: '2026-03-23', total_event_count: 42, block_event_count: 27, report_event_count: 15, source_count: 2 },
-      { day_key: '2026-03-24', total_event_count: 38, block_event_count: 25, report_event_count: 13, source_count: 2 },
-      { day_key: '2026-03-25', total_event_count: 97, block_event_count: 61, report_event_count: 36, source_count: 5 },
-      { day_key: '2026-03-26', total_event_count: 44, block_event_count: 29, report_event_count: 15, source_count: 2 },
-      { day_key: '2026-03-27', total_event_count: 47, block_event_count: 31, report_event_count: 16, source_count: 2 },
-      { day_key: '2026-03-28', total_event_count: 114, block_event_count: 72, report_event_count: 42, source_count: 6 },
-      { day_key: '2026-03-29', total_event_count: 36, block_event_count: 23, report_event_count: 13, source_count: 2 },
-      { day_key: '2026-03-30', total_event_count: 55, block_event_count: 36, report_event_count: 19, source_count: 3 },
-      { day_key: '2026-03-31', total_event_count: 218, block_event_count: 142, report_event_count: 76, source_count: 11 },
-      { day_key: '2026-04-01', total_event_count: 167, block_event_count: 109, report_event_count: 58, source_count: 8 },
-      { day_key: '2026-04-02', total_event_count: 89, block_event_count: 58, report_event_count: 31, source_count: 4 },
-      { day_key: '2026-04-03', total_event_count: 89, block_event_count: 56, report_event_count: 33, source_count: 4 },
-      { day_key: '2026-04-04', total_event_count: 48, block_event_count: 31, report_event_count: 17, source_count: 2 },
-      { day_key: '2026-04-05', total_event_count: 46, block_event_count: 30, report_event_count: 16, source_count: 2 },
-      { day_key: '2026-04-06', total_event_count: 213, block_event_count: 138, report_event_count: 75, source_count: 11 },
-      { day_key: '2026-04-07', total_event_count: 149, block_event_count: 97, report_event_count: 52, source_count: 7 },
-      { day_key: '2026-04-08', total_event_count: 71, block_event_count: 46, report_event_count: 25, source_count: 3 },
-      { day_key: '2026-04-09', total_event_count: 106, block_event_count: 67, report_event_count: 39, source_count: 5 },
-      { day_key: '2026-04-10', total_event_count: 54, block_event_count: 35, report_event_count: 19, source_count: 3 },
-      { day_key: '2026-04-11', total_event_count: 43, block_event_count: 28, report_event_count: 15, source_count: 2 },
-      { day_key: '2026-04-12', total_event_count: 49, block_event_count: 32, report_event_count: 17, source_count: 2 },
-      { day_key: '2026-04-13', total_event_count: 93, block_event_count: 59, report_event_count: 34, source_count: 5 },
-      { day_key: '2026-04-14', total_event_count: 58, block_event_count: 38, report_event_count: 20, source_count: 3 },
-      { day_key: '2026-04-15', total_event_count: 247, block_event_count: 161, report_event_count: 86, source_count: 12 },
-      { day_key: '2026-04-16', total_event_count: 289, block_event_count: 188, report_event_count: 101, source_count: 14 },
-      { day_key: '2026-04-17', total_event_count: 157, block_event_count: 102, report_event_count: 55, source_count: 8 },
-      { day_key: '2026-04-18', total_event_count: 73, block_event_count: 47, report_event_count: 26, source_count: 4 },
-      { day_key: '2026-04-19', total_event_count: 88, block_event_count: 55, report_event_count: 33, source_count: 4 },
-      { day_key: '2026-04-20', total_event_count: 47, block_event_count: 31, report_event_count: 16, source_count: 2 },
-      { day_key: '2026-04-21', total_event_count: 52, block_event_count: 34, report_event_count: 18, source_count: 3 }
-    ],
-    reportCategories: [
-      { label: '垃圾訊息', eventCount: 1820, accountCount: 923, sourceCount: 112, sharePct: 23.8 },
-      { label: '霸凌或騷擾', eventCount: 1244, accountCount: 602, sourceCount: 88, sharePct: 16.3 },
-      { label: '不實資訊', eventCount: 1012, accountCount: 511, sourceCount: 72, sharePct: 13.2 },
-      { label: '暴力、仇恨或剝削', eventCount: 883, accountCount: 418, sourceCount: 60, sharePct: 11.5 },
-      { label: '裸露或性行為', eventCount: 642, accountCount: 301, sourceCount: 44, sharePct: 8.4 },
-      { label: '生理或心理威脅', eventCount: 498, accountCount: 236, sourceCount: 36, sharePct: 6.5 }
-    ],
-topNarratives: [
-      {
-        title: '圍繞國防特別條例程序攻防的同質性留言',
-        summary: '多個來源反覆放大「黑箱付委」「程序偷渡」等相似框架，集中出現在國防特別條例與委員會審查相關貼文下方。',
-        whyNote: '從 2 月底付委到 4 月中協商，這類留言長期使用固定詞彙批評國會程序，且大量帳號只在相關議題出現。句型、標籤與出現時點都高度集中，符合協調放大單一程序敘事的特徵。',
-        eventCount: 2341,
-        sourceCount: 8,
-        accountCount: 714,
-        signalBand: 'high',
-        hintLabels: ['國防特別條例', '程序攻防']
-      },
-      {
-        title: '把訪中行程包裝成「和平解方」的重複框架',
-        summary: '鄭麗文訪中與後續 10 項涉台措施討論期間，樣本中反覆出現將訪中描述為唯一理性出路的相似貼文與留言。',
-        whyNote: '這批內容常把訪中行程包裝成「務實交流」與「避戰唯一道路」，但多數帳號平時幾乎沒有其他公共議題互動。文本模板相近、推進節奏一致，顯示並非自然形成的輿論分布。',
-        eventCount: 1876,
-        sourceCount: 6,
-        accountCount: 531,
-        signalBand: 'high',
-        hintLabels: ['訪中', '和平之旅']
-      },
-      {
-        title: '借外交與兩岸議題放大「總統失能」敘事',
-        summary: '圍繞史瓦帝尼出訪、外部施壓與「不存在中華民國總統」等節點，樣本中出現大量貶抑式固定句型，嘗試把外交事件導向領導失能框架。',
-        whyNote: '這組內容在 4 月中下旬快速增溫，常把不同外交新聞剪接成單一負面結論。帳號之間雖少有互動，但用詞和情緒標籤高度同步，屬於典型的事件借題放大。',
-        eventCount: 1423,
-        sourceCount: 5,
-        accountCount: 389,
-        signalBand: 'medium',
-        hintLabels: ['外交', '兩岸']
-      },
-      {
-        title: '將總預算與國防支出綁成「政府失序」的轉貼群',
-        summary: '總預算與國防支出討論期間，多個來源重複轉貼將朝野協商失靈歸咎於單一陣營的貼文，文案高度相似。',
-        whyNote: '這些貼文常用簡化口號把預算爭議壓縮成單一責任敘事，並由少量原始貼文快速擴散。內容缺少細節，但複製速度快、帳號重疊度高，符合協調轉貼的常見型態。',
-        eventCount: 1187,
-        sourceCount: 4,
-        accountCount: 302,
-        signalBand: 'medium',
-        hintLabels: ['總預算', '國防支出']
-      },
-      {
-        title: '把對外國會互動解讀成陣營站隊的放大敘事',
-        summary: '在台加國會互動、國際參與等新聞下方，樣本中可見把正常國會外交互動直接轉成陣營對決的重複評論群。',
-        whyNote: '這些留言通常不討論事件本身，而是迅速把國會互動翻譯成政黨站隊與忠誠測驗。它們經常在事件發布後數小時內同步湧現，顯示是為了搶占解讀框架而非自然討論。',
-        eventCount: 934,
-        sourceCount: 3,
-        accountCount: 248,
-        signalBand: 'medium',
-        hintLabels: ['國會外交', '陣營對決']
-      }
-    ],
-    recentUploads: [
-      { id: 518, created_at: '2026-04-19T17:04:00Z' },
-      { id: 517, created_at: '2026-04-19T16:31:00Z' }
-    ],
-    methodology: {
-      trustPolicy: 'public-trusted-only',
-      scoreBands: { low: '0-44', medium: '45-64', high: '65+' },
-      principles: [
-        '公開頁只呈現匿名樣本中的統計模式與中性訊號。',
-        '高風險分級是統計標籤，不是對個人、貼文、動機或違法性的認定。',
-        '資料來自自願上傳的匿名來源，並非平台全量資料。'
-      ]
-    }
-  };
 
   function safeNum(value) {
     const num = Number(value);
@@ -210,10 +55,6 @@ topNarratives: [
     if (band === 'high') return '高信號';
     if (band === 'medium') return '中信號';
     return '低信號';
-  }
-
-  function cloneMockData() {
-    return JSON.parse(JSON.stringify(MOCK_TEMPLATE));
   }
 
   function toDateKey(date) {
@@ -279,165 +120,6 @@ topNarratives: [
     } catch (error) {
       return [];
     }
-  }
-
-  function buildMockDailyTrend(events, days = MOCK_DAYS) {
-    const normalizedEvents = dedupePoliticalEvents(events);
-    const endDay = normalizedEvents.length
-      ? normalizedEvents[normalizedEvents.length - 1].date
-      : toDateKey(new Date());
-    const dayKeys = Array.from({ length: days }, (_, index) => shiftDayKey(endDay, -(days - 1 - index)));
-    const eventCountByDay = normalizedEvents.reduce((map, event) => {
-      map[event.date] = (map[event.date] || 0) + 1;
-      return map;
-    }, {});
-
-    return dayKeys.map((dayKey, index) => {
-      const sameDay = safeNum(eventCountByDay[dayKey]);
-      const prevDay = safeNum(eventCountByDay[shiftDayKey(dayKey, -1)]);
-      const nextDay = safeNum(eventCountByDay[shiftDayKey(dayKey, 1)]);
-      const farPrev = safeNum(eventCountByDay[shiftDayKey(dayKey, -2)]);
-      const farNext = safeNum(eventCountByDay[shiftDayKey(dayKey, 2)]);
-      const intensity = sameDay + prevDay * 0.62 + nextDay * 0.48 + farPrev * 0.25 + farNext * 0.18;
-
-      const baseTotal = 22 + (index % 7) * 3 + (index % 5) * 2;
-      const total = baseTotal + Math.round(intensity * 52);
-      const blockRatio = Math.min(0.74, 0.6 + Math.min(intensity, 2.5) * 0.035 + (index % 4) * 0.01);
-      const block = Math.round(total * blockRatio);
-      const report = Math.max(0, total - block);
-      const sourceCount = Math.max(2, Math.round(total / 18) + sameDay * 2 + (prevDay ? 1 : 0));
-
-      return {
-        day_key: dayKey,
-        total_event_count: total,
-        block_event_count: block,
-        report_event_count: report,
-        source_count: sourceCount,
-        is_spike: sameDay > 0 || total >= 95
-      };
-    });
-  }
-
-  function buildMockTopicTimeSeries(events) {
-    const grouped = new Map();
-    dedupePoliticalEvents(events).forEach((event) => {
-      if (!grouped.has(event.date)) grouped.set(event.date, new Map());
-      const dateGroup = grouped.get(event.date);
-      const label = event.category || '政黨動態';
-      dateGroup.set(label, (dateGroup.get(label) || 0) + 1);
-    });
-
-    return Array.from(grouped.entries()).map(([date, topics]) => ({
-      date,
-      topics: Array.from(topics.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([label, count]) => ({ label, count }))
-    }));
-  }
-
-  function buildMockReportCategories(totalReportEvents) {
-    const templates = [
-      ['垃圾訊息', 26],
-      ['霸凌或騷擾', 18],
-      ['不實資訊', 17],
-      ['暴力、仇恨或剝削', 14],
-      ['裸露或性行為', 13],
-      ['生理或心理威脅', 12]
-    ];
-    let assigned = 0;
-    return templates.map(([label, pct], index) => {
-      const eventCount = index === templates.length - 1
-        ? Math.max(0, totalReportEvents - assigned)
-        : Math.round(totalReportEvents * (pct / 100));
-      assigned += eventCount;
-      return {
-        label,
-        eventCount,
-        accountCount: Math.max(1, Math.round(eventCount * (0.48 + index * 0.03))),
-        sourceCount: Math.max(1, Math.round(eventCount / (18 + index * 2))),
-        sharePct: totalReportEvents > 0 ? Number(((eventCount / totalReportEvents) * 100).toFixed(1)) : 0
-      };
-    });
-  }
-
-  function buildMockNarratives(templateNarratives, totalEventCount) {
-    const templates = Array.isArray(templateNarratives) ? templateNarratives : [];
-    const baseline = templates.reduce((sum, item) => sum + safeNum(item.eventCount), 0) || 1;
-    const target = Math.max(360, Math.round(totalEventCount * 0.34));
-    const scale = target / baseline;
-    return templates.map((item, index) => ({
-      ...item,
-      eventCount: Math.max(72, Math.round(safeNum(item.eventCount) * scale)),
-      accountCount: Math.max(24, Math.round(safeNum(item.accountCount) * scale * 0.92)),
-      sourceCount: Math.max(3, safeNum(item.sourceCount) + Math.floor(index / 2))
-    }));
-  }
-
-  async function buildMockData() {
-    const base = cloneMockData();
-    const events = await loadStaticPoliticalEvents();
-    const dailyTrend = buildMockDailyTrend(events, MOCK_DAYS);
-    const topicTimeSeries = buildMockTopicTimeSeries(events);
-    const start = dailyTrend[0]?.day_key || '';
-    const end = dailyTrend[dailyTrend.length - 1]?.day_key || '';
-    const totals = dailyTrend.reduce((acc, row) => {
-      acc.total += safeNum(row.total_event_count);
-      acc.block += safeNum(row.block_event_count);
-      acc.report += safeNum(row.report_event_count);
-      acc.sources += safeNum(row.source_count);
-      return acc;
-    }, { total: 0, block: 0, report: 0, sources: 0 });
-    const last7 = dailyTrend.slice(-7).reduce((sum, row) => sum + safeNum(row.total_event_count), 0);
-    const previous7 = dailyTrend.slice(-14, -7).reduce((sum, row) => sum + safeNum(row.total_event_count), 0);
-    const uploadCount = Math.max(96, Math.round(totals.total / 20));
-    const sourceCoveragePct = Math.min(88, 66 + events.length);
-    const reportSourceCoveragePct = Math.max(42, sourceCoveragePct - 9);
-
-    return normalizeOverviewData({
-      ...base,
-      generatedAt: new Date().toISOString(),
-      days: MOCK_DAYS,
-      summary: {
-        headline: base.summary?.headline || '',
-        subtitle: '政治事件為近 60 天真實公開事件；平台統計為依事件節點生成的示意資料。'
-      },
-      overview: {
-        uploadCount,
-        blockEventCount: totals.block,
-        reportEventCount: totals.report,
-        totalEventCount: totals.total,
-        sourcePostCount: Math.max(events.length * 18, Math.round(totals.total * 0.1)),
-        topicSeedCount: Math.max(events.length * 2, 24),
-        sourceCoveragePct,
-        reportSourceCoveragePct
-      },
-      dateRange: {
-        start,
-        end,
-        activeDays: dailyTrend.length
-      },
-      credibility: {
-        effectiveUploadCount: uploadCount,
-        activeObservationDays: dailyTrend.length,
-        sourceCoveragePct,
-        reportSourceCoveragePct
-      },
-      signals: {
-        sourceConcentrationPct: Number(Math.min(34.5, 18 + events.length * 0.45).toFixed(1)),
-        repeatedNarrativePct: Number(Math.min(46.8, 25 + events.length * 0.7).toFixed(1)),
-        shortTermDiffusionPct: previous7 > 0
-          ? Number((((last7 - previous7) / previous7) * 100).toFixed(1))
-          : 0,
-        coordinatedAccountEstimate: Math.max(120, Math.round(totals.total * 0.27)),
-        coordinatedSourceCount: Math.max(8, Math.round(events.length * 0.75))
-      },
-      dailyTrend,
-      topicTimeSeries,
-      reportCategories: buildMockReportCategories(totals.report),
-      topNarratives: buildMockNarratives(base.topNarratives, totals.total),
-      recentUploads: []
-    });
   }
 
   function createEmptyOverview(days = DEFAULT_DAYS) {
@@ -556,32 +238,20 @@ topNarratives: [
   }
 
   async function fetchOverview() {
-    if (FORCE_MOCK) {
-      const data = await buildMockData();
-      return {
-        data,
-        mockMode: true,
-        emptyState: false,
-        message: '目前顯示 demo mode：政治事件取近 60 天真實公開事件，封鎖與檢舉統計為合成示意資料。'
-      };
-    }
-
     try {
       const result = await api(`/api/v1/platform/overview?days=${DEFAULT_DAYS}&top=${DEFAULT_TOP}`);
       const data = normalizeOverviewData(result.data || {});
       if (hasLiveData(data)) {
-        return { data, mockMode: false, emptyState: false, message: buildDataHealthMessage(data) };
+        return { data, emptyState: false, message: buildDataHealthMessage(data) };
       }
       return {
         data,
-        mockMode: false,
         emptyState: true,
         message: '目前公開資料量仍在累積中，以下先顯示真實空狀態與方法資訊，不再自動補示意資料。'
       };
     } catch (error) {
       return {
         data: createEmptyOverview(),
-        mockMode: false,
         emptyState: true,
         message: '暫時無法讀取平台資料，請稍後再試。'
       };
@@ -1598,16 +1268,6 @@ topNarratives: [
     </div>`;
   }
 
-  function toggleMockMode(forceMock) {
-    const url = new URL(window.location.href);
-    if (forceMock) {
-      url.searchParams.set('mock', '1');
-    } else {
-      url.searchParams.delete('mock');
-    }
-    window.location.href = url.toString();
-  }
-
   async function uploadPlatformJson(file) {
     if (!file) throw new Error('請先選擇 JSON 檔案。');
     const text = await file.text();
@@ -1623,9 +1283,7 @@ topNarratives: [
     PLATFORM_VERSION,
     API_BASE,
     DEFAULT_DAYS,
-    MOCK_DAYS,
     DEFAULT_TOP,
-    FORCE_MOCK,
     formatNumber,
     formatPercent,
     formatDateLabel,
@@ -1647,7 +1305,6 @@ topNarratives: [
     renderCandidateTopics,
     renderNarratives,
     renderReportCategories,
-    toggleMockMode,
     uploadPlatformJson
   };
 })();

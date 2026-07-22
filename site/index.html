@@ -321,7 +321,7 @@
             </div>
             <p style="margin-top:1rem;margin-bottom:0;font-size:0.92rem;">已經有幫上忙？歡迎到 <a href="https://chromewebstore.google.com/detail/%E7%95%99%E5%8F%8B%E5%B0%81-threads-block-tool/goibhoemcnjojlejjlojpikfehmccbbj" target="_blank" style="color:var(--accent);">Chrome Web Store 留一句評價</a>，讓更多人敢安心安裝。</p>
             <div class="privacy-note" style="max-width:640px;margin:1.25rem auto 0;text-align:left;">
-                <strong>安裝前可檢查：</strong>留友封開源、只在 Threads 網域執行，不要求你輸入密碼或新增 cookies、history、tabs、webRequest、scripting 權限；Chrome 加速三無的同站認證欄位只有在設定中另行明確同意後才會本機暫時處理，未同意時保留一般三點 fallback。封鎖名單與待審清單預設只留在你的瀏覽器。
+                <strong>安裝前可檢查：</strong>留友封開源、只在 Threads 網域執行，不要求你輸入密碼，也不要求 cookies、history、tabs、webRequest、scripting 權限。套件不處理 Threads request token 或 session cookie，三無掃描使用一般三點操作。封鎖名單與待審清單預設只留在你的瀏覽器。
             </div>
         </div>
     </section>
@@ -508,8 +508,8 @@
                 <h3>安裝前可檢查</h3>
                 <ul>
                     <li>封鎖名單、檢舉佇列、三無待審清單、安全名單與來源分析預設只保存在你的瀏覽器本機。</li>
-                    <li>平台上傳是可選功能，需先完成 platform-sync-v3 同意；未決定前 auto、repair、manual 與三無統計都不送。公開頁預設只呈現聚合指標與句型描述。</li>
-                    <li>留友封不要求你輸入 Threads 密碼、雙因素驗證碼、Google 帳號、付款資訊或真實姓名。Chrome 加速三無可能在 credentials-processing-v1 明確同意後，本機暫時處理 Threads 同站 request token 與瀏覽器附帶的同站 session cookie；這些不會傳給留友封平台、問題回報或診斷附件，拒絕時 page bridge fail-closed。</li>
+                    <li>平台上傳是可選功能，需先完成 platform-sync-v4 同意；未決定前 auto、repair、manual 與三無統計都不送。公開頁預設只呈現聚合指標與句型描述。</li>
+                    <li>留友封不要求或處理 Threads 密碼、雙因素驗證碼、request token、session cookie、Google 帳號、付款資訊或真實姓名；套件不包含擷取 token 的 page bridge，也不會 patch Threads 頁面的 fetch/XHR 來讀取 request body 或 authentication information。</li>
                     <li>Chrome 版只在 Threads 網域執行 content script，不要求 cookies、history、tabs、webRequest、declarativeNetRequest 或 scripting 權限。</li>
                     <li>留友封不出售資料，不用於個人化廣告、再行銷、信用評分或與產品功能無關的用途。</li>
                 </ul>

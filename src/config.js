@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.7.4-beta92', // credentials code removal candidate; beta-only diagnostics remain enabled
+    VERSION: '2.8.0', // stable release: credentials removal + consent v4 + settings redesign
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // Beta-only, in-memory diagnostics. Stable/release channels must keep this
     // disabled even if a stale setting is present.
@@ -16,7 +16,7 @@ export const CONFIG = {
     BUG_REPORT_SALT: 'PGO_BETA_2026_SALT',
     PLATFORM_UPLOAD_URL: 'https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/platform/ingest',
     PLATFORM_UPLOAD_FALLBACK_URLS: [],
-    PLATFORM_SYNC_CONSENT_POLICY_VERSION: 'platform-sync-v3',
+    PLATFORM_SYNC_CONSENT_POLICY_VERSION: 'platform-sync-v4',
     ANNOUNCEMENT_FEED_URL: 'https://threadsblocker.skiseiju.com/announcements.json',
     ANNOUNCEMENT_FEED_CHECK_INTERVAL_MS: 6 * 3600 * 1000,
 

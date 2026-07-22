@@ -1329,11 +1329,14 @@ export const UI = {
                     <p style="margin:0 0 12px;">留友封不是大型公司做的資料產品，而是由公開身份的個人維護。你可以檢視我的公開 ID、專案原始碼、網站說明與觀測方法，再決定是否支持我接下來的計畫。</p>
                     <p style="margin:0 0 12px;">我做這個觀測計畫，是因為我們在 Threads 上看到太多相似敘事、集中封鎖與帶風向行為。單一來源很難判斷是否存在跨來源的行為模式，但如果許多人願意提供匿名樣本，我們就能把公開行為特徵整理成統計，讓更多人看見問題。</p>
                     <p style="margin:0 0 14px;color:#f2f2f2;font-weight:700;">如果你信任我，或認同這件事值得被公開，你可以開啟每日自動上傳，來幫助大家更理解可疑帳號集中攻擊與帶風向的行為模式。</p>
-                    <div style="background:#2a1f08;border:1px solid #8f6d1f;border-radius:10px;padding:10px 12px;color:#ffe1a6;font-weight:700;margin-bottom:12px;">這是第 3 版平台同步同意（platform-sync-v3）。Chrome 擴充功能版沒有新增 cookies、history、tabs、webRequest 或 scripting 權限。</div>
+                    <div style="background:#2a1f08;border:1px solid #8f6d1f;border-radius:10px;padding:10px 12px;color:#ffe1a6;font-weight:700;margin-bottom:12px;">這是第 4 版平台同步同意（platform-sync-v4）。第 4 版新增「公開文字片段可能由人工讀取」的說明，所以先前同意過第 3 版的使用者也需要重新確認。Chrome 擴充功能版沒有新增 cookies、history、tabs、webRequest 或 scripting 權限。</div>
                     <div style="background:#101820;border:1px solid #263746;border-radius:10px;padding:12px;margin-bottom:12px;">
                         <div style="font-weight:700;color:#cfe8ff;margin-bottom:6px;">如果你同意，我們會上傳：</div>
                         <p style="margin:0 0 8px;">平台會取得你封鎖或檢舉過的帳號識別與公開個人檔案連結，用來做整體統計；公開頁不會列出你的完整封鎖/檢舉名單。</p>
                         <p style="margin:0 0 8px;">也會上傳相關來源貼文連結、公開文字片段，以及你當時選擇的檢舉/封鎖分類，幫助判斷哪些議題正在被集中回報。公開頁預設只呈現聚合指標與句型描述，不公開文字樣本。</p>
+                        <p style="margin:0 0 8px;">我想讓觀測平台能更明確地讓其他人看得出來：其實我們在某些話題上，正在被帶風向。但這需要大家幫忙——需要使用留友封的人協助上傳你封鎖的帳號、該篇文章，以及被封鎖的留言等資訊。這中間不會包含你的 Threads 帳號、個人資訊或帳號密碼。</p>
+                        <p style="margin:0 0 8px;">要說明的是：這些文章與留言是 Threads 上原本就公開的內容，上傳時不會改寫，所以可能仍看得出是誰發的；我或我授權的人也可能會實際讀到，因為程式判斷不出「集中帶風向」和「單純語氣激烈」的差別。</p>
+                        <p style="margin:0 0 8px;">這些資料只會用在三件事：偵測濫用、修正錯誤資料、處理被檢舉的個案。不會販售、不會提供給廣告商，也不會用來針對特定的人。</p>
                         <p style="margin:0;">另外會包含批次統計、時間、工具版本與匿名來源 ID。匿名來源 ID 是本工具在你的瀏覽器本機隨機產生的樣本代號，不是你的 Threads 使用者 ID，也不是由你的帳號、Email 或 Google 帳號推算而來；它只用來辨識同一個匿名來源的多次上傳，避免重複計算。</p>
                     </div>
                     <div style="background:#181111;border:1px solid #3a2525;border-radius:10px;padding:12px;margin-bottom:12px;">
@@ -1343,8 +1346,8 @@ export const UI = {
                         <p style="margin:0;">你的 Email、Google 帳號或真實姓名。</p>
                     </div>
                     <p style="margin:0 0 12px;color:#b8b8b8;">觀測結果只代表公開樣本中的行為模式，不是對任何個別帳號、個人或組織的法律判定，也不鼓勵騷擾、肉搜、威脅或私下攻擊任何人。若未來要顯示經去識別的短文字樣本，還必須同時通過門檻、人工核准與法務政策 gate；目前未開啟。</p>
-                    <p style="margin:0 0 12px;">資料只用於公開統計、濫用偵測與方法改進，不用於廣告、再行銷或出售。新版會額外上傳三無追蹤者掃描的統計數量（例如檢查人數、符合三無人數），不包含三無名單、帳號、頭像網址或自介內容。你可以先看看<a href="https://threadsblocker.skiseiju.com/platform/?mock=1" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">示範觀測平台</a>會長什麼樣子，再決定也可以；也可以選擇只手動上傳，之後隨時能在「來源分析報告」中更改。</p>
-                    <p style="margin:0;color:#8ab4f8;">維護者與成果預覽：<a href="https://www.threads.com/@skiseiju" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">Threads @skiseiju</a> / <a href="https://skiseiju.com" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">skiseiju.com</a> / <a href="https://github.com/skiseiju/ThreadsBlocker_Project" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">GitHub @skiseiju</a> / <a href="https://threadsblocker.skiseiju.com/platform/" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">正式觀測平台</a> / <a href="https://threadsblocker.skiseiju.com/platform/?mock=1" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">示範觀測平台</a></p>
+                    <p style="margin:0 0 12px;">資料只用於公開統計、濫用偵測與方法改進，不用於廣告、再行銷或出售。新版會額外上傳三無追蹤者掃描的統計數量（例如檢查人數、符合三無人數），不包含三無名單、帳號、頭像網址或自介內容。你可以先看看<a href="https://threadsblocker.skiseiju.com/platform/" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">觀測平台</a>目前長什麼樣子，再決定也可以；也可以選擇只手動上傳，之後隨時能在「來源分析報告」中更改。</p>
+                    <p style="margin:0;color:#8ab4f8;">維護者與成果預覽：<a href="https://www.threads.com/@skiseiju" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">Threads @skiseiju</a> / <a href="https://skiseiju.com" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">skiseiju.com</a> / <a href="https://github.com/skiseiju/ThreadsBlocker_Project" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">GitHub @skiseiju</a> / <a href="https://threadsblocker.skiseiju.com/platform/" target="_blank" rel="noopener noreferrer" style="color:#8ab4f8;">正式觀測平台</a></p>
                 </div>
                 <div class="hege-manager-footer">
                     <div style="display:flex;gap:10px;width:100%;justify-content:flex-end;flex-wrap:wrap;">
@@ -4272,11 +4275,11 @@ export const UI = {
             uploadBtn.onclick = async (e) => {
                 e.stopPropagation();
                 if (!Storage.hasPlatformSyncConsentForCurrentVersion()) {
-                    if (uploadStatusEl) uploadStatusEl.textContent = '等待 platform-sync-v3 同意；尚未送出。';
+                    if (uploadStatusEl) uploadStatusEl.textContent = '等待 platform-sync-v4 同意；尚未送出。';
                     UI.showPlatformSyncConsentModal({
                         onEnable: () => uploadBtn.click(),
                         onDisable: () => {
-                            if (uploadStatusEl) uploadStatusEl.textContent = '未同意 platform-sync-v3；本次未送出。';
+                            if (uploadStatusEl) uploadStatusEl.textContent = '未同意 platform-sync-v4；本次未送出。';
                         },
                     });
                     return;

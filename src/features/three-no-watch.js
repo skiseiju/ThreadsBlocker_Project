@@ -375,6 +375,8 @@ Object.assign(Core, {
             Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, rows.slice(-600));
         },
 
+        // 2.8：擷取 request token 的 page bridge 與 installNetworkDiscoveryListener 已移除，
+        // 這個 writer 已無生產呼叫點，只保留給 beta83 production-purge regression 覆蓋。
         appendNetworkDiscoveryLog: (detail = {}) => {
             if (!isThreeNoDebugLogActive()) return;
             const state = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
@@ -400,7 +402,7 @@ Object.assign(Core, {
                 step: 'network_discovery',
                 url: String(window.location.href || '').slice(0, 500),
                 debug: Core.ThreeNoWatch.sanitizeDebugValue({
-                    source: 'passive_page_bridge',
+                    source: 'passive_local_hint',
                     schema: Core.ThreeNoWatch.getDebugSchemaVersion(),
                     workerMode: Storage.get(CONFIG.KEYS.WORKER_MODE, ''),
                     blockQueueLength: Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []).length,

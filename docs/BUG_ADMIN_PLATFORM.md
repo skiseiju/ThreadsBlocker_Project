@@ -67,6 +67,7 @@ npx wrangler deploy
 - 平台端主要保存「聚合資料」：議題計數、來源貼文計數、每日趨勢。
 - 平台儀表板只呈現「議題/敘事趨勢」，不直接標記某個帳號為「網軍」。
 - 若要進一步做 AI 判讀，建議在平台端保持「人工複核流程」與「置信度」欄位，避免自動定罪式輸出。
+問題回報的人工刪除流程見 [`BUG_REPORT_DELETION_RUNBOOK.md`](./BUG_REPORT_DELETION_RUNBOOK.md)。
 
 ## Bug 狀態
 

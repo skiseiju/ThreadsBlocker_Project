@@ -1,7 +1,7 @@
 # 留友封 (Threads Block Tool)
 
 **留友封** 是一個專為 Threads 設計的批量封鎖、只檢舉、三無待審清單與本機來源分析工具，旨在解決官方介面缺乏批量管理與人工確認輔助的痛點。本專案支援 **Userscript (Tampermonkey/Stay)** 與 **Chrome 擴充功能** 雙模式。
-目前正式版：`v2.7.4`
+目前正式版：`v2.8.0`
 
 ## ✨ 主要功能 (Features)
 
@@ -25,12 +25,11 @@
     *   掃描以 Threads worker 分頁執行，支援本機 cursor 接續、可調整備選門檻，完成後累加到待審清單；每筆帳號會顯示本機疑似假帳號分數、命中原因與資料完整度，使用者再人工確認是否清除、標為安全名單或加入封鎖清單。
     *   帳號不公開會以獨立標籤呈現，不會同時標成無發文、無回文或無轉貼；加入封鎖清單後仍需由使用者手動啟動封鎖 worker。
     *   三無待審清單與安全名單只保留在本機；平台同步只上傳檢查數、符合數與掃描狀態等匿名 aggregate 統計，不上傳待審帳號名單或完整社交圖。
-    *   Chrome 加速三無的認證欄位處理是獨立的 `credentials-processing-v1` opt-in，預設關閉；明確同意前 page bridge 不掃描頁面、不 patch fetch/XHR、不處理 request body/token，仍可使用一般三點 fallback。明確同意後，token 與同站 session cookie 只在 Threads 同站本機暫時處理，不會送到 ThreadsBlocker、平台或問題回報。
 *   **只檢舉與資料上傳**：
     *   支援獨立 `REPORT_QUEUE`、每批次由 picker 明確選擇檢舉路徑與 worker 分流，讓只檢舉模式可單獨執行。
-    *   擴充功能版支援一鍵上傳來源分析資料；platform-sync-v3 未決定前 auto、repair、manual 與三無統計都不送，舊 v2 / 數字版同意不會 migration 成 v3。iOS / Safari 以手動提醒為主；上傳資料用於「可疑帶風向行為」的整體樣本分析。
-    *   上傳可能包含公開帳號/profile 連結、來源貼文連結、公開文字片段、檢舉/封鎖分類、批次統計、工具版本與匿名來源 ID；不包含 Chrome 加速三無本機處理的 token/cookie、Threads 密碼、瀏覽器歷史、私人訊息、Email、Google 帳號或真實姓名。
-    *   問題回報會在送出前列明可選診斷附件；未勾選時仍可只送問題描述，勾選後才附上完整診斷，request token、cookie、authorization 與 canary 會先 scrub。
+    *   擴充功能版支援一鍵上傳來源分析資料；platform-sync-v4 未決定前 auto、repair、manual 與三無統計都不送，舊 v3 / v2 / 數字版同意不會 migration 成 v4。iOS / Safari 以手動提醒為主；上傳資料用於「可疑帶風向行為」的整體樣本分析。
+    *   上傳可能包含公開帳號/profile 連結、來源貼文連結、公開文字片段、檢舉/封鎖分類、批次統計、工具版本與匿名來源 ID；留友封不要求或處理 Threads 密碼、雙因素驗證碼、request token 或 session cookie，也不包含瀏覽器歷史、私人訊息、Email、Google 帳號或真實姓名。
+    *   問題回報只在使用者主動送出時傳送；不勾選 beta 診斷附件時，內容層面只送問題描述與服務驗證/防濫用所需欄位，勾選後才附上完整診斷，request token、cookie、authorization 與 canary 會先 scrub。正式版不附加 beta 診斷。
 *   **跨設備加密回報包**：
     *   可將本機封鎖 / 檢舉摘要匯出成加密 `.tb-reportpack`，再匯入其他設備作為本機提示。
     *   回報包使用瀏覽器 Web Crypto 加密，不由留友封上傳；內容只包含帳號層摘要、來源數級距與月份 bucket，不包含來源貼文 URL、貼文全文或精確時間。

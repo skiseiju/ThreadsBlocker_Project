@@ -1,3 +1,13 @@
+## v2.8.0 — 移除 credentials 處理、平台同意升級 v4、設定介面重整
+
+* **TL;DR：2.8.0 移除 Chrome「加速三無」的 credentials／token 處理路徑，留友封不再要求或處理 Threads 密碼、雙因素驗證碼、request token 或 session cookie；平台同步同意升為 platform-sync-v4，新增「公開文字片段可能由人工讀取」的誠實揭露，既有使用者需重新同意；設定介面改為三分頁，示範觀測平台已移除。**
+* **移除 credentials／token 處理**：刪除擷取頁面 request token 的 page bridge 與相關注入路徑，不再 patch Threads 頁面的 fetch/XHR 讀取 request body 或 authentication information；manifest 不含 `web_accessible_resources` 與額外 `permissions`。首次啟動會自動清除 6 個舊版 credentials 相關本機設定，三無檢查回到一般三點操作路徑。
+* **平台同步同意 v4**：新增揭露——上傳的來源貼文連結與公開文字片段不會改寫，可能仍看得出是誰發的，授權人員可能為偵測濫用、修正錯誤資料與處理被檢舉個案而實際讀取。舊的 v3／v2／數字版同意不會自動升級，未重新同意前自動、修補、手動上傳與三無統計一律不送出。
+* **設定介面重整**：設定改為三分頁配置，診斷與開發版工具合併收納，面板高度鎖定避免版面跳動。
+* **移除示範觀測平台**：正式平台已累積足夠真實資料，`?mock=1` 示範模式與合成示意資料全部移除；資料不足時顯示真實空狀態，不再自動補示意數字。
+* **問題回報**：未勾選診斷附件時只送出問題描述；正式版不附加 beta 診斷附件，附件送出前仍會清除 token、cookie、authorization 等敏感欄位。
+* **隱私政策**：同步更新資料邊界、保留與刪除政策與 Chrome Web Store Limited Use 聲明；決策紀錄見 `docs/adr/0010-honest-human-review-disclosure-and-consent-v4.md`。
+
 ## v2.7.4-beta64 — wait for lazy Likes rows before clean-list end
 
 * **TL;DR：**移除 verified Likes clean-list 在初始無 scroll range 時的過早 `atBottom` 結束；沿用連續 4 次無進度才結算，讓 Threads 延遲載入的 Likes 名單有機會展開。仍是 beta，未宣稱 live/installed PASS。

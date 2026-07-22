@@ -1,7 +1,11 @@
 # SDD：公開頁 Mock Data 規格
 
-**文件狀態：** Draft  
+**文件狀態：** 已廢止（Superseded，2026-07-22）  
 **最後更新：** 2026-04-21  
+
+> **廢止說明**：正式觀測平台已累積足夠真實資料，`?mock=1` 示範模式與 `MOCK_TEMPLATE` 合成資料已於 2.8.0 從 `site/platform/public.js` 完全移除，同意視窗中的「示範觀測平台」連結一併改指正式平台。公開頁在資料不足時顯示真實 empty state，不再補示意資料。本文件僅保留為歷史紀錄，不再實作。
+
+
 **適用範圍：** `site/platform/` 公開頁示範資料、平台首頁 Demo、首份月報 Demo  
 **相容目標：** `site/platform/public.js` 現行 `MOCK_DATA` 消費格式  
 
