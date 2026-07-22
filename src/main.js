@@ -19,10 +19,20 @@ import './features/three-no-watch.js';
     // (Early-boot interceptor removed to prevent Safari Userscripts crash)
     Utils.initConsoleInterceptor();
     Storage.migratePlatformSyncConsent();
+    // 2.8 credentials-removal migration: remove legacy acceleration/bridge state
+    // on every boot. The literal list is intentionally idempotent and does not
+    // include platform-sync, blocking/reporting preferences, three-no results,
+    // cursor/safe/ignored state, report queues, or the persistent report ID.
+    [
+        'hege_three_no_accelerated_profile_enabled',
+        'hege_credentials_processing_consent',
+        'hege_credentials_processing_consent_version',
+        'hege_three_no_profile_metadata_cache_v1',
+        'hege_three_no_profile_user_id_cache_v1',
+        'hege_three_no_about_request_template_v1',
+    ].forEach(key => Storage.remove(key));
+    Core.ThreeNoWatch?.purgeInactiveThreeNoDebugLog?.();
     console.log('[留友封] Extension Script Initializing...');
-    Core.ThreeNoWatch?.installNetworkDiscoveryListener?.();
-    Core.ThreeNoWatch?.installAboutProfilePassiveBridge?.();
-    Storage.syncCredentialsProcessingConsentToBridge();
     const versionAtBoot = Storage.get(CONFIG.KEYS.VERSION_CHECK, '');
     const hadExistingInstallAtBoot = !!versionAtBoot;
     const shouldShowReleaseNotes = hadExistingInstallAtBoot
@@ -179,9 +189,7 @@ import './features/three-no-watch.js';
 	                    CONFIG.KEYS.THREE_NO_SCAN_COMMAND,
 	                    CONFIG.KEYS.THREE_NO_UNREAD_COUNT,
 	                    CONFIG.KEYS.THREE_NO_LAST_STATS_UPLOAD_SCAN_ID,
-	                    CONFIG.KEYS.THREE_NO_PROFILE_USER_ID_CACHE,
-	                    CONFIG.KEYS.THREE_NO_ABOUT_REQUEST_TEMPLATE,
-	                ];
+                ];
             betaResetKeys.forEach(key => Storage.remove(key));
             console.log(shouldKeepCompletedThreeNoReport
                 ? '[留友封] Three-no beta reset preserved completed report'
@@ -293,11 +301,7 @@ import './features/three-no-watch.js';
             CONFIG.KEYS.THREE_NO_SAFE_USERS,
             CONFIG.KEYS.THREE_NO_LAST_STATS_UPLOAD_SCAN_ID,
 	            CONFIG.KEYS.THREE_NO_CANDIDATE_THRESHOLD,
-	            CONFIG.KEYS.THREE_NO_ACCELERATED_PROFILE_ENABLED,
-	            CONFIG.KEYS.THREE_NO_PROFILE_METADATA_CACHE,
-	            CONFIG.KEYS.THREE_NO_PROFILE_USER_ID_CACHE,
-	            CONFIG.KEYS.THREE_NO_ABOUT_REQUEST_TEMPLATE,
-	            'hege_three_no_scan_runtime_backup',
+            'hege_three_no_scan_runtime_backup',
 	        ].filter(Boolean);
         const sessionKeys = [
             'hege_three_no_scan_runtime',
@@ -307,10 +311,7 @@ import './features/three-no-watch.js';
         const backupLocalKeys = localKeys.filter(key => ![
 	            CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG,
 	            CONFIG.KEYS.THREE_NO_SCAN_DEBUG_SCHEMA,
-	            CONFIG.KEYS.THREE_NO_PROFILE_METADATA_CACHE,
-	            CONFIG.KEYS.THREE_NO_PROFILE_USER_ID_CACHE,
-	            CONFIG.KEYS.THREE_NO_ABOUT_REQUEST_TEMPLATE,
-	        ].includes(key));
+        ].includes(key));
         const backupKey = `hege_three_no_reset_backup_${Date.now()}`;
         const backup = {
             schema: 'hege_three_no_reset_backup.v1',
@@ -322,10 +323,7 @@ import './features/three-no-watch.js';
             omittedLocalKeys: [
 	                CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG,
 	                CONFIG.KEYS.THREE_NO_SCAN_DEBUG_SCHEMA,
-	                CONFIG.KEYS.THREE_NO_PROFILE_METADATA_CACHE,
-	                CONFIG.KEYS.THREE_NO_PROFILE_USER_ID_CACHE,
-	                CONFIG.KEYS.THREE_NO_ABOUT_REQUEST_TEMPLATE,
-	            ].filter(Boolean),
+            ].filter(Boolean),
         };
         try {
             localStorage.setItem(backupKey, JSON.stringify(backup));
@@ -1018,7 +1016,6 @@ import './features/three-no-watch.js';
                                 onStart: () => Core.SweepDriver.startNow()
                             }),
                             onReport: () => Core.showReportDialog(),
-                            onCredentialsConsent: () => UI.showCredentialsConsentModal(),
                             onAnalytics: () => UI.showAnalyticsReport({ onBack: () => openSettings('data') }),
                             onDevReloadExtension: canRequestDevExtensionReload() ? (async () => {
                                 UI.showToast(['正在重新載入', '開發版', 'extension'].join(''));
@@ -1101,17 +1098,9 @@ import './features/three-no-watch.js';
 
             // Sync Logic (Restored from beta46)
             const syncKeySet = new Set(CONFIG.SYNC_KEYS);
-            const bridgeConsentKeySet = new Set([
-                CONFIG.KEYS.CREDENTIALS_PROCESSING_CONSENT_DECISION,
-                CONFIG.KEYS.CREDENTIALS_PROCESSING_CONSENT_VERSION,
-                CONFIG.KEYS.THREE_NO_ACCELERATED_PROFILE_ENABLED,
-            ]);
             window.addEventListener('storage', (e) => {
                 if (syncKeySet.has(e.key)) {
                     Storage.invalidate(e.key); // Force cache clear so getJSON fetches fresh data
-                    if (bridgeConsentKeySet.has(e.key)) {
-                        Storage.syncCredentialsProcessingConsentToBridge();
-                    }
                     if (e.key === CONFIG.KEYS.REPORT_COMPLETED_USERS) {
                         Storage.invalidate(CONFIG.KEYS.REPORT_KEEP_BLOCK_SELECTION);
                         syncCompletedReportSelection();
@@ -1125,7 +1114,6 @@ import './features/three-no-watch.js';
             });
             setInterval(() => {
                 Storage.invalidateMulti(CONFIG.SYNC_KEYS);
-                Storage.syncCredentialsProcessingConsentToBridge();
                 syncReportRestorePending();
                 syncCompletedReportSelection();
                 maybeAutoShowThreeNoReport();

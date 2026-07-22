@@ -55,23 +55,6 @@ test("platform consent migration never promotes old consent to platform-sync-v3"
   assert.equal(Storage.getPlatformSyncEnabled(), true);
 });
 
-test("credentials consent is independently versioned and default-off", () => {
-  resetStorage();
-  localStorage.setItem(CONFIG.KEYS.CREDENTIALS_PROCESSING_CONSENT_DECISION, "true");
-  localStorage.setItem(CONFIG.KEYS.CREDENTIALS_PROCESSING_CONSENT_VERSION, "2.7.3");
-  localStorage.setItem(CONFIG.KEYS.THREE_NO_ACCELERATED_PROFILE_ENABLED, "true");
-
-  assert.equal(Storage.hasCredentialsProcessingConsentForCurrentVersion(), false);
-  assert.equal(Storage.getThreeNoAcceleratedProfileEnabled(), false);
-
-  localStorage.removeItem(CONFIG.KEYS.THREE_NO_ACCELERATED_PROFILE_ENABLED);
-  assert.equal(Storage.setCredentialsProcessingConsentDecision(true), true);
-  assert.equal(Storage.hasCredentialsProcessingConsentForCurrentVersion(), true);
-  assert.equal(Storage.getThreeNoAcceleratedProfileEnabled(), false);
-  assert.equal(Storage.setThreeNoAcceleratedProfileEnabled(true), true);
-  assert.equal(Storage.getThreeNoAcceleratedProfileEnabled(), true);
-});
-
 test("all platform upload paths retain the pending-version gate", async () => {
   resetStorage();
   localStorage.setItem(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, "true");
@@ -95,157 +78,52 @@ test("all platform upload paths retain the pending-version gate", async () => {
   assert.match(source("src/reporter.js"), /submitPlatformPayload:[\s\S]{0,220}pending_version_consent/);
 });
 
-test("page bridge is fail-closed before credentials consent", () => {
-  const bridgeSource = source("src/page-bridge.js");
-  const events = [];
-  const handlers = new Map();
-  const storageValues = new Map();
-  const originalFetch = () => Promise.resolve({ clone: () => ({ text: async () => "" }) });
-  const windowObject = {
-    fetch: originalFetch,
-    __hegeThreadsAboutPassiveBridge: false,
-    addEventListener: (name, handler) => handlers.set(name, handler),
-    dispatchEvent: (event) => {
-      events.push(event);
-      handlers.get(event.type)?.(event);
-      return true;
-    }
-  };
-  class FakeCustomEvent {
-    constructor(type, init = {}) {
-      this.type = type;
-      this.detail = init.detail || {};
-    }
-  }
-  const context = {
-    window: windowObject,
-    CustomEvent: FakeCustomEvent,
-    URL,
-    URLSearchParams,
-    Date,
-    Math,
-    crypto: { randomUUID: () => "test-uuid" },
-    location: { href: "https://www.threads.net/@test", origin: "https://www.threads.net", pathname: "/@test" },
-    document: { querySelectorAll: () => { throw new Error("document scan must not run before consent"); } },
-    localStorage: { getItem: (key) => storageValues.get(key) || null },
-    console,
-    setTimeout,
-    clearTimeout,
-    setInterval: () => 0,
-    clearInterval: () => {}
-  };
-
-  vm.runInNewContext(bridgeSource, context, { filename: "page-bridge.js" });
-  assert.equal(windowObject.fetch, originalFetch);
-  assert.equal(events.at(-1)?.detail?.error, "credentials_consent_required");
-  assert.equal(handlers.has("hege:threads-credentials-processing-consent"), true);
-  assert.match(bridgeSource, /if \(!credentialsProcessingEnabled\) return;/);
-  assert.match(bridgeSource, /const installNetworkPatches = \(\) =>/);
-
-  handlers.get("hege:threads-credentials-processing-consent")({
-    detail: {
-      enabled: true,
-      credentialsConsent: true,
-      acceleratedProfileEnabled: true,
-      policyVersion: "credentials-processing-v1"
-    }
-  });
-  const consentedFetch = windowObject.fetch;
-  assert.notEqual(consentedFetch, originalFetch);
-
-  handlers.get("hege:threads-credentials-processing-consent")({
-    detail: {
-      enabled: true,
-      credentialsConsent: true,
-      acceleratedProfileEnabled: false,
-      policyVersion: "credentials-processing-v1"
-    }
-  });
-  assert.equal(windowObject.fetch, originalFetch);
-  assert.equal(events.at(-1)?.detail?.error, "credentials_consent_required");
-  assert.match(bridgeSource, /acceleratedProfileEnabled/);
-
-  storageValues.set("hege_credentials_processing_consent", "true");
-  storageValues.set("hege_credentials_processing_consent_version", "credentials-processing-v1");
-  storageValues.set("hege_three_no_accelerated_profile_enabled", "true");
-  handlers.get("storage")({ key: "hege_three_no_accelerated_profile_enabled" });
-  assert.notEqual(windowObject.fetch, originalFetch);
-  storageValues.set("hege_three_no_accelerated_profile_enabled", "false");
-  handlers.get("storage")({ key: "hege_three_no_accelerated_profile_enabled" });
-  assert.equal(windowObject.fetch, originalFetch);
-  assert.match(bridgeSource, /BRIDGE_CONSENT_STORAGE_KEYS/);
-  assert.match(bridgeSource, /setInterval\(\(\) =>/);
-});
-
-test("credentials bridge sync combines consent and accelerated state across tabs", () => {
-  resetStorage();
-  const previousWindow = globalThis.window;
-  const previousCustomEvent = globalThis.CustomEvent;
-  const bridgeEvents = [];
-  class SyncCustomEvent {
-    constructor(type, init = {}) {
-      this.type = type;
-      this.detail = init.detail || {};
-    }
-  }
-  globalThis.window = { dispatchEvent: (event) => bridgeEvents.push(event) };
-  globalThis.CustomEvent = SyncCustomEvent;
-
-  try {
-    Storage.setCredentialsProcessingConsentDecision(true);
-    Storage.setThreeNoAcceleratedProfileEnabled(true);
-    assert.equal(Storage.syncCredentialsProcessingConsentToBridge(), true);
-    assert.deepEqual(bridgeEvents.at(-1)?.detail, {
-      enabled: true,
-      credentialsConsent: true,
-      acceleratedProfileEnabled: true,
-      policyVersion: "credentials-processing-v1"
-    });
-
-    localStorage.setItem(CONFIG.KEYS.THREE_NO_ACCELERATED_PROFILE_ENABLED, "false");
-    Storage.invalidate(CONFIG.KEYS.THREE_NO_ACCELERATED_PROFILE_ENABLED);
-    assert.equal(Storage.syncCredentialsProcessingConsentToBridge(), false);
-    assert.equal(bridgeEvents.at(-1)?.detail?.enabled, false);
-
-    localStorage.setItem(CONFIG.KEYS.CREDENTIALS_PROCESSING_CONSENT_VERSION, "2.7.3");
-    Storage.invalidate(CONFIG.KEYS.CREDENTIALS_PROCESSING_CONSENT_VERSION);
-    assert.equal(Storage.syncCredentialsProcessingConsentToBridge(), false);
-    assert.equal(bridgeEvents.at(-1)?.detail?.credentialsConsent, false);
-  } finally {
-    if (previousWindow === undefined) delete globalThis.window;
-    else globalThis.window = previousWindow;
-    if (previousCustomEvent === undefined) delete globalThis.CustomEvent;
-    else globalThis.CustomEvent = previousCustomEvent;
-  }
+test("2.8 credentials paths are absent while the existing DOM fallback remains", () => {
+  const manifest = JSON.parse(source("src/manifest.json"));
+  assert.equal(manifest.content_scripts.some(entry => entry.world === "MAIN" || entry.js?.includes("page-bridge.js")), false);
+  assert.equal(fs.existsSync(path.join(root, "src/page-bridge.js")), false);
+  assert.equal(fs.existsSync(path.join(root, "src/interceptor.js")), false);
+  assert.doesNotMatch(source("build.sh"), /page-bridge\.js/);
 
   const config = source("src/config.js");
+  const storage = source("src/storage.js");
   const main = source("src/main.js");
-  for (const keyName of [
-    "CREDENTIALS_PROCESSING_CONSENT_DECISION",
-    "CREDENTIALS_PROCESSING_CONSENT_VERSION",
-    "THREE_NO_ACCELERATED_PROFILE_ENABLED"
-  ]) {
-    const keyValue = {
-      CREDENTIALS_PROCESSING_CONSENT_DECISION: "hege_credentials_processing_consent",
-      CREDENTIALS_PROCESSING_CONSENT_VERSION: "hege_credentials_processing_consent_version",
-      THREE_NO_ACCELERATED_PROFILE_ENABLED: "hege_three_no_accelerated_profile_enabled"
-    }[keyName];
-    assert.match(config, new RegExp(`SYNC_KEYS:[\\s\\S]*${keyValue}`));
-  }
-  assert.match(main, /bridgeConsentKeySet\.has\(e\.key\)[\s\S]{0,220}syncCredentialsProcessingConsentToBridge/);
-  assert.match(main, /Storage\.invalidateMulti\(CONFIG\.SYNC_KEYS\)[\s\S]{0,180}syncCredentialsProcessingConsentToBridge/);
-});
-
-test("legacy inline credential bridge is unreachable for Firefox and fallback runtimes", () => {
   const feature = source("src/features/three-no-watch.js");
-  assert.match(feature, /const legacyInlineBridgeDisabled = true/);
-  assert.match(feature, /legacyInlineBridgeDisabled \|\| Core\.ThreeNoWatch\.isChromeExtension\(\)/);
-  assert.match(feature, /const bridgeSource =/);
-  assert.match(feature, /inline_bridge_disabled/);
-  assert.match(feature, /manifest_page_bridge_waiting/);
+  const ui = source("src/ui.js");
+  for (const marker of [
+    "credentials-processing-v1",
+    "hege:threads-credentials-processing-consent",
+    "hege:threads-about-profile-fetch-request",
+    "window.fetch =",
+    "XMLHttpRequest.prototype",
+  ]) {
+    assert.doesNotMatch(`${config}\n${storage}\n${main}\n${feature}\n${ui}`, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  assert.match(feature, /const findAboutMenuItem = \(\) =>/);
+  assert.match(feature, /const findProfileMoreButton = \(\) =>/);
+  assert.match(feature, /Utils\.simClick\(moreTarget\)/);
+  assert.match(feature, /about_dialog_missing/);
+  assert.doesNotMatch(feature, /window\.location\.(?:href|assign)\s*=/);
+  assert.doesNotMatch(feature, /installAboutProfilePassiveBridge|readProfileMetadataCache|requestActiveAboutMetadata/);
+  assert.doesNotMatch(ui, /showCredentialsConsentModal|hege-s-credentials-consent|加速三無檢查（進階）/);
 });
 
-test("bug report requires one-time consent and scrubs sensitive canaries", async () => {
+test("legacy credentials purge is idempotent and preserves unrelated state", () => {
+  const main = source("src/main.js");
+  const keys = [
+    "hege_three_no_accelerated_profile_enabled",
+    "hege_credentials_processing_consent",
+    "hege_credentials_processing_consent_version",
+    "hege_three_no_profile_metadata_cache_v1",
+    "hege_three_no_profile_user_id_cache_v1",
+    "hege_three_no_about_request_template_v1",
+  ];
+  for (const key of keys) assert.match(main, new RegExp(`'${key}'`));
+  assert.match(main, /forEach\(key => Storage\.remove\(key\)\)/);
+  assert.doesNotMatch(main, /'hege_hwid'/);
+});
+
+test("bug reports are message-only by default and diagnostics remain opt-in with scrub canaries", async () => {
   resetStorage();
   let fetchCalls = 0;
   let sentPayload = null;
@@ -256,9 +134,10 @@ test("bug report requires one-time consent and scrubs sensitive canaries", async
     return { text: async () => JSON.stringify({ code: 200 }) };
   };
 
-  const blocked = await Reporter.submitReport("ERROR", "no consent", "UI_REPORT", null);
-  assert.deepEqual(blocked, { code: 204, skipped: "diagnostic_consent_required" });
-  assert.equal(fetchCalls, 0);
+  const messageOnly = await Reporter.submitReport("ERROR", "message only", "UI_REPORT", null);
+  assert.equal(messageOnly.code, 200);
+  assert.equal(fetchCalls, 1);
+  assert.equal(sentPayload.metadata, "");
 
   const sent = await Reporter.submitReport(
     "ERROR",
@@ -274,7 +153,7 @@ test("bug report requires one-time consent and scrubs sensitive canaries", async
     }
   );
   assert.equal(sent.code, 200);
-  assert.equal(fetchCalls, 1);
+  assert.equal(fetchCalls, 2);
   assert.equal(JSON.stringify(sentPayload).includes("AUTH_CANARY"), false);
   assert.equal(JSON.stringify(sentPayload).includes("COOKIE_CANARY"), false);
   assert.equal(JSON.stringify(sentPayload).includes("TOKEN_CANARY"), false);
@@ -379,7 +258,6 @@ test("public count copy uses observable post and account-row units", () => {
 
 test("consent and public copy stay aligned", () => {
   const config = source("src/config.js");
-  const bridge = source("src/page-bridge.js");
   const ui = source("src/ui.js");
   const readme = source("README.md");
   const changelog = source("CHANGELOG.md");
@@ -392,14 +270,12 @@ test("consent and public copy stay aligned", () => {
   const topicSdd = source("docs/SDD_Topic_Amplification.md");
   const adr = source("docs/adr/0009-deidentified-sample-publication.md");
   const combined = `${ui}\n${readme}\n${changelog}\n${home}\n${privacy}\n${methodology}\n${nextPage}\n${listing}\n${cwsPractices}\n${topicSdd}\n${adr}`;
-  assert.match(config, /VERSION: '2\.7\.4'/);
+  assert.match(config, /VERSION: '2\.7\.4-beta92'/);
   assert.match(config, /PLATFORM_SYNC_CONSENT_POLICY_VERSION: 'platform-sync-v3'/);
-  assert.match(config, /CREDENTIALS_PROCESSING_CONSENT_POLICY_VERSION: 'credentials-processing-v1'/);
-  assert.match(bridge, /credentials_consent_required/);
   assert.match(ui, /id="hege-report-diagnostic-consent" type="checkbox"/);
   assert.equal(ui.includes('id="hege-report-diagnostic-consent" type="checkbox" checked'), false);
   assert.match(combined, /platform-sync-v3/);
-  assert.match(combined, /credentials-processing-v1/);
+  assert.doesNotMatch(ui, /credentials-processing-v1|hege:threads-credentials-processing-consent/);
   assert.match(combined, /pending_version_consent/);
   assert.match(combined, /description/);
   assert.match(combined, /reviewed_text/);

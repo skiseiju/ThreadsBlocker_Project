@@ -94,35 +94,6 @@ export const Storage = {
         return false;
     },
     setPlatformSyncEnabled: (enabled) => Storage.set(CONFIG.KEYS.PLATFORM_SYNC_ENABLED, enabled ? 'true' : 'false'),
-    getCredentialsProcessingConsentPolicyVersion: () => CONFIG.CREDENTIALS_PROCESSING_CONSENT_POLICY_VERSION || '',
-    getCredentialsProcessingConsentDecision: () => Storage.normalizeBooleanString(Storage.get(CONFIG.KEYS.CREDENTIALS_PROCESSING_CONSENT_DECISION, null)),
-    getCredentialsProcessingConsentVersion: () => Storage.get(CONFIG.KEYS.CREDENTIALS_PROCESSING_CONSENT_VERSION, ''),
-    hasCredentialsProcessingConsentForCurrentVersion: () => {
-        const decision = Storage.getCredentialsProcessingConsentDecision();
-        const policyVersion = Storage.getCredentialsProcessingConsentPolicyVersion();
-        const consentVersion = String(Storage.getCredentialsProcessingConsentVersion() || '').trim();
-        return decision === 'true' && !!policyVersion && consentVersion === policyVersion;
-    },
-    setCredentialsProcessingConsentDecision: (enabled) => {
-        Storage.set(CONFIG.KEYS.CREDENTIALS_PROCESSING_CONSENT_DECISION, enabled ? 'true' : 'false');
-        Storage.set(CONFIG.KEYS.CREDENTIALS_PROCESSING_CONSENT_VERSION, Storage.getCredentialsProcessingConsentPolicyVersion());
-        return Storage.hasCredentialsProcessingConsentForCurrentVersion();
-    },
-    syncCredentialsProcessingConsentToBridge: () => {
-        if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function' || typeof CustomEvent !== 'function') return false;
-        const credentialsConsent = Storage.hasCredentialsProcessingConsentForCurrentVersion();
-        const acceleratedProfileEnabled = Storage.get(CONFIG.KEYS.THREE_NO_ACCELERATED_PROFILE_ENABLED, 'false') === 'true';
-        const enabled = credentialsConsent && acceleratedProfileEnabled;
-        window.dispatchEvent(new CustomEvent('hege:threads-credentials-processing-consent', {
-            detail: {
-                enabled,
-                credentialsConsent,
-                acceleratedProfileEnabled,
-                policyVersion: Storage.getCredentialsProcessingConsentPolicyVersion(),
-            },
-        }));
-        return enabled;
-    },
     getPlatformSyncLastAt: () => parseInt(Storage.get(CONFIG.KEYS.PLATFORM_SYNC_LAST_AT, '0') || '0', 10) || 0,
     setPlatformSyncLastAt: (ts = Date.now()) => Storage.set(CONFIG.KEYS.PLATFORM_SYNC_LAST_AT, String(ts)),
     getPlatformReuploadRepairDone: () => Storage.get(CONFIG.KEYS.PLATFORM_REUPLOAD_REPAIR_V1_DONE, 'false') === 'true',
@@ -413,13 +384,6 @@ export const Storage = {
         const normalized = Math.max(10, Math.min(1000, Number.isFinite(parsed) ? parsed : (CONFIG.THREE_NO_SCAN_CANDIDATE_REPORT_THRESHOLD || 100)));
         Storage.set(CONFIG.KEYS.THREE_NO_CANDIDATE_THRESHOLD, String(normalized));
         return normalized;
-    },
-    getThreeNoAcceleratedProfileEnabled: () => Storage.hasCredentialsProcessingConsentForCurrentVersion()
-        && Storage.get(CONFIG.KEYS.THREE_NO_ACCELERATED_PROFILE_ENABLED, 'false') === 'true',
-    setThreeNoAcceleratedProfileEnabled: (enabled) => {
-        const active = enabled === true && Storage.hasCredentialsProcessingConsentForCurrentVersion();
-        Storage.set(CONFIG.KEYS.THREE_NO_ACCELERATED_PROFILE_ENABLED, active ? 'true' : 'false');
-        return active;
     },
     getThreeNoIgnoredUsers: () => {
         const raw = Storage.getJSON(CONFIG.KEYS.THREE_NO_IGNORED_USERS, {});

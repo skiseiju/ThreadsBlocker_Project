@@ -497,6 +497,8 @@ export const UI = {
             
             .hege-menu-item.danger { color: #ff3b30; }
             .hege-menu-item .status { font-size: 12px; color: #888; }
+            .hege-settings-box [data-hege-settings-footer-item] { justify-content: center; padding: 8px 4px; font-size: 12px; }
+            .hege-settings-box [data-hege-settings-tab]:hover { background: #1e1e1e; }
             
             #hege-bg-status { padding: 4px 16px; font-size: 11px; color: #4cd964; background: #1a1a1a; display: block; }
             body.hege-ghost-mode div[role="menu"], body.hege-ghost-mode div[role="dialog"] { opacity: 0 !important; pointer-events: auto !important; }
@@ -1327,7 +1329,7 @@ export const UI = {
                     <p style="margin:0 0 12px;">留友封不是大型公司做的資料產品，而是由公開身份的個人維護。你可以檢視我的公開 ID、專案原始碼、網站說明與觀測方法，再決定是否支持我接下來的計畫。</p>
                     <p style="margin:0 0 12px;">我做這個觀測計畫，是因為我們在 Threads 上看到太多相似敘事、集中封鎖與帶風向行為。單一來源很難判斷是否存在跨來源的行為模式，但如果許多人願意提供匿名樣本，我們就能把公開行為特徵整理成統計，讓更多人看見問題。</p>
                     <p style="margin:0 0 14px;color:#f2f2f2;font-weight:700;">如果你信任我，或認同這件事值得被公開，你可以開啟每日自動上傳，來幫助大家更理解可疑帳號集中攻擊與帶風向的行為模式。</p>
-                    <div style="background:#2a1f08;border:1px solid #8f6d1f;border-radius:10px;padding:10px 12px;color:#ffe1a6;font-weight:700;margin-bottom:12px;">這是第 3 版平台同步同意（platform-sync-v3）。Chrome 擴充功能版沒有新增 cookies、history、tabs、webRequest 或 scripting 權限；Chrome 加速三無另有獨立的認證欄位處理同意，預設關閉。</div>
+                    <div style="background:#2a1f08;border:1px solid #8f6d1f;border-radius:10px;padding:10px 12px;color:#ffe1a6;font-weight:700;margin-bottom:12px;">這是第 3 版平台同步同意（platform-sync-v3）。Chrome 擴充功能版沒有新增 cookies、history、tabs、webRequest 或 scripting 權限。</div>
                     <div style="background:#101820;border:1px solid #263746;border-radius:10px;padding:12px;margin-bottom:12px;">
                         <div style="font-weight:700;color:#cfe8ff;margin-bottom:6px;">如果你同意，我們會上傳：</div>
                         <p style="margin:0 0 8px;">平台會取得你封鎖或檢舉過的帳號識別與公開個人檔案連結，用來做整體統計；公開頁不會列出你的完整封鎖/檢舉名單。</p>
@@ -1337,7 +1339,6 @@ export const UI = {
                     <div style="background:#181111;border:1px solid #3a2525;border-radius:10px;padding:12px;margin-bottom:12px;">
                         <div style="font-weight:700;color:#ffd1d1;margin-bottom:6px;">我們不會上傳：</div>
                         <p style="margin:0 0 8px;">Threads 密碼、雙因素驗證碼或任何可登入帳號的完整憑證。</p>
-                        <p style="margin:0 0 8px;">平台同步不會上傳 Chrome 加速三無在本機暫時處理的同站認證欄位；該功能只有在另一個醒目視窗中明確同意後才會啟用，拒絕時保留一般三點操作。</p>
                         <p style="margin:0 0 8px;">cookies API、瀏覽器歷史紀錄、其他網站資料或私人訊息。</p>
                         <p style="margin:0;">你的 Email、Google 帳號或真實姓名。</p>
                     </div>
@@ -1369,49 +1370,6 @@ export const UI = {
 
         overlay.querySelector('#hege-platform-sync-manual').onclick = () => finish(false);
         overlay.querySelector('#hege-platform-sync-enable').onclick = () => finish(true);
-    },
-
-    showCredentialsConsentModal: (options = {}) => {
-        if (Reporter.getClientPlatform() !== 'chrome_extension') return;
-        if (document.getElementById('hege-credentials-processing-consent-overlay')) return;
-
-        const enabled = Storage.hasCredentialsProcessingConsentForCurrentVersion()
-            && Storage.getThreeNoAcceleratedProfileEnabled();
-        const overlay = document.createElement('div');
-        overlay.id = 'hege-credentials-processing-consent-overlay';
-        overlay.className = 'hege-manager-overlay';
-        Utils.setHTML(overlay, `
-            <div class="hege-manager-box" style="width:min(92vw,720px);max-width:720px;max-height:calc(100vh - 28px);max-height:calc(100dvh - 28px);border:2px solid #ff9f0a;">
-                <div class="hege-manager-header">
-                    <span class="hege-manager-title">Chrome 加速三無：認證欄位處理同意</span>
-                </div>
-                <div style="padding:20px 24px;overflow-y:auto;-webkit-overflow-scrolling:touch;font-size:13px;line-height:1.75;color:#d5d5d5;">
-                    <div style="background:#2a1f08;border:1px solid #ff9f0a;border-radius:10px;padding:12px;color:#ffe1a6;font-weight:700;margin-bottom:14px;">這是獨立於平台上傳的 ${CONFIG.CREDENTIALS_PROCESSING_CONSENT_POLICY_VERSION} 同意。預設關閉；不同意不會影響一般可見 UI、三點選單或手動 fallback。</div>
-                    <p style="margin:0 0 12px;">啟用後，留友封只會在 Threads 頁面中，為了加速三無 profile 檢查，在本機暫時處理頁面或同站請求中的認證欄位，例如 <code>fb_dtsg</code>、<code>lsd</code>、<code>jazoest</code>、<code>__user</code> 等 token；發出同站 Threads 請求時，瀏覽器也可能依既有瀏覽器規則附帶同站 session cookie。</p>
-                    <p style="margin:0 0 12px;">這些欄位只用於 Threads 的加速檢查，不會保存到留友封的 localStorage，不會上傳到 ThreadsBlocker 平台，也不會附在問題回報或診斷附件中；我們不會讀取或要求你的密碼、雙因素驗證碼。</p>
-                    <p style="margin:0 0 12px;">本功能不新增 cookies、history、tabs、webRequest 或 scripting 權限。拒絕或關閉後，頁面 bridge 會停止掃描頁面、停止 fetch/XHR patch，並清除本次 bridge 暫存；你仍可使用一般 UI 與三點選單 fallback。</p>
-                    <p style="margin:0;color:#b8b8b8;">你可以稍後回到設定重新開啟或關閉。此同意版本只代表認證欄位處理，不會改變平台同步同意（platform-sync-v3）。</p>
-                </div>
-                <div class="hege-manager-footer">
-                    <div style="display:flex;gap:10px;width:100%;justify-content:flex-end;flex-wrap:wrap;">
-                        <button class="hege-manager-btn secondary" id="hege-credentials-consent-deny">${enabled ? '關閉並回到一般操作' : '拒絕，使用一般三點操作'}</button>
-                        <button class="hege-manager-btn primary" id="hege-credentials-consent-enable" style="background:#ff9f0a;color:#1a1000;border-color:#ff9f0a;">${enabled ? '保持開啟' : '同意並開啟加速三無'}</button>
-                    </div>
-                </div>
-            </div>
-        `);
-        document.body.appendChild(overlay);
-
-        const finish = (allow) => {
-            const active = Storage.setCredentialsProcessingConsentDecision(allow);
-            Storage.setThreeNoAcceleratedProfileEnabled(active);
-            Storage.syncCredentialsProcessingConsentToBridge();
-            overlay.remove();
-            UI.showToast(active ? '已開啟 Chrome 加速三無；認證欄位只在本機處理' : '已關閉加速三無，保留一般三點操作');
-            if (typeof options.onDecision === 'function') options.onDecision(active);
-        };
-        overlay.querySelector('#hege-credentials-consent-deny').onclick = () => finish(false);
-        overlay.querySelector('#hege-credentials-consent-enable').onclick = () => finish(true);
     },
 
     showPlatformManualUploadReminderModal: () => {
@@ -2358,12 +2316,8 @@ export const UI = {
         const devReloadSectionLabel = callbacks.onDevReloadExtension ? ['開', '發', '版'].join('') : '';
         const devReloadButtonLabel = callbacks.onDevReloadExtension ? ['重新', '載入', '開發', '版'].join('') : '';
         const devReloadStatusLabel = callbacks.onDevReloadExtension ? ['beta', 'only'].join(' ') : '';
-        const isChromeExtension = Reporter.getClientPlatform() === 'chrome_extension';
-        const credentialsConsentEnabled = isChromeExtension
-            && Storage.hasCredentialsProcessingConsentForCurrentVersion()
-            && Storage.getThreeNoAcceleratedProfileEnabled();
-        const settingsSectionTitleStyle = 'margin:10px 0 0;padding:7px 10px;border:1px solid #2e2e2e;border-radius:7px;background:linear-gradient(180deg,#171717,#121212);color:#d8d8d8;font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;box-shadow:inset 0 1px 0 rgba(255,255,255,0.04);';
-        const settingsDangerTitleStyle = 'margin:10px 0 0;padding:7px 10px;border:1px solid #443030;border-radius:7px;background:linear-gradient(180deg,#1b1414,#141010);color:#f0caca;font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;box-shadow:inset 0 1px 0 rgba(255,255,255,0.035);';
+        const settingsSectionTitleStyle = 'margin:16px 2px 2px;padding:0 0 5px;border-bottom:1px solid #262626;color:#7f7f7f;font-size:10px;font-weight:700;letter-spacing:0.6px;';
+        const settingsDangerTitleStyle = 'margin:16px 2px 2px;padding:0 0 5px;border-bottom:1px solid #4a2a2a;color:#d98686;font-size:10px;font-weight:700;letter-spacing:0.6px;';
 
         const overlay = document.createElement('div');
         overlay.id = 'hege-settings-overlay';
@@ -2381,12 +2335,13 @@ export const UI = {
                     </span>
                 </div>
                 <div class="hege-settings-content" style="padding:16px;display:block;">
-                    <div role="tablist" aria-label="設定分類" data-hege-settings-tabs style="display:flex;gap:4px;margin-bottom:16px;padding:4px;border:1px solid #2d2d2d;border-radius:9px;background:#121212;">
-                        <button type="button" role="tab" class="hege-menu-item" data-hege-settings-tab="data" style="flex:1;justify-content:center;border:0;border-bottom:none;padding:9px 6px;">資料</button>
-                        <button type="button" role="tab" class="hege-menu-item" data-hege-settings-tab="tools" style="flex:1;justify-content:center;border:0;border-bottom:none;padding:9px 6px;">工具</button>
-                        <button type="button" role="tab" class="hege-menu-item" data-hege-settings-tab="common" style="flex:1;justify-content:center;border:0;border-bottom:none;padding:9px 6px;">通用設定</button>
+                    <div role="tablist" aria-label="設定分類" data-hege-settings-tabs style="display:flex;gap:4px;margin-bottom:14px;padding:4px;border:1px solid #2d2d2d;border-radius:10px;background:#121212;">
+                        <button type="button" role="tab" data-hege-settings-tab="data" style="flex:1;text-align:center;border:0;border-radius:7px;padding:9px 6px;font-size:13px;font-weight:700;background:transparent;color:#9a9a9a;cursor:pointer;transition:background .12s,color .12s;">資料</button>
+                        <button type="button" role="tab" data-hege-settings-tab="tools" style="flex:1;text-align:center;border:0;border-radius:7px;padding:9px 6px;font-size:13px;font-weight:700;background:transparent;color:#9a9a9a;cursor:pointer;transition:background .12s,color .12s;">工具</button>
+                        <button type="button" role="tab" data-hege-settings-tab="common" style="flex:1;text-align:center;border:0;border-radius:7px;padding:9px 6px;font-size:13px;font-weight:700;background:transparent;color:#9a9a9a;cursor:pointer;transition:background .12s,color .12s;">通用設定</button>
                     </div>
 
+                    <div data-hege-settings-panels style="min-height:392px;">
                     <div role="tabpanel" data-hege-settings-view-panel="data" style="display:flex;flex-direction:column;gap:10px;">
                         <div style="${settingsSectionTitleStyle}">你的名單與備份</div>
                         <div class="hege-menu-item" id="hege-s-manage">
@@ -2413,24 +2368,18 @@ export const UI = {
                             <div class="hege-menu-item" id="hege-s-reportpack-export" style="border-bottom:none;color:#cfe8ff;"><span>分享到其他設備</span></div>
                             <div class="hege-menu-item" id="hege-s-reportpack-import" style="border-bottom:none;color:#cfe8ff;"><span>匯入其他設備</span></div>
                         </div>
-                        <div style="${settingsSectionTitleStyle}">三無掃描</div>
-                        <div class="hege-menu-item" id="hege-s-three-no-threshold-row" style="display:flex;flex-direction:column;align-items:stretch;gap:5px;">
-                            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-                                <span>備選名單門檻</span>
-                                <input id="hege-s-three-no-threshold" type="number" min="10" max="1000" step="10" value="${Storage.getThreeNoCandidateThreshold()}" style="width:82px;background:#1a1a1a;border:1px solid #444;color:#f5f5f5;padding:3px 6px;border-radius:4px;font-size:11px;text-align:right;">
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:6px;align-items:start;">
+                            <div>
+                                <div style="${settingsSectionTitleStyle}">三無掃描</div>
+                                <div class="hege-menu-item" id="hege-s-three-no-threshold-row" style="display:flex;flex-direction:column;align-items:stretch;gap:5px;margin-top:2px;">
+                                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                                        <span>備選名單門檻</span>
+                                        <input id="hege-s-three-no-threshold" type="number" min="10" max="1000" step="10" value="${Storage.getThreeNoCandidateThreshold()}" style="width:72px;background:#1a1a1a;border:1px solid #444;color:#f5f5f5;padding:3px 6px;border-radius:4px;font-size:11px;text-align:right;">
+                                    </div>
+                                    <span style="color:#777;font-size:11px;line-height:1.35;">備選名單超過此數量後，開始進 profile 確認三無。</span>
+                                </div>
                             </div>
-                            <span style="color:#777;font-size:11px;line-height:1.35;">備選名單超過此數量後，開始進 profile 確認三無。</span>
                         </div>
-                        ${isChromeExtension ? `
-                        <div style="${settingsSectionTitleStyle}">Chrome 隱私與加速</div>
-                        <div class="hege-menu-item" id="hege-s-credentials-consent" style="display:flex;flex-direction:column;align-items:stretch;gap:5px;border-color:${credentialsConsentEnabled ? '#8f6d1f' : '#3d3030'};">
-                            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-                                <span style="font-weight:700;">加速三無檢查（進階）</span>
-                                <span class="status" style="color:${credentialsConsentEnabled ? '#ff9f0a' : '#aaa'};">${credentialsConsentEnabled ? '已明確同意並開啟' : '預設關閉'}</span>
-                            </div>
-                            <span style="color:#777;font-size:11px;line-height:1.35;">只在 Threads 同站請求中本機暫時處理 token；不存檔、不上傳，拒絕時保留一般三點 fallback。</span>
-                        </div>
-                        ` : ''}
                         <div style="${settingsSectionTitleStyle}">觀測與上傳</div>
                         <div class="hege-menu-item" id="hege-s-analytics" style="color:#5ac8fa;">
                             <span style="display:flex;align-items:center;gap:6px;">
@@ -2438,17 +2387,15 @@ export const UI = {
                                 來源分析報告
                             </span>
                         </div>
+                        ${(callbacks.onExportReportDebug || callbacks.onExportThreeNoDebug || (callbacks.onDevReloadExtension && devReloadId)) ? `
+                        <div style="${settingsSectionTitleStyle}">${devReloadSectionLabel || '開發版'}</div>
+                        ${callbacks.onDevReloadExtension && devReloadId ? `<div class="hege-menu-item" id="${devReloadId}" style="color:#8ab4f8;"><span>${devReloadButtonLabel}</span><span class="status">${devReloadStatusLabel}</span></div>` : ''}
                         ${(callbacks.onExportReportDebug || callbacks.onExportThreeNoDebug) ? `
-                        <div style="${settingsSectionTitleStyle}">診斷</div>
-                        ${callbacks.onExportThreeNoDebug && threeNoDebugExportId ? `<div class="hege-menu-item" id="${threeNoDebugExportId}"><span>${threeNoDebugExportLabel}</span></div>` : ''}
-                        ${callbacks.onExportReportDebug && reportDebugExportId ? `<div class="hege-menu-item" id="${reportDebugExportId}"><span>${reportDebugExportLabel}</span></div>` : ''}
-                        ` : ''}
-                        ${callbacks.onDevReloadExtension && devReloadId ? `
-                        <div style="${settingsSectionTitleStyle}">${devReloadSectionLabel}</div>
-                        <div class="hege-menu-item" id="${devReloadId}" style="color:#8ab4f8;">
-                            <span>${devReloadButtonLabel}</span>
-                            <span class="status">${devReloadStatusLabel}</span>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+                        ${callbacks.onExportThreeNoDebug && threeNoDebugExportId ? `<div class="hege-menu-item" id="${threeNoDebugExportId}" style="border-bottom:none;justify-content:center;"><span>${threeNoDebugExportLabel}</span></div>` : ''}
+                        ${callbacks.onExportReportDebug && reportDebugExportId ? `<div class="hege-menu-item" id="${reportDebugExportId}" style="border-bottom:none;justify-content:center;"><span>${reportDebugExportLabel}</span></div>` : ''}
                         </div>
+                        ` : ''}
                         ` : ''}
                         <div style="${settingsDangerTitleStyle}">危險操作</div>
                         <div class="hege-menu-item danger" id="hege-s-clear-db" style="border-bottom:none;"><span>清除所有歷史</span></div>
@@ -2499,7 +2446,9 @@ export const UI = {
                         </div>
                     </div>
 
-                    <div data-hege-settings-footer style="display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:6px;margin-top:16px;padding-top:10px;border-top:1px solid #2a2a2a;">
+                    </div>
+
+                    <div data-hege-settings-footer style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;margin-top:16px;padding-top:10px;border-top:1px solid #2a2a2a;text-align:center;">
                         <div class="hege-menu-item" id="hege-s-report" data-hege-settings-footer-item style="border-bottom:none;">
                             <span style="display:flex;align-items:center;gap:4px;font-size:12px;">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"></path></svg>
@@ -2536,10 +2485,25 @@ export const UI = {
             overlay.querySelectorAll('[data-hege-settings-tab]').forEach(tab => {
                 const isActive = tab.dataset.hegeSettingsTab === view;
                 tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
-                tab.style.background = isActive ? '#2a2a2a' : 'transparent';
-                tab.style.color = isActive ? '#fff' : '#aaa';
+                tab.style.background = isActive ? '#383838' : 'transparent';
+                tab.style.color = isActive ? '#fff' : '#9a9a9a';
+                tab.style.boxShadow = isActive ? 'inset 0 0 0 1px #4a4a4a' : 'none';
             });
         };
+        const settingsPanelsWrap = overlay.querySelector('[data-hege-settings-panels]');
+        if (settingsPanelsWrap) {
+            let tallest = 0;
+            overlay.querySelectorAll('[data-hege-settings-view-panel]').forEach(p => {
+                const prev = p.style.display;
+                p.style.display = 'flex';
+                tallest = Math.max(tallest, p.offsetHeight);
+                p.style.display = prev;
+            });
+            if (tallest > 0) {
+                settingsPanelsWrap.style.height = tallest + 'px';
+                settingsPanelsWrap.style.overflowY = 'auto';
+            }
+        }
         const settingsViewAliases = { home: 'data', data: 'data', tools: 'tools', block: 'common', common: 'common' };
         showSettingsView(settingsViewAliases[callbacks.initialView] || 'data');
         overlay.querySelectorAll('[data-hege-settings-tab]').forEach(tab => {
@@ -2570,7 +2534,6 @@ export const UI = {
         bind(devReloadId, callbacks.onDevReloadExtension);
         bind('hege-s-clear-db', callbacks.onClearDB);
         bind('hege-s-report', callbacks.onReport);
-        bind('hege-s-credentials-consent', callbacks.onCredentialsConsent);
         bind('hege-s-analytics', callbacks.onAnalytics);
         // 速度模式切換（設定 modal 中）
         const speedModes = ['smart', 'stable', 'standard', 'turbo'];

@@ -143,19 +143,18 @@ test('beta83 stable or diagnostics-disabled writers and reset do not add or rewr
     }
 });
 
-test('beta83 inactive boot purges stale raw log/schema, disables bridge, and installs no listener even with sentinel', () => {
+test('beta83 inactive boot purges stale raw log/schema without bridge listener', () => {
     resetState({ version: '2.7.4', enabled: true });
     seedDebugStorage();
     windowMock.__hegeThreeNoNetworkDiscoveryInstalled = true;
 
-    Core.ThreeNoWatch.installNetworkDiscoveryListener();
+    assert.equal(Core.ThreeNoWatch.purgeInactiveThreeNoDebugLog(), true);
+    assert.equal(typeof Core.ThreeNoWatch.installNetworkDiscoveryListener, 'undefined');
 
     assert.equal(localStorageMock.getItem(debugKey), null);
     assert.equal(localStorageMock.getItem(schemaKey), null);
     assert.equal(listeners.has('hege:threads-network-discovery'), false);
-    const toggle = dispatchedEvents.find(event => event.type === 'hege:threads-network-discovery-toggle');
-    assert.ok(toggle);
-    assert.equal(toggle.detail.enabled, false);
+    assert.equal(dispatchedEvents.some(event => event.type === 'hege:threads-network-discovery-toggle'), false);
 });
 
 test('beta83 beta writers and reset retain raw behavior while export projection stays six-column', () => {

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 
 class TestElement {
     constructor(tagName = 'div', attrs = {}) {
@@ -183,7 +184,6 @@ const callbackBindings = [
     ['onDevReloadExtension', 'hege-s-dev-reload'],
     ['onClearDB', 'hege-s-clear-db'],
     ['onReport', 'hege-s-report'],
-    ['onCredentialsConsent', 'hege-s-credentials-consent'],
     ['onAnalytics', 'hege-s-analytics'],
 ];
 
@@ -204,7 +204,7 @@ function openSettings(version = '2.7.4-beta85', initialView = 'home') {
 
 const idsByPanel = {
     data: ['hege-s-manage', 'hege-s-cockroach', 'hege-s-reservoir', 'hege-s-import', 'hege-s-export'],
-    tools: ['hege-s-reportpack-export', 'hege-s-reportpack-import', 'hege-s-three-no-threshold-row', 'hege-s-credentials-consent', 'hege-s-analytics', 'hege-s-clear-db'],
+    tools: ['hege-s-reportpack-export', 'hege-s-reportpack-import', 'hege-s-three-no-threshold-row', 'hege-s-analytics', 'hege-s-clear-db'],
     common: ['hege-s-speed', 'hege-s-daily-limit', 'hege-s-daily-report-limit', 'hege-s-auto-mark-leader-row', 'hege-s-block-visual-debug-row', 'hege-s-report-visual-debug-row'],
 };
 
@@ -264,18 +264,23 @@ test('beta85 product module preserves beta gates and the five-item footer', () =
     assert.equal(overlay.querySelectorAll('[data-hege-settings-footer-item]').length, 5);
 });
 
-test('beta85 product module renders the four approved item copy changes', () => {
+test('beta85 product module removes credentials UI while retaining approved item copy changes', () => {
     const text = openSettings().textContent;
     for (const copy of [
-        '加速三無檢查（進階）',
         '定點絕：自動列入大蟑螂名單',
         '顯示封鎖即時進度',
         '顯示檢舉即時進度',
     ]) assert.match(text, new RegExp(copy));
+    assert.doesNotMatch(text, /加速三無檢查（進階）|Chrome 隱私與加速|認證欄位|credentials-processing-v1/);
     for (const oldCopy of [
         '加速三無的認證欄位處理',
         '定點絕時自動標頭目',
         '封鎖流程可視化',
         '檢舉流程可視化',
     ]) assert.doesNotMatch(text, new RegExp(oldCopy));
+});
+
+test('beta85 settings source has no retired credentials consent copy in any runtime modal', () => {
+    const uiSource = fs.readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8');
+    assert.doesNotMatch(uiSource, /Chrome 加速三無|認證欄位處理同意|本機暫時處理認證欄位|另一個醒目視窗/);
 });

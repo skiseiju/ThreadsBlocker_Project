@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.7.4-beta88', // User-facing 2.7.4 release summary
+    VERSION: '2.7.4-beta92', // credentials code removal candidate; beta-only diagnostics remain enabled
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // Beta-only, in-memory diagnostics. Stable/release channels must keep this
     // disabled even if a stale setting is present.
@@ -17,7 +17,6 @@ export const CONFIG = {
     PLATFORM_UPLOAD_URL: 'https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/platform/ingest',
     PLATFORM_UPLOAD_FALLBACK_URLS: [],
     PLATFORM_SYNC_CONSENT_POLICY_VERSION: 'platform-sync-v3',
-    CREDENTIALS_PROCESSING_CONSENT_POLICY_VERSION: 'credentials-processing-v1',
     ANNOUNCEMENT_FEED_URL: 'https://threadsblocker.skiseiju.com/announcements.json',
     ANNOUNCEMENT_FEED_CHECK_INTERVAL_MS: 6 * 3600 * 1000,
 
@@ -44,9 +43,6 @@ export const CONFIG = {
     THREE_NO_SCAN_STATS_UPLOAD_TIMEOUT_MS: 1500,
     THREE_NO_SCAN_PREFILTER_AVATAR: true,
     THREE_NO_SCAN_PROFILE_DELAY_MS: 1400,
-    THREE_NO_ABOUT_PASSIVE_WAIT_MS: 700,
-    THREE_NO_ABOUT_ACTIVE_TIMEOUT_MS: 2200,
-    THREE_NO_ABOUT_TEMPLATE_MAX_AGE_MS: 12 * 3600 * 1000,
 
     // 貼文水庫 SPA polling 時序（毫秒；單位 ms = millisec）
     SWEEP_POLL_INTERVAL_MS: 500,        // 每次 polling 等待間隔
@@ -89,12 +85,6 @@ export const CONFIG = {
         THREE_NO_SAFE_USERS: 'hege_three_no_safe_users',
         THREE_NO_LAST_STATS_UPLOAD_SCAN_ID: 'hege_three_no_last_stats_upload_scan_id',
         THREE_NO_CANDIDATE_THRESHOLD: 'hege_three_no_candidate_threshold',
-        THREE_NO_ACCELERATED_PROFILE_ENABLED: 'hege_three_no_accelerated_profile_enabled',
-        CREDENTIALS_PROCESSING_CONSENT_DECISION: 'hege_credentials_processing_consent',
-        CREDENTIALS_PROCESSING_CONSENT_VERSION: 'hege_credentials_processing_consent_version',
-        THREE_NO_PROFILE_METADATA_CACHE: 'hege_three_no_profile_metadata_cache_v1',
-        THREE_NO_PROFILE_USER_ID_CACHE: 'hege_three_no_profile_user_id_cache_v1',
-        THREE_NO_ABOUT_REQUEST_TEMPLATE: 'hege_three_no_about_request_template_v1',
         ANNOUNCEMENT_SEEN_ID: 'hege_announcement_seen_id',
         ANNOUNCEMENT_LAST_CHECK_AT: 'hege_announcement_last_check_at',
         ANNOUNCEMENT_CACHE: 'hege_announcement_cache',
@@ -228,9 +218,6 @@ export const CONFIG = {
         'hege_three_no_unread_count', // THREE_NO_UNREAD_COUNT
         'hege_three_no_safe_users', // THREE_NO_SAFE_USERS
         'hege_three_no_candidate_threshold', // THREE_NO_CANDIDATE_THRESHOLD
-        'hege_three_no_accelerated_profile_enabled', // THREE_NO_ACCELERATED_PROFILE_ENABLED
-        'hege_credentials_processing_consent', // CREDENTIALS_PROCESSING_CONSENT_DECISION
-        'hege_credentials_processing_consent_version', // CREDENTIALS_PROCESSING_CONSENT_VERSION
     ],
     // 多語系文字偵測（20 國：繁中/簡中/英/日/韓/泰/印尼/西/法/德/義/葡/俄/波蘭/土耳其/越南/阿拉伯/印地/荷蘭/菲律賓）
     BLOCK_TEXTS: ['封鎖', '屏蔽', 'Block', 'ブロック', '차단', 'บล็อก', 'Blokir', 'Bloquear', 'Bloquer', 'Blockieren', 'Blocca', 'Bloquear', 'Заблокировать', 'Zablokuj', 'Engelle', 'Chặn', 'حظر', 'ब्लॉक करें', 'Blokkeren', 'I-block'],

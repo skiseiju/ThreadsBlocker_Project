@@ -69,7 +69,7 @@ function parseIntro(markdown) {
     const paragraphs = body.split(/\n\s*\n/).map(clean).filter(Boolean).map((paragraph, index) => ({
         segments: parseInline(paragraph, `release-intro paragraph ${index + 1}`),
     }));
-    if (paragraphs.length === 0 || paragraphs.length > 8) fail('release-intro.md must have 1-8 paragraphs');
+    if (paragraphs.length === 0 || paragraphs.length > 16) fail('release-intro.md must have 1-16 paragraphs');
     return { developerNotice: { title, paragraphs }, supportMessage };
 }
 

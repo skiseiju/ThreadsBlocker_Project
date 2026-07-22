@@ -133,9 +133,6 @@ rm -rf "$EXT_DIR"
 mkdir -p "$EXT_DIR"
 
 cp "$TEMP_BUNDLE" "$EXT_DIR/content.js"
-if [ -f "$SRC_DIR/page-bridge.js" ]; then
-    cp "$SRC_DIR/page-bridge.js" "$EXT_DIR/page-bridge.js"
-fi
 if [[ "$IS_BETA_BUILD" == "true" && -f "$SRC_DIR/background.js" ]]; then
     cp "$SRC_DIR/background.js" "$EXT_DIR/background.js"
 fi

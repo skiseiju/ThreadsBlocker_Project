@@ -19,19 +19,6 @@
         "*://threads.com/*"
       ],
       "js": [
-        "page-bridge.js"
-      ],
-      "run_at": "document_start",
-      "world": "MAIN"
-    },
-    {
-      "matches": [
-        "*://*.threads.net/*",
-        "*://threads.net/*",
-        "*://*.threads.com/*",
-        "*://threads.com/*"
-      ],
-      "js": [
         "content.js"
       ],
       "run_at": "document_end"

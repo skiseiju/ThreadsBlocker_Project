@@ -29,7 +29,7 @@ export const BUNDLED_RELEASE_NOTES = {
                         "url": "https://shopyourvalues.app/"
                     },
                     {
-                        "text": "是一個能輸入品牌名稱，查詢公開資訊的平台。讓你在買商品之前，了解企業所為。\n有興趣的也可以玩看看，"
+                        "text": "是一個能輸入品牌名稱，查詢公開資訊的平台。讓你在買商品之前，了解企業所為。\n有興趣的也可以玩看看"
                     }
                 ]
             },
@@ -72,6 +72,13 @@ export const BUNDLED_RELEASE_NOTES = {
                 "segments": [
                     {
                         "text": "並同時修改了介面讓設定看起來更乾淨"
+                    }
+                ]
+            },
+            {
+                "segments": [
+                    {
+                        "text": "另外，有網友回報說留友封跟哩素隨在Firefox上會有衝突\n如果你有碰到這個問題，歡迎回報，我需要更多的資訊才比較好做修正\n感謝大家!"
                     }
                 ]
             }
