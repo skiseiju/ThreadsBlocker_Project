@@ -18,7 +18,8 @@
  * ── 設計約束 ──────────────────────────────────────────────
  * - 單向：D1 → 試算表。試算表的處理狀態不回寫後端。
  * - 腳本只 append 新列，永遠不修改既有列的任何欄位。
- * - H、I 欄是人工地盤，腳本不讀也不寫。
+ * - I、J 欄是人工地盤，腳本不讀也不寫。H 欄是 D1 狀態在匯入當下的快照，
+ *   之後不會被更新，因此不會與人工維護的 I 欄打架。
  * - 去重靠 A 欄的回報 ID，因此重複執行不會產生重複列。
  */
 
@@ -30,11 +31,12 @@ const COLUMNS = [
   '問題描述',     // E  message 全文
   '錯誤訊息',     // F  error_name / error_message
   '持續性 ID',    // G  hwid，刪除要求時用來比對
-  '處理狀態',     // H  ← 人工
-  '備註',         // I  ← 人工
+  '後端狀態',     // H  D1 status 匯入當下的快照（ACK/PENDING/IGNORED/FIXED）
+  '處理狀態',     // I  ← 人工
+  '備註',         // J  ← 人工
 ];
 
-const SCRIPT_WRITTEN_COLUMNS = 7; // A–G。H、I 不由腳本填寫。
+const SCRIPT_WRITTEN_COLUMNS = 8; // A–H。I、J 不由腳本填寫。
 const FETCH_LIMIT = 200;          // 後端 clampInt 上限即為 200
 const TZ = 'Asia/Taipei';
 
@@ -157,6 +159,7 @@ function toRow_(report) {
     report.message || '',
     error,
     report.hwid || '',
+    report.status || '',
   ];
 }
 
