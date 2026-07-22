@@ -162,6 +162,16 @@ Token 只存在 Script Properties，不得寫進程式碼或 commit 進 repo。
 
 1. **`docs/BUG_REPORT_DELETION_RUNBOOK.md` 新增一步**：刪除 D1 紀錄後，必須在試算表刪除對應 `report_id` 的整列；處理紀錄需註明兩邊皆已刪除，且不得保留回報內容或 ID。
 2. **`site/privacy/index.html` §4 新增揭露**：問題回報內容可能複製到內部處理用的 Google 試算表；刪除要求會一併處理該副本。
+
+   **⚠ 上線閘門（2026-07-22 調整）**：此揭露段落**已從隱私頁移除**，因為 2.8.0 正在 CWS 審查中，而試算表同步尚未啟用——副本此刻並不存在，多寫一項未發生的第三方轉移只會增加與 CWS Dashboard 表單答案對不上的風險。
+
+   **在第一次成功執行 `syncBugReports()` 之前，必須先把該段落加回 `site/privacy/index.html` §4 並 `wrangler pages deploy site --project-name=threadsblocker` 部署上線。** 順序不可顛倒：只要同步跑過一次，副本就存在，未更新的隱私頁即為不實揭露。
+
+   加回的文字（原文保留於此，供直接複製）：
+
+   ```html
+   <li>為了追蹤處理進度，問題回報內容與持續性隨機回報 ID 會每日複製一份到僅限授權人員存取的內部 Google 試算表。這份副本只用於問題處理，不公開、不用於廣告或出售。使用者提出刪除要求時，這份副本會與伺服器端資料一併刪除。</li>
+   ```
 3. **`docs/CWS_PRIVACY_PRACTICES_2.8.0.md` 同步**：Google（Apps Script／試算表）已列為基礎設施服務，補上「內部問題處理工作表」用途。
 
 上述三項與程式碼同一批交付，不得延後。
@@ -176,7 +186,8 @@ Token 只存在 Script Properties，不得寫進程式碼或 commit 進 repo。
 - [ ] 實跑驗證：連續執行兩次不產生重複列
 - [ ] 實跑驗證：手動改 G/H 欄後再同步，該列 G/H 不被覆蓋
 - [ ] 實跑驗證：零筆新回報時不寄信
-- [ ] 刪除 runbook、隱私頁 §4、CWS practices 三份文件同步更新
+- [x] 刪除 runbook 與 CWS practices 已更新（commit 7a2ea0a）
+- [ ] **上線閘門**：隱私頁 §4 試算表揭露加回並 deploy 上線 —— 必須在第一次 `syncBugReports()` 成功執行之前完成
 - [ ] Apps Script 原始碼納入 repo（`scripts/gas/` 或獨立目錄）以便版控，但不含任何 token
 
 ## 9. 未解與後續
