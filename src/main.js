@@ -959,7 +959,7 @@ import './features/three-no-watch.js';
                         Storage.remove(CONFIG.KEYS.REPORT_RESTORE_PENDING);
                         Core.blockQueue.forEach(b => {
                             const cb = b.parentElement.querySelector('.hege-checkbox-container');
-                            if (cb) cb.classList.remove('checked');
+                            if (cb) Core.applyCheckboxState(cb, 'none');
                         });
                         Core.blockQueue.clear();
                         Core.updateControllerUI();
