@@ -4571,21 +4571,31 @@ export const Core = {
         });
     },
 
+    // 匯入名單只接受 handle 本身。Threads 沿用 Instagram 規則，handle 只允許
+    // 小寫字母、數字、句點、底線，平台會把大寫折成小寫，所以一律轉小寫才能和
+    // 頁面抓到的 href（永遠是小寫）比對得上。
+    parseImportedUsernames: (input) => {
+        const out = [];
+        for (const token of String(input || '').split(/[\s,，\n]+/)) {
+            let value = token.trim();
+            if (!value) continue;
+            if (value.includes('/@')) value = value.split('/@')[1];
+            else value = value.replace(/^@+/, '');
+            // handle 到第一個 / ? # 為止：分享連結常帶 query 與 hash
+            value = value.split(/[/?#]/)[0].trim().toLowerCase();
+            if (value) out.push(value);
+        }
+        return [...new Set(out)];
+    },
+
     importList: () => {
         const input = prompt("請貼上 ID 名單："); if (!input) return;
-        let rawUsers = input.split(/[\s,，\n]+/).map(u => u.trim()).filter(u => u.length > 0).map(u => {
-            u = u.split('?')[0]; // 去除網址帶有的 tracking parameters
-            if (u.includes('/@')) return u.split('/@')[1].split('/')[0];
-            if (u.startsWith('@')) return u.substring(1);
-            return u.split('/')[0];
-        });
+        const rawUsers = Core.parseImportedUsernames(input);
 
-        // 名單內部自身去重
-        rawUsers = [...new Set(rawUsers)];
-
-        const db = new Set(Storage.getBlockDB());
+        // 既有紀錄可能留有大小寫不一致的舊資料，比對時一律轉小寫
+        const db = new Set(Storage.getBlockDB().map(u => String(u || '').toLowerCase()));
         let activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
-        const activeSet = new Set(activeQueue);
+        const activeSet = new Set(activeQueue.map(u => String(u || '').toLowerCase()));
 
         // 雙重過濾：不在歷史紀錄中，且不在當前的排隊佇列中
         const newUsers = rawUsers.filter(u => !db.has(u) && !activeSet.has(u));
