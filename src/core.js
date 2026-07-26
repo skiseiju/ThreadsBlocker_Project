@@ -5,6 +5,7 @@ import { UI } from './ui.js';
 import { Reporter } from './reporter.js';
 import { ReportDebugContext } from './report-debug-context.js';
 import { DialogCollector } from './dialog-collector.js';
+import { MoreLocator } from './more-locator.js';
 
 const BETA_DIAGNOSTIC_FEATURES = new Set(['blocking', 'report', 'selection', 'panel', 'three_no', 'followers', 'clean_list', 'reservoir', 'likes', 'message_route', 'runtime', 'unknown']);
 const BETA_DIAGNOSTIC_STAGES = new Set([
@@ -1081,33 +1082,48 @@ export const Core = {
 
     findProfileActionAnchor: (root) => {
         if (!root) return null;
-        const moreLabelRe = /更多|More|もっと見る|더 보기|เพิ่มเติม|Lainnya|Más|Plus|Mehr|Altro|Mais|Ещё|Więcej|Diğer|Thêm|المزيد|और|Meer|Higit pa/i;
-        const candidates = Array.from(root.querySelectorAll('a, div[role="button"], button'))
+        const isHeaderAnchorGeometry = (rect) => rect
+            && rect.width >= 24
+            && rect.height >= 24
+            && rect.top >= 120
+            && rect.top < Math.min(window.innerHeight, 460);
+        const instagramBellCandidates = Array.from(root.querySelectorAll('a, div[role="button"], button'))
             .map(el => {
                 const rect = el.getBoundingClientRect();
                 const svgs = Array.from(el.querySelectorAll('svg'));
                 const hasInstagram = svgs.some(svg => /instagram/i.test(svg.getAttribute('aria-label') || ''));
                 const hasBell = svgs.some(svg => svg.getAttribute('viewBox') === '0 0 25 24' && svg.querySelectorAll('path').length >= 2);
-                const hasProfileMoreShape = svgs.some(svg => svg.querySelectorAll('circle').length === 1 && svg.querySelectorAll('path').length >= 3);
-                const label = [
-                    el.getAttribute('aria-label') || '',
-                    el.getAttribute('title') || '',
-                    ...svgs.map(svg => svg.getAttribute('aria-label') || ''),
-                ].join(' ');
-                const hasSemanticMore = moreLabelRe.test(label);
                 const href = el.getAttribute('href') || el.closest('a')?.getAttribute('href') || '';
                 const unsafeSearchOrTagLink = !!el.closest('a, [role="link"]')
                     && (/(^|\/)search(?:\/|$)/i.test(href) || /(^|\/)tags(?:\/|$)/i.test(href) || /(?:^|[?&])serp_type=tags(?:&|$)/i.test(href));
-                return { el, rect, hasInstagram, hasBell, hasProfileMore: hasProfileMoreShape || hasSemanticMore, unsafeSearchOrTagLink };
+                return { el, rect, hasInstagram, hasBell, unsafeSearchOrTagLink };
             })
-            .filter(item => item.rect.width >= 24 && item.rect.height >= 24 && item.rect.top >= 120 && item.rect.top < Math.min(window.innerHeight, 460))
+            .filter(item => isHeaderAnchorGeometry(item.rect))
             .filter(item => !item.unsafeSearchOrTagLink)
-            .filter(item => item.hasInstagram || item.hasBell || item.hasProfileMore)
+            .filter(item => item.hasInstagram || item.hasBell)
             .sort((a, b) => {
-                const rank = (item) => item.hasInstagram ? 0 : item.hasBell ? 1 : item.hasProfileMore ? 2 : 3;
+                const rank = (item) => item.hasInstagram ? 0 : item.hasBell ? 1 : 2;
                 return rank(a) - rank(b) || a.rect.left - b.rect.left;
             });
-        return candidates[0]?.el || null;
+        const moreCandidates = MoreLocator.findCandidates(root, { mode: 'profile', trustedRoot: true })
+            .map(({ el, score }) => ({
+                el,
+                rect: el.getBoundingClientRect(),
+                hasInstagram: false,
+                hasBell: false,
+                moreScore: score,
+            }));
+        const candidates = [...instagramBellCandidates, ...moreCandidates]
+            .sort((a, b) => {
+                const rank = (item) => item.hasInstagram ? 0 : item.hasBell ? 1 : 2;
+                const geometryRank = (item) => isHeaderAnchorGeometry(item.rect) ? 0 : 1;
+                return rank(a) - rank(b)
+                    || geometryRank(a) - geometryRank(b)
+                    || (a.moreScore || 0) - (b.moreScore || 0)
+                    || a.rect.left - b.rect.left;
+            });
+        const selected = candidates[0];
+        return selected && isHeaderAnchorGeometry(selected.rect) ? selected.el : null;
     },
 
     findProfileRoot: (username) => {

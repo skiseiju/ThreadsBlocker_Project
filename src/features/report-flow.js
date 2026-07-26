@@ -464,22 +464,7 @@ Object.assign(Core, {
         },
 
         getMoreButtonText(el) {
-            if (!el) return '';
-            const descendantAttrs = Array.from(el.querySelectorAll?.('[aria-label], [title], img[alt], svg[aria-label]') || [])
-                .map(node => [
-                    node.getAttribute?.('aria-label') || '',
-                    node.getAttribute?.('title') || '',
-                    node.getAttribute?.('alt') || '',
-                ].join(' '))
-                .join(' ');
-            return [
-                el.getAttribute?.('aria-label') || '',
-                el.getAttribute?.('title') || '',
-                el.getAttribute?.('alt') || '',
-                descendantAttrs,
-                el.innerText || '',
-                el.textContent || '',
-            ].join(' ').replace(/\s+/g, ' ').trim();
+            return MoreLocator.textOf(el);
         },
 
         getMoreButtonClickable(el) {
@@ -498,11 +483,10 @@ Object.assign(Core, {
                 Core.ReportDriver.getMoreButtonText(el),
                 Core.ReportDriver.getMoreButtonText(svg),
             ].join(' ');
-            const circleCount = svg?.querySelectorAll?.('circle').length || 0;
-            const pathCount = svg?.querySelectorAll?.('path').length || 0;
-            return /更多|More|もっと見る|더 보기|เพิ่มเติม|Lainnya|Más|Plus|Mehr|Altro|Mais|Ещё|Więcej|Diğer|Thêm|المزيد|और|Meer|Higit pa/i.test(text)
-                || (circleCount === 3 && pathCount === 0)
-                || (circleCount >= 1 && pathCount >= 3);
+            return MoreLocator.LABEL_RE.test(text)
+                || !!MoreLocator.explicitAriaLabel(el)
+                || MoreLocator.isMoreShape(el)
+                || MoreLocator.isMoreShape(svg);
         },
 
         findMoreButtonCandidates(root = document, mode = 'row') {
