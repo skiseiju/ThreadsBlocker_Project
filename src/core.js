@@ -1123,7 +1123,7 @@ export const Core = {
                     || a.rect.left - b.rect.left;
             });
         const selected = candidates[0];
-        return selected && isHeaderAnchorGeometry(selected.rect) ? selected.el : null;
+        return selected?.el || null;
     },
 
     findProfileRoot: (username) => {
