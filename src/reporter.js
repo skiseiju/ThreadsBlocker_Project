@@ -380,7 +380,7 @@ export const Reporter = {
         const signature = await Reporter.sha256(rawStr);
 
         const safeMessage = Reporter.scrubSensitiveText(message);
-        const diagnosticsEnabled = CONFIG.ENABLE_BETA_DIAGNOSTICS === true && /-beta\d+$/i.test(String(CONFIG.VERSION || ''));
+        const diagnosticsEnabled = diagnostics?.enabled?.() === true;
         // Legacy contract marker: const hasDiagnosticConsent = metadata && metadata.diagnosticConsent === true;
         const hasDiagnosticConsent = diagnosticsEnabled && metadata && metadata.diagnosticConsent === true;
         const safeMetadata = hasDiagnosticConsent ? Reporter.scrubSensitiveData(metadata) : null;

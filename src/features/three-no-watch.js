@@ -6,7 +6,9 @@ import { UI } from '../ui.js';
 import { Core } from '../core.js';
 import { ReportDebugContext } from '../report-debug-context.js';
 
-const isThreeNoDebugLogActive = () => CONFIG.ENABLE_BETA_DIAGNOSTICS === true && Utils.isBetaBuild();
+// Persistent three-no debug material follows the diagnostics lifecycle gate.
+// UI copy remains separately beta-visible through Utils.isBetaBuild() below.
+const isThreeNoDebugLogActive = () => Core.RuntimeDiagnostics?.enabled?.() === true;
 
 Object.assign(Core, {
     ThreeNoWatch: {

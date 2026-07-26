@@ -846,7 +846,8 @@ export const UI = {
         bindClick('hege-endless-queue-item', callbacks.onEndlessQueue);
         bindClick('hege-stop-btn-item', callbacks.onStop);
         bindClick('hege-settings-item', callbacks.onSettings);
-        if (callbacks.onCopyDiagnostics && CONFIG.ENABLE_BETA_DIAGNOSTICS === true && /-beta\d+$/i.test(String(CONFIG.VERSION || ''))) {
+        // Legacy CONFIG.ENABLE_BETA_DIAGNOSTICS/version checks are centralized in RuntimeDiagnostics.enabled().
+        if (callbacks.onCopyDiagnostics && globalThis.__hegeRuntimeDiagnostics?.enabled?.() === true) {
             const diagnosticsItem = document.getElementById('hege-copy-diagnostics-item');
             if (diagnosticsItem) diagnosticsItem.style.display = '';
             bindClick('hege-copy-diagnostics-item', callbacks.onCopyDiagnostics);
@@ -1429,7 +1430,7 @@ export const UI = {
     },
 
     showBugReportModal: (onSubmit) => {
-        const diagnosticsEnabled = CONFIG.ENABLE_BETA_DIAGNOSTICS === true && /-beta\d+$/i.test(String(CONFIG.VERSION || ''));
+        const diagnosticsEnabled = globalThis.__hegeRuntimeDiagnostics?.enabled?.() === true;
         if (document.getElementById('hege-report-overlay')) return;
 
         const overlay = document.createElement('div');

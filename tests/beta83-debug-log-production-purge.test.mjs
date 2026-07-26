@@ -84,6 +84,7 @@ globalThis.CustomEvent = class CustomEvent {
 
 const { CONFIG } = await import('../src/config.js');
 const { Storage } = await import('../src/storage.js');
+const { Utils } = await import('../src/utils.js');
 const { Core, RuntimeDiagnostics, projectScanDebugLogForExport } = await import('../src/core.js');
 await import('../src/features/three-no-watch.js');
 
@@ -155,6 +156,37 @@ test('beta83 inactive boot purges stale raw log/schema without bridge listener',
     assert.equal(localStorageMock.getItem(schemaKey), null);
     assert.equal(listeners.has('hege:threads-network-discovery'), false);
     assert.equal(dispatchedEvents.some(event => event.type === 'hege:threads-network-discovery-toggle'), false);
+});
+
+test('beta83 persistent three-no diagnostics use RuntimeDiagnostics gate, not UI beta visibility', () => {
+    const originalIsBetaBuild = Utils.isBetaBuild;
+    try {
+        resetState({ version: '2.7.4-beta83', enabled: true });
+        Utils.isBetaBuild = () => false;
+        localStorageMock.setItem(schemaKey, 'old-schema');
+        Core.ThreeNoWatch.resetOldDebugSchemaIfNeeded();
+        Core.ThreeNoWatch.appendScanDebugLog({ scanId: 'canonical-active', debug: { step: 'writer' } });
+        assert.equal(localStorageMock.getItem(schemaKey), 'network-discovery-v6');
+        assert.equal(Core.ThreeNoWatch.getScanDebugLog('canonical-active').length, 1);
+        Core.ThreeNoWatch.resetScanDebugLog();
+        assert.deepEqual(Core.ThreeNoWatch.getScanDebugLog(), []);
+
+        resetState({ version: '2.7.4-beta', enabled: true });
+        Utils.isBetaBuild = () => true;
+        localStorageMock.setItem(schemaKey, 'old-schema');
+        localStorageMock.setItem(debugKey, JSON.stringify([{ scanId: 'canonical-inactive' }]));
+        assert.equal(Core.ThreeNoWatch.resetOldDebugSchemaIfNeeded(), false);
+        Core.ThreeNoWatch.appendScanDebugLog({ scanId: 'canonical-inactive', debug: { step: 'writer' } });
+        Core.ThreeNoWatch.resetScanDebugLog();
+        assert.equal(localStorageMock.getItem(schemaKey), 'old-schema');
+        assert.match(String(localStorageMock.getItem(debugKey)), /canonical-inactive/);
+        assert.equal(Core.ThreeNoWatch.purgeInactiveThreeNoDebugLog(), true);
+        assert.equal(localStorageMock.getItem(debugKey), null);
+        assert.equal(localStorageMock.getItem(schemaKey), null);
+    } finally {
+        Utils.isBetaBuild = originalIsBetaBuild;
+        resetState();
+    }
 });
 
 test('beta83 beta writers and reset retain raw behavior while export projection stays six-column', () => {
