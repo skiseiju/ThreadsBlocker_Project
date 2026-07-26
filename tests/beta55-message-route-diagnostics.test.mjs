@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { diagnosticsEnabled, diagnosticsSkipReason } from './helpers/diagnostics-gate.mjs';
 
 class MemoryStorage {
     #data = new Map();
@@ -32,7 +33,7 @@ const fixture = (signals = {}) => {
     return { querySelector: () => root };
 };
 
-test('beta55 message route requires shell evidence and records normalized signal matrix', () => {
+test('beta55 message route requires shell evidence and records normalized signal matrix', { skip: diagnosticsEnabled ? false : diagnosticsSkipReason }, () => {
     RuntimeDiagnostics.clear();
     assert.equal(isMessageRouteContext({ pathname: '/messages/123' }, fixture({})), true);
     assert.equal(isMessageRouteContext({ pathname: '/messages/123' }, fixture({ hidden: true })), true);

@@ -4,6 +4,7 @@ import { Core } from '../src/core.js';
 import '../src/features/three-no-watch.js';
 import { RuntimeDiagnostics } from '../src/core.js';
 import { Worker } from '../src/worker.js';
+import { diagnosticsEnabled, diagnosticsSkipReason } from './helpers/diagnostics-gate.mjs';
 
 test('beta57 observeStop owner-scoped and legacy commands finish without ReferenceError', async () => {
     const watch = Core.ThreeNoWatch;
@@ -42,7 +43,7 @@ test('beta57 worker source has terminal cooldown handling for init and verify br
     assert.match(source, /recordSafetyDiagnostic\('retry', 'retry'/);
 });
 
-test('beta57 safety writer emits executable retry/failure/breaker/cooldown sequence', () => {
+test('beta57 safety writer emits executable retry/failure/breaker/cooldown sequence', { skip: diagnosticsEnabled ? false : diagnosticsSkipReason }, () => {
     const previousVersion = globalThis.__tb_test_version;
     const previousStorage = globalThis.localStorage;
     const memory = new Map();

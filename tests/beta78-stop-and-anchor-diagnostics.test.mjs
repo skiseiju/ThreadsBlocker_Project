@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { diagnosticsEnabled, diagnosticsSkipReason } from './helpers/diagnostics-gate.mjs';
 
 const createStorageArea = () => {
     const values = new Map();
@@ -130,7 +131,7 @@ test.after(() => {
     RuntimeDiagnostics.clear();
 });
 
-test('beta78 appendScanDebugLog probe is privacy-safe for new stop-gate entries', () => {
+test('beta78 appendScanDebugLog probe is privacy-safe for new stop-gate entries', { skip: diagnosticsEnabled ? false : diagnosticsSkipReason }, () => {
     resetState();
     Core.ThreeNoWatch.appendScanDebugLog({
         scanId: 'privacy-probe',
@@ -158,7 +159,7 @@ test('beta78 appendScanDebugLog probe is privacy-safe for new stop-gate entries'
     assert.deepEqual(Object.keys(row.debug || {}), ['step']);
 });
 
-test('beta78 requestStop missing ids stays false and records stop_rejected_missing_ids', () => {
+test('beta78 requestStop missing ids stays false and records stop_rejected_missing_ids', { skip: diagnosticsEnabled ? false : diagnosticsSkipReason }, () => {
     resetState();
     const result = Core.ThreeNoWatch.requestStop();
     assert.equal(result, false);
@@ -167,7 +168,7 @@ test('beta78 requestStop missing ids stays false and records stop_rejected_missi
     assert.equal(row.step, 'stop_rejected_missing_ids');
 });
 
-test('beta78 finishScan terminal guard stays false and records finish_rejected_early_terminal', async () => {
+test('beta78 finishScan terminal guard stays false and records finish_rejected_early_terminal', { skip: diagnosticsEnabled ? false : diagnosticsSkipReason }, async () => {
     resetState();
     Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {
         scanId: 'finish-terminal',

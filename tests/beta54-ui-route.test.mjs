@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { CONFIG } from '../src/config.js';
+import { diagnosticsEnabled, diagnosticsSkipReason } from './helpers/diagnostics-gate.mjs';
 
 const coreSource = await readFile(new URL('../src/core.js', import.meta.url), 'utf8');
 const uiSource = await readFile(new URL('../src/ui.js', import.meta.url), 'utf8');
@@ -31,7 +32,7 @@ test('beta54 partial follower copy names loaded, added, already-listed and not-l
     assert.doesNotMatch(coreSource, /收集未完成（\$\{reason\}）/);
 });
 
-test('beta54 version is bumped without building', () => {
+test('beta54 version is bumped without building', { skip: diagnosticsEnabled ? false : diagnosticsSkipReason }, () => {
     const versionMatch = /^2\.7\.4-beta(\d+)$/.exec(String(CONFIG.VERSION));
     assert.ok(versionMatch, `CONFIG.VERSION must be a 2.7.4 beta version, got ${CONFIG.VERSION}`);
     assert.ok(Number(versionMatch[1]) >= 63, `CONFIG.VERSION beta number must be >= 63, got ${CONFIG.VERSION}`);

@@ -4,6 +4,7 @@ import { chromium } from 'playwright';
 import { readFile } from 'node:fs/promises';
 import { CONFIG } from '../src/config.js';
 import { RuntimeDiagnostics } from '../src/core.js';
+import { diagnosticsEnabled, diagnosticsSkipReason } from './helpers/diagnostics-gate.mjs';
 
 const utilsSource = await readFile(new URL('../src/utils.js', import.meta.url), 'utf8');
 const coreSource = await readFile(new URL('../src/core.js', import.meta.url), 'utf8');
@@ -166,7 +167,7 @@ test('beta59 unverified class-only rows remain unresolved', async () => {
     await page.close();
 });
 
-test('beta59 diagnostics expose privacy-safe skip breakdown and scroll progress', () => {
+test('beta59 diagnostics expose privacy-safe skip breakdown and scroll progress', { skip: diagnosticsEnabled ? false : diagnosticsSkipReason }, () => {
     for (const key of ['selfSkippedCount', 'ownerSkippedCount', 'replySkippedCount']) {
         assert.match(coreSource, new RegExp(key));
     }

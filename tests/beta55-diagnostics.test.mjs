@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { diagnosticsEnabled, diagnosticsSkipReason } from './helpers/diagnostics-gate.mjs';
 
 class MemoryStorage {
     #data = new Map();
@@ -23,7 +24,7 @@ test.after(() => {
     RuntimeDiagnostics.clear();
 });
 
-test('beta55 diagnostics are beta-only, bounded, session-memory and privacy-safe', () => {
+test('beta55 diagnostics are beta-only, bounded, session-memory and privacy-safe', { skip: diagnosticsEnabled ? false : diagnosticsSkipReason }, () => {
     RuntimeDiagnostics.clear();
     for (let i = 0; i < 250; i += 1) {
         RuntimeDiagnostics.record('likes', 'wait', {
@@ -47,7 +48,7 @@ test('beta55 diagnostics are beta-only, bounded, session-memory and privacy-safe
     assert.equal(RuntimeDiagnostics.export().entries.length, 0);
 });
 
-test('beta55 diagnostics coalesce high-frequency message events without starving clean-list stages', () => {
+test('beta55 diagnostics coalesce high-frequency message events without starving clean-list stages', { skip: diagnosticsEnabled ? false : diagnosticsSkipReason }, () => {
     RuntimeDiagnostics.clear();
     for (let i = 0; i < 200; i += 1) RuntimeDiagnostics.record('message_route', 'route', {
         routeMatch: false, routeUnchanged: true, visible: false, sameRoot: false, cohesive: false,

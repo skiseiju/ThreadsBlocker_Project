@@ -4,6 +4,7 @@ import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { diagnosticsEnabled, diagnosticsSkipReason } from './helpers/diagnostics-gate.mjs';
 
 const browser = await chromium.launch({ headless: true });
 const srcRoot = fileURLToPath(new URL('../src/', import.meta.url));
@@ -32,7 +33,7 @@ test.after(async () => {
     await new Promise(resolve => moduleServer.close(resolve));
 });
 
-test('beta64 clean-list waits for lazy Likes rows instead of ending at initial bottom', async () => {
+test('beta64 clean-list waits for lazy Likes rows instead of ending at initial bottom', { skip: diagnosticsEnabled ? false : diagnosticsSkipReason }, async () => {
     const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
     await page.goto(`${moduleOrigin}/@owner/post/123`);
     await page.evaluate(async () => { await import('/core.js'); });

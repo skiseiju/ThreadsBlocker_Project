@@ -704,6 +704,30 @@ export const Core = {
         return Core._selectionSnapshot.size;
     },
 
+    // Checkbox appearance is derived from these sources only.  Callers may
+    // pass pre-built Sets from the same storage snapshot to keep every DOM
+    // update in one pass; omitted sources are read here.
+    resolveCheckboxState: (username, sources = null) => {
+        const source = sources && typeof sources === 'object' ? sources : {};
+        const asSet = (value, readFallback) => value instanceof Set ? value : new Set(value || readFallback());
+        const db = asSet(source.db, () => Storage.getBlockDB());
+        const cdq = asSet(source.cdq, () => Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
+        const bgq = asSet(source.bgq, () => Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
+
+        if (db.has(username)) return 'finished';
+        if (Core.pendingUsers.has(username) || Core.isSelectionLatched(username) || cdq.has(username) || bgq.has(username)) {
+            return 'checked';
+        }
+        return 'none';
+    },
+
+    applyCheckboxState: (element, state) => {
+        if (!element?.classList) return;
+        element.classList.remove('finished', 'checked', "pending");
+        if (state === 'finished') element.classList.add('finished');
+        else if (state === 'checked') element.classList.add('checked');
+    },
+
     markStopRequested: () => {
         const operationId = RuntimeDiagnostics.begin('selection', { strategy: 'semantic_row', active: true });
         RuntimeDiagnostics.record('selection', 'stop', { stopRequested: true, visibleStop: true, flickerLatch: true, operationId });
@@ -1014,17 +1038,9 @@ export const Core = {
         if (liveSession) {
             Core.beginBlockSession([...Core.pendingUsers, ...bgq]);
         }
-        if (db.has(username)) {
-            container.classList.add('finished');
-            container.classList.remove('checked');
-        } else if (Core.pendingUsers.has(username) || Core.isSelectionLatched(username) || cdq.has(username) || bgq.has(username)) {
-            container.classList.add('checked');
-            container.classList.remove('finished');
-            if (queueElement) Core.blockQueue.add(queueElement);
-        } else {
-            container.classList.remove('finished');
-            container.classList.remove('checked');
-        }
+        const state = Core.resolveCheckboxState(username, { db, cdq, bgq });
+        Core.applyCheckboxState(container, state);
+        if (state === 'checked' && queueElement) Core.blockQueue.add(queueElement);
     },
 
     findProfileHeaderUsernameElement: (root, username) => {
@@ -2434,8 +2450,9 @@ export const Core = {
 
         setTimeout(() => {
             document.querySelectorAll('.hege-checkbox-container').forEach(box => {
-                if (box.dataset.username && Core.pendingUsers.has(box.dataset.username)) {
-                    box.classList.add('checked');
+                const username = box.dataset.username;
+                if (username && Core.pendingUsers.has(username)) {
+                    Core.applyCheckboxState(box, Core.resolveCheckboxState(username));
                 }
             });
         }, 500);
@@ -2561,8 +2578,9 @@ export const Core = {
             }
 
             document.querySelectorAll('.hege-checkbox-container').forEach(box => {
-                if (box.dataset.username && Core.pendingUsers.has(box.dataset.username)) {
-                    box.classList.add('checked');
+                const username = box.dataset.username;
+                if (username && Core.pendingUsers.has(username)) {
+                    Core.applyCheckboxState(box, Core.resolveCheckboxState(username));
                 }
             });
 
@@ -2823,6 +2841,7 @@ export const Core = {
         });
 
         const dbRef = new Set(Storage.getBlockDB());
+        const cdqRef = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
         const activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
         const activeSet = new Set(activeQueue);
 
@@ -2902,10 +2921,8 @@ export const Core = {
                     else checkboxHost.appendChild(existingBox);
                     existingBox.classList.toggle('hege-profile-list-checkbox', isProfileList);
                 }
-                const isChecked = Core.pendingUsers.has(username) || Core.isSelectionLatched(username);
-                if (isChecked !== existingBox.classList.contains('checked')) {
-                    existingBox.classList.toggle('checked', isChecked);
-                }
+                const state = Core.resolveCheckboxState(username, { db: dbRef, cdq: cdqRef, bgq: activeSet });
+                Core.applyCheckboxState(existingBox, state);
                 return;
             }
 
@@ -2957,13 +2974,8 @@ export const Core = {
 
             container.dataset.username = username;
 
-            if (dbRef.has(username)) {
-                container.classList.add('finished');
-            } else if (activeSet.has(username)) {
-                container.classList.add('pending');
-            } else if (Core.pendingUsers.has(username) || Core.isSelectionLatched(username)) {
-                container.classList.add('checked');
-            }
+            const state = Core.resolveCheckboxState(username, { db: dbRef, cdq: cdqRef, bgq: activeSet });
+            Core.applyCheckboxState(container, state);
 
             // Beta 45: Only use handleGlobalClick to avoid double-toggle issues.
             // Still keep the prevention listeners to block Threads' native behavior on these specific elements if needed.
@@ -3019,8 +3031,10 @@ export const Core = {
         const moreSvgs = document.querySelectorAll(CONFIG.SELECTORS.MORE_SVG);
         if (moreSvgs.length === 0) return;
 
-        // Optimization: Cache DB lookup
+        // Optimization: cache the three checkbox sources for this scanner pass.
         const db = new Set(Storage.getBlockDB());
+        const cdq = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
+        const bgq = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
 
         moreSvgs.forEach(svg => {
             const btn = svg.closest('div[role="button"]');
@@ -3113,16 +3127,9 @@ export const Core = {
                 btn.dataset.username = username;
                 container.dataset.username = username;
 
-                const db = new Set(Storage.getBlockDB());
-                const cdq = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
-                const bgq = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
-
-                if (db.has(username)) {
-                    container.classList.add('finished');
-                } else if (Core.pendingUsers.has(username) || cdq.has(username) || bgq.has(username)) {
-                    container.classList.add('checked');
-                    Core.blockQueue.add(btn);
-                }
+                const state = Core.resolveCheckboxState(username, { db, cdq, bgq });
+                Core.applyCheckboxState(container, state);
+                if (state === 'checked') Core.blockQueue.add(btn);
             }
 
             if (Utils.isMobile()) {
@@ -3257,8 +3264,7 @@ export const Core = {
                         writeSelectionSnapshot([...Core._selectionSnapshot]);
                     }
                     currentDB.delete(u);
-                    box.classList.remove('finished');
-                    box.classList.add('checked');
+                    Core.applyCheckboxState(box, 'checked');
                     if (btnElement) btnElement.dataset.username = u; // Ensure dataset exists safely
                     if (btnElement) Core.blockQueue.add(btnElement);
                     Core.pendingUsers.add(u);
@@ -3278,7 +3284,7 @@ export const Core = {
                      }, { preserveExisting: false });
                  }
              } else if (targetAction === 'uncheck' && box.classList.contains('checked')) {
-                box.classList.remove('checked');
+                Core.applyCheckboxState(box, 'none');
                 // Remove from queue where username matches
                 Array.from(Core.blockQueue).forEach(b => {
                     if (b.dataset && b.dataset.username === u) Core.blockQueue.delete(b);
@@ -3297,7 +3303,7 @@ export const Core = {
                     Core.removeBlockContext(u);
                 }
             } else if (targetAction === 'check' && !box.classList.contains('checked') && !box.classList.contains('finished')) {
-                box.classList.add('checked');
+                Core.applyCheckboxState(box, 'checked');
                 if (btnElement) btnElement.dataset.username = u;
                 if (btnElement) Core.blockQueue.add(btnElement);
                 if (u) {
@@ -3370,6 +3376,7 @@ export const Core = {
         targets.forEach(u => {
             if (Core.pendingUsers.delete(u)) removed++;
         });
+        const db = new Set(Storage.getBlockDB());
         const bgq = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
         const cdq = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
         const removableContexts = Array.from(targets).filter(u => !bgq.has(u) && !cdq.has(u));
@@ -3378,7 +3385,10 @@ export const Core = {
 
         document.querySelectorAll('.hege-checkbox-container.checked').forEach(cb => {
             if (!cb.dataset.username || targets.has(cb.dataset.username)) {
-                cb.classList.remove('checked');
+                const username = cb.dataset.username;
+                Core.applyCheckboxState(cb, Core.resolveCheckboxState(username, {
+                    db, cdq, bgq,
+                }));
             }
         });
         Array.from(Core.blockQueue || []).forEach(b => {
@@ -3408,8 +3418,9 @@ export const Core = {
         Storage.setSessionJSON(CONFIG.KEYS.PENDING, [...Core.pendingUsers]);
         document.querySelectorAll('.hege-checkbox-container').forEach(cb => {
             const u = cb.dataset.username;
-            if (u && Core.pendingUsers.has(u) && !cb.classList.contains('finished')) {
-                cb.classList.add('checked');
+            if (u && Core.pendingUsers.has(u)) {
+                const state = Core.resolveCheckboxState(u, { db, cdq, bgq });
+                Core.applyCheckboxState(cb, state);
                 if (cb.parentElement) {
                     cb.parentElement.dataset.username = u;
                     Core.blockQueue.add(cb.parentElement);
@@ -3534,22 +3545,8 @@ export const Core = {
             const u = el.dataset.username;
             if (!u) return;
 
-            if (db.has(u)) {
-                if (!el.classList.contains('finished')) {
-                    el.classList.add('finished');
-                    el.classList.remove('checked');
-                }
-            } else if (Core.pendingUsers.has(u) || Core.isSelectionLatched(u) || cdq.has(u) || bgq.has(u)) {
-                if (!el.classList.contains('checked') && !el.classList.contains('finished')) {
-                    el.classList.add('checked');
-                } else if (el.classList.contains('finished')) {
-                    el.classList.remove('finished');
-                    el.classList.add('checked');
-                }
-            } else {
-                el.classList.remove('finished');
-                if (!Core._selectionSnapshot.has(u)) el.classList.remove('checked');
-            }
+            const state = Core.resolveCheckboxState(u, { db, cdq, bgq });
+            Core.applyCheckboxState(el, state);
             Core.syncInlineFakeAccountBadge(el, inlineThreeNoResults);
         });
         Core.syncInlineFakeAccountLinkBadges(inlineThreeNoResults);

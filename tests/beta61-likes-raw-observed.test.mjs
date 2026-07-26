@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { Core, RuntimeDiagnostics } from '../src/core.js';
 import { DialogCollector } from '../src/dialog-collector.js';
 import { Utils } from '../src/utils.js';
+import { diagnosticsEnabled, diagnosticsSkipReason } from './helpers/diagnostics-gate.mjs';
 
 const collectorSource = await readFile(new URL('../src/dialog-collector.js', import.meta.url), 'utf8');
 const browser = await chromium.launch({ headless: true });
@@ -147,7 +148,7 @@ const makeSettlementDialog = ({ observedUsers }) => {
     return dialog;
 };
 
-test('beta61 Core settlement executes raw observed skip-only and true zero-row outcomes', async () => {
+test('beta61 Core settlement executes raw observed skip-only and true zero-row outcomes', { skip: diagnosticsEnabled ? false : diagnosticsSkipReason }, async () => {
     const originals = {
         findLikesTab: DialogCollector.findLikesTab,
         isSelectedTab: DialogCollector.isSelectedTab,

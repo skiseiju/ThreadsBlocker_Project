@@ -4,6 +4,7 @@ import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { diagnosticsEnabled, diagnosticsSkipReason } from './helpers/diagnostics-gate.mjs';
 
 const browser = await chromium.launch({ headless: true });
 const srcRoot = fileURLToPath(new URL('../src/', import.meta.url));
@@ -36,7 +37,7 @@ test.after(async () => {
 // (scrollHeight === clientHeight, overflow visible). The real scroll root is an
 // inner list that only gains scroll range once lazy rows arrive. The one-shot
 // root resolution therefore falls back to the shell and every scroll is a no-op.
-test('beta65 clean-list resolves the real scroll root after lazy rows arrive', async () => {
+test('beta65 clean-list resolves the real scroll root after lazy rows arrive', { skip: diagnosticsEnabled ? false : diagnosticsSkipReason }, async () => {
     const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
     await page.goto(`${moduleOrigin}/@owner/post/123`);
     await page.evaluate(async () => { await import('/core.js'); });

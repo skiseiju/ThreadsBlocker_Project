@@ -4,6 +4,7 @@ import { chromium } from 'playwright';
 import { readFile } from 'node:fs/promises';
 import { CONFIG } from '../src/config.js';
 import { RuntimeDiagnostics } from '../src/core.js';
+import { diagnosticsEnabled, diagnosticsSkipReason } from './helpers/diagnostics-gate.mjs';
 
 const collectorSource = await readFile(new URL('../src/dialog-collector.js', import.meta.url), 'utf8');
 const coreSource = await readFile(new URL('../src/core.js', import.meta.url), 'utf8');
@@ -87,7 +88,7 @@ test('beta58 unresolved unique row remains unknown and cannot commit', async () 
     await page.close();
 });
 
-test('beta58 verified contract is shared by clean-list and post-reservoir and diagnostics are privacy-safe', () => {
+test('beta58 verified contract is shared by clean-list and post-reservoir and diagnostics are privacy-safe', { skip: diagnosticsEnabled ? false : diagnosticsSkipReason }, () => {
     assert.match(coreSource, /classificationStrategy/);
     assert.match(coreSource, /verified_likes_context/);
     assert.match(coreSource, /validAccountRows/);

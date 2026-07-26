@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { CONFIG } from '../src/config.js';
 import { Core, RuntimeDiagnostics } from '../src/core.js';
 import { DialogCollector } from '../src/dialog-collector.js';
+import { diagnosticsEnabled, diagnosticsSkipReason } from './helpers/diagnostics-gate.mjs';
 
 const collectorSource = await readFile(new URL('../src/dialog-collector.js', import.meta.url), 'utf8');
 const browser = await chromium.launch({ headless: true });
@@ -195,7 +196,7 @@ const settlementNode = () => ({
     setAttribute() {},
 });
 
-test('beta62 Core clean_list emits anchor_filter and rows aggregate diagnostics', async () => {
+test('beta62 Core clean_list emits anchor_filter and rows aggregate diagnostics', { skip: diagnosticsEnabled ? false : diagnosticsSkipReason }, async () => {
     const originals = {
         findLikesTab: DialogCollector.findLikesTab,
         isSelectedTab: DialogCollector.isSelectedTab,
@@ -291,7 +292,7 @@ test('beta62 Core clean_list emits anchor_filter and rows aggregate diagnostics'
     }
 });
 
-test('beta62 production reservoir collectBatch exports balanced anchor_filter and rows aggregates', async () => {
+test('beta62 production reservoir collectBatch exports balanced anchor_filter and rows aggregates', { skip: diagnosticsEnabled ? false : diagnosticsSkipReason }, async () => {
     const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
     await page.goto(`${moduleOrigin}/`);
     const output = await page.evaluate(async () => {

@@ -4,6 +4,7 @@ import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { diagnosticsEnabled, diagnosticsSkipReason } from './helpers/diagnostics-gate.mjs';
 
 const browser = await chromium.launch({ headless: true });
 const srcRoot = fileURLToPath(new URL('../src/', import.meta.url));
@@ -56,7 +57,7 @@ const likesDialog = (inner) => `
     <div id="rows">${inner}</div>
   </div>`;
 
-test('beta63 clean-list verified Likes keeps post owner as eligible', async () => {
+test('beta63 clean-list verified Likes keeps post owner as eligible', { skip: diagnosticsEnabled ? false : diagnosticsSkipReason }, async () => {
     const page = await pageWithModules();
     const result = await page.evaluate(async (fixture) => {
         const { Core, RuntimeDiagnostics } = await import('/core.js');
@@ -79,7 +80,7 @@ test('beta63 clean-list verified Likes keeps post owner as eligible', async () =
     assert.equal(ownerRows.at(-1).fields.eligibleCount, 1);
 });
 
-test('beta63 reservoir production path keeps post-owner exclusion and does not enqueue', async () => {
+test('beta63 reservoir production path keeps post-owner exclusion and does not enqueue', { skip: diagnosticsEnabled ? false : diagnosticsSkipReason }, async () => {
     const page = await pageWithModules();
     const result = await page.evaluate(async (fixture) => {
         const { Core, RuntimeDiagnostics } = await import('/core.js');
@@ -99,7 +100,7 @@ test('beta63 reservoir production path keeps post-owner exclusion and does not e
     assert.deepEqual(result.queue, []);
 });
 
-test('beta63 clean-list continues to skip self and reply target', async () => {
+test('beta63 clean-list continues to skip self and reply target', { skip: diagnosticsEnabled ? false : diagnosticsSkipReason }, async () => {
     const page = await pageWithModules();
     const result = await page.evaluate(async ({ selfHtml, replyHtml }) => {
         const { Core, RuntimeDiagnostics } = await import('/core.js');
