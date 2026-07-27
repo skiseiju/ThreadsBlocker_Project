@@ -10,6 +10,13 @@ import { ReportDebugContext } from './report-debug-context.js';
 // SPA 換頁，同時仍是有界等待，不會卡住整批。
 const PROFILE_ROOT_WAIT_MS = 12000;
 
+// Worker 視窗的尺寸上下界。下界是功能前提，不是美觀偏好：低於這個寬度 Threads
+// 會改用窄版面，個人頁的 root 與「更多」按鈕都定位不到。
+const WORKER_MIN_WIDTH = 700;
+const WORKER_MIN_HEIGHT = 520;
+const WORKER_MAX_WIDTH = 800;
+const WORKER_MAX_HEIGHT = 600;
+
 export const Worker = {
     stats: { success: 0, skipped: 0, failed: 0, vanished: 0, startTime: 0 },
     initialTotal: 0,
@@ -202,6 +209,33 @@ export const Worker = {
         },
     }),
 
+    // 撐回下界時不要每次 resize 事件都洗一行 log。
+    _windowBoundsNoticeAt: 0,
+
+    enforceWindowBounds: () => {
+        try {
+            const tooSmall = window.outerWidth < WORKER_MIN_WIDTH || window.outerHeight < WORKER_MIN_HEIGHT;
+            const tooLarge = window.outerWidth > WORKER_MAX_WIDTH || window.outerHeight > WORKER_MAX_HEIGHT;
+            if (!tooSmall && !tooLarge) return false;
+            const width = Math.min(WORKER_MAX_WIDTH, Math.max(WORKER_MIN_WIDTH, window.outerWidth));
+            const height = Math.min(WORKER_MAX_HEIGHT, Math.max(WORKER_MIN_HEIGHT, window.outerHeight));
+            window.resizeTo(width, height);
+            if (tooSmall && Date.now() - Worker._windowBoundsNoticeAt > 3000) {
+                Worker._windowBoundsNoticeAt = Date.now();
+                if (window.hegeLog) {
+                    window.hegeLog(`[視窗] 視窗太小會讓 Threads 切成窄版面、抓不到個人頁，已自動調回 ${width}x${height}。可以移動或蓋住這個視窗，但不要縮得更小。`);
+                }
+                RuntimeDiagnostics.record(Worker._diagnosticOperationFeature || 'blocking', 'layout', {
+                    operationId: Worker._diagnosticOperationId,
+                    clamped: true,
+                    viewportWidth: window.innerWidth,
+                    viewportHeight: window.innerHeight,
+                });
+            }
+            return true;
+        } catch (e) { return false; }
+    },
+
     init: async () => {
         Worker._diagnosticOperationFeature = Storage.get(CONFIG.KEYS.WORKER_MODE, '') === 'report' ? 'report' : 'blocking';
         Worker._diagnosticOperationId = RuntimeDiagnostics.begin(Worker._diagnosticOperationFeature, { strategy: Utils.isMobile() ? 'same_tab' : 'background_tab', foreground: !Utils.isMobile(), background: Utils.isMobile() === false });
@@ -216,12 +250,12 @@ export const Worker = {
 
         document.title = `🛡️ 留友封-${isUnblock ? '解除封鎖' : '背景執行'}中`;
 
-        // Enforce maximum safe desktop window size
-        try {
-            if (window.outerWidth > 800 || window.outerHeight > 600) {
-                window.resizeTo(800, 600);
-            }
-        } catch (e) { }
+        // Worker 視窗尺寸有上下界。上界避免佔滿螢幕；下界是功能前提：實測把視窗
+        // 縮到 197x327 或 254x269，Threads 會切成窄版面，個人頁的 root 與「更多」
+        // 都認不出來，整批封鎖 100% 失敗（BUGLIST #11）。與其追著窄版面改判定，
+        // 這裡把它當成不支援的尺寸，偵測到就撐回下界並在畫面上說明。
+        Worker.enforceWindowBounds();
+        window.addEventListener('resize', () => Worker.enforceWindowBounds());
 
         const channel = new BroadcastChannel('hege_debug_channel');
         window.hegeLog = (msg) => {
