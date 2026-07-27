@@ -1905,7 +1905,22 @@ export const Worker = {
                             parent = parent.parentElement;
                         }
                     } catch (e) { }
+                    // #11 取證：只記錄，不改行為。要分辨「點到的是 ⋯ 本身」還是
+                    // 「點到包住 ⋯ 的外層容器」，光看座標與父層文案分不出來。
+                    const ownLabel = profileBtn.getAttribute?.('aria-label') || '';
+                    const nestedLabel = profileBtn.querySelector?.('svg[aria-label]')?.getAttribute('aria-label') || '';
+                    const identity = [
+                        `tag=${profileBtn.tagName}`,
+                        `role=${profileBtn.getAttribute?.('role') || '-'}`,
+                        `tabindex=${profileBtn.getAttribute?.('tabindex') ?? '-'}`,
+                        `ownLabel=${ownLabel || '-'}`,
+                        `nestedLabel=${nestedLabel || '-'}`,
+                        `size=${Math.round(rect.width)}x${Math.round(rect.height)}`,
+                        `svgCount=${profileBtn.querySelectorAll?.('svg').length ?? 0}`,
+                        `viewport=${window.innerWidth}x${window.innerHeight}`,
+                    ].join(' ');
                     window.hegeLog(`[DIAG] 準備點擊按鈕 x=${Math.round(rect.x)}, y=${Math.round(rect.y)}, 父層文案=${parentText}`);
+                    window.hegeLog(`[DIAG] 更多按鈕本體 ${identity}`);
                 }
                 await Utils.speedSleep(300);
                 profileBtn.scrollIntoView({ block: 'center', inline: 'center' });
@@ -1930,7 +1945,11 @@ export const Worker = {
                         if (testMenu.length === 0) {
                             clickRetried = true;
                             diagnosticRetryCount++;
-                            if (window.hegeLog) window.hegeLog(`[DIAG] 選單未開啟，重試 simClick...`);
+                            if (window.hegeLog) {
+                                // #11 取證：分辨「完全沒有任何浮層」與「浮層開了但不是我們要的選單」。
+                                window.hegeLog(`[DIAG] 選單未開啟，重試 simClick...`);
+                                window.hegeLog(`[DIAG] 重試前浮層盤點 menuitem=${document.querySelectorAll('div[role="menuitem"]').length} menu=${document.querySelectorAll('[role="menu"]').length} dialog=${document.querySelectorAll('div[role="dialog"]').length} overlay=${document.querySelectorAll('div[data-overlay-container="true"]').length}`);
+                            }
                             Utils.simClick(profileBtn);
                         }
                     }
@@ -1986,7 +2005,14 @@ export const Worker = {
                     const onRepliesPage = window.location.pathname.includes('/replies');
                     if (onRepliesPage) {
                         setStep('Profile 選單無效，嘗試貼文備案...');
-                        if (window.hegeLog) window.hegeLog(`[DIAG] Profile 選單無封鎖鈕，就地搜尋貼文 More`);
+                        if (window.hegeLog) {
+                            window.hegeLog(`[DIAG] Profile 選單無封鎖鈕，就地搜尋貼文 More`);
+                            // #11 取證：選單到底開出了什麼。空字串代表根本沒開。
+                            const seenTexts = Array.from(document.querySelectorAll('div[role="menuitem"]'))
+                                .map(el => (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 20))
+                                .filter(Boolean);
+                            window.hegeLog(`[DIAG] Profile 選單實際內容 menuitem=${seenTexts.length} 內容=[${seenTexts.join(' / ')}]`);
+                        }
 
                         // 關閉 Profile 選單
                         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
