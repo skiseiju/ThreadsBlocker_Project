@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.8.1-beta5', // stable release: credentials removal + consent v4 + settings redesign
+    VERSION: '2.8.1-beta6', // stable release: credentials removal + consent v4 + settings redesign
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // Beta-only, in-memory diagnostics. Stable/release channels must keep this
     // disabled even if a stale setting is present.
@@ -141,6 +141,10 @@ export const CONFIG = {
         REPORT_DEBUG_LAST_EXPORT: 'hege_report_debug_last_export',
         REPORT_DEBUG_CONTEXT_V2: 'hege_report_debug_context_v2',
         REPORT_FAILURE_SNAPSHOT: 'hege_report_failure_snapshot',
+        // Worker 視窗的 RuntimeDiagnostics 是 in-memory，視窗關掉就沒了，主視窗
+        // 的「複製診斷資料」因此永遠拿不到 blocking 的紀錄。這個 key 讓 worker
+        // 把已經過安全過濾的 entries 落盤，主視窗匯出時合併。
+        RUNTIME_DIAGNOSTICS_RING: 'hege_runtime_diagnostics_ring',
         IMPORTED_REPORT_PACKS: 'hege_imported_report_packs_v1',
         IMPORTED_REPORT_PACK_INDEX: 'hege_imported_report_pack_index_v1',
         
@@ -205,6 +209,7 @@ export const CONFIG = {
         'hege_report_debug_last_export', // REPORT_DEBUG_LAST_EXPORT
         'hege_report_debug_context_v2', // REPORT_DEBUG_CONTEXT_V2
         'hege_report_failure_snapshot', // REPORT_FAILURE_SNAPSHOT
+        'hege_runtime_diagnostics_ring', // RUNTIME_DIAGNOSTICS_RING
         'hege_source_evidence_index', // SOURCE_EVIDENCE_INDEX
         'hege_source_evidence_prune_at', // SOURCE_EVIDENCE_PRUNE_AT
         'hege_report_keep_block_selection', // REPORT_KEEP_BLOCK_SELECTION

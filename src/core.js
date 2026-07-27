@@ -105,6 +105,8 @@ export const RuntimeDiagnostics = {
             'breakerCount', 'visibleRows', 'uniqueVisibleRows', 'uniqueUnknownRows', 'uniqueEligibleCount', 'uniqueRowCount', 'rowCount', 'operationCount', 'statusCode', 'checkedCount', 'requestCount',
             'selfSkippedCount', 'ownerSkippedCount', 'replySkippedCount', 'scrollAttempt', 'visibleProgress',
             'bestExactLinkCount', 'checkedInputCount', 'checkboxContainerCount', 'newUserCount', 'rawUserCount',
+            // BUGLIST #11 取證：個人頁「更多」點擊後選單不開的觀測量。全部是數量，不含文字。
+            'menuCount', 'overlayCount', 'svgCount',
         ];
         for (const key of countKeys) {
             if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = boundedDiagnosticInt(source[key]);
@@ -127,6 +129,9 @@ export const RuntimeDiagnostics = {
             'failure', 'terminal', 'preserved',
             'verifiedLikesContext', 'activityDialog', 'contextMatch',
             'ctxIsRoleDialog', 'ctxVisible', 'isMessageRoute', 'didInject', 'insideRoleDialog',
+            // BUGLIST #11 取證：只記錄 aria-label 有沒有出現在按鈕本體或內嵌 svg，
+            // 以及選單裡有沒有出現封鎖字樣。記錄的是布林，不是文字。
+            'ownAriaLabel', 'nestedAriaLabel', 'blockTextPresent',
         ];
         for (const key of boolKeys) {
             if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = diagnosticBoolean(source[key]);
@@ -225,9 +230,43 @@ export const RuntimeDiagnostics = {
         for (const entry of this.get()) counts[entry.feature] = (counts[entry.feature] || 0) + 1;
         return counts;
     },
-    clear() { this._entries = []; this._lastBySignature.clear(); this._operations.clear(); },
+    clear() {
+        this._entries = [];
+        this._lastBySignature.clear();
+        this._operations.clear();
+        try { Storage.setJSON(CONFIG.KEYS.RUNTIME_DIAGNOSTICS_RING, []); } catch (e) { /* 無 storage 環境 */ }
+    },
+    // Worker 跑在另一個視窗，它的 _entries 在視窗關閉時就消失，主視窗按「複製
+    // 診斷資料」只會拿到主視窗自己的紀錄。persist/loadPersisted 讓兩邊接得起來。
+    PERSIST_LIMIT: 400,
+    persist() {
+        if (!this.enabled()) return false;
+        try {
+            const merged = this._mergeEntries(this._loadPersisted(), this.get());
+            Storage.setJSON(CONFIG.KEYS.RUNTIME_DIAGNOSTICS_RING, merged.slice(-this.PERSIST_LIMIT));
+            return true;
+        } catch (e) { return false; }
+    },
+    _loadPersisted() {
+        try {
+            Storage.invalidate(CONFIG.KEYS.RUNTIME_DIAGNOSTICS_RING);
+            const raw = Storage.getJSON(CONFIG.KEYS.RUNTIME_DIAGNOSTICS_RING, []);
+            return Array.isArray(raw) ? raw.map(entry => this._sanitizeEntry(entry)) : [];
+        } catch (e) { return []; }
+    },
+    _mergeEntries(a = [], b = []) {
+        const byKey = new Map();
+        for (const entry of [...a, ...b]) {
+            byKey.set(`${entry.operationId}|${entry.stage}|${entry.timestamp}`, entry);
+        }
+        return [...byKey.values()].sort((x, y) => x.timestamp - y.timestamp);
+    },
     export() {
-        return this.enabled() ? { schema: this.SCHEMA, version: CONFIG.VERSION, sessionId: this._sessionId, summary: this.summary(), entries: this.get() } : null;
+        if (!this.enabled()) return null;
+        const entries = this._mergeEntries(this._loadPersisted(), this.get()).slice(-this.PERSIST_LIMIT);
+        const summary = {};
+        for (const entry of entries) summary[entry.feature] = (summary[entry.feature] || 0) + 1;
+        return { schema: this.SCHEMA, version: CONFIG.VERSION, sessionId: this._sessionId, summary, entries };
     },
 };
 

@@ -107,8 +107,13 @@ export const Worker = {
             protected: result === 'protected',
             alreadyBlocked: result === 'already_blocked',
             cooldownActive: result === 'cooldown' || result === 'rate_limited',
+            // 呼叫端補充的觀測欄位。RuntimeDiagnostics._safeFields 仍是唯一守門，
+            // 不在允許清單裡的 key 會被丟掉，這裡不會放寬隱私邊界。
+            ...(diagnosticOptions.fields || {}),
         });
         if (ownsOperation) RuntimeDiagnostics.end(operationId, 'terminal', { reason: result, ok: result === 'success' || result === 'completed', complete: true });
+        // Worker 視窗關掉前不落盤，主視窗就永遠看不到 blocking 的紀錄。
+        RuntimeDiagnostics.persist();
         return snapshot;
     },
 
@@ -232,7 +237,9 @@ export const Worker = {
             try {
                 const logs = Storage.getJSON(CONFIG.KEYS.DEBUG_LOG, []);
                 logs.push(`[${new Date().toLocaleTimeString()}] ${msg}`);
-                if (logs.length > 100) logs.splice(0, logs.length - 100);
+                // 每個帳號會寫約 10 行，舊上限 100 只留得住約 10 個帳號，
+                // 一批小視窗測試跑完就被沖掉了。
+                if (logs.length > 600) logs.splice(0, logs.length - 600);
                 Storage.setJSON(CONFIG.KEYS.DEBUG_LOG, logs);
             } catch (e) { }
         };
@@ -1819,7 +1826,7 @@ export const Worker = {
         let confirmButtons = 0;
         let postFallbackAttempts = 0;
         let diagnosticRetryCount = 0;
-        const recordDiagnostic = (phase, result, extra = {}) => Worker.recordSafetyDiagnostic(
+        const recordDiagnostic = (phase, result, extra = {}, fields = {}) => Worker.recordSafetyDiagnostic(
             phase,
             result,
             MoreLocator.routeType(),
@@ -1834,6 +1841,7 @@ export const Worker = {
                 elapsedMs: Math.max(0, Date.now() - diagnosticStartedAt),
                 retryCount: diagnosticRetryCount,
             },
+            { fields },
         );
 
         try {
@@ -1921,6 +1929,20 @@ export const Worker = {
                     ].join(' ');
                     window.hegeLog(`[DIAG] 準備點擊按鈕 x=${Math.round(rect.x)}, y=${Math.round(rect.y)}, 父層文案=${parentText}`);
                     window.hegeLog(`[DIAG] 更多按鈕本體 ${identity}`);
+                    // 同一份觀測寫進診斷資料，這樣小視窗下不必從 log 面板手抄。
+                    recordDiagnostic('more_resolve', 'success', {}, {
+                        tag: profileBtn.tagName,
+                        role: profileBtn.getAttribute?.('role') || '',
+                        ownAriaLabel: !!ownLabel,
+                        nestedAriaLabel: !!nestedLabel,
+                        svgCount: profileBtn.querySelectorAll?.('svg').length ?? 0,
+                        rectTop: rect.top,
+                        rectLeft: rect.left,
+                        rectWidth: rect.width,
+                        rectHeight: rect.height,
+                        viewportWidth: window.innerWidth,
+                        viewportHeight: window.innerHeight,
+                    });
                 }
                 await Utils.speedSleep(300);
                 profileBtn.scrollIntoView({ block: 'center', inline: 'center' });
@@ -1945,11 +1967,21 @@ export const Worker = {
                         if (testMenu.length === 0) {
                             clickRetried = true;
                             diagnosticRetryCount++;
+                            // #11 取證：分辨「完全沒有任何浮層」與「浮層開了但不是我們要的選單」。
+                            const menuItemCount = document.querySelectorAll('div[role="menuitem"]').length;
+                            const menuCount = document.querySelectorAll('[role="menu"]').length;
+                            const dialogCount = document.querySelectorAll('div[role="dialog"]').length;
+                            const overlayCount = document.querySelectorAll('div[data-overlay-container="true"]').length;
                             if (window.hegeLog) {
-                                // #11 取證：分辨「完全沒有任何浮層」與「浮層開了但不是我們要的選單」。
                                 window.hegeLog(`[DIAG] 選單未開啟，重試 simClick...`);
-                                window.hegeLog(`[DIAG] 重試前浮層盤點 menuitem=${document.querySelectorAll('div[role="menuitem"]').length} menu=${document.querySelectorAll('[role="menu"]').length} dialog=${document.querySelectorAll('div[role="dialog"]').length} overlay=${document.querySelectorAll('div[data-overlay-container="true"]').length}`);
+                                window.hegeLog(`[DIAG] 重試前浮層盤點 menuitem=${menuItemCount} menu=${menuCount} dialog=${dialogCount} overlay=${overlayCount}`);
                             }
+                            recordDiagnostic('retry', 'retry', {}, {
+                                menuItems: menuItemCount,
+                                menuCount,
+                                dialogCount,
+                                overlayCount,
+                            });
                             Utils.simClick(profileBtn);
                         }
                     }
@@ -2005,14 +2037,21 @@ export const Worker = {
                     const onRepliesPage = window.location.pathname.includes('/replies');
                     if (onRepliesPage) {
                         setStep('Profile 選單無效，嘗試貼文備案...');
+                        // #11 取證：選單到底開出了什麼。空清單代表根本沒開。
+                        const seenTexts = Array.from(document.querySelectorAll('div[role="menuitem"]'))
+                            .map(el => (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 20))
+                            .filter(Boolean);
                         if (window.hegeLog) {
                             window.hegeLog(`[DIAG] Profile 選單無封鎖鈕，就地搜尋貼文 More`);
-                            // #11 取證：選單到底開出了什麼。空字串代表根本沒開。
-                            const seenTexts = Array.from(document.querySelectorAll('div[role="menuitem"]'))
-                                .map(el => (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 20))
-                                .filter(Boolean);
                             window.hegeLog(`[DIAG] Profile 選單實際內容 menuitem=${seenTexts.length} 內容=[${seenTexts.join(' / ')}]`);
                         }
+                        // 診斷資料只留數量與「有沒有封鎖字樣」，選單文字不進診斷（可能含帳號名）。
+                        recordDiagnostic('menu_resolve', 'menu_not_found', {}, {
+                            menuItems: seenTexts.length,
+                            menuCount: document.querySelectorAll('[role="menu"]').length,
+                            dialogCount: document.querySelectorAll('div[role="dialog"]').length,
+                            blockTextPresent: seenTexts.some(t => Utils.isBlockText(t)),
+                        });
 
                         // 關閉 Profile 選單
                         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
