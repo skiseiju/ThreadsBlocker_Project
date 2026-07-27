@@ -16,6 +16,10 @@ const WORKER_MIN_WIDTH = 700;
 const WORKER_MIN_HEIGHT = 520;
 const WORKER_MAX_WIDTH = 800;
 const WORKER_MAX_HEIGHT = 600;
+// 實測可運作的 viewport 下界：700x453 全數成功，670x457 以下開始出現選單打不開。
+// 判定用 viewport 而非 outer，因為決定 Threads 版面的是內容區。
+const WORKER_MIN_VIEWPORT_WIDTH = 700;
+const WORKER_MIN_VIEWPORT_HEIGHT = 440;
 
 export const Worker = {
     stats: { success: 0, skipped: 0, failed: 0, vanished: 0, startTime: 0 },
@@ -211,6 +215,32 @@ export const Worker = {
 
     // 撐回下界時不要每次 resize 事件都洗一行 log。
     _windowBoundsNoticeAt: 0,
+    _windowPausedNoticeAt: 0,
+
+    // 以 viewport（innerWidth/innerHeight）判定，因為真正影響 Threads 版面的是
+    // 內容區大小，不是含視窗邊框的 outerWidth。
+    isWindowTooSmall: () => {
+        try {
+            return window.innerWidth < WORKER_MIN_VIEWPORT_WIDTH || window.innerHeight < WORKER_MIN_VIEWPORT_HEIGHT;
+        } catch (e) { return false; }
+    },
+
+    noteWindowTooSmall: () => {
+        const now = Date.now();
+        Worker.updateStatus('running', `⏸️ 視窗太小已暫停（目前 ${window.innerWidth}x${window.innerHeight}，需要至少 ${WORKER_MIN_VIEWPORT_WIDTH}x${WORKER_MIN_VIEWPORT_HEIGHT}）。放大視窗就會自動繼續。`);
+        if (now - Worker._windowPausedNoticeAt < 5000) return;
+        Worker._windowPausedNoticeAt = now;
+        if (window.hegeLog) {
+            window.hegeLog(`[視窗] 目前 ${window.innerWidth}x${window.innerHeight} 小於可運作下界 ${WORKER_MIN_VIEWPORT_WIDTH}x${WORKER_MIN_VIEWPORT_HEIGHT}，已暫停並保留名單。放大視窗就會自動繼續。`);
+        }
+        RuntimeDiagnostics.record(Worker._diagnosticOperationFeature || 'blocking', 'wait', {
+            operationId: Worker._diagnosticOperationId,
+            clamped: true,
+            idle: true,
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight,
+        });
+    },
 
     enforceWindowBounds: () => {
         try {
@@ -1121,6 +1151,18 @@ export const Worker = {
 
     runStep: async () => {
         if (Worker._stepRunning) return;
+        // 視窗太小時「暫停」而不是「失敗」。resizeTo 不保證成功：使用者可以繼續
+        // 拖小，某些情況瀏覽器也會拒絕。實測顯示只要 viewport 真的維持在下界
+        // （700x453）就全數成功，失敗都發生在視窗仍小於下界的期間。硬跑只會把
+        // 名單消耗掉並記成假失敗，所以這裡不進佇列、不記失敗，等尺寸恢復再繼續。
+        if (Worker.isWindowTooSmall()) {
+            Worker.enforceWindowBounds();
+            if (Worker.isWindowTooSmall()) {
+                Worker.noteWindowTooSmall();
+                setTimeout(Worker.runStep, 1000);
+                return;
+            }
+        }
         Worker._stepRunning = true;
         try {
         const operationFeature = Worker._diagnosticOperationFeature || 'blocking';

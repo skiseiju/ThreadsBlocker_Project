@@ -67,3 +67,34 @@ test('resize 之後會重新套用，不是只在開窗時做一次', () => {
 test('撐回時會在 worker 紀錄區說明原因', () => {
     assert.match(workerSource, /視窗太小會讓 Threads 切成窄版面/);
 });
+
+// beta9 實測：硬撐回去不夠。resizeTo 可能被使用者繼續拖小或被瀏覽器忽略，
+// 診斷顯示 viewport 真的維持 700x453 時全數成功，失敗都發生在仍小於下界的
+// 期間。硬跑會把名單消耗掉並記成假失敗，所以改成暫停等待。
+test('視窗過小時 runStep 直接暫停，不進佇列也不記失敗', () => {
+    const runStep = workerSource.slice(workerSource.indexOf('runStep: async'));
+    const guard = runStep.slice(0, runStep.indexOf('Worker._stepRunning = true'));
+    assert.match(guard, /isWindowTooSmall\(\)/);
+    assert.match(guard, /noteWindowTooSmall\(\)/);
+    assert.match(guard, /setTimeout\(Worker\.runStep, 1000\)/);
+    // 暫停分支必須在 dequeue 與失敗記錄之前 return。
+    assert.doesNotMatch(guard, /recordFailure|markTargetFailedAndContinue/);
+});
+
+test('過小判定用 viewport，不是含邊框的 outer 尺寸', () => {
+    const fn = workerSource.slice(workerSource.indexOf('isWindowTooSmall:'), workerSource.indexOf('noteWindowTooSmall:'));
+    assert.match(fn, /window\.innerWidth < WORKER_MIN_VIEWPORT_WIDTH/);
+    assert.match(fn, /window\.innerHeight < WORKER_MIN_VIEWPORT_HEIGHT/);
+    assert.doesNotMatch(fn, /outerWidth|outerHeight/);
+});
+
+test('viewport 下界不高於實測成功的 700x453', () => {
+    const pick = name => Number(workerSource.match(new RegExp(`const ${name} = (\\d+);`))?.[1]);
+    assert.ok(pick('WORKER_MIN_VIEWPORT_WIDTH') <= 700);
+    assert.ok(pick('WORKER_MIN_VIEWPORT_HEIGHT') <= 453);
+});
+
+test('暫停時畫面與紀錄都說得出目前尺寸與需要的尺寸', () => {
+    assert.match(workerSource, /視窗太小已暫停/);
+    assert.match(workerSource, /放大視窗就會自動繼續/);
+});
