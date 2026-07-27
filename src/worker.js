@@ -1266,6 +1266,7 @@ export const Worker = {
                 } else {
                     Storage.addToBlockDBFromContext(targetUser);
                 }
+                Core.removeFailure(targetUser, 'block');
                 Worker.updateStatus('running', targetUser, 0, currentTotal);
                 setTimeout(Worker.runStep, 100);
                 return;
@@ -1526,6 +1527,9 @@ export const Worker = {
                 } else {
                     Storage.addToBlockDBFromContext(targetUser);
                 }
+                // 失敗紀錄只在「這次真的成功」時才移除。重試流程不再事先清空整份
+                // 失敗清單，否則重試沒跑起來或中途停掉，名單就憑空消失（BUGLIST #12）。
+                Core.removeFailure(targetUser, 'block');
 
                 Worker.updateStatus('running', targetUser, 0, currentTotal);
                 setTimeout(Worker.runStep, 100);

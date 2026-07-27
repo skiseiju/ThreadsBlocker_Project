@@ -830,8 +830,9 @@ export const Core = {
         const key = normalized.type === 'report' ? CONFIG.KEYS.REPORT_QUEUE : CONFIG.KEYS.BG_QUEUE;
         const queue = Storage.getJSON(key, []);
         if (!queue.includes(normalized.username)) Storage.setJSON(key, [...queue, normalized.username]);
-        Core.removeFailure(normalized, normalized.type);
-        Core.startFailureRetry(normalized.type);
+        // 同 onRetryAll：失敗紀錄留到真的成功再移除，不因為「按下重試」就消失。
+        const started = Core.startFailureRetry(normalized.type);
+        if (!started) UI.showToast('目前已有背景任務在執行，失敗紀錄保留，稍後再重試', 3000, { severity: 'warning' });
         Core.updateControllerUI();
         return true;
     },
@@ -4625,9 +4626,11 @@ export const Core = {
                 const reportQueue = Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []);
                 Storage.setJSON(CONFIG.KEYS.BG_QUEUE, [...new Set([...blockQueue, ...blockUsers])]);
                 Storage.setJSON(CONFIG.KEYS.REPORT_QUEUE, [...new Set([...reportQueue, ...reportUsers])]);
-                Storage.setJSON(CONFIG.KEYS.FAILED_QUEUE, []);
-                Storage.setJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, []);
-                Core.startFailureRetry(blockUsers.length > 0 ? 'block' : 'report');
+                // 不在這裡清空失敗清單。舊版先清再跑，只要重試沒真的啟動（worker
+                // 已在跑、彈出視窗被擋）或中途被停掉，名單就整份消失且無法還原。
+                // 改為由 worker 在每個帳號「真的成功」時逐筆移除（BUGLIST #12）。
+                const started = Core.startFailureRetry(blockUsers.length > 0 ? 'block' : 'report');
+                if (!started) UI.showToast('目前已有背景任務在執行，失敗清單保留，稍後再重試', 3000, { severity: 'warning' });
                 Core.updateControllerUI();
             },
             onClearAll: () => {

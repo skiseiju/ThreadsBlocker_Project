@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.8.1-beta10', // stable release: credentials removal + consent v4 + settings redesign
+    VERSION: '2.8.1-beta11', // stable release: credentials removal + consent v4 + settings redesign
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // Beta-only, in-memory diagnostics. Stable/release channels must keep this
     // disabled even if a stale setting is present.
