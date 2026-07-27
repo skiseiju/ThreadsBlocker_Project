@@ -61,7 +61,11 @@ export const MoreLocator = {
         const style = window.getComputedStyle(el);
         if (!style || style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
         const rect = el.getBoundingClientRect?.();
-        return !rect || (rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth);
+        // 只看元素本身有沒有被渲染，不要求它落在目前 viewport 內。視窗很小時
+        // （實測 197x327）個人頁的動作列會被擠到折線以下，舊的 viewport 交集
+        // 條件會把真正的「更多」整個濾掉，findProfileRoot 因而永遠回 null。
+        // 點擊前本來就會 scrollIntoView，折線外不是不可點。
+        return !rect || (rect.width > 0 && rect.height > 0);
     },
 
     isMoreShape(el) {
@@ -137,12 +141,18 @@ export const MoreLocator = {
         if (mode === 'post' && !this.hasPostScope(el, root)) return null;
         if (mode === 'row' && !this.hasRowScope(el, root)) return null;
         const rect = el.getBoundingClientRect?.() || { left: 0, top: 0, width: 0, height: 0 };
+        // 位置加權一律相對於 root，不用畫面絕對座標。視窗尺寸與捲動位置會讓絕對
+        // 座標整批位移，同一顆按鈕在大小視窗下會拿到不同分數。
+        const rootRect = (root && typeof root.getBoundingClientRect === 'function')
+            ? root.getBoundingClientRect() : { left: 0, top: 0 };
+        const offsetTop = rect.top - (rootRect.top || 0);
+        const offsetLeft = rect.left - (rootRect.left || 0);
         let score = explicit ? 0 : 100; // explicit aria-label always wins over shape fallback
         if (mode === 'profile') {
-            if (rect.top < 520) score -= 20;
-            if (rect.left < 80) score += 30;
+            if (offsetTop < 520) score -= 20;
+            if (offsetLeft < 80) score += 30;
         } else if (mode === 'post') {
-            if (rect.top < 90) score += 20;
+            if (offsetTop < 90) score += 20;
         }
         return { el, score, explicit, shape };
     },

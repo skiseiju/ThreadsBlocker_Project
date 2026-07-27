@@ -1087,6 +1087,12 @@ export const Core = {
         const normalized = String(username || '').toLowerCase();
         if (!root || !normalized) return null;
         const stickyTitleSelector = '[aria-label="直欄標題"], [aria-label="Column header"], [aria-label="Column title"]';
+        // 與動作按鈕的判定一致：頭部位置一律用相對 root 的位移。root 本身就是
+        // 內容欄，站台頂欄不在裡面，所以下界是 0 而不是舊的畫面絕對 60px；上界也不
+        // 再跟著 window.innerHeight 縮，否則矮視窗下整個頭部都會被判定不合格。
+        const rootRect = (root && typeof root.getBoundingClientRect === 'function')
+            ? root.getBoundingClientRect() : { top: 0 };
+        const offsetTopOf = rect => rect.top - (rootRect.top || 0);
         const candidates = Array.from(root.querySelectorAll('a, span, div'))
             .filter(el => {
                 if (el.closest('[role="dialog"]')) return false;
@@ -1094,7 +1100,7 @@ export const Core = {
                 const rawText = (el.innerText || el.textContent || '').trim();
                 if (rawText.toLowerCase() !== normalized) return false;
                 const rect = el.getBoundingClientRect();
-                if (!(rect.width > 4 && rect.height > 4 && rect.top >= 60 && rect.top < Math.min(window.innerHeight, 280))) return false;
+                if (!(rect.width > 4 && rect.height > 4 && offsetTopOf(rect) >= 0 && offsetTopOf(rect) < 280)) return false;
                 if (el.closest('[role="article"], article')) return false;
                 return true;
             })
@@ -1104,7 +1110,7 @@ export const Core = {
                 const score = (el, rect) => {
                     const rawText = (el.innerText || el.textContent || '').trim();
                     const lines = rawText.split(/\n+/).map(line => line.trim()).filter(Boolean);
-                    const profileHeaderBand = rect.top >= 56 && rect.top < 280;
+                    const profileHeaderBand = offsetTopOf(rect) >= 0 && offsetTopOf(rect) < 280;
                     const singleLine = lines.length === 1;
                     const leafText = el.children.length === 0;
                     return (profileHeaderBand ? 0 : 1000)
@@ -1121,11 +1127,17 @@ export const Core = {
 
     findProfileActionAnchor: (root) => {
         if (!root) return null;
+        // 「是不是個人頁頭部的動作按鈕」以相對 root 的位移判斷，不用畫面絕對座標。
+        // 舊條件 `rect.top < Math.min(window.innerHeight, 460)` 在矮視窗下會反過來
+        // 縮小允許範圍：實測 viewport 197x327 時允許帶只剩 120–327，而窄版面把動作
+        // 列擠到更下面，於是完全找不到 anchor，findProfileRoot 一路回 null。
+        const rootRect = (root && typeof root.getBoundingClientRect === 'function')
+            ? root.getBoundingClientRect() : { top: 0 };
         const isHeaderAnchorGeometry = (rect) => rect
             && rect.width >= 24
             && rect.height >= 24
-            && rect.top >= 120
-            && rect.top < Math.min(window.innerHeight, 460);
+            && (rect.top - (rootRect.top || 0)) >= 0
+            && (rect.top - (rootRect.top || 0)) < 460;
         const instagramBellCandidates = Array.from(root.querySelectorAll('a, div[role="button"], button'))
             .map(el => {
                 const rect = el.getBoundingClientRect();
