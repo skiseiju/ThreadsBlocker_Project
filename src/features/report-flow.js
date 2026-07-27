@@ -242,7 +242,12 @@ Object.assign(Core, {
 
         findNextReportOption(path, startIndex = 0) {
             const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]')).reverse();
-            const roots = dialogs.length > 0 ? [...dialogs, document] : [document];
+            // 沒有檢舉視窗就沒有下一層選項，直接放棄。舊版在這裡退回整份 document，
+            // 於是文字比對會掃到左側主導覽（訊息／搜尋／個人檔案…），點下去就導去
+            // 別的頁面，接著送出鈕當然找不到（BUGLIST #10、#13）。這是 fail-open，
+            // 必須 fail-closed。
+            if (dialogs.length === 0) return null;
+            const roots = dialogs;
 
             for (let offset = 0; startIndex + offset < path.length; offset++) {
                 const step = path[startIndex + offset];
@@ -256,7 +261,10 @@ Object.assign(Core, {
 
         getVisibleReportOptionTexts() {
             const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]')).reverse();
-            const root = dialogs[0] || document;
+            // 同上：沒有視窗就回空陣列。否則診斷訊息會列出整頁的可點文字，
+            // 讓人以為那些是檢舉選項。
+            const root = dialogs[0];
+            if (!root) return [];
             return Core.ReportDriver.getClickableTextNodes(root)
                 .map(item => item.text.replace(/\s+/g, ' ').trim().slice(0, 40))
                 .filter(Boolean)
@@ -1001,6 +1009,17 @@ Object.assign(Core, {
                     pathIndex += match.offset + 1;
                     await Utils.safeSleep(700);
                     Core.ReportDriver.logVisibleOptions(`選擇「${match.step}」後`, { nextPath: path.slice(pathIndex) });
+                    // 保險絲：選項只該在檢舉視窗裡切換層級，不該讓頁面換路由。真的離開
+                    // 個人頁／貼文頁就代表點到了視窗以外的東西，立刻停手而不是繼續點。
+                    const routeAfterOption = MoreLocator.routeType();
+                    if (!MoreLocator.routeMatches(routeBeforeMore, routeAfterOption, mode === 'post' ? 'post' : 'profile')) {
+                        return Core.ReportDriver.skipOrPauseForDebug(user, options, 'navigation_mismatch', `@${user} 選擇「${match.step}」後離開了原本的頁面`, {
+                            pathIndex,
+                            step: match.step,
+                            routeBefore: routeBeforeMore,
+                            routeAfter: routeAfterOption,
+                        });
+                    }
                 }
 
                 let submitOriginDialog = null;
