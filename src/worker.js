@@ -5,6 +5,11 @@ import { Core, RuntimeDiagnostics } from './core.js';
 import { MoreLocator } from './more-locator.js';
 import { ReportDebugContext } from './report-debug-context.js';
 
+// 等「這個帳號的 profile root 真的出現」的上限。原本的載入等待只等到 2.5 秒，
+// 而且條件寬到前一頁的 DOM 就能滿足；改為等真正的 root，需要涵蓋慢網路下的
+// SPA 換頁，同時仍是有界等待，不會卡住整批。
+const PROFILE_ROOT_WAIT_MS = 12000;
+
 export const Worker = {
     stats: { success: 0, skipped: 0, failed: 0, vanished: 0, startTime: 0 },
     initialTotal: 0,
@@ -1846,12 +1851,18 @@ export const Worker = {
 
         try {
             setStep('載入中...');
-            // 智慧等待頁面載入，偵測到主要內容就繼續
-            const pageLoaded = await Utils.pollUntil(() => {
-                return document.querySelector(CONFIG.SELECTORS.MORE_SVG) ||
-                       document.querySelector('div[role="button"]');
-            }, 2500);
-            if (!pageLoaded) await Utils.safeSleep(1500);
+            // 舊條件是「頁面上有 MORE_SVG 或任何 div[role=button]」。SPA 換頁時前一頁
+            // 的 DOM 還在，這個條件在毫秒內就成立，等於根本沒等到本人的個人頁就往下
+            // 走，findProfileRoot 因此回 null 並記成 menu_not_found。實機診斷顯示失敗
+            // 全部發生在 dequeue 後 1–8ms，且都停在 root_resolve，從沒走到「更多」按鈕。
+            // 改成等到「這個 user 的 profile root 真的出現」才繼續，才是 fail-closed。
+            const profileWaitStartedAt = Date.now();
+            let profileRoot = null;
+            await Utils.pollUntil(() => {
+                if (checkFor404()) return true;
+                profileRoot = Core.findProfileRoot?.(user) || null;
+                return !!profileRoot;
+            }, PROFILE_ROOT_WAIT_MS);
 
             if (checkFor404()) {
                 recordDiagnostic('root_resolve', 'vanished');
@@ -1859,12 +1870,17 @@ export const Worker = {
                 return 'vanished';
             }
 
-            const profileRoot = Core.findProfileRoot?.(user);
+            // pollUntil 逾時後再取一次，避免最後一輪與逾時之間的空窗。
+            if (!profileRoot) profileRoot = Core.findProfileRoot?.(user) || null;
             if (!profileRoot) {
-                recordDiagnostic('root_resolve', 'menu_not_found');
+                recordDiagnostic('root_resolve', 'menu_not_found', {}, {
+                    waitMs: Date.now() - profileWaitStartedAt,
+                    viewportWidth: window.innerWidth,
+                    viewportHeight: window.innerHeight,
+                });
                 return 'menu_not_found';
             }
-            recordDiagnostic('root_resolve', 'success');
+            recordDiagnostic('root_resolve', 'success', {}, { waitMs: Date.now() - profileWaitStartedAt });
             const privateState = MoreLocator.detectPrivateProfileState(profileRoot);
 
             let blockBtn = null;
