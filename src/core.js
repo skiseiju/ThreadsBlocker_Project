@@ -7,6 +7,9 @@ import { ReportDebugContext } from './report-debug-context.js';
 import { DialogCollector } from './dialog-collector.js';
 import { MoreLocator } from './more-locator.js';
 
+// 清理名單的版面落地等待預算。Threads 的按讚名單是 lazy render，可見性過濾要等
+// 到 anchor 真的有尺寸才算數；等不到就維持 rows_missing，但不再幾百毫秒就放棄。
+const CLEAN_LIST_LAYOUT_WAIT_MS = 8000;
 const BETA_DIAGNOSTIC_FEATURES = new Set(['blocking', 'report', 'selection', 'panel', 'three_no', 'followers', 'clean_list', 'reservoir', 'likes', 'message_route', 'runtime', 'unknown']);
 const BETA_DIAGNOSTIC_STAGES = new Set([
     'start', 'dequeue', 'finish', 'stop', 'route', 'navigation', 'tab', 'wait', 'dialog', 'rows', 'scroll', 'progress',
@@ -1491,6 +1494,21 @@ export const Core = {
             return batch;
         };
         try {
+            // 版面落地等待。waitForLikesContextReady 只要看到 likes 的證據就會回來，
+            // 那時候常常只有兩三列真的排版完成，其餘 anchor 的 rect 還是 0x0，會被
+            // 可見性過濾整批排除，最後以 rows_missing 收場（實測 23 個連結被排除 21
+            // 個，整趟只花 2 秒）。這裡先等到真的看見一列，或等滿預算才往下走。
+            const layoutWaitUntil = Date.now() + CLEAN_LIST_LAYOUT_WAIT_MS;
+            while (!sawVisibleRows && !isAborted && Date.now() < layoutWaitUntil) {
+                collectRendered();
+                if (sawVisibleRows) break;
+                await Utils.safeSleep(200);
+            }
+            recordCleanDiagnostic('wait', {
+                waitMs: Math.max(0, CLEAN_LIST_LAYOUT_WAIT_MS - Math.max(0, layoutWaitUntil - Date.now())),
+                listFound: sawVisibleRows,
+                loading: !sawVisibleRows,
+            });
             while (scrollCount < maxScrolls && !isAborted) {
                 // The Likes list only gains scroll range once lazy rows arrive,
                 // so the first resolution can find no candidate and fall back to
@@ -1591,6 +1609,13 @@ export const Core = {
                 });
                 if (!progress) unchangedCount += 1;
                 else unchangedCount = 0;
+                // 一列都還沒排版完成時，「沒有變化」代表還沒載好，不是已經到底。
+                // 在版面等待預算用完之前不要據此收工，否則會把還沒渲染的名單判成空的。
+                if (!sawVisibleRows && Date.now() < layoutWaitUntil) {
+                    unchangedCount = 0;
+                    await Utils.safeSleep(200);
+                    continue;
+                }
                 if (unchangedCount >= 4 && renderObservations >= 2) {
                     reachedEnd = atBottom;
                     stalled = !reachedEnd;
