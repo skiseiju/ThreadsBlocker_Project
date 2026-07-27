@@ -10,8 +10,10 @@ import {
 import {
   calculatePerTopicCoordination,
   BANNED_COPY_TERMS,
+  SAMPLE_CANDIDATE_ROW_LIMIT,
   SAMPLE_MIN_ACCOUNTS,
   SAMPLE_MIN_OBSERVERS,
+  SAMPLE_MIN_TEXT_LENGTH,
   buildDynamicEventCandidates,
   buildPublicCandidateTopics,
   deidentifySampleText,
@@ -264,11 +266,16 @@ test("M5 labels low per-topic coordination signal", () => {
 });
 
 test("B8 applies the account and independent-observer sample gate", () => {
+  const text = "軍購需要查證的重複話術";
   assert.equal(SAMPLE_MIN_ACCOUNTS, 10);
   assert.equal(SAMPLE_MIN_OBSERVERS, 2);
-  assert.equal(passesSampleGate({ accountCount: 9, observerCount: 2 }), false);
-  assert.equal(passesSampleGate({ accountCount: 10, observerCount: 1 }), false);
-  assert.equal(passesSampleGate({ accountCount: 20, observerCount: 3 }), true);
+  assert.equal(SAMPLE_MIN_TEXT_LENGTH, 10);
+  assert.equal(passesSampleGate({ text, accountCount: 9, observerCount: 2 }), false);
+  assert.equal(passesSampleGate({ text, accountCount: 10, observerCount: 1 }), false);
+  assert.equal(passesSampleGate({ text, accountCount: 20, observerCount: 3 }), true);
+  // 長度門檻判的是去識別化後要公開的文字，過短樣本不得上架
+  assert.equal(passesSampleGate({ text: "[帳號]", accountCount: 20, observerCount: 3 }), false);
+  assert.equal(passesSampleGate({ accountCount: 20, observerCount: 3 }), false);
 });
 
 test("B8 deidentifies handles, URLs, and phone patterns but leaves names for review", () => {
@@ -423,6 +430,40 @@ test("B8 queues a deidentified sample once it passes the gate", async () => {
     21,
     3
   ]);
+});
+
+test("B8 keeps the sample gate in one place: the candidate SQL carries no second threshold", async () => {
+  const statements = [];
+  const db = {
+    prepare(sql) {
+      statements.push(sql);
+      const statement = {
+        bind() { return statement; },
+        async run() { return { meta: { changes: 0 } }; },
+        async all() { return { results: [] }; },
+        async first() { return null; }
+      };
+      return statement;
+    },
+    async exec() {}
+  };
+
+  const response = await worker.fetch(
+    new Request("https://worker.test/api/v1/platform/overview"),
+    { DB: db }
+  );
+  assert.equal(response.status, 200);
+
+  const candidateSql = statements.find((sql) => sql.includes("AS sample_text"));
+  assert.ok(candidateSql, "repeated-text candidate query not found");
+  // 取候選不得再放一份門檻：逐字列是去識別化後樣本的子集，
+  // 先砍子集會讓「只差 @帳號名」的變形永遠併不成過關樣本
+  assert.ok(!/HAVING/i.test(candidateSql), "candidate SQL must not re-apply the sample gate");
+  assert.ok(!candidateSql.includes("COUNT(DISTINCT source_url) >="), "observer threshold must live only in passesSampleGate");
+  assert.ok(!candidateSql.includes("SUM(unique_account_count) >="), "account threshold must live only in passesSampleGate");
+  // 保留的長度收斂與列數上限都必須來自共用常數
+  assert.ok(candidateSql.includes(`length(source_text_sample) >= ${SAMPLE_MIN_TEXT_LENGTH}`));
+  assert.ok(candidateSql.includes(`LIMIT ${SAMPLE_CANDIDATE_ROW_LIMIT}`));
 });
 
 test("B8 admin review endpoints list pending samples and record approve/reject decisions", async () => {

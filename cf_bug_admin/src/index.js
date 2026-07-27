@@ -28,6 +28,8 @@ var PUBLIC_CANDIDATE_SOURCE_LIMIT = 320;
 var PUBLIC_CANDIDATE_TOPIC_LIMIT = 90;
 var SAMPLE_MIN_ACCOUNTS = 10;
 var SAMPLE_MIN_OBSERVERS = 2;
+var SAMPLE_MIN_TEXT_LENGTH = 10;
+var SAMPLE_CANDIDATE_ROW_LIMIT = 500;
 var PUBLIC_TOPIC_SAMPLE_LIMIT = 3;
 var AUTO_EVENT_LOOKBACK_DAYS = 14;
 var BANNED_COPY_TERMS = ["網軍", "機器人", "假帳號", "側翼"];
@@ -1331,21 +1333,30 @@ async function loadPlatformOverviewData(env, days, top, options = {}) {
   const candidateDefinitions = [...PUBLIC_CANDIDATE_TOPIC_DEFS, ...dynamicEventCandidates];
   // 專屬查詢找跨來源逐字重複的文字：narrativeRows 只取事件量前 N 大來源，
   // 會漏掉「很多來源、每源少量」的典型洗版話術（例：同句出現在 104 個來源）
+  //
+  // 這裡只做「取候選」，不做准入判定：樣本閘門唯一實作在 passesSampleGate()。
+  // 逐字列是去識別化後樣本的子集（只差 @帳號名的變形會在 JS 端合併成同一樣本），
+  // 對子集套帳號／來源門檻會在合併前先砍掉本來會過關的樣本，因此 SQL 不得有 HAVING 門檻。
   const repeatedTextRows = await env.DB.prepare(
     `SELECT source_text_sample AS sample_text,
             COUNT(DISTINCT source_url) AS observer_count,
             SUM(unique_account_count) AS account_count
        FROM platform_source_metrics
       WHERE upload_id IN (${analysisUploadIdsSql})
-        AND source_text_sample IS NOT NULL AND length(source_text_sample) > 10
+        AND source_text_sample IS NOT NULL
+        AND length(source_text_sample) >= ${Number(SAMPLE_MIN_TEXT_LENGTH)}
       GROUP BY source_text_sample
-     HAVING COUNT(DISTINCT source_url) >= ${Number(SAMPLE_MIN_OBSERVERS)}
-        AND SUM(unique_account_count) >= ${Number(SAMPLE_MIN_ACCOUNTS)}
-      ORDER BY observer_count DESC
-      LIMIT 50`
+      ORDER BY account_count DESC, observer_count DESC
+      LIMIT ${Number(SAMPLE_CANDIDATE_ROW_LIMIT)}`
   ).bind(since).all();
+  const repeatedTextCandidates = repeatedTextRows.results || [];
+  const repeatedTextTruncated = repeatedTextCandidates.length >= SAMPLE_CANDIDATE_ROW_LIMIT;
+  if (repeatedTextTruncated) {
+    // 取候選有上限就要講出來：被截掉的低量變形可能本來會併成過關樣本
+    console.warn(`[topic-samples] repeated-text candidates hit the ${SAMPLE_CANDIDATE_ROW_LIMIT}-row retrieval cap; low-count variants may be dropped before the sample gate`);
+  }
   if (options.queueSamples !== false) {
-    await queueEligibleTopicSamples(env, repeatedTextRows.results || [], candidateDefinitions);
+    await queueEligibleTopicSamples(env, repeatedTextCandidates, candidateDefinitions);
   }
   const approvedSampleReviews = await loadApprovedTopicSampleReviews(env);
   const materializedTotals = dailyTrend.reduce((acc, row) => {
@@ -1461,7 +1472,7 @@ async function queueEligibleTopicSamples(env, sampleRows, topicDefinitions) {
   let queued = 0;
   for (const bucket of buckets.values()) {
     const observerCount = bucket.aggregatedObservers + bucket.observerUrls.size;
-    if (!passesSampleGate({ accountCount: bucket.accountCount, observerCount })) continue;
+    if (!passesSampleGate({ text: bucket.deidentifiedText, accountCount: bucket.accountCount, observerCount })) continue;
     await env.DB.prepare(
       `INSERT OR IGNORE INTO topic_sample_reviews (
         topic_id, sample_text, deidentified_text, account_count, observer_count, status, created_at
@@ -1484,7 +1495,11 @@ function topicDefinitionMatchesText(definition, text) {
   return (Array.isArray(definition?.keywords) ? definition.keywords : []).some((keyword) => value.includes(safeString(keyword, 80).toLowerCase()));
 }
 __name(topicDefinitionMatchesText, "topicDefinitionMatchesText");
-function passesSampleGate({ accountCount, observerCount } = {}) {
+function passesSampleGate({ text, accountCount, observerCount } = {}) {
+  // 樣本准入規則的唯一實作（SDD_Topic_Amplification §5.3）。取候選的 SQL、
+  // 覆核佇列與公開投影都只能呼叫這裡，不得各自再寫一份門檻。
+  // text 判的是「去識別化後、將要公開的那段文字」，不是 raw source_text_sample。
+  if (safeString(text || "", 2e3).length < SAMPLE_MIN_TEXT_LENGTH) return false;
   return safeCount(accountCount) >= SAMPLE_MIN_ACCOUNTS && safeCount(observerCount) >= SAMPLE_MIN_OBSERVERS;
 }
 __name(passesSampleGate, "passesSampleGate");
@@ -1663,7 +1678,8 @@ function projectPublicPlatformOverview(raw, top = 15, options = {}) {
       coordinationMaxConcentration: PUBLIC_COORDINATION_MAX_CONCENTRATION,
       coordinationHighScore: PUBLIC_COORDINATION_HIGH_SCORE,
       sampleMinAccounts: SAMPLE_MIN_ACCOUNTS,
-      sampleMinObservers: SAMPLE_MIN_OBSERVERS
+      sampleMinObservers: SAMPLE_MIN_OBSERVERS,
+      sampleMinTextLength: SAMPLE_MIN_TEXT_LENGTH
     },
     signals: {
       sourceConcentrationPct: round1(overview.avgSourceConcentrationPct),
@@ -2696,8 +2712,10 @@ __name(clampInt, "clampInt");
 export {
   BANNED_COPY_TERMS,
   PUBLIC_SAMPLE_LEGAL_POLICY_VERSION,
+  SAMPLE_CANDIDATE_ROW_LIMIT,
   SAMPLE_MIN_ACCOUNTS,
   SAMPLE_MIN_OBSERVERS,
+  SAMPLE_MIN_TEXT_LENGTH,
   buildDynamicEventCandidates,
   buildPublicCandidateTopics,
   calculatePerTopicCoordination,
