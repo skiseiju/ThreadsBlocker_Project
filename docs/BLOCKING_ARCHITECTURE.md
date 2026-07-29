@@ -300,8 +300,20 @@ svg[aria-label="更多"] viewBox="0 0 24 24"
 
 ```
 1. 跳轉至 /@user/replies (若進階封鎖啟用) 或 /@user
-2. 等待頁面載入 (2.5s)
-3. Polling 尋找 Profile「更多」SVG 按鈕 (最多 12s)
+2. Polling 等待「這個 user 的 profile root 真的出現」(PROFILE_ROOT_WAIT_MS)
+   └─ 不是等固定秒數。舊版等「頁面上有任何 More SVG」，SPA 換頁時
+      前一頁的 DOM 就能滿足，等於沒等（BUGLIST #11）
+2.5 身分閘門 Core.findProfileRoot(user)——所有「更多」搜尋都限縮在它回傳的
+   root 內，過不了直接 return 'menu_not_found'，不做整頁搜尋
+   ├─ 嚴格：findProfileHeaderUsernameElement（文字一字不差 + 相對 root
+   │        0–280px 位置帶）AND findProfileActionAnchor
+   └─ 放寬（2.8.1-beta14，ADR 0012）：嚴格失敗時，且 location.pathname 的
+      handle 等於 user，才改用 findProfileUsernameEvidence（不看位置帶、
+      允許 @ 前綴、仍排除 dialog 與 article 內文字）
+      ⛔ 網址閘門不得移除。SPA 換頁空窗期若只靠 DOM，會抓到上一頁的按鈕
+         而封鎖到不相干的帳號
+      診斷：Core._lastProfileRootMode / relaxedRoot 記錄本次走哪條
+3. 在 profile root 內尋找「更多」按鈕 (MoreLocator，最多 12s)
    └─ 檢查 SVG 結構：circle + path ≥ 3
 4. 若找到 Profile 按鈕，simClick 點擊
 5. Polling 等待選單出現 (最多 8s，3s 後若無選單則自動重試 click)
