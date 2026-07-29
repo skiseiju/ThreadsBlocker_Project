@@ -135,6 +135,8 @@ export const RuntimeDiagnostics = {
             // BUGLIST #11 取證：只記錄 aria-label 有沒有出現在按鈕本體或內嵌 svg，
             // 以及選單裡有沒有出現封鎖字樣。記錄的是布林，不是文字。
             'ownAriaLabel', 'nestedAriaLabel', 'blockTextPresent',
+            // 個人頁 root 是靠嚴格判定命中，還是靠放寬路徑救回來的。布林，不含文字。
+            'relaxedRoot',
         ];
         for (const key of boolKeys) {
             if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = diagnosticBoolean(source[key]);
@@ -1181,7 +1183,39 @@ export const Core = {
         return selected?.el || null;
     },
 
-    findProfileRoot: (username) => {
+    // 網址是否確實停在這個人的個人頁。SPA 換頁時網址會先更新、DOM 後到，所以
+    // 這條只當「放寬版仍要有身分證明」的其中一半，另一半仍要 DOM 對得上。
+    profileRouteMatches: (username) => {
+        const normalized = String(username || '').toLowerCase();
+        if (!normalized) return false;
+        const pathname = String((typeof location !== 'undefined' ? location.pathname : '') || '');
+        const match = pathname.match(/^\/@([^/]+)/);
+        if (!match) return false;
+        let handle = match[1];
+        try { handle = decodeURIComponent(handle); } catch (_) { /* keep raw */ }
+        return handle.toLowerCase() === normalized;
+    },
+
+    // 放寬版的名稱佐證：不看頭部位置帶、允許 @ 前綴，只要求 root 內有一處文字
+    // 剛好是這個帳號，且不在貼文或對話框裡。
+    // 嚴格版把「位置帶 0–280」與「整段文字一字不差」兩條都當一票否決，任一條在
+    // 真實環境對不上就整批封鎖失敗且沒有退路，這是 2.8.0 相對 2.7.1 的回歸來源。
+    findProfileUsernameEvidence: (root, username) => {
+        const normalized = String(username || '').toLowerCase();
+        if (!root || !normalized) return null;
+        for (const el of Array.from(root.querySelectorAll('a, span, div, h1, h2'))) {
+            if (el.closest('[role="dialog"]')) continue;
+            if (el.closest('[role="article"], article')) continue;
+            const text = (el.innerText || el.textContent || '').trim().toLowerCase();
+            if (text !== normalized && text !== `@${normalized}`) continue;
+            const rect = el.getBoundingClientRect?.();
+            if (!rect || !(rect.width > 4 && rect.height > 4)) continue;
+            return el;
+        }
+        return null;
+    },
+
+    _resolveProfileRoot: (username, mode) => {
         const roots = [
             ...document.querySelectorAll('main, [role="main"], [aria-label="直欄內文"], [aria-label="Column body"], [aria-label="Column Body"]'),
         ].filter(Boolean);
@@ -1189,7 +1223,9 @@ export const Core = {
             .map(root => ({
                 root,
                 rect: root.getBoundingClientRect(),
-                usernameEl: Core.findProfileHeaderUsernameElement(root, username),
+                usernameEl: mode === 'relaxed'
+                    ? Core.findProfileUsernameEvidence(root, username)
+                    : Core.findProfileHeaderUsernameElement(root, username),
                 actionAnchor: Core.findProfileActionAnchor(root),
             }))
             .filter(item => item.usernameEl && item.actionAnchor)
@@ -1197,6 +1233,32 @@ export const Core = {
                 const area = (item) => Math.max(0, item.rect.width) * Math.max(0, item.rect.height);
                 return area(a) - area(b);
             })[0]?.root || null;
+    },
+
+    // 最近一次 findProfileRoot 走的是哪條路：strict / relaxed / none。
+    // 給診斷用，讓實機回報能分辨「本來就成功」與「靠放寬才救回來」。
+    _lastProfileRootMode: 'none',
+
+    findProfileRoot: (username) => {
+        const strict = Core._resolveProfileRoot(username, 'strict');
+        if (strict) {
+            Core._lastProfileRootMode = 'strict';
+            return strict;
+        }
+        // 放寬只在網址已經確認是本人個人頁時才啟用，避免 SPA 換頁空窗期抓到上一頁
+        // 的按鈕而封鎖到不相干的帳號。
+        if (!Core.profileRouteMatches(username)) {
+            Core._lastProfileRootMode = 'none';
+            return null;
+        }
+        const relaxed = Core._resolveProfileRoot(username, 'relaxed');
+        Core._lastProfileRootMode = relaxed ? 'relaxed' : 'none';
+        if (relaxed) {
+            try {
+                RuntimeDiagnostics.record('root_resolve', 'relaxed', { relaxedRoot: true, routeMatch: true });
+            } catch (_) { /* diagnostics must never affect blocking */ }
+        }
+        return relaxed;
     },
 
     injectProfileHeaderCheckbox: (scanResults = null) => {

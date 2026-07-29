@@ -71,6 +71,13 @@ export const BUNDLED_RELEASE_NOTES = {
             {
                 "segments": [
                     {
+                        "text": "5:部份使用者有回報2.8.0封鎖會失敗，這次2.8.1有試著修正這一塊\n如果有問題還請回報"
+                    }
+                ]
+            },
+            {
+                "segments": [
+                    {
                         "text": "並同時修改了介面讓設定看起來更乾淨"
                     }
                 ]

@@ -1957,10 +1957,14 @@ export const Worker = {
                     waitMs: Date.now() - profileWaitStartedAt,
                     viewportWidth: window.innerWidth,
                     viewportHeight: window.innerHeight,
+                    relaxedRoot: false,
                 });
                 return 'menu_not_found';
             }
-            recordDiagnostic('root_resolve', 'success', {}, { waitMs: Date.now() - profileWaitStartedAt });
+            recordDiagnostic('root_resolve', 'success', {}, {
+                waitMs: Date.now() - profileWaitStartedAt,
+                relaxedRoot: Core._lastProfileRootMode === 'relaxed',
+            });
             const privateState = MoreLocator.detectPrivateProfileState(profileRoot);
 
             let blockBtn = null;
