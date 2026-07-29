@@ -55,7 +55,7 @@ assert.doesNotMatch(report, /triggerCooldown/, 'report-only restriction must not
 assert.match(reporter, /const hasDiagnosticConsent = rawMetadata\.diagnosticConsent === true;/, 'full attachment must stay per-report opt-in');
 assert.match(reporter, /: lightweightMetadata\n\s*\};/, 'reports without consent must still carry the lightweight layer');
 assert.doesNotMatch(reporter, /Reporter\.collectClientEnv\(\)/, 'reporter must not harvest environment on its own');
-assert.match(ui, /不勾選仍可只送問題描述/, 'modal must disclose message-only path');
+assert.match(ui, /不勾也可以，只送你寫的問題描述/, 'modal must disclose message-only path');
 assert.match(ui, /送出時會一併附上技術資訊/, 'modal must disclose the lightweight layer at collection time');
 assert.doesNotMatch(ui, /未同意不會送出回報/, 'modal must not block message-only reporting');
 

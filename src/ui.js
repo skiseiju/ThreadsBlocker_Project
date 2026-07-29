@@ -101,6 +101,10 @@ export const UI = {
         }
     },
 
+    // 更新視窗「開發者想說的話」的段數上限。release-intro.md 是人手編的，
+    // 段數會成長；上限太低會無聲截掉，改版時完全看不出來。
+    RELEASE_NOTES_MAX_PARAGRAPHS: 60,
+
     getReleaseNotesModalData: (content = BUNDLED_RELEASE_NOTES) => {
         const source = content && typeof content === 'object' ? content : {};
         const notice = source.developerNotice && typeof source.developerNotice === 'object'
@@ -135,7 +139,12 @@ export const UI = {
                 paragraphs: (Array.isArray(notice.paragraphs) ? notice.paragraphs : []).map(paragraph => {
                     const entry = paragraph && typeof paragraph === 'object' ? paragraph : {};
                     return { segments: normalizeSegments(entry.segments) };
-                }).filter(paragraph => paragraph.segments.length > 0).slice(0, 8),
+                // 上限 8 段時，release-intro.md 只要寫超過 8 段就會被**無聲截掉**，
+                // 畫面上看起來像「更新說明沒有更新」。2026-07-29 的 intro 有 15 段，
+                // 第 9 段之後（修正項目 6–10、介面說明、Firefox 衝突說明）全部消失。
+                // 上限改為 UI.RELEASE_NOTES_MAX_PARAGRAPHS，並由測試確保產生出來的
+                // 段數不超過它，超過要在 build 階段就發現，不是等使用者回報。
+                }).filter(paragraph => paragraph.segments.length > 0).slice(0, UI.RELEASE_NOTES_MAX_PARAGRAPHS),
             },
             featureSection: normalizeSection(source.featureSection, 'features'),
             updateSection: normalizeSection(source.updateSection, 'updates'),
@@ -1468,9 +1477,9 @@ export const UI = {
                         <div style="margin-top:5px;color:#9fd39f;">這部分不含帳號名稱、選單文字、頁面網址與瀏覽紀錄，用來判斷問題卡在哪一步。</div>
                     </div>
                     <div style="display:${diagnosticsEnabled ? 'block' : 'none'};margin-top:12px;background:#151515;border:1px solid #3b3b3b;border-radius:8px;padding:10px 12px;color:#cfcfcf;font-size:12px;line-height:1.6;">
-                        <div style="font-weight:700;color:#f2f2f2;margin-bottom:5px;">可選的完整診斷附件會包含：</div>
-                        <div>目前頁面 URL／標題、工具版本與瀏覽器環境、封鎖／檢舉佇列摘要、來源貼文與操作摘要、必要的 DOM／console 診斷資訊。</div>
-                        <div style="margin-top:5px;color:#ffb8b8;">完整附件送出前會 scrub request token、cookie、authorization 與 canary；不勾選仍可只送問題描述。</div>
+                        <div style="font-weight:700;color:#f2f2f2;margin-bottom:5px;">要不要附上完整紀錄？</div>
+                        <div>勾了我們比較好查，修得比較快。裡面會多帶你當下的頁面網址與操作紀錄，密碼、cookie 這類東西一律不會送出。</div>
+                        <div style="margin-top:5px;color:#cfcfcf;">不勾也可以，只送你寫的問題描述。</div>
                     </div>
                     <label style="display:${diagnosticsEnabled ? 'flex' : 'none'};gap:8px;align-items:flex-start;margin-top:12px;color:#f2f2f2;font-size:12px;line-height:1.5;cursor:pointer;">
                         <input id="hege-report-diagnostic-consent" type="checkbox" ${diagnosticsEnabled ? '' : 'disabled'} style="margin-top:3px;flex:0 0 auto;">
