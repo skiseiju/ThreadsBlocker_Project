@@ -176,7 +176,7 @@ Token 只存在 Script Properties，不得寫進程式碼或 commit 進 repo。
    ```html
    <li>為了追蹤處理進度，問題回報內容與持續性隨機回報 ID 會每日複製一份到僅限授權人員存取的內部 Google 試算表。這份副本只用於問題處理，不公開、不用於廣告或出售。使用者提出刪除要求時，這份副本會與伺服器端資料一併刪除。</li>
    ```
-3. **`docs/CWS_PRIVACY_PRACTICES_2.8.0.md` 同步**：Google（Apps Script／試算表）已列為基礎設施服務，補上「內部問題處理工作表」用途。
+3. **`docs/CWS_PRIVACY_PRACTICES.md` 同步**：Google（Apps Script／試算表）已列為基礎設施服務，補上「內部問題處理工作表」用途。
 
 上述三項與程式碼同一批交付，不得延後。
 

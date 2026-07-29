@@ -64,7 +64,11 @@ test('beta50 local report/three-no exports remain separate from automatic upload
     assert.match(showReport, /buildBugReportDiagnosticsBundle/);
     assert.doesNotMatch(showReport, /collectDiagnosticsBundle\(\)/);
     const submitReport = reporter.match(/submitReport:[\s\S]{0,2600}/)?.[0] || '';
-    assert.doesNotMatch(submitReport, /clientEnv/);
+    // ADR 0013：clientEnv 現在是輕量層的一部分，會隨問題回報送出。原本斷言
+    // 「submitReport 不得出現 clientEnv」的用意是「回報路徑不得自行蒐集環境
+    // 資料」，這個用意仍然成立，改為守住它：只能轉送 Core 交來的欄位。
+    assert.doesNotMatch(submitReport, /Reporter\.collectClientEnv\(/);
+    assert.match(submitReport, /clientEnv: safeLightweight\.clientEnv \|\| null/);
     assert.match(source, /buildReportDebugExport/);
     assert.match(source, /buildThreeNoDebugExport/);
 });

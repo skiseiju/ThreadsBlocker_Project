@@ -196,9 +196,13 @@ test('beta59 runtime sanitizer keeps new aggregate fields and drops sensitive va
     const serialized = JSON.stringify(RuntimeDiagnostics.export());
     assert.match(serialized, /selfSkippedCount|ownerSkippedCount|scrollAttempt|scroll_ancestor/);
     assert.doesNotMatch(serialized, /SECRET|threads\.invalid|private|className|href|username/);
+    // ADR 0013：正式版仍收集；停止收集改由 ENABLE_RUNTIME_DIAGNOSTICS 控制。
+    const previousRuntime = CONFIG.ENABLE_RUNTIME_DIAGNOSTICS;
     CONFIG.VERSION = '2.7.4';
+    CONFIG.ENABLE_RUNTIME_DIAGNOSTICS = false;
     assert.equal(RuntimeDiagnostics.record('clean_list', 'scroll', { selfSkippedCount: 2 }), null);
     assert.deepEqual(RuntimeDiagnostics.get(), []);
+    CONFIG.ENABLE_RUNTIME_DIAGNOSTICS = previousRuntime;
     CONFIG.VERSION = previousVersion;
     CONFIG.ENABLE_BETA_DIAGNOSTICS = previousEnabled;
     RuntimeDiagnostics.clear();

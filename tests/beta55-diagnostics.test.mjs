@@ -65,20 +65,28 @@ test('beta55 diagnostics coalesce high-frequency message events without starving
     assert.equal(RuntimeDiagnostics.get().filter(entry => entry.feature === 'message_route').length, 2);
 });
 
-test('beta55 stable channel disables creation, copy payload and report attachment', () => {
+// ADR 0013：收集不再綁 beta 版號。正式版一樣收集（內容受白名單限制），
+// 總開關改成 CONFIG.ENABLE_RUNTIME_DIAGNOSTICS，作為緊急關閉用。
+// 手動 debug／export UI 才維持 beta 綁定，改由 betaDebugUI() 判斷。
+test('beta55 正式版仍收集，總開關關掉才停止並清空', () => {
     RuntimeDiagnostics.clear();
-    CONFIG.VERSION = '2.7.4-beta56';
-    CONFIG.ENABLE_BETA_DIAGNOSTICS = false;
-    assert.equal(RuntimeDiagnostics.enabled(), false);
-    assert.equal(RuntimeDiagnostics.record('followers', 'scroll', { scrollTop: 10 }), null);
-    assert.deepEqual(RuntimeDiagnostics.get(), []);
+    const previousRuntime = CONFIG.ENABLE_RUNTIME_DIAGNOSTICS;
     CONFIG.VERSION = '2.7.4';
-    CONFIG.ENABLE_BETA_DIAGNOSTICS = true;
+    CONFIG.ENABLE_BETA_DIAGNOSTICS = false;
+    assert.equal(RuntimeDiagnostics.betaDebugUI(), false, '正式版不得出現手動 debug UI');
+    assert.equal(RuntimeDiagnostics.enabled(), true, '正式版仍要收集，否則災情時查不到根因');
+    assert.notEqual(RuntimeDiagnostics.record('followers', 'scroll', { scrollTop: 10 }), null);
+    assert.equal(RuntimeDiagnostics.get().length, 1);
+
+    CONFIG.ENABLE_RUNTIME_DIAGNOSTICS = false;
     assert.equal(RuntimeDiagnostics.enabled(), false);
     assert.equal(RuntimeDiagnostics.record('followers', 'scroll', { scrollTop: 10 }), null);
-    assert.deepEqual(RuntimeDiagnostics.get(), []);
+    assert.deepEqual(RuntimeDiagnostics.get(), [], '關掉總開關要連既有內容一起清空');
     const report = Core.buildBugReportDiagnosticsBundle();
     assert.equal(Object.hasOwn(report, 'runtimeDiagnostics'), false);
+
+    CONFIG.ENABLE_RUNTIME_DIAGNOSTICS = previousRuntime;
+    CONFIG.ENABLE_BETA_DIAGNOSTICS = true;
 });
 
 test('beta55 context sanitizer keeps normalized DOM/route signals and drops sensitive values', () => {

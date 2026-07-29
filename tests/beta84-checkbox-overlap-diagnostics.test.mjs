@@ -113,7 +113,8 @@ const makeElement = (overrides = {}) => {
     return element;
 };
 
-const resetState = ({ version = '2.7.4-beta84', enabled = true } = {}) => {
+const resetState = ({ version = '2.7.4-beta84', enabled = true, runtime = true } = {}) => {
+    CONFIG.ENABLE_RUNTIME_DIAGNOSTICS = runtime;
     localStorageMock.clear();
     sessionStorageMock.clear();
     Storage.cache = {};
@@ -199,10 +200,12 @@ test('beta84 overlap observation drops rogue PII-shaped fields before export', (
     assert.doesNotMatch(JSON.stringify(Core.buildThreeNoDebugExport()), new RegExp(marker));
 });
 
-test('beta84 stable or diagnostics-disabled export stays null and adds no entry', () => {
+// ADR 0013：正式版本身不再是關閉條件（正式版一樣收集），關閉條件是
+// ENABLE_RUNTIME_DIAGNOSTICS。兩種版本通道在總開關關掉時都必須完全靜默。
+test('beta84 總開關關掉時 export 為 null 且不留任何紀錄', () => {
     for (const scenario of [
-        { version: '2.7.4', enabled: true },
-        { version: '2.7.4-beta84', enabled: false },
+        { version: '2.7.4', enabled: true, runtime: false },
+        { version: '2.7.4-beta84', enabled: false, runtime: false },
     ]) {
         resetState(scenario);
         assert.equal(Core.recordCheckboxOverlapObservation({ path: 'dialog_injection', didInject: true }), null);

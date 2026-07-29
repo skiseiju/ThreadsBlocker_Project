@@ -47,19 +47,24 @@ test('beta57 collector exception records error and terminal and clears operation
     assert.equal(RuntimeDiagnostics._operations.size, 0);
 });
 
-test('beta57 stable gate strips consent attachment and legacy debug exports', async () => {
+// ADR 0013：正式版不再整批 strip 附件——附件改由逐次同意控制，收集由
+// ENABLE_RUNTIME_DIAGNOSTICS 控制。本測試改守「總開關關掉時，正式版一樣
+// 什麼都不送、什麼都匯不出」，這是緊急關閉路徑，仍必須成立。
+test('beta57 總開關關掉時，正式版不送附件也匯不出任何 debug export', async () => {
     const originals = { endpoints: Reporter.getReportEndpoints, hwid: Reporter.getHardwareId, sha: Reporter.sha256, send: Reporter.sendViaFetch };
+    const previousRuntime = CONFIG.ENABLE_RUNTIME_DIAGNOSTICS;
     CONFIG.VERSION = '2.7.4';
     CONFIG.ENABLE_BETA_DIAGNOSTICS = true;
+    CONFIG.ENABLE_RUNTIME_DIAGNOSTICS = false;
     const sent = [];
     Reporter.getReportEndpoints = () => ['https://example.invalid/report'];
     Reporter.getHardwareId = () => 'test-hwid';
     Reporter.sha256 = async () => 'sig';
     Reporter.sendViaFetch = async (_endpoint, payload) => { sent.push(payload); return { code: 200 }; };
     try {
-        await Reporter.submitReport('error', 'message', 'stable', { diagnosticConsent: true, diagnosticsBundle: { username: 'SECRET', url: 'https://secret.invalid', userAgent: 'UA' } });
+        await Reporter.submitReport('error', 'message', 'stable', { diagnosticConsent: false });
         assert.equal(sent.length, 1);
-        assert.doesNotMatch(sent[0].metadata, /diagnosticsBundle|SECRET|secret\.invalid|userAgent/i);
+        assert.equal(sent[0].metadata, '', '總開關關掉後不得附帶任何 metadata');
         assert.equal(Core.buildReportDebugExport(), null);
         assert.equal(Core.buildThreeNoDebugExport(), null);
         assert.equal(Core.collectDiagnosticsBundle(), null);
@@ -67,5 +72,6 @@ test('beta57 stable gate strips consent attachment and legacy debug exports', as
         Object.assign(Reporter, { getReportEndpoints: originals.endpoints, getHardwareId: originals.hwid, sha256: originals.sha, sendViaFetch: originals.send });
         CONFIG.VERSION = originalVersion;
         CONFIG.ENABLE_BETA_DIAGNOSTICS = originalEnabled;
+        CONFIG.ENABLE_RUNTIME_DIAGNOSTICS = previousRuntime;
     }
 });

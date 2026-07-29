@@ -846,8 +846,9 @@ export const UI = {
         bindClick('hege-endless-queue-item', callbacks.onEndlessQueue);
         bindClick('hege-stop-btn-item', callbacks.onStop);
         bindClick('hege-settings-item', callbacks.onSettings);
-        // Legacy CONFIG.ENABLE_BETA_DIAGNOSTICS/version checks are centralized in RuntimeDiagnostics.enabled().
-        if (callbacks.onCopyDiagnostics && globalThis.__hegeRuntimeDiagnostics?.enabled?.() === true) {
+        // 手動 debug／export UI 只在 beta 版出現（AGENTS.md）。收集本身走 enabled()，
+        // 兩者自 ADR 0013 起分開，不可再合併。
+        if (callbacks.onCopyDiagnostics && globalThis.__hegeRuntimeDiagnostics?.betaDebugUI?.() === true) {
             const diagnosticsItem = document.getElementById('hege-copy-diagnostics-item');
             if (diagnosticsItem) diagnosticsItem.style.display = '';
             bindClick('hege-copy-diagnostics-item', callbacks.onCopyDiagnostics);
@@ -1461,7 +1462,12 @@ export const UI = {
                         <option value="ERROR" selected>❌ 功能壞了</option>
                         <option value="CRITICAL">💀 完全無法使用</option>
                     </select>
-                    <div style="display:${diagnosticsEnabled ? 'block' : 'none'};margin-top:16px;background:#151515;border:1px solid #3b3b3b;border-radius:8px;padding:10px 12px;color:#cfcfcf;font-size:12px;line-height:1.6;">
+                    <div style="margin-top:16px;background:#151515;border:1px solid #3b3b3b;border-radius:8px;padding:10px 12px;color:#cfcfcf;font-size:12px;line-height:1.6;">
+                        <div style="font-weight:700;color:#f2f2f2;margin-bottom:5px;">送出時會一併附上技術資訊：</div>
+                        <div>工具版本、瀏覽器環境與視窗尺寸，以及最近的操作步驟代號與次數（例如「找不到選單、第 3 次、共 12 筆」）。</div>
+                        <div style="margin-top:5px;color:#9fd39f;">這部分不含帳號名稱、選單文字、頁面網址與瀏覽紀錄，用來判斷問題卡在哪一步。</div>
+                    </div>
+                    <div style="display:${diagnosticsEnabled ? 'block' : 'none'};margin-top:12px;background:#151515;border:1px solid #3b3b3b;border-radius:8px;padding:10px 12px;color:#cfcfcf;font-size:12px;line-height:1.6;">
                         <div style="font-weight:700;color:#f2f2f2;margin-bottom:5px;">可選的完整診斷附件會包含：</div>
                         <div>目前頁面 URL／標題、工具版本與瀏覽器環境、封鎖／檢舉佇列摘要、來源貼文與操作摘要、必要的 DOM／console 診斷資訊。</div>
                         <div style="margin-top:5px;color:#ffb8b8;">完整附件送出前會 scrub request token、cookie、authorization 與 canary；不勾選仍可只送問題描述。</div>

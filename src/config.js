@@ -1,9 +1,13 @@
 export const CONFIG = {
-    VERSION: '2.8.1-beta14', // stable release: credentials removal + consent v4 + settings redesign
+    VERSION: '2.8.1-beta15', // stable release: credentials removal + consent v4 + settings redesign
     // VERSION: '2.7.4-beta57' was the prior release baseline.
-    // Beta-only, in-memory diagnostics. Stable/release channels must keep this
-    // disabled even if a stale setting is present.
+    // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
+    // 正式版必須移除這類 UI，因此仍綁 beta 版號。
     ENABLE_BETA_DIAGNOSTICS: true,
+    // 輕量診斷 ring buffer 的總開關（ADR 0013）。所有版本都收集，內容受
+    // RuntimeDiagnostics._safeFields 白名單限制，只有數量與布林，不含帳號、
+    // 選單文字或網址。設 false 可完全停止收集，作為緊急關閉用。
+    ENABLE_RUNTIME_DIAGNOSTICS: true,
     UNBLOCK_PREFIX: 'UNBLOCK:',
 
     DONATE_URL: 'https://api.payuni.com.tw/api/uop/receive_info/2/3/U012070036/885oqmRcNVU7OTwotE1HS',

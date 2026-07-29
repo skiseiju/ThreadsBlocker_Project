@@ -277,11 +277,14 @@ test("consent and public copy stay aligned", () => {
   const methodology = source("site/platform/methodology/index.html");
   const nextPage = source("site/platform/next/index.html");
   const listing = source("docs/CWS_LISTING_DRAFT.md");
-  const cwsPractices = source("docs/CWS_PRIVACY_PRACTICES_2.8.0.md");
+  const cwsPractices = source("docs/CWS_PRIVACY_PRACTICES.md");
   const topicSdd = source("docs/SDD_Topic_Amplification.md");
   const adr = source("docs/adr/0009-deidentified-sample-publication.md");
   const combined = `${ui}\n${readme}\n${changelog}\n${home}\n${privacy}\n${methodology}\n${nextPage}\n${listing}\n${cwsPractices}\n${topicSdd}\n${adr}`;
-  assert.match(config, /VERSION: '2\.8\.0'/);
+  // 2.8.x 這條發布線的任何版本（含 beta）都要通過本檔的文案對齊檢查。
+  // 舊寫法寫死 '2.8.0'，2.8.1 開發期間整個 test 在第一行就失敗，後面真正
+  // 重要的隱私文案斷言全部沒跑到。
+  assert.match(config, /VERSION: '2\.8\.\d+(?:-beta\d+)?'/);
   assert.match(config, /PLATFORM_SYNC_CONSENT_POLICY_VERSION: 'platform-sync-v4'/);
   assert.match(ui, /id="hege-report-diagnostic-consent" type="checkbox"/);
   assert.equal(ui.includes('id="hege-report-diagnostic-consent" type="checkbox" checked'), false);
@@ -316,4 +319,11 @@ test("consent and public copy stay aligned", () => {
   assert.match(nextPage, /帳號觀測筆數/);
   assert.match(topicSdd, /來源貼文數/);
   assert.match(adr, /public overview GET[\s\S]*(?:唯讀|僅讀取)/);
+  // ADR 0013：輕量診斷層必須在三處口徑一致——蒐集時點（回報視窗）、
+  // 隱私政策頁、商店申報稿。少任何一處就是「文案寫得比程式做得少」。
+  assert.match(ui, /送出時會一併附上技術資訊/);
+  assert.match(privacy, /輕量技術資訊/);
+  assert.match(privacy, /同一個安裝來源的多次失敗紀錄可以被關聯起來/);
+  assert.match(cwsPractices, /lightweight technical layer ships on every channel/);
+  assert.match(cwsPractices, /RuntimeDiagnostics\._safeFields/);
 });

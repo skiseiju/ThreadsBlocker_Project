@@ -49,9 +49,14 @@ assert.doesNotMatch(worker, /const pageTextForPrivacy = document\.body/, 'worker
 assert.doesNotMatch(report, /const pageText = document\.body\?\.innerText[\s\S]{0,240}private/i, 'report flow must not infer private state from unrelated body text');
 assert.match(report, /Worker\.noteReportRateLimit/, 'report-only restriction must use report reminder path');
 assert.doesNotMatch(report, /triggerCooldown/, 'report-only restriction must not share block cooldown');
-assert.match(reporter, /const hasDiagnosticConsent = metadata && metadata\.diagnosticConsent === true;/, 'diagnostic consent must be optional');
-assert.match(reporter, /metadata: hasDiagnosticConsent[\s\S]{0,240}: ''/, 'message-only reports must not attach client environment metadata');
+// ADR 0013：完整附件仍需逐次同意，但輕量層改為一律附帶，因此不再斷言
+// 「沒同意就送空 metadata」。改為守住真正的邊界：完整附件受同意控制，
+// 且 reporter 不得自己去蒐集環境資料（只能轉送 Core 交來的輕量層）。
+assert.match(reporter, /const hasDiagnosticConsent = rawMetadata\.diagnosticConsent === true;/, 'full attachment must stay per-report opt-in');
+assert.match(reporter, /: lightweightMetadata\n\s*\};/, 'reports without consent must still carry the lightweight layer');
+assert.doesNotMatch(reporter, /Reporter\.collectClientEnv\(\)/, 'reporter must not harvest environment on its own');
 assert.match(ui, /不勾選仍可只送問題描述/, 'modal must disclose message-only path');
+assert.match(ui, /送出時會一併附上技術資訊/, 'modal must disclose the lightweight layer at collection time');
 assert.doesNotMatch(ui, /未同意不會送出回報/, 'modal must not block message-only reporting');
 
 console.log('beta47 safety regressions: PASS locator/scopes/routes, result split, snapshot TTL/cap/clear, message-only consent');

@@ -59,6 +59,13 @@ function doPost(e) {
     var dateStr = new Date().toISOString();
     
     // [ Timestamp, HWID, Version, Level, Message, ErrorCode, Metadata, Status ]
+    //
+    // Metadata 欄刻意不寫入 data.metadata（ADR 0013）。
+    // 這支端點是 BUG_REPORT_FALLBACK_URLS 的備援，只在主要 Worker 失效時才被
+    // 呼叫，它存在的目的是「不要漏掉使用者的求救訊息」，不需要診斷內容。
+    // 自 2.8.1 起 metadata 一律帶輕量診斷，若照舊整包寫入，診斷就會流進一張
+    // 沒有為它設計過、也沒寫進隱私政策的試算表。改為只記錄有沒有附件。
+    var attachmentFlag = data.metadata ? "diagnostics_present_not_stored" : "";
     sheet.appendRow([
       dateStr,
       data.hwid,
@@ -66,7 +73,7 @@ function doPost(e) {
       data.level || "ERROR",
       data.message,
       data.error_code || "",
-      data.metadata || "",
+      attachmentFlag,
       "PENDING"
     ]);
     

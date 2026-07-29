@@ -56,8 +56,17 @@ export const RuntimeDiagnostics = {
     _observerTarget: null,
     _sessionId: diagnosticSessionId(),
     _startedAt: Date.now(),
+    // 手動 debug／export UI 專用（複製診斷、清除診斷、三無 verbose log）。
+    // AGENTS.md 要求正式版移除 beta-only debug/export UI，所以這條仍綁 beta 版號。
+    // 注意：它不再控制 ring buffer 是否收集，那是 enabled()。
+    betaDebugUI() {
+        return CONFIG.ENABLE_BETA_DIAGNOSTICS === true && /-beta\d+$/i.test(String(CONFIG.VERSION || ''));
+    },
+    // ring buffer 是否收集。ADR 0013 起所有版本都收集：內容受 _safeFields 白名單
+    // 限制，只有數量與布林，不含帳號、選單文字或網址。正式版不收集的舊行為，
+    // 導致使用者回報只有一句描述、完全查不出根因（2.8.0 封鎖災情的實例）。
     enabled() {
-        const active = CONFIG.ENABLE_BETA_DIAGNOSTICS === true && /-beta\d+$/i.test(String(CONFIG.VERSION || ''));
+        const active = CONFIG.ENABLE_RUNTIME_DIAGNOSTICS === true;
         if (!active && (this._entries.length || this._lastBySignature.size)) {
             this._entries = [];
             this._lastBySignature.clear();
@@ -4994,6 +5003,24 @@ export const Core = {
     // beta-only local debug exports below. Keep only the closed diagnostic
     // event shape here; batch users, traces, logs, history, source and URL
     // evidence remain available only through explicit local export actions.
+    // 輕量診斷層（ADR 0013）。所有版本、不需勾選同意就會隨問題回報送出。
+    // 只包含：執行環境、視窗尺寸、以及 RuntimeDiagnostics ring buffer。
+    // ring 的內容由 _safeFields 白名單決定，只有數量、布林與列舉代號，沒有
+    // 帳號名稱、選單文字、頁面網址或 console log。完整附件（含 log 與頁面
+    // 資訊）仍在 buildBugReportDiagnosticsBundle，仍需逐次勾選同意。
+    buildLightweightDiagnostics: () => {
+        const ring = RuntimeDiagnostics.export();
+        return {
+            schema: 'threadsblocker.lightweight_diagnostics_v1',
+            clientEnv: Reporter.collectClientEnv(),
+            viewport: {
+                width: typeof window !== 'undefined' ? Math.round(window.innerWidth || 0) : 0,
+                height: typeof window !== 'undefined' ? Math.round(window.innerHeight || 0) : 0,
+            },
+            runtimeDiagnostics: ring && Array.isArray(ring.entries) && ring.entries.length ? ring : null,
+        };
+    },
+
     buildBugReportDiagnosticsBundle: () => {
         const now = Date.now();
         const snapshot = ReportDebugContext.sanitizeSnapshot(
@@ -5044,7 +5071,7 @@ export const Core = {
     },
 
     copyRuntimeDiagnostics: async () => {
-        if (!RuntimeDiagnostics.enabled()) return { ok: false, reason: 'disabled' };
+        if (!RuntimeDiagnostics.betaDebugUI()) return { ok: false, reason: 'disabled' };
         const payload = RuntimeDiagnostics.export();
         // Export is already closed-schema; stringify once more so callers can
         // never copy a live object that could be mutated after the click.
@@ -5071,7 +5098,7 @@ export const Core = {
     },
 
     clearRuntimeDiagnostics: () => {
-        if (!RuntimeDiagnostics.enabled()) return false;
+        if (!RuntimeDiagnostics.betaDebugUI()) return false;
         RuntimeDiagnostics.clear();
         resetCheckboxOverlapObservation();
         UI.showToast('已清除本次診斷資料', 2000, { severity: 'success' });
@@ -5170,16 +5197,13 @@ export const Core = {
 
     showReportDialog: () => {
         UI.showBugReportModal(async (level, message, consent = {}) => {
-            const diagnosticsEnabled = RuntimeDiagnostics.enabled();
-            const metadata = diagnosticsEnabled && consent.diagnosticConsent === true
-                ? (() => {
-                    const diagnosticsBundle = Core.buildBugReportDiagnosticsBundle();
-                    return {
-                        diagnosticConsent: true,
-                        diagnosticsBundle,
-                    };
-                })()
-                : { diagnosticConsent: false };
+            // 輕量層一律附帶，不需勾選；完整附件仍要逐次勾選同意（ADR 0013）。
+            const fullConsent = consent.diagnosticConsent === true;
+            const metadata = {
+                diagnosticConsent: fullConsent,
+                lightweightDiagnostics: Core.buildLightweightDiagnostics(),
+                ...(fullConsent ? { diagnosticsBundle: Core.buildBugReportDiagnosticsBundle() } : {}),
+            };
             const result = await Reporter.submitReport(level, message, "UI_REPORT", metadata);
             if (result && Number(result.code) === 200) Core.clearReportFailureSnapshots();
             return result;

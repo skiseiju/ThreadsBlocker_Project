@@ -440,6 +440,10 @@ var index_default = {
       if (url.pathname === "/api/v1/admin/bugs" && request.method === "GET") {
         return withCors(await handleAdminList(request, env));
       }
+      const adminBugDetail = url.pathname.match(/^\/api\/v1\/admin\/bugs\/(\d+)$/);
+      if (adminBugDetail && request.method === "GET") {
+        return withCors(await handleAdminDetail(request, env, adminBugDetail[1]));
+      }
       if (url.pathname === "/api/v1/admin/stats" && request.method === "GET") {
         return withCors(await handleAdminStats(request, env));
       }
@@ -1038,6 +1042,28 @@ async function handleAdminList(request, env) {
   return json({ code: 200, data: rows.results || [] }, 200);
 }
 __name(handleAdminList, "handleAdminList");
+// 單筆完整內容，含 metadata。handleAdminList 刻意不撈 metadata（清單頁不需要
+// 整包診斷），結果是診斷寫得進 D1 卻讀不回來——2.8.0 封鎖災情期間沒有任何
+// 途徑取得使用者端的失敗原因，就是這個缺口。ADR 0013 補上這支。
+// 仍是唯讀、仍走 reports:read scope，不新增任何寫入路徑。
+async function handleAdminDetail(request, env, rawId) {
+  assertScope(request, env, "reports:read");
+  const id = Number.parseInt(rawId, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    return json({ code: 400, message: "Invalid report id" }, 400);
+  }
+  const row = await env.DB.prepare(
+    `SELECT
+       id, created_at, source_app, version, hwid, level, status,
+       message, error_code, platform, script_manager,
+       endpoint, error_name, error_message, metadata
+     FROM bug_reports
+     WHERE id = ?`
+  ).bind(id).first();
+  if (!row) return json({ code: 404, message: "Report not found" }, 404);
+  return json({ code: 200, data: row }, 200);
+}
+__name(handleAdminDetail, "handleAdminDetail");
 async function handleAdminStats(request, env) {
   assertScope(request, env, "stats:read");
   const url = new URL(request.url);

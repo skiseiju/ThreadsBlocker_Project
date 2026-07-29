@@ -2,7 +2,7 @@
 
 - 日期：2026-07-22
 - 狀態：已採納
-- 相關：ADR 0009（去識別樣本公開）、`docs/CWS_PRIVACY_PRACTICES_2.8.0.md`、`site/privacy/index.html`
+- 相關：ADR 0009（去識別樣本公開）、`docs/CWS_PRIVACY_PRACTICES.md`、`site/privacy/index.html`
 
 ## 背景
 
@@ -21,7 +21,7 @@
 
 ## 決定
 
-1. 採 X。隱私頁 §5 新增「人工覆核」項、§8 將「禁止無關人工讀取」改為「必要人工讀取」，`docs/CWS_PRIVACY_PRACTICES_2.8.0.md` 同口徑；不再宣稱內容已匿名或人員只見去識別版本。
+1. 採 X。隱私頁 §5 新增「人工覆核」項、§8 將「禁止無關人工讀取」改為「必要人工讀取」，`docs/CWS_PRIVACY_PRACTICES.md` 同口徑；不再宣稱內容已匿名或人員只見去識別版本。
 2. 同一句揭露加入 platform 同意視窗（`src/ui.js`）。
 3. **`PLATFORM_SYNC_CONSENT_POLICY_VERSION` 由 `platform-sync-v3` 升為 `platform-sync-v4`。** 「授權人員可能讀取可識別原文」是人員存取範圍的實質揭露，不是文句潤飾；`hasPlatformSyncConsentForCurrentVersion()` 是字串完全相等比對，不升版的話既有 v3 使用者永遠看不到新增那句，等於沒有對這項人工讀取取得明確同意。
 4. B 的 reviewer role 隔離、raw access 逐案 audit 與 admin overview 角色投影，列為**送審後 follow-up**，並在文件中如實記為未完成，不寫成已完成。

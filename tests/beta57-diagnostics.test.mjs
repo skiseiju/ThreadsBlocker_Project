@@ -46,10 +46,13 @@ test('beta57 privacy sanitizer drops sensitive fields and stable gate is empty',
     });
     const serialized = JSON.stringify(RuntimeDiagnostics.export());
     assert.doesNotMatch(serialized, /private|secret|threads\.example|token|html|href/);
-    CONFIG.ENABLE_BETA_DIAGNOSTICS = false;
+    // ADR 0013：收集的總開關是 ENABLE_RUNTIME_DIAGNOSTICS，不再是 beta 版號。
+    const previousRuntime = CONFIG.ENABLE_RUNTIME_DIAGNOSTICS;
+    CONFIG.ENABLE_RUNTIME_DIAGNOSTICS = false;
     assert.equal(RuntimeDiagnostics.record('runtime', 'config', { active: true }), null);
     assert.deepEqual(RuntimeDiagnostics.get(), []);
     assert.equal(RuntimeDiagnostics.export(), null);
+    CONFIG.ENABLE_RUNTIME_DIAGNOSTICS = previousRuntime;
 });
 
 test('beta57 source coverage includes all requested diagnostic feature families', async () => {

@@ -380,11 +380,21 @@ export const Reporter = {
         const signature = await Reporter.sha256(rawStr);
 
         const safeMessage = Reporter.scrubSensitiveText(message);
-        const diagnosticsEnabled = diagnostics?.enabled?.() === true;
-        // Legacy contract marker: const hasDiagnosticConsent = metadata && metadata.diagnosticConsent === true;
-        const hasDiagnosticConsent = diagnosticsEnabled && metadata && metadata.diagnosticConsent === true;
-        const safeMetadata = hasDiagnosticConsent ? Reporter.scrubSensitiveData(metadata) : null;
-        if (safeMetadata && typeof safeMetadata === 'object') delete safeMetadata.diagnosticConsent;
+        const rawMetadata = metadata && typeof metadata === 'object' ? metadata : {};
+        // 完整附件（含 log 與頁面資訊）仍需逐次勾選同意。
+        const hasDiagnosticConsent = rawMetadata.diagnosticConsent === true;
+        const safeMetadata = hasDiagnosticConsent ? Reporter.scrubSensitiveData(rawMetadata) : null;
+        if (safeMetadata && typeof safeMetadata === 'object') {
+            delete safeMetadata.diagnosticConsent;
+            delete safeMetadata.lightweightDiagnostics;
+        }
+        // 輕量層不需同意就送（ADR 0013）。它是白名單產物，仍過一次 scrub 保險。
+        const safeLightweight = rawMetadata.lightweightDiagnostics
+            ? Reporter.scrubSensitiveData(rawMetadata.lightweightDiagnostics)
+            : null;
+        const lightweightMetadata = safeLightweight
+            ? JSON.stringify({ clientEnv: safeLightweight.clientEnv || null, lightweightDiagnostics: safeLightweight })
+            : '';
         const basePayload = {
             source_app: Reporter.sourceApp,
             version: CONFIG.VERSION,
@@ -393,7 +403,7 @@ export const Reporter = {
             level,
             message: safeMessage,
             error_code: Reporter.scrubSensitiveText(errorCode),
-            metadata: safeMetadata ? JSON.stringify(safeMetadata) : '',
+            metadata: lightweightMetadata,
             signature
         };
 
@@ -404,8 +414,12 @@ export const Reporter = {
                 const payload = {
                     ...basePayload,
                     metadata: hasDiagnosticConsent
-                        ? JSON.stringify({ userMetadata: safeMetadata || null })
-                        : ''
+                        ? JSON.stringify({
+                            clientEnv: safeLightweight?.clientEnv || null,
+                            lightweightDiagnostics: safeLightweight,
+                            userMetadata: safeMetadata || null,
+                        })
+                        : lightweightMetadata
                 };
 
                 const send = (requestPayload) => typeof GM_xmlhttpRequest !== 'undefined'
@@ -441,10 +455,20 @@ export const Reporter = {
                 // metadata. Retry once as a message-only report so a backend
                 // schema mismatch never blocks the user's report entirely.
                 const statusCode = Number(lastError.code);
-                if (hasDiagnosticConsent && statusCode >= 400 && statusCode < 500) {
+                // 舊版 endpoint 可能拒收附件。逐級降階重送，確保後端 schema 不合
+                // 永遠不會讓使用者的求救訊息整封送不出去：
+                //   完整附件 → 只剩輕量層（basePayload）→ 完全不帶 metadata。
+                if ((hasDiagnosticConsent || lightweightMetadata) && statusCode >= 400 && statusCode < 500) {
+                    const degraded = hasDiagnosticConsent && lightweightMetadata
+                        ? basePayload
+                        : { ...basePayload, metadata: '' };
                     try {
-                        result = await send({ ...basePayload, metadata: '' });
+                        result = await send(degraded);
                         recordReportHttp(result, false, true);
+                        if (result && Number(result.code) >= 400 && Number(result.code) < 500 && degraded.metadata) {
+                            result = await send({ ...basePayload, metadata: '' });
+                            recordReportHttp(result, false, true);
+                        }
                     } catch (err) {
                         lastError = err || { code: 500, message: 'Network error' };
                         diagnostics?.record?.('report', 'http', { operationId, statusCode: 0, category: 'network', httpBucket: 'network', diagnosticsAttached: false, diagnosticsFallback: true, reason: 'network' });

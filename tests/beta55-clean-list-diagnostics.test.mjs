@@ -16,7 +16,9 @@ test('beta55 clean-list diagnostics cover tab/context/rows and atomic commit rol
 test('beta55 diagnostics copy/clear controls are beta gated and use plain-language failure copy', () => {
     assert.match(uiSource, /hege-copy-diagnostics-item/);
     assert.match(uiSource, /hege-clear-diagnostics-item/);
-    assert.match(uiSource, /ENABLE_BETA_DIAGNOSTICS/);
+    // ADR 0013：手動 debug UI 的 beta 閘門改由 betaDebugUI() 表達，
+    // 不再直接讀 CONFIG.ENABLE_BETA_DIAGNOSTICS。
+    assert.match(uiSource, /betaDebugUI\?\.\(\) === true/);
     assert.match(coreSource, /已複製診斷資料/);
     assert.match(coreSource, /沒有找到可勾選的帳號/);
 });
