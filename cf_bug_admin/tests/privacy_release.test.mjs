@@ -311,7 +311,8 @@ test("consent and public copy stay aligned", () => {
   assert.match(combined, /pending_version_consent/);
   assert.match(combined, /description/);
   assert.match(combined, /reviewed_text/);
-  assert.match(readme, /目前正式版：`v2\.8\.0`/);
+  assert.match(readme, /目前正式版：`v2\.8\.1`/);
+  assert.match(changelog, /^## v2\.8\.1 —/m);
   assert.match(changelog, /^## v2\.8\.0 —/m);
   assert.match(changelog, /v2\.7\.4-beta44/);
   assert.match(changelog, /歷史口徑更正.*beta44/);

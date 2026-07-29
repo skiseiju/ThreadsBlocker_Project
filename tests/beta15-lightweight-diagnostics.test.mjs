@@ -106,6 +106,14 @@ test('輕量層一樣要過 scrub，不得夾帶憑證值', async () => {
     }
 });
 
+test('輕量層有筆數上限，不得整份 ring 免同意送出', () => {
+    const limit = Number(coreSource.match(/LIGHTWEIGHT_ENTRY_LIMIT: (\d+)/)?.[1]);
+    assert.ok(Number.isInteger(limit) && limit > 0 && limit <= 200, `unexpected limit ${limit}`);
+    const builder = coreSource.slice(coreSource.indexOf('buildLightweightDiagnostics: () => {'), coreSource.indexOf('buildBugReportDiagnosticsBundle: () => {'));
+    assert.match(builder, /\.slice\(-Core\.LIGHTWEIGHT_ENTRY_LIMIT\)/, '輕量層必須只帶最近一段');
+    assert.match(builder, /truncatedFrom: allEntries\.length/, '截斷要留下痕跡，不能假裝這就是全部');
+});
+
 test('GAS 備援端點不得把診斷寫進試算表', () => {
     const appendRow = gasSource.slice(gasSource.indexOf('sheet.appendRow(['), gasSource.indexOf(']);', gasSource.indexOf('sheet.appendRow([')));
     assert.doesNotMatch(appendRow, /data\.metadata/, '備援只需要求救訊息，不需要診斷內容');

@@ -5008,8 +5008,18 @@ export const Core = {
     // ring 的內容由 _safeFields 白名單決定，只有數量、布林與列舉代號，沒有
     // 帳號名稱、選單文字、頁面網址或 console log。完整附件（含 log 與頁面
     // 資訊）仍在 buildBugReportDiagnosticsBundle，仍需逐次勾選同意。
+    // 免同意就送的東西必須是最小必要。實測（回報 #45，2.8.1-beta18）完整 ring
+    // 有 400 筆、單獨 147KB；每一封回報都背這個量既不必要也不合比例。查根因
+    // 只需要最後那一段，因此輕量層只帶最近 LIGHTWEIGHT_ENTRY_LIMIT 筆。
+    // 完整 ring 仍保留在需要勾選同意的 buildBugReportDiagnosticsBundle。
+    LIGHTWEIGHT_ENTRY_LIMIT: 120,
+
     buildLightweightDiagnostics: () => {
         const ring = RuntimeDiagnostics.export();
+        const allEntries = ring && Array.isArray(ring.entries) ? ring.entries : [];
+        const entries = allEntries.slice(-Core.LIGHTWEIGHT_ENTRY_LIMIT);
+        const summary = {};
+        for (const entry of entries) summary[entry.feature] = (summary[entry.feature] || 0) + 1;
         return {
             schema: 'threadsblocker.lightweight_diagnostics_v1',
             clientEnv: Reporter.collectClientEnv(),
@@ -5017,7 +5027,9 @@ export const Core = {
                 width: typeof window !== 'undefined' ? Math.round(window.innerWidth || 0) : 0,
                 height: typeof window !== 'undefined' ? Math.round(window.innerHeight || 0) : 0,
             },
-            runtimeDiagnostics: ring && Array.isArray(ring.entries) && ring.entries.length ? ring : null,
+            runtimeDiagnostics: entries.length
+                ? { schema: ring.schema, version: ring.version, sessionId: ring.sessionId, summary, entries, truncatedFrom: allEntries.length }
+                : null,
         };
     },
 
