@@ -5,63 +5,33 @@
 // 判定改相對 root）都沒有救回來。使用者拍板：不追窄版面，改成把過小的視窗撐回
 // 可運作的下界並說明原因。
 //
-// 這裡鎖的是契約：下界存在、撐回時同時夾住上界、正常尺寸不動它。
+// 2.8.2-beta1 契約更新（回報 #47）：外框（outer）上下界整組移除——外框在不同
+// 電腦被工具列／邊框／縮放吃掉的量不同，拿外框當標準會造成「撐大說夠了、暫停
+// 說不夠」永遠卡死。現在唯一的尺寸規則是內容區（viewport）下界 700x440：過小
+// 時以「邊框差＋下界」換算絕對外尺寸一次 resizeTo 吸附，拉大不縮回，resize
+// 事件 debounce 後才套用。絕對目標與 debounce 的細節鎖在
+// beta1-window-bounds-viewport.test.mjs，這裡鎖的是暫停策略與下界本身。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const workerSource = await readFile(new URL('../src/worker.js', import.meta.url), 'utf8');
 
-function loadBounds() {
-    const pick = name => Number(workerSource.match(new RegExp(`const ${name} = (\\d+);`))?.[1]);
-    return {
-        minW: pick('WORKER_MIN_WIDTH'),
-        minH: pick('WORKER_MIN_HEIGHT'),
-        maxW: pick('WORKER_MAX_WIDTH'),
-        maxH: pick('WORKER_MAX_HEIGHT'),
-    };
-}
+const pick = name => Number(workerSource.match(new RegExp(`const ${name} = (\\d+);`))?.[1]);
 
-// 直接跑 enforceWindowBounds 的邏輯，避免把整個 Worker 模組拉進 node 環境。
-function clampWith(bounds, outerWidth, outerHeight) {
-    const tooSmall = outerWidth < bounds.minW || outerHeight < bounds.minH;
-    const tooLarge = outerWidth > bounds.maxW || outerHeight > bounds.maxH;
-    if (!tooSmall && !tooLarge) return null;
-    return {
-        width: Math.min(bounds.maxW, Math.max(bounds.minW, outerWidth)),
-        height: Math.min(bounds.maxH, Math.max(bounds.minH, outerHeight)),
-    };
-}
-
-test('下界存在，且大於實測會失敗的兩個尺寸', () => {
-    const b = loadBounds();
-    assert.ok(b.minW > 254, `min width must exceed the observed failing width, got ${b.minW}`);
-    assert.ok(b.minH > 327, `min height must exceed the observed failing height, got ${b.minH}`);
-    assert.ok(b.minW <= b.maxW && b.minH <= b.maxH);
+test('viewport 下界存在，且大於實測會失敗的兩個尺寸', () => {
+    assert.ok(pick('WORKER_MIN_VIEWPORT_WIDTH') > 254);
+    assert.ok(pick('WORKER_MIN_VIEWPORT_HEIGHT') > 269);
 });
 
-test('實測失敗的尺寸會被撐回下界', () => {
-    const b = loadBounds();
-    for (const [w, h] of [[197, 327], [254, 269]]) {
-        const next = clampWith(b, w, h);
-        assert.deepEqual(next, { width: b.minW, height: b.minH }, `${w}x${h}`);
-    }
-});
-
-test('過大的視窗仍被夾回上界，舊行為沒有被拿掉', () => {
-    const b = loadBounds();
-    assert.deepEqual(clampWith(b, 1920, 1080), { width: b.maxW, height: b.maxH });
-});
-
-test('介於上下界之間的尺寸不動它', () => {
-    const b = loadBounds();
-    assert.equal(clampWith(b, 750, 560), null);
-    assert.equal(clampWith(b, b.minW, b.minH), null);
-    assert.equal(clampWith(b, b.maxW, b.maxH), null);
+test('外框上下界常數已整組移除（2.8.2-beta1 契約）', () => {
+    assert.doesNotMatch(workerSource, /WORKER_MIN_WIDTH|WORKER_MIN_HEIGHT|WORKER_MAX_WIDTH|WORKER_MAX_HEIGHT/);
 });
 
 test('resize 之後會重新套用，不是只在開窗時做一次', () => {
-    assert.match(workerSource, /addEventListener\('resize', \(\) => Worker\.enforceWindowBounds\(\)\)/);
+    const listenerAt = workerSource.indexOf("addEventListener('resize'");
+    assert.ok(listenerAt > -1);
+    assert.match(workerSource.slice(listenerAt, listenerAt + 400), /enforceWindowBounds\(\)/);
 });
 
 test('撐回時會在 worker 紀錄區說明原因', () => {
@@ -89,7 +59,6 @@ test('過小判定用 viewport，不是含邊框的 outer 尺寸', () => {
 });
 
 test('viewport 下界不高於實測成功的 700x453', () => {
-    const pick = name => Number(workerSource.match(new RegExp(`const ${name} = (\\d+);`))?.[1]);
     assert.ok(pick('WORKER_MIN_VIEWPORT_WIDTH') <= 700);
     assert.ok(pick('WORKER_MIN_VIEWPORT_HEIGHT') <= 453);
 });

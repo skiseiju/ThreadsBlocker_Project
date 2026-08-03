@@ -123,7 +123,7 @@ export const RuntimeDiagnostics = {
         for (const key of countKeys) {
             if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = boundedDiagnosticInt(source[key]);
         }
-        const floatKeys = ['elapsedMs', 'durationMs', 'scrollTop', 'beforeScrollTop', 'afterScrollTop', 'clientHeight', 'scrollHeight', 'beforeScrollHeight', 'afterScrollHeight', 'rectTop', 'rectLeft', 'rectWidth', 'rectHeight', 'viewportWidth', 'viewportHeight'];
+        const floatKeys = ['elapsedMs', 'durationMs', 'scrollTop', 'beforeScrollTop', 'afterScrollTop', 'clientHeight', 'scrollHeight', 'beforeScrollHeight', 'afterScrollHeight', 'rectTop', 'rectLeft', 'rectWidth', 'rectHeight', 'viewportWidth', 'viewportHeight', 'outerWidth', 'outerHeight', 'innerWidth', 'innerHeight', 'devicePixelRatio', 'sizeRatio', 'resizeRequestedWidth', 'resizeRequestedHeight', 'resizeEffectiveWidth', 'resizeEffectiveHeight'];
         for (const key of floatKeys) {
             if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = boundedDiagnosticFloat(source[key]);
         }

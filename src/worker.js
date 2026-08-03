@@ -10,16 +10,28 @@ import { ReportDebugContext } from './report-debug-context.js';
 // SPA 換頁，同時仍是有界等待，不會卡住整批。
 const PROFILE_ROOT_WAIT_MS = 12000;
 
-// Worker 視窗的尺寸上下界。下界是功能前提，不是美觀偏好：低於這個寬度 Threads
-// 會改用窄版面，個人頁的 root 與「更多」按鈕都定位不到。
-const WORKER_MIN_WIDTH = 700;
-const WORKER_MIN_HEIGHT = 520;
-const WORKER_MAX_WIDTH = 800;
-const WORKER_MAX_HEIGHT = 600;
+// Worker 視窗只有內容區（viewport）下界，沒有外框尺寸規則：外框在不同電腦被
+// 工具列／邊框／縮放吃掉的量不同，拿外框當標準就是 2.8.1 #47 卡死的病因。
 // 實測可運作的 viewport 下界：700x453 全數成功，670x457 以下開始出現選單打不開。
-// 判定用 viewport 而非 outer，因為決定 Threads 版面的是內容區。
+// 低於下界 Threads 會改用窄版面，個人頁的 root 與「更多」按鈕都定位不到。
 const WORKER_MIN_VIEWPORT_WIDTH = 700;
 const WORKER_MIN_VIEWPORT_HEIGHT = 440;
+
+const readWindowMetrics = () => {
+    const outerWidth = Number(window.outerWidth) || 0;
+    const outerHeight = Number(window.outerHeight) || 0;
+    const innerWidth = Number(window.innerWidth) || 0;
+    const innerHeight = Number(window.innerHeight) || 0;
+    const devicePixelRatio = Number(window.devicePixelRatio) || 0;
+    return {
+        outerWidth,
+        outerHeight,
+        innerWidth,
+        innerHeight,
+        devicePixelRatio,
+        sizeRatio: innerWidth > 0 ? Math.round((outerWidth / innerWidth) * 100) / 100 : 0,
+    };
+};
 
 export const Worker = {
     stats: { success: 0, skipped: 0, failed: 0, vanished: 0, startTime: 0 },
@@ -227,39 +239,58 @@ export const Worker = {
 
     noteWindowTooSmall: () => {
         const now = Date.now();
-        Worker.updateStatus('running', `⏸️ 視窗太小已暫停（目前 ${window.innerWidth}x${window.innerHeight}，需要至少 ${WORKER_MIN_VIEWPORT_WIDTH}x${WORKER_MIN_VIEWPORT_HEIGHT}）。放大視窗就會自動繼續。`);
+        const metrics = readWindowMetrics();
+        Worker.updateStatus('running', `⏸️ 視窗太小已暫停（目前 ${metrics.innerWidth}x${metrics.innerHeight}，需要至少 ${WORKER_MIN_VIEWPORT_WIDTH}x${WORKER_MIN_VIEWPORT_HEIGHT}）。放大視窗就會自動繼續。`);
         if (now - Worker._windowPausedNoticeAt < 5000) return;
         Worker._windowPausedNoticeAt = now;
         if (window.hegeLog) {
-            window.hegeLog(`[視窗] 目前 ${window.innerWidth}x${window.innerHeight} 小於可運作下界 ${WORKER_MIN_VIEWPORT_WIDTH}x${WORKER_MIN_VIEWPORT_HEIGHT}，已暫停並保留名單。放大視窗就會自動繼續。`);
+            window.hegeLog(`[視窗] 目前 ${metrics.innerWidth}x${metrics.innerHeight} 小於可運作下界 ${WORKER_MIN_VIEWPORT_WIDTH}x${WORKER_MIN_VIEWPORT_HEIGHT}，已暫停並保留名單。放大視窗就會自動繼續。`);
         }
         RuntimeDiagnostics.record(Worker._diagnosticOperationFeature || 'blocking', 'wait', {
             operationId: Worker._diagnosticOperationId,
             clamped: true,
             idle: true,
-            viewportWidth: window.innerWidth,
-            viewportHeight: window.innerHeight,
+            ...metrics,
+            viewportWidth: metrics.innerWidth,
+            viewportHeight: metrics.innerHeight,
+            resizeRequestedWidth: 0,
+            resizeRequestedHeight: 0,
+            resizeEffectiveWidth: metrics.outerWidth,
+            resizeEffectiveHeight: metrics.outerHeight,
         });
     },
 
     enforceWindowBounds: () => {
         try {
-            const tooSmall = window.outerWidth < WORKER_MIN_WIDTH || window.outerHeight < WORKER_MIN_HEIGHT;
-            const tooLarge = window.outerWidth > WORKER_MAX_WIDTH || window.outerHeight > WORKER_MAX_HEIGHT;
-            if (!tooSmall && !tooLarge) return false;
-            const width = Math.min(WORKER_MAX_WIDTH, Math.max(WORKER_MIN_WIDTH, window.outerWidth));
-            const height = Math.min(WORKER_MAX_HEIGHT, Math.max(WORKER_MIN_HEIGHT, window.outerHeight));
-            window.resizeTo(width, height);
+            const before = readWindowMetrics();
+            // 只管最小內容區（功能前提），使用者要拉多大隨意，不再有上界縮回。
+            const tooSmall = before.innerWidth < WORKER_MIN_VIEWPORT_WIDTH || before.innerHeight < WORKER_MIN_VIEWPORT_HEIGHT;
+            if (!tooSmall) return false;
+            // 邊框＋工具列吃掉的尺寸（outer 與 inner 的差），據此換算「內容區剛好
+            // 700x440 所需的絕對外尺寸」。一律用絕對值 resizeTo：拖拉中事件連發時
+            // inner 讀值會慢半拍，加法式 resizeBy 會把缺口重複累加造成視窗暴衝。
+            // 這個目標在同一台機器上是固定值，過小時永遠吸附到同一個尺寸。
+            const frameWidth = Math.max(0, before.outerWidth - before.innerWidth);
+            const frameHeight = Math.max(0, before.outerHeight - before.innerHeight);
+            const requestedWidth = Math.min(frameWidth + WORKER_MIN_VIEWPORT_WIDTH, Number(window.screen?.availWidth) || Infinity);
+            const requestedHeight = Math.min(frameHeight + WORKER_MIN_VIEWPORT_HEIGHT, Number(window.screen?.availHeight) || Infinity);
+            window.resizeTo(requestedWidth, requestedHeight);
+            const effective = readWindowMetrics();
             if (tooSmall && Date.now() - Worker._windowBoundsNoticeAt > 3000) {
                 Worker._windowBoundsNoticeAt = Date.now();
                 if (window.hegeLog) {
-                    window.hegeLog(`[視窗] 視窗太小會讓 Threads 切成窄版面、抓不到個人頁，已自動調回 ${width}x${height}。可以移動或蓋住這個視窗，但不要縮得更小。`);
+                    window.hegeLog(`[視窗] 視窗太小會讓 Threads 切成窄版面、抓不到個人頁，已自動補足至約 ${requestedWidth}x${requestedHeight}。可以移動或蓋住這個視窗，但不要縮得更小。`);
                 }
                 RuntimeDiagnostics.record(Worker._diagnosticOperationFeature || 'blocking', 'layout', {
                     operationId: Worker._diagnosticOperationId,
                     clamped: true,
-                    viewportWidth: window.innerWidth,
-                    viewportHeight: window.innerHeight,
+                    ...effective,
+                    viewportWidth: effective.innerWidth,
+                    viewportHeight: effective.innerHeight,
+                    resizeRequestedWidth: requestedWidth,
+                    resizeRequestedHeight: requestedHeight,
+                    resizeEffectiveWidth: effective.outerWidth,
+                    resizeEffectiveHeight: effective.outerHeight,
                 });
             }
             return true;
@@ -285,7 +316,12 @@ export const Worker = {
         // 都認不出來，整批封鎖 100% 失敗（BUGLIST #11）。與其追著窄版面改判定，
         // 這裡把它當成不支援的尺寸，偵測到就撐回下界並在畫面上說明。
         Worker.enforceWindowBounds();
-        window.addEventListener('resize', () => Worker.enforceWindowBounds());
+        // 拖拉中 outer/inner 讀值是暫態的，逐事件立即調整會讓每次落點不同；
+        // 等使用者放手（250ms 無新事件）才量一次穩定值、調一次。
+        window.addEventListener('resize', () => {
+            clearTimeout(Worker._enforceBoundsTimer);
+            Worker._enforceBoundsTimer = setTimeout(() => Worker.enforceWindowBounds(), 250);
+        });
 
         const channel = new BroadcastChannel('hege_debug_channel');
         window.hegeLog = (msg) => {

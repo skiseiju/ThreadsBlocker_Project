@@ -18,9 +18,6 @@
 | 14 | 2.8.1-beta12 | Fixed (2.8.1-beta13，待使用者驗證) | 清理名單等待不夠久就判定失敗，回「粉絲名單尚未載入完成」 | 診斷顯示 clean_list 從 start 到 rollback 只花 2031ms：`anchor_filter` 的 `exactLinkCount` 23、`uniqueExactAccountCount` 20，但 `excludedInvisibleCount` 21、`acceptedUniqueAccountCount` 0，`stopReason` 為 `rows_missing`。名單其實在，只是 Threads 的 lazy render 還沒把 anchor 排版出來，rect 仍是 0x0，被 `dialog-collector.js` 的可見性過濾整批排除。`waitForLikesContextReady` 只要看到 likes 證據就回傳（`marker_or_evidence`），當下 `rowCount` 只有 2；收集迴圈接著以「沒有變化」為由收工，把還沒渲染判成空名單 | `core.js`：新增 `CLEAN_LIST_LAYOUT_WAIT_MS`（8 秒）版面落地等待。收集迴圈開始前先等到真的看見一列或等滿預算；預算未用完且一列都沒看到時，「沒有變化」不得被當成已到底而收工。等不到仍維持 `rows_missing`，不假裝空名單 |
 | 15 | 2.8.0 | Fixed (2.8.1-beta14，使用者實機驗證通過) | 多數使用者回報 2.8.0 無法封鎖，2.7.1 沒有此問題 | 2.7.1 的 `Worker.findMoreButton` 是整份 `document` 的寬鬆搜尋加評分，幾乎不會空手而回。2.8.0 改成必須先通過 `Core.findProfileRoot`：同時要有 `findProfileHeaderUsernameElement`（文字一字不差且落在相對 root 0–280px 位置帶）與 `findProfileActionAnchor`，兩者 AND 成一票否決，過不了就 `menu_not_found`，且**沒有任何退路**。動機是避免點到錯的人，代價是容錯歸零：任一條件在真實版面對不上就整批 100% 失敗，而不是偶爾漏一兩筆，與「多數使用者全面失敗」的形狀吻合。beta10 已修掉幾何那一半（小視窗），名稱比對那一半在 beta13 之前仍是一票否決 | `core.js`：`findProfileRoot` 拆成兩段。嚴格判定先跑，命中就照舊；失敗時**先確認 `location.pathname` 的 handle 等於目標帳號**（`profileRouteMatches`），才啟用放寬判定 `findProfileUsernameEvidence`（不看位置帶、允許 `@` 前綴、仍排除 dialog 與貼文內文字）。網址閘門是為了擋 SPA 換頁空窗期抓到上一頁按鈕而封鎖到錯的帳號——這是「退回 2.7.1 整頁搜尋」被否決的原因，改採放寬而非移除身分證明。`_lastProfileRootMode` 與 `relaxedRoot` 診斷欄位（布林，已入白名單）記錄本次是嚴格命中還是靠放寬救回，供實機回報分辨。測試 `tests/beta14-profile-root-relaxed.test.mjs` 6 項，含兩項守門測試：網址對不上或名稱只在貼文內時，放寬必須拒絕 |
 
-## Pending（2026-07-29 使用者拍板，暫不處理）
+## 2.8.2 工作佇列
 
-- **每日上限 250/200 顯示提醒卻繼續執行**：使用者 2026-07-29 明確表示不處理，不需再提。
-- **冷卻保護把失敗清單搬進冷卻備份後清空**：資料未遺失，是刻意行為，UI 未說明。暫緩。
-- **檢舉偶發 `submit_not_confirmed`**：beta12 後僅在視窗過小時出現，正常尺寸未重現。暫緩觀察。
-- **結構債 SSOT #4／#5／#1／#6／#7／#2／#3／#11／#12**：順序見 `docs/handoff/SESSION-2026-07-27-EVENING.md` §C，未變更。SSOT #3 需使用者先做決定。
+原「Pending（2026-07-29 暫不處理）」的三項遺留（每日上限 250/200、冷卻備份 UI 說明、偶發 `submit_not_confirmed`）於 2026-08-03 經使用者改變決定納入修復，連同結構債 SSOT #4／#5／#1／#6／#7／#2／#3／#11／#12 一併編號排程。完整順序、驗收方式與進度以 `docs/PLAN_2.8.2_STRUCT_DEBT.md` 為準。
