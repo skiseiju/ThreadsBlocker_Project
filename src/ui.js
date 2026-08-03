@@ -769,6 +769,11 @@ export const UI = {
                     <span class="status" id="hege-failed-count">0</span>
                 </div>
 
+                <div class="hege-menu-item danger" id="hege-restore-cooldown-item" style="display:none;">
+                    <span id="hege-restore-cooldown-label">把冷卻備份併回待處理清單</span>
+                    <span class="status" id="hege-restore-cooldown-count">0 筆</span>
+                </div>
+
                 <div class="hege-menu-item" id="hege-endless-queue-item">
                     <span>貼文水庫</span>
                     <span class="status" id="hege-endless-queue-count">0 篇</span>
@@ -852,6 +857,7 @@ export const UI = {
         bindClick('hege-report-btn-item', callbacks.onStartReport);
         bindClick('hege-clear-sel-item', callbacks.onClearSel);
         bindClick('hege-retry-failed-item', callbacks.onRetryFailed);
+        bindClick('hege-restore-cooldown-item', callbacks.onRestoreCooldownBackup);
         bindClick('hege-endless-queue-item', callbacks.onEndlessQueue);
         bindClick('hege-stop-btn-item', callbacks.onStop);
         bindClick('hege-settings-item', callbacks.onSettings);

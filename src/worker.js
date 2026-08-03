@@ -222,7 +222,7 @@ export const Worker = {
         }
 
         Core.recordFailure('block', targetUser, failureReason);
-        Worker.updateStatus('running', targetUser, 0, currentTotal);
+        Worker.updateStatus('running', logMessage || targetUser, 0, currentTotal);
         if (sleepMs > 0) await Utils.safeSleep(sleepMs);
         setTimeout(Worker.runStep, 100);
     },
@@ -401,17 +401,7 @@ export const Worker = {
         // Restore from cooldown queue if needed
         const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
         if (cooldownQueue.length > 0) {
-            const currentQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
-            // 以 username 為 key 去重，cooldownQueue 的操作優先（較新）
-            const extractUser = (entry) => entry.startsWith(CONFIG.UNBLOCK_PREFIX) ? entry.replace(CONFIG.UNBLOCK_PREFIX, '') : entry;
-            const seen = new Map(); // username → raw entry
-            [...currentQueue, ...cooldownQueue].forEach(entry => {
-                seen.set(extractUser(entry), entry);
-            });
-            const merged = [...seen.values()];
-            Storage.setJSON(CONFIG.KEYS.BG_QUEUE, merged);
-            Storage.remove(CONFIG.KEYS.COOLDOWN_QUEUE);
-            Storage.remove(CONFIG.KEYS.COOLDOWN);
+            const restoredCount = Core.restoreCooldownQueue();
 
             Worker.stats = { success: 0, skipped: 0, failed: 0, vanished: 0, startTime: Date.now() };
             Worker.initialTotal = 0;
@@ -420,7 +410,7 @@ export const Worker = {
             Worker.verifyCount = 0;
             Worker.consecutiveFails = 0;
             Worker.saveStats();
-            window.hegeLog(`[BG-INIT] Cooldown expired, restored ${cooldownQueue.length} users from backup`);
+            window.hegeLog(`[BG-INIT] Cooldown expired, restored ${restoredCount} users from backup`);
         }
 
         setTimeout(Worker.runStep, 1000);
@@ -1306,23 +1296,17 @@ export const Worker = {
                         Worker.consecutiveFails++;
                         window.hegeLog(`[驗證] Level 2 連續失敗 ${Worker.consecutiveFails}/5`);
                         if (Worker.consecutiveFails >= 5) {
-                            if (Storage.isCooldownProtectionEnabled()) {
-                                Worker.recordSafetyDiagnostic('retry', 'retry', MoreLocator.routeType(), {}, { retryCount: Worker.consecutiveFails }, { operationId: Worker._diagnosticOperationId });
-                                Worker.recordSafetyDiagnostic('failure', 'failure', MoreLocator.routeType(), {}, { retryCount: Worker.consecutiveFails }, { operationId: Worker._diagnosticOperationId });
-                                Worker.recordSafetyDiagnostic('breaker', 'breaker_open', MoreLocator.routeType(), {}, { retryCount: Worker.consecutiveFails }, { operationId: Worker._diagnosticOperationId });
-                                await Worker.triggerCooldown();
-                                Worker.recordSafetyDiagnostic('cooldown', 'cooldown', MoreLocator.routeType(), {}, {}, { operationId: Worker._diagnosticOperationId });
-                                RuntimeDiagnostics.end(Worker._diagnosticOperationId, 'terminal', { reason: 'cooldown', ok: false, cooldownActive: true });
-                                Worker._diagnosticOperationId = null;
-                            } else {
-                                await Worker.markTargetFailedAndContinue(
-                                    verifyPending,
-                                    targetUser,
-                                    currentTotal,
-                                    `[冷卻保護] 驗證連續失敗達 ${Worker.consecutiveFails} 次，但自動冷卻保護已關閉；改記錄失敗並繼續`,
-                                    3000
-                                );
-                            }
+                            Worker.recordSafetyDiagnostic('retry', 'retry', MoreLocator.routeType(), {}, { retryCount: Worker.consecutiveFails }, { operationId: Worker._diagnosticOperationId });
+                            Worker.recordSafetyDiagnostic('failure', 'failure', MoreLocator.routeType(), {}, { retryCount: Worker.consecutiveFails }, { operationId: Worker._diagnosticOperationId });
+                            Worker.recordSafetyDiagnostic('breaker', 'breaker_open', MoreLocator.routeType(), {}, { retryCount: Worker.consecutiveFails }, { operationId: Worker._diagnosticOperationId });
+                            await Worker.markTargetFailedAndContinue(
+                                verifyPending,
+                                targetUser,
+                                currentTotal,
+                                `⚠️ 偵測到疑似平台限制，已連續 ${Worker.consecutiveFails} 次失敗，建議手動暫停`,
+                                3000,
+                                'verification_failed'
+                            );
                             return;
                         }
                     }
@@ -1689,63 +1673,42 @@ export const Worker = {
                 Worker.consecutiveRateLimits++;
                 Worker.saveStats();
 
-                if (Worker.consecutiveRateLimits >= 3) {
-                    if (Storage.isCooldownProtectionEnabled()) {
-                        if (window.hegeLog) window.hegeLog(`[⚠️警告] 選單異常達 ${Worker.consecutiveRateLimits} 次，偵測到 Meta 限制操作，強制冷卻`);
-                        await Worker.triggerCooldown();
-                        Worker.recordSafetyDiagnostic('cooldown', 'cooldown', MoreLocator.routeType(), {}, {}, { operationId: Worker._diagnosticOperationId });
-                        globalThis.__hegeRuntimeDiagnostics?.end?.(Worker._diagnosticOperationId, 'terminal', { reason: 'cooldown', ok: false, cooldownActive: true });
-                        Worker._diagnosticOperationId = null;
-                        Worker.clearStats();
-                        return;
-                    }
-                    await Worker.markTargetFailedAndContinue(
-                        rawTarget,
-                        targetUser,
-                        currentTotal,
-                        `[⚠️警告] 選單異常達 ${Worker.consecutiveRateLimits} 次，但自動冷卻保護已關閉；改記錄失敗並繼續`,
-                        3000,
-                        'rate_limited'
-                    );
-                    return;
-                } else {
+                if (Worker.consecutiveRateLimits < 3) {
                     Worker.recordSafetyDiagnostic('retry', 'retry', MoreLocator.routeType(), {}, { retryCount: Worker.consecutiveRateLimits }, { operationId: Worker._diagnosticOperationId });
-                    if (window.hegeLog) window.hegeLog(`[⚠️警告] 選單異常 (第 ${Worker.consecutiveRateLimits}/3 次)，可能為網路延遲或初級限制，跳過並靜置...`);
-                    // treat as normal failure but give it a larger timeout to breathe
-                    Worker.stats.failed++;
-                    Worker.saveStats();
-
-                    let q = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
-                    if (q.length > 0 && q[0] === rawTarget) {
-                        q.shift();
-                        Storage.setJSON(CONFIG.KEYS.BG_QUEUE, q);
-                    }
-                    Core.recordFailure('block', targetUser, 'rate_limited');
-
-                    Worker.updateStatus('running', targetUser, 0, currentTotal);
-                    await Utils.safeSleep(3000); // extra breather — 不受速度模式影響
-                    setTimeout(Worker.runStep, 100);
                 }
+                const menuLimitWarning = Worker.consecutiveRateLimits >= 3
+                    ? `⚠️ 偵測到疑似平台限制，已連續 ${Worker.consecutiveRateLimits} 次失敗，建議手動暫停`
+                    : `⚠️ 偵測到選單異常，第 ${Worker.consecutiveRateLimits} 次，已跳過此筆並繼續`;
+                await Worker.markTargetFailedAndContinue(
+                    rawTarget,
+                    targetUser,
+                    currentTotal,
+                    menuLimitWarning,
+                    3000,
+                    'rate_limited'
+                );
                 return;
             } else if (result === 'cooldown') {
                 Worker.recordSafetyDiagnostic('queue_advance', 'cooldown', MoreLocator.routeType());
                 // Explicit Threads restriction signals share the same three-strike
                 // counter; a single warning must not create a false cooldown.
+                // 自動冷卻已停用，triggerCooldown 只保留在下方供日後重新接回。
                 Worker.consecutiveRateLimits++;
                 Worker.saveStats();
-                if (Worker.consecutiveRateLimits >= 3 && Storage.isCooldownProtectionEnabled()) {
-                    await Worker.triggerCooldown();
-                    Worker.recordSafetyDiagnostic('cooldown', 'cooldown', MoreLocator.routeType(), {}, {}, { operationId: Worker._diagnosticOperationId });
-                    globalThis.__hegeRuntimeDiagnostics?.end?.(Worker._diagnosticOperationId, 'terminal', { reason: 'cooldown', ok: false, cooldownActive: true });
-                    Worker._diagnosticOperationId = null;
-                    Worker.clearStats();
-                    return;
+                const explicitRestrictionThresholdReached = Worker.consecutiveRateLimits >= 3;
+                if (explicitRestrictionThresholdReached) {
+                    Worker.recordSafetyDiagnostic('breaker', 'breaker_open', MoreLocator.routeType(), {}, { retryCount: Worker.consecutiveRateLimits }, { operationId: Worker._diagnosticOperationId });
                 }
+                const explicitLimitWarning = explicitRestrictionThresholdReached
+                    ? `⚠️ 偵測到疑似平台限制，已連續 ${Worker.consecutiveRateLimits} 次失敗，建議手動暫停`
+                    : `⚠️ 偵測到限制訊號，第 ${Worker.consecutiveRateLimits} 次，已跳過此筆並繼續`;
                 await Worker.markTargetFailedAndContinue(
                     rawTarget,
                     targetUser,
                     currentTotal,
-                    `[冷卻保護] 偵測到 Threads 明確限制訊號 (${Worker.consecutiveRateLimits}/3)，改記錄失敗並繼續`
+                    explicitLimitWarning,
+                    3000,
+                    'rate_limited'
                 );
                 return;
             }
@@ -1909,6 +1872,8 @@ export const Worker = {
         }
     },
 
+    // 2026-08-03 依使用者決定停用自動觸發，保留實作以便日後重新啟用。
+    // 唯一啟用方式是重新接回呼叫點。
     triggerCooldown: async () => {
         window.hegeLog('[冷卻] 觸發 12 小時冷卻保護！正在回滾 session...');
 

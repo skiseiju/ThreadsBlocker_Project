@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.8.2-beta3', // 每日上限提醒改為醒目顯示，維持繼續執行
+    VERSION: '2.8.2-beta4', // 停用冷卻保護自動觸發，保留限制提醒與舊備份併回入口
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。

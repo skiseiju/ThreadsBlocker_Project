@@ -838,6 +838,49 @@ export const Core = {
         return true;
     },
 
+    restoreCooldownQueue: () => {
+        Storage.invalidateMulti?.([CONFIG.KEYS.COOLDOWN_QUEUE, CONFIG.KEYS.BG_QUEUE]);
+        const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
+        if (!Array.isArray(cooldownQueue) || cooldownQueue.length === 0) return 0;
+
+        const currentQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
+        const blockDb = new Set(Storage.getBlockDB().map(username => String(username || '').trim().toLowerCase()));
+        const extractUser = (entry) => String(entry || '').startsWith(CONFIG.UNBLOCK_PREFIX)
+            ? String(entry).replace(CONFIG.UNBLOCK_PREFIX, '')
+            : String(entry || '');
+        const queueKey = (entry) => extractUser(entry).trim().toLowerCase();
+        const seen = new Map();
+        const isRestorable = (entry) => {
+            const raw = String(entry || '').trim();
+            if (!raw) return false;
+            const user = extractUser(raw);
+            // 冷卻備份的 block 項目若已在歷史紀錄，worker 會略過；在併回時
+            // 直接排除可避免再次排入封鎖佇列。解除封鎖項目仍須保留。
+            return raw.startsWith(CONFIG.UNBLOCK_PREFIX) || !blockDb.has(user.trim().toLowerCase());
+        };
+        [...(Array.isArray(currentQueue) ? currentQueue : []), ...cooldownQueue].forEach((entry) => {
+            if (!isRestorable(entry)) return;
+            seen.set(queueKey(entry), String(entry).trim());
+        });
+        const merged = [...seen.values()];
+        Storage.setJSON(CONFIG.KEYS.BG_QUEUE, merged);
+        Storage.remove(CONFIG.KEYS.COOLDOWN_QUEUE);
+        Storage.remove(CONFIG.KEYS.COOLDOWN);
+        Storage.invalidateMulti?.([CONFIG.KEYS.COOLDOWN_QUEUE, CONFIG.KEYS.COOLDOWN, CONFIG.KEYS.BG_QUEUE]);
+        return cooldownQueue.filter(isRestorable).length;
+    },
+
+    restoreCooldownBackup: () => {
+        const restoredCount = Core.restoreCooldownQueue();
+        if (restoredCount > 0) {
+            UI.showToast(`已將 ${restoredCount} 筆冷卻備份併回待處理清單`);
+        } else {
+            UI.showToast('沒有可併回的冷卻備份');
+        }
+        Core.updateControllerUI();
+        return restoredCount;
+    },
+
     retryFailedEntry: (entry) => {
         const normalized = normalizeFailedQueueEntry(entry, entry?.type || 'block');
         if (!normalized) return false;
@@ -3727,8 +3770,6 @@ export const Core = {
         const failedQueue = normalizeFailedQueue(Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []), 'block');
         const reportFailedQueue = normalizeFailedQueue(Storage.getJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, []), 'report');
         const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
-        const failedCooldownUntil = parseInt(Storage.get(CONFIG.KEYS.COOLDOWN) || '0', 10) || 0;
-        const failedCooldownActive = failedCooldownUntil > Date.now();
         const retryItem = document.getElementById('hege-retry-failed-item');
         if (retryItem) {
             const totalFailed = failedQueue.length + reportFailedQueue.length;
@@ -3741,26 +3782,32 @@ export const Core = {
                 if (retryLabel) retryLabel.textContent = '重試失敗清單';
                 if (countBadge) countBadge.textContent = `${totalFailed} 筆`;
                 retryItem.title = `封鎖失敗 ${failedQueue.length} 筆，檢舉失敗 ${reportFailedQueue.length} 筆`;
-            } else if (cooldownQueue.length > 0 && failedCooldownActive) {
-                // 冷卻保護會把失敗清單整份搬進冷卻備份後清空。資料還在，之前畫面
-                // 只是歸零不解釋，使用者以為清單被吃掉。這裡改成明講去向；此時沒有
-                // 東西可重試，所以只當說明列，不可點。
-                const remainMinutes = Math.max(0, Math.ceil((failedCooldownUntil - Date.now()) / (60 * 1000)));
-                const remainText = remainMinutes >= 60
-                    ? `剩 ${Math.floor(remainMinutes / 60)} 時 ${remainMinutes % 60} 分`
-                    : `剩 ${remainMinutes} 分`;
-                retryItem.style.display = 'flex';
-                retryItem.style.pointerEvents = 'none';
-                retryItem.style.cursor = 'default';
-                if (retryLabel) retryLabel.textContent = '已移入冷卻備份';
-                if (countBadge) countBadge.textContent = `${cooldownQueue.length} 筆・${remainText}`;
-                retryItem.title = `失敗清單共 ${cooldownQueue.length} 筆已移入冷卻備份保存，冷卻結束後可重試`;
             } else {
                 retryItem.style.display = 'none';
                 retryItem.style.pointerEvents = '';
                 retryItem.style.cursor = '';
                 if (retryLabel) retryLabel.textContent = '重試失敗清單';
                 retryItem.title = '';
+            }
+        }
+        const restoreItem = document.getElementById('hege-restore-cooldown-item');
+        if (restoreItem) {
+            const restoreLabel = document.getElementById('hege-restore-cooldown-label');
+            const restoreCount = document.getElementById('hege-restore-cooldown-count');
+            if (cooldownQueue.length > 0) {
+                restoreItem.style.display = 'flex';
+                restoreItem.style.pointerEvents = '';
+                restoreItem.style.cursor = '';
+                if (restoreLabel) restoreLabel.textContent = '把冷卻備份併回待處理清單';
+                if (restoreCount) restoreCount.textContent = `${cooldownQueue.length} 筆`;
+                restoreItem.title = `冷卻備份有 ${cooldownQueue.length} 筆，按下後併回待處理清單`;
+            } else {
+                restoreItem.style.display = 'none';
+                restoreItem.style.pointerEvents = '';
+                restoreItem.style.cursor = '';
+                if (restoreLabel) restoreLabel.textContent = '把冷卻備份併回待處理清單';
+                if (restoreCount) restoreCount.textContent = '0 筆';
+                restoreItem.title = '';
             }
         }
 
@@ -3963,28 +4010,18 @@ export const Core = {
         const firstTask = bgqArr[0] || '';
         const isUnblockTask = firstTask.startsWith(CONFIG.UNBLOCK_PREFIX);
 
-        const cooldownUntil = parseInt(Storage.get(CONFIG.KEYS.COOLDOWN) || '0');
-        if (cooldownUntil > Date.now()) {
-            const remainHrs = Math.ceil((cooldownUntil - Date.now()) / (1000 * 60 * 60));
-            const cdQueueSize = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []).length;
-            mainText = `⛔ 限制保護中 (${remainHrs}小時候恢復)`;
-            headerColor = '#ff453a';
-            const cdEta = getQueueEtaText(cdQueueSize);
-            badgeText = `${cdQueueSize}${cdEta ? ' (' + cdEta + ')' : ''}`;
-        } else {
-            if (bgStatus.state === 'running' && (Date.now() - (bgStatus.lastUpdate || 0) < 10000)) {
-                shouldShowStop = true;
-                const bgEta = getQueueEtaText(bgStatus.total);
-                mainText = `${isUnblockTask ? '解除封鎖' : '背景執行'}中 剩餘 ${bgStatus.total} 人${bgEta ? ' ' + bgEta : ''}`;
-                headerColor = '#4cd964';
-                badgeText = `${bgStatus.total}${bgEta ? ' (' + bgEta + ')' : ''}`;
-            } else if (bgq.size > 0) {
-                // Worker stopped/idle but queue has remaining items from a previous run
-                const bgEta = getQueueEtaText(bgq.size);
-                mainText = `${isUnblockTask ? '繼續解除' : '繼續封鎖'} (${bgq.size} 人)${bgEta ? ' ' + bgEta : ''}`;
-                headerColor = '#ff9500';
-                badgeText = `${bgq.size}${bgEta ? ' (' + bgEta + ')' : ''}`;
-            }
+        if (bgStatus.state === 'running' && (Date.now() - (bgStatus.lastUpdate || 0) < 10000)) {
+            shouldShowStop = true;
+            const bgEta = getQueueEtaText(bgStatus.total);
+            mainText = `${isUnblockTask ? '解除封鎖' : '背景執行'}中 剩餘 ${bgStatus.total} 人${bgEta ? ' ' + bgEta : ''}`;
+            headerColor = '#4cd964';
+            badgeText = `${bgStatus.total}${bgEta ? ' (' + bgEta + ')' : ''}`;
+        } else if (bgq.size > 0) {
+            // Worker stopped/idle but queue has remaining items from a previous run
+            const bgEta = getQueueEtaText(bgq.size);
+            mainText = `${isUnblockTask ? '繼續解除' : '繼續封鎖'} (${bgq.size} 人)${bgEta ? ' ' + bgEta : ''}`;
+            headerColor = '#ff9500';
+            badgeText = `${bgq.size}${bgEta ? ' (' + bgEta + ')' : ''}`;
         }
         shouldShowStop = resolveStopVisibility({
             bgStatus,

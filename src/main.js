@@ -156,7 +156,6 @@ import './features/three-no-watch.js';
         Storage.setJSON(CONFIG.KEYS.REPORT_COMPLETED_USERS, shouldPreserveLiveReportState ? preservedReportCompletedUsers : []);
         Storage.remove(CONFIG.KEYS.REPORT_RESTORE_PENDING);
 
-        Storage.remove(CONFIG.KEYS.COOLDOWN_QUEUE);
         Storage.remove(CONFIG.KEYS.COOLDOWN);
         Storage.remove(CONFIG.KEYS.WORKER_STATS);
         if (shouldPreserveLiveReportState && preservedWorkerMode === 'report') {
@@ -278,7 +277,6 @@ import './features/three-no-watch.js';
     // Unconditional safety clear: if the user manually fired an event but they are stuck, force them away
     const forceClear = new URLSearchParams(window.location.search).get('hege_clear');
     if (forceClear === 'true') {
-        localStorage.removeItem('hege_cooldown_queue');
         localStorage.removeItem('hege_rate_limit_until');
         localStorage.removeItem('hege_block_timestamps');
         localStorage.removeItem('hege_worker_stats');
@@ -648,12 +646,12 @@ import './features/three-no-watch.js';
                 }
 
                 const enqueueTargets = () => {
+                    Core.restoreCooldownQueue?.();
                     Storage.invalidate(CONFIG.KEYS.BG_QUEUE);
                     const db = new Set(Storage.getBlockDB());
-                    const cdq = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
                     const currentQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
                     const queued = new Set(currentQueue);
-                    const toAdd = targets.filter(u => !db.has(u) && !cdq.has(u) && !queued.has(u));
+                    const toAdd = targets.filter(u => !db.has(u) && !queued.has(u));
                     if (toAdd.length === 0 && currentQueue.length === 0) {
                         UI.showToast('這批三無名單已封鎖或已在佇列中');
                         return { ok: false, added: 0, skipped: targets.length };
@@ -677,39 +675,10 @@ import './features/three-no-watch.js';
                     } else {
                         UI.showToast(toAdd.length > 0
                             ? `已將 ${toAdd.length} 位三無追蹤者加入封鎖清單，請再按「開始封鎖」執行`
-                            : '勾選帳號已在封鎖清單、封鎖紀錄或冷卻佇列中');
+                            : '勾選帳號已在封鎖清單、封鎖紀錄或待處理佇列中');
                     }
                     return { ok: true, added: toAdd.length, skipped: targets.length - toAdd.length, messageShown: true };
                 };
-
-                const cooldownUntil = parseInt(Storage.get(CONFIG.KEYS.COOLDOWN) || '0', 10) || 0;
-                if (cooldownUntil > Date.now()) {
-                    if (!shouldLaunch) {
-                        return enqueueTargets();
-                    }
-                    const remainHrs = Math.ceil((cooldownUntil - Date.now()) / (1000 * 60 * 60));
-                    const dailyLimit = Storage.getDailyBlockLimit();
-                    const blocks24h = Storage.getBlocksLast24h();
-                    UI.showConfirm(
-                        `⚠️ 目前處於冷卻保護中（約 ${remainHrs} 小時後自動解除）\n\n仍要把這批三無追蹤者加入封鎖佇列並強制繼續嗎？\n\n最近 24 小時紀錄：${blocks24h}/${dailyLimit}。`,
-                        () => {
-                            const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
-                            const currentQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
-                            if (cooldownQueue.length > 0) {
-                                Storage.setJSON(CONFIG.KEYS.BG_QUEUE, [...new Set([...currentQueue, ...cooldownQueue])]);
-                            }
-                            Storage.remove(CONFIG.KEYS.COOLDOWN_QUEUE);
-                            Storage.remove(CONFIG.KEYS.COOLDOWN);
-                            Storage.invalidate(CONFIG.KEYS.COOLDOWN);
-                            Storage.invalidate(CONFIG.KEYS.COOLDOWN_QUEUE);
-                            Storage.invalidate(CONFIG.KEYS.BG_QUEUE);
-                            enqueueTargets();
-                        },
-                        null,
-                        { confirm: '仍要封鎖', cancel: '取消' }
-                    );
-                    return { ok: false, added: 0, skipped: 0, pendingConfirm: true };
-                }
 
                 return enqueueTargets();
             };
@@ -800,38 +769,7 @@ import './features/three-no-watch.js';
 
             const handleMainButton = () => {
                 const pending = Core.pendingUsers;
-                const cooldownUntil = parseInt(Storage.get(CONFIG.KEYS.COOLDOWN) || '0');
-                if (cooldownUntil > Date.now()) {
-                    const remainHrs = Math.ceil((cooldownUntil - Date.now()) / (1000 * 60 * 60));
-                    const dailyLimit = Storage.getDailyBlockLimit();
-                    const blocks24h = Storage.getBlocksLast24h();
-                    UI.showConfirm(
-                        `⚠️ 目前處於冷卻保護中（約 ${remainHrs} 小時後自動解除）\n\n強制取消冷卻並繼續封鎖？\n\n最近 24 小時紀錄：${blocks24h}/${dailyLimit}。\n\n若已大量封鎖，後續操作可能失敗，Meta 也可能對您的帳號施加額外限制。`,
-                        () => {
-                            // Force cancel cooldown and resume
-                            const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
-                            const currentQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
-                            const pendingArr = Array.from(pending);
-                            const merged = [...new Set([...currentQueue, ...cooldownQueue, ...pendingArr])];
-                            Storage.setJSON(CONFIG.KEYS.BG_QUEUE, merged);
-                            Storage.remove(CONFIG.KEYS.COOLDOWN_QUEUE);
-                            Storage.remove(CONFIG.KEYS.COOLDOWN);
-                            Storage.invalidate(CONFIG.KEYS.COOLDOWN);
-                            Storage.invalidate(CONFIG.KEYS.COOLDOWN_QUEUE);
-
-                            if (pendingArr.length > 0) {
-                                Core.pendingUsers.clear();
-                                Storage.setSessionJSON(CONFIG.KEYS.PENDING, []);
-                            }
-
-                            Core.updateControllerUI();
-                            UI.showToast(`已恢復佇列，共 ${merged.length} 筆，開始執行`);
-
-                            launchBlockWorker();
-                        }
-                    );
-                    return;
-                }
+                Core.restoreCooldownQueue?.();
 
                 let toAdd = Array.from(pending);
                 let currentQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
@@ -1031,6 +969,7 @@ import './features/three-no-watch.js';
                     openSettings();
                 },
                 onRetryFailed: () => Core.retryFailedQueue(),
+                onRestoreCooldownBackup: () => Core.restoreCooldownBackup(),
                 onCopyDiagnostics: () => Core.copyRuntimeDiagnostics?.(),
                 onClearDiagnostics: () => Core.clearRuntimeDiagnostics?.(),
                 onStop: () => { UI.showConfirm('確定要停止目前背景執行或三無掃描？', () => {

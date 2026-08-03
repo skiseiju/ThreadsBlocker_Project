@@ -2,37 +2,30 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const workerSource = await readFile(new URL('../src/worker.js', import.meta.url), 'utf8');
 const coreSource = await readFile(new URL('../src/core.js', import.meta.url), 'utf8');
+const updateStart = coreSource.indexOf('updateControllerUI: () =>');
+const updateEnd = coreSource.indexOf('\n    },', updateStart);
+const updateSource = coreSource.slice(updateStart, updateEnd);
+const retryStart = updateSource.indexOf('const retryItem = document.getElementById');
+const restoreStart = updateSource.indexOf('const restoreItem = document.getElementById', retryStart);
+const restoreEnd = updateSource.indexOf('\n\n        const threeNoResults', restoreStart);
+const retrySource = updateSource.slice(retryStart, restoreStart);
+const restoreSource = updateSource.slice(restoreStart, restoreEnd);
 
-const triggerSource = workerSource.slice(
-    workerSource.indexOf('triggerCooldown: async () =>'),
-    workerSource.indexOf('autoBlock: async', workerSource.indexOf('triggerCooldown: async () =>')),
-);
-const updateSource = coreSource.slice(
-    coreSource.indexOf('const failedQueue = normalizeFailedQueue', coreSource.indexOf('updateUI')),
-    coreSource.indexOf('const threeNoResults', coreSource.indexOf('const failedQueue = normalizeFailedQueue', coreSource.indexOf('updateUI'))),
-);
-
-test('triggerCooldown 記錄失敗、未處理與回滾數量，並明示備份去向', () => {
-    assert.match(triggerSource, /失敗清單 \$\{failedQueue\.length\} 筆/);
-    assert.match(triggerSource, /未處理 \$\{remainingQueue\.length\} 筆/);
-    assert.match(triggerSource, /回滾 \$\{rollbackUsers\.length\} 筆/);
-    assert.match(triggerSource, /已備份 \$\{fullCooldownQueue\.length\} 筆，冷卻結束後可重試/);
+test('beta2 守門：主面板不再顯示冷卻備份說明列', () => {
+    assert.ok(updateStart >= 0, '找不到主面板更新函式');
+    assert.ok(updateEnd > updateStart, '找不到主面板更新函式結尾');
+    assert.doesNotMatch(updateSource, /failedCooldownActive/);
+    assert.doesNotMatch(updateSource, /已移入冷卻備份/);
+    assert.doesNotMatch(updateSource, /冷卻結束後可重試/);
 });
 
-test('主視窗在冷卻中且失敗清單為空時顯示冷卻備份說明', () => {
-    assert.match(updateSource, /cooldownQueue\.length > 0 && failedCooldownActive/);
-    assert.match(updateSource, /已移入冷卻備份/);
-    assert.match(updateSource, /已移入冷卻備份保存，冷卻結束後可重試/);
-    assert.match(updateSource, /剩 \$\{remainMinutes % 60\} 分|剩 \$\{remainMinutes\} 分/);
-});
-
-// 說明列沒有東西可重試，點下去會對空的失敗清單跑重試流程，等於騙人。
-test('冷卻說明列不可點，且離開冷卻時標題與可點狀態都要還原', () => {
-    assert.match(updateSource, /pointerEvents = 'none'/);
-    const restoreCount = (updateSource.match(/retryLabel\.textContent = '重試失敗清單'/g) || []).length;
-    assert.ok(restoreCount >= 2, `離開冷卻的兩條分支都要把標題改回來，目前 ${restoreCount} 處`);
-    const clearCount = (updateSource.match(/pointerEvents = ''/g) || []).length;
-    assert.ok(clearCount >= 2, `離開冷卻的兩條分支都要解除不可點，目前 ${clearCount} 處`);
+test('beta2 守門：失敗清單與舊冷卻備份各自依自己的條件顯示', () => {
+    assert.match(retrySource, /totalFailed > 0/);
+    assert.match(retrySource, /重試失敗清單/);
+    assert.doesNotMatch(retrySource, /cooldownQueue\.length > 0/);
+    assert.doesNotMatch(retrySource, /把冷卻備份併回待處理清單/);
+    assert.match(restoreSource, /cooldownQueue\.length > 0/);
+    assert.match(restoreSource, /把冷卻備份併回待處理清單/);
+    assert.doesNotMatch(updateSource, /else if \(totalFailed > 0\)/);
 });

@@ -131,7 +131,7 @@ export const BUNDLED_RELEASE_NOTES = {
         "items": [
             {
                 "version": "2.8.2",
-                "text": "beta1 修正 worker 視窗以內容區缺口補足尺寸，並補上 resize 診斷取證。"
+                "text": "beta4 停用冷卻保護自動觸發，命中疑似平台限制時只提醒並記錄失敗；既有冷卻備份可從主面板併回待處理清單。"
             },
             {
                 "version": "2.8.1",
