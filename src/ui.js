@@ -765,7 +765,7 @@ export const UI = {
                 </div>
 
                 <div class="hege-menu-item danger" id="hege-retry-failed-item" style="display:none;">
-                    <span>重試失敗清單</span>
+                    <span id="hege-retry-failed-label">重試失敗清單</span>
                     <span class="status" id="hege-failed-count">0</span>
                 </div>
 

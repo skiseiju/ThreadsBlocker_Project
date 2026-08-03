@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.8.2-beta1', // worker 視窗內容區尺量修正與 resize 取證
+    VERSION: '2.8.2-beta2', // 冷卻備份搬移後明示失敗清單去向
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。

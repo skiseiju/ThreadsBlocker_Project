@@ -1886,6 +1886,7 @@ export const Worker = {
         const fullRollbackList = [...Worker.sessionQueue, ...rollbackUsers];
         const fullCooldownQueue = [...new Set([...fullRollbackList, ...remainingQueue, ...failedQueue])];
         Storage.setJSON(CONFIG.KEYS.COOLDOWN_QUEUE, fullCooldownQueue);
+        window.hegeLog(`[冷卻] 失敗清單 ${failedQueue.length} 筆、未處理 ${remainingQueue.length} 筆、回滾 ${rollbackUsers.length} 筆已併入冷卻備份`);
 
         // 4. Set cooldown timestamp (12 hours)
         const cooldownUntil = Date.now() + (12 * 60 * 60 * 1000);
@@ -1897,8 +1898,7 @@ export const Worker = {
         Worker.clearStats();
 
         // 6. Update UI and navigate back
-        const totalRolled = fullRollbackList.length;
-        Worker.updateStatus('error', `⛔ 偵測到系統限制，已啟動 12 小時冷卻保護\n共 ${totalRolled} 筆名單已保存，冷卻結束後自動恢復`);
+        Worker.updateStatus('error', `⛔ 偵測到系統限制，已啟動 12 小時冷卻保護\n已備份 ${fullCooldownQueue.length} 筆，冷卻結束後可重試`);
         const stopBtn = document.getElementById('hege-worker-stop');
         if (stopBtn) stopBtn.style.display = 'none';
         Worker.navigateBack();

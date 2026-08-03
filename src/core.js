@@ -3726,16 +3726,40 @@ export const Core = {
 
         const failedQueue = normalizeFailedQueue(Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []), 'block');
         const reportFailedQueue = normalizeFailedQueue(Storage.getJSON(CONFIG.KEYS.REPORT_FAILED_QUEUE, []), 'report');
+        const cooldownQueue = Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []);
+        const failedCooldownUntil = parseInt(Storage.get(CONFIG.KEYS.COOLDOWN) || '0', 10) || 0;
+        const failedCooldownActive = failedCooldownUntil > Date.now();
         const retryItem = document.getElementById('hege-retry-failed-item');
         if (retryItem) {
             const totalFailed = failedQueue.length + reportFailedQueue.length;
+            const countBadge = document.getElementById('hege-failed-count');
+            const retryLabel = document.getElementById('hege-retry-failed-label');
             if (totalFailed > 0) {
                 retryItem.style.display = 'flex';
-                const countBadge = document.getElementById('hege-failed-count');
+                retryItem.style.pointerEvents = '';
+                retryItem.style.cursor = '';
+                if (retryLabel) retryLabel.textContent = '重試失敗清單';
                 if (countBadge) countBadge.textContent = `${totalFailed} 筆`;
                 retryItem.title = `封鎖失敗 ${failedQueue.length} 筆，檢舉失敗 ${reportFailedQueue.length} 筆`;
+            } else if (cooldownQueue.length > 0 && failedCooldownActive) {
+                // 冷卻保護會把失敗清單整份搬進冷卻備份後清空。資料還在，之前畫面
+                // 只是歸零不解釋，使用者以為清單被吃掉。這裡改成明講去向；此時沒有
+                // 東西可重試，所以只當說明列，不可點。
+                const remainMinutes = Math.max(0, Math.ceil((failedCooldownUntil - Date.now()) / (60 * 1000)));
+                const remainText = remainMinutes >= 60
+                    ? `剩 ${Math.floor(remainMinutes / 60)} 時 ${remainMinutes % 60} 分`
+                    : `剩 ${remainMinutes} 分`;
+                retryItem.style.display = 'flex';
+                retryItem.style.pointerEvents = 'none';
+                retryItem.style.cursor = 'default';
+                if (retryLabel) retryLabel.textContent = '已移入冷卻備份';
+                if (countBadge) countBadge.textContent = `${cooldownQueue.length} 筆・${remainText}`;
+                retryItem.title = `失敗清單共 ${cooldownQueue.length} 筆已移入冷卻備份保存，冷卻結束後可重試`;
             } else {
                 retryItem.style.display = 'none';
+                retryItem.style.pointerEvents = '';
+                retryItem.style.cursor = '';
+                if (retryLabel) retryLabel.textContent = '重試失敗清單';
                 retryItem.title = '';
             }
         }
