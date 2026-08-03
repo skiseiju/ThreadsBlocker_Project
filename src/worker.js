@@ -17,6 +17,12 @@ const PROFILE_ROOT_WAIT_MS = 12000;
 const WORKER_MIN_VIEWPORT_WIDTH = 700;
 const WORKER_MIN_VIEWPORT_HEIGHT = 440;
 
+const normalizeLimitWarningNumber = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? number : null;
+};
+
 const readWindowMetrics = () => {
     const outerWidth = Number(window.outerWidth) || 0;
     const outerHeight = Number(window.outerHeight) || 0;
@@ -42,6 +48,9 @@ export const Worker = {
     consecutiveRateLimits: 0,
     consecutiveFails: 0,       // Level 2 連續失敗計數
     limitWarningMessage: '',
+    limitWarningCompactMessage: '',
+    limitWarningDone: null,
+    limitWarningLimit: null,
     _stepRunning: false,       // mutex: prevent concurrent runStep chains
     _workerVisualStorageListenerBound: false,
     _diagnosticOperationId: null,
@@ -56,7 +65,10 @@ export const Worker = {
             verifyCount: Worker.verifyCount,
             consecutiveFails: Worker.consecutiveFails,
             consecutiveRateLimits: Worker.consecutiveRateLimits,
-            limitWarningMessage: Worker.limitWarningMessage
+            limitWarningMessage: Worker.limitWarningMessage,
+            limitWarningCompactMessage: Worker.limitWarningCompactMessage,
+            limitWarningDone: Worker.limitWarningDone,
+            limitWarningLimit: Worker.limitWarningLimit,
         });
     },
 
@@ -69,6 +81,9 @@ export const Worker = {
         Worker.consecutiveFails = 0;
         Worker.consecutiveRateLimits = 0;
         Worker.limitWarningMessage = '';
+        Worker.limitWarningCompactMessage = '';
+        Worker.limitWarningDone = null;
+        Worker.limitWarningLimit = null;
     },
 
     loadStats: () => {
@@ -81,7 +96,12 @@ export const Worker = {
             Worker.verifyCount = saved.verifyCount || 0;
             Worker.consecutiveFails = saved.consecutiveFails || 0;
             Worker.consecutiveRateLimits = saved.consecutiveRateLimits || 0;
-            Worker.limitWarningMessage = saved.limitWarningMessage || '';
+            Worker.limitWarningMessage = typeof saved.limitWarningMessage === 'string' ? saved.limitWarningMessage : '';
+            Worker.limitWarningCompactMessage = typeof saved.limitWarningCompactMessage === 'string'
+                ? saved.limitWarningCompactMessage
+                : '';
+            Worker.limitWarningDone = normalizeLimitWarningNumber(saved.limitWarningDone);
+            Worker.limitWarningLimit = normalizeLimitWarningNumber(saved.limitWarningLimit);
         } else {
             Worker.resetStatsState(Date.now());
         }
@@ -744,6 +764,9 @@ export const Worker = {
             verifyLevel: Worker.verifyLevel,
             consecutiveFails: Worker.consecutiveFails,
             limitWarningMessage: Worker.limitWarningMessage,
+            limitWarningCompactMessage: Worker.limitWarningCompactMessage,
+            limitWarningDone: Worker.limitWarningDone,
+            limitWarningLimit: Worker.limitWarningLimit,
             ...extra,
         });
         if (!payload) return null;
@@ -1021,13 +1044,26 @@ export const Worker = {
         if (pctEl) pctEl.textContent = `${pct}%`;
         if (progressText) {
             if (workerCover && workerCover.dataset.compact === 'true') {
-                const visualInfo = Worker.getVisualModeInfo();
-                progressText.textContent = visualInfo.visualEnabled
-                    ? '可視化開啟：逐步標示點擊目標'
-                    : '可視化關閉：安靜執行，不標示點擊目標';
-                progressText.style.fontSize = '11px';
-                progressText.style.color = '#aaa';
-                progressText.style.fontWeight = '400';
+                if (Worker.limitWarningMessage) {
+                    progressText.textContent = Worker.limitWarningCompactMessage || Worker.limitWarningMessage;
+                    progressText.style.fontSize = '13px';
+                    progressText.style.color = '#ff9f0a';
+                    progressText.style.fontWeight = '800';
+                    progressText.style.lineHeight = '1.35';
+                    progressText.style.whiteSpace = 'normal';
+                    progressText.style.wordBreak = 'break-word';
+                } else {
+                    const visualInfo = Worker.getVisualModeInfo();
+                    progressText.textContent = visualInfo.visualEnabled
+                        ? '可視化開啟：逐步標示點擊目標'
+                        : '可視化關閉：安靜執行，不標示點擊目標';
+                    progressText.style.fontSize = '11px';
+                    progressText.style.color = '#aaa';
+                    progressText.style.fontWeight = '400';
+                    progressText.style.lineHeight = '';
+                    progressText.style.whiteSpace = '';
+                    progressText.style.wordBreak = '';
+                }
             } else {
                 progressText.textContent = Worker.limitWarningMessage || (isVerifying ? `正在確認結果... (@${current})` : `${processed} / ${initTotal} 已處理`);
                 progressText.style.fontSize = Worker.limitWarningMessage ? '18px' : '13px';
@@ -1065,11 +1101,25 @@ export const Worker = {
         }
     },
 
-    setLimitWarning: (message = '') => {
+    setLimitWarning: (message = '', options = {}) => {
         const nextMessage = message || '';
-        if (Worker.limitWarningMessage === nextMessage) return;
+        const warningOptions = options && typeof options === 'object' ? options : {};
+        const nextCompactMessage = typeof warningOptions.compactMessage === 'string'
+            ? warningOptions.compactMessage
+            : '';
+        const nextDone = normalizeLimitWarningNumber(warningOptions.done);
+        const nextLimit = normalizeLimitWarningNumber(warningOptions.limit);
+        if (
+            Worker.limitWarningMessage === nextMessage
+            && Worker.limitWarningCompactMessage === nextCompactMessage
+            && Worker.limitWarningDone === nextDone
+            && Worker.limitWarningLimit === nextLimit
+        ) return;
 
         Worker.limitWarningMessage = nextMessage;
+        Worker.limitWarningCompactMessage = nextCompactMessage;
+        Worker.limitWarningDone = nextDone;
+        Worker.limitWarningLimit = nextLimit;
         Worker.saveStats();
 
         if (window.hegeLog && Worker.limitWarningMessage) {
@@ -1468,11 +1518,24 @@ export const Worker = {
             return;
         }
 
+        const hasStructuredDailyLimitWarning = Number.isFinite(Worker.limitWarningDone)
+            && Number.isFinite(Worker.limitWarningLimit);
         if (!Storage.isUnderLimit()) {
             const limit = Storage.getDailyBlockLimit();
             const done = Storage.getBlocksLast24h();
-            Worker.setLimitWarning(`⚠️ Meta 上限提醒 ${done}/${limit}，仍繼續執行`);
-        } else if (Worker.limitWarningMessage.startsWith('⚠️ Meta 上限提醒')) {
+            Worker.setLimitWarning(
+                `⚠️ 已封鎖 ${done} 筆，超過你自訂上限 ${limit} 筆。這是自訂的安全估計值，超過可能被平台限制，但程式會繼續執行。`,
+                {
+                    compactMessage: `⚠️ 已封鎖 ${done}/${limit}，超過自訂上限仍繼續`,
+                    done,
+                    limit,
+                },
+            );
+        } else if (
+            hasStructuredDailyLimitWarning
+            || Worker.limitWarningMessage.startsWith('⚠️ 已封鎖')
+            || Worker.limitWarningMessage.startsWith('⚠️ Meta')
+        ) {
             Worker.setLimitWarning('');
         }
 

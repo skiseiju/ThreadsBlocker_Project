@@ -3874,6 +3874,17 @@ export const Core = {
         const endlessQueueBadge = document.getElementById('hege-endless-queue-count');
         const bgStatusLineEl = document.getElementById('hege-bg-status');
         const bgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
+        Storage.invalidate(CONFIG.KEYS.WORKER_STATS);
+        const workerStats = Storage.getJSON(CONFIG.KEYS.WORKER_STATS, {});
+        const limitWarningMessage = String(workerStats?.limitWarningMessage || '').trim();
+        const hasStructuredLimitWarning = Number.isFinite(workerStats?.limitWarningDone)
+            && Number.isFinite(workerStats?.limitWarningLimit);
+        const isBackgroundRunning = bgStatus.state === 'running'
+            && (Date.now() - (bgStatus.lastUpdate || 0) < 10000);
+        const showLimitWarning = isBackgroundRunning && limitWarningMessage.length > 0;
+        const panelLimitWarning = showLimitWarning && hasStructuredLimitWarning
+            ? `⚠️ 已封鎖 ${workerStats.limitWarningDone}/${workerStats.limitWarningLimit}，超過自訂安全估計值，可能被平台限制，程式會繼續執行`
+            : (showLimitWarning ? limitWarningMessage : '');
 
         const pendingEndlessCount = reservoirEntries.filter(p => p.advanceOnComplete && p.status !== 'done').length;
         const isEndlessRunning = Core.SweepDriver ? Core.SweepDriver.isRunning() : false;
@@ -3885,14 +3896,6 @@ export const Core = {
             reportQueueCount: reportTotalCount,
             blockQueueCount: bgq.size,
         });
-        if (bgStatusLineEl) {
-            bgStatusLineEl.dataset.hegeControllerStatus = controllerStatus;
-            if (bgStatusLineEl.dataset.hegeSweepStatus !== 'running') {
-                bgStatusLineEl.textContent = `狀態：${CONTROLLER_STATUS_LABELS[controllerStatus] || '待命中'}`;
-            }
-        }
-        let endlessStatusApplied = false;
-
         // Panel badge：有定點絕待跑時變紅，否則顯示總篇數
         if (endlessQueueBadge) {
             if (pendingEndlessCount > 0 && !isEndlessRunning) {
@@ -3903,6 +3906,8 @@ export const Core = {
                 endlessQueueBadge.style.color = '';
             }
         }
+
+        let activeSweepStatusText = '';
 
         // 定點絕執行中：僅在該貼文仍處於實際執行狀態時顯示「清單X 第N批」
         if (isEndlessRunning) {
@@ -3916,19 +3921,36 @@ export const Core = {
                 if (isActivePostRunning) {
                     const listLabel = String.fromCharCode(65 + activePostIdx); // A, B, C...
                     const batchNum = activePost.batchCount || 0;
-                    if (bgStatusLineEl && !bgStatusLineEl.textContent.includes('冷卻')) {
-                        bgStatusLineEl.textContent = `🔄 清單${listLabel} 第${batchNum}批 定點絕執行中`;
-                        bgStatusLineEl.dataset.hegeSweepStatus = 'running';
-                        endlessStatusApplied = true;
-                    }
+                    activeSweepStatusText = `🔄 清單${listLabel} 第${batchNum}批 定點絕執行中`;
                 }
             }
         }
 
-        // 定點絕收尾：僅清理由 sweep 狀態寫入的狀態列，避免字串比對造成耦合
-        if (!endlessStatusApplied && bgStatusLineEl && bgStatusLineEl.dataset.hegeSweepStatus === 'running') {
-            bgStatusLineEl.textContent = `狀態：${CONTROLLER_STATUS_LABELS[controllerStatus] || '待命中'}`;
-            delete bgStatusLineEl.dataset.hegeSweepStatus;
+        // 上限提醒優先呈現；定點絕狀態仍以 dataset 維持生命週期，提醒清空後會恢復。
+        if (bgStatusLineEl) {
+            bgStatusLineEl.dataset.hegeControllerStatus = controllerStatus;
+            if (activeSweepStatusText) {
+                bgStatusLineEl.dataset.hegeSweepStatus = 'running';
+            } else {
+                delete bgStatusLineEl.dataset.hegeSweepStatus;
+            }
+
+            if (showLimitWarning) {
+                bgStatusLineEl.textContent = panelLimitWarning;
+                bgStatusLineEl.style.color = '#ff9f0a';
+                bgStatusLineEl.title = limitWarningMessage;
+                bgStatusLineEl.dataset.hegeLimitWarningStatus = 'running';
+            } else if (activeSweepStatusText) {
+                bgStatusLineEl.textContent = activeSweepStatusText;
+                bgStatusLineEl.style.color = '';
+                bgStatusLineEl.title = '';
+                delete bgStatusLineEl.dataset.hegeLimitWarningStatus;
+            } else {
+                bgStatusLineEl.textContent = `狀態：${CONTROLLER_STATUS_LABELS[controllerStatus] || '待命中'}`;
+                bgStatusLineEl.style.color = '';
+                bgStatusLineEl.title = '';
+                delete bgStatusLineEl.dataset.hegeLimitWarningStatus;
+            }
         }
 
         let badgeText = Core.pendingUsers.size > 0 ? `(${Core.pendingUsers.size})` : '';
