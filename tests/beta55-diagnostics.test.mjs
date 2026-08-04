@@ -38,8 +38,9 @@ test('beta55 diagnostics are beta-only, bounded, session-memory and privacy-safe
         });
     }
     const payload = RuntimeDiagnostics.export();
-    assert.equal(payload.entries.length, 200);
-    assert.equal(payload.entries[0].fields.attempt, 50);
+    assert.equal(payload.entries.length, RuntimeDiagnostics.RATE_LIMIT_PER_MINUTE);
+    assert.equal(payload.entries[0].fields.attempt, 0);
+    assert.equal(payload.entries.at(-1).coalesced, true);
     const serialized = JSON.stringify(payload);
     assert.doesNotMatch(serialized, /secret-account|private message|threads\.com|token/);
     assert.doesNotMatch(serialized, /user-agent|signature|hwid|<div/i);

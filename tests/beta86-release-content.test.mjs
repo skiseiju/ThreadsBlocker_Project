@@ -35,7 +35,7 @@ test('beta86 independent announcement module and site feed remain identical', as
 
 test('beta87 release modal renders manual intro plus deduplicated version-derived updates', async () => {
     const rendered = UI.renderReleaseNotesContent(BUNDLED_RELEASE_NOTES);
-    for (const expected of ['開發者想說的話', '最近更新', '2.7.4', '有興趣標籤', '清理名單', '三無掃描']) {
+    for (const expected of ['開發者想說的話', '最近更新', '2.8.3', '有興趣標籤', '清理名單', '三無掃描']) {
         assert.match(rendered, new RegExp(expected));
     }
     assert.doesNotMatch(rendered, /版本 2\.7\.4 重點|Credentials opt-in/);

@@ -33,9 +33,9 @@ test('beta54 partial follower copy names loaded, added, already-listed and not-l
 });
 
 test('beta54 version is bumped without building', { skip: diagnosticsEnabled ? false : diagnosticsSkipReason }, () => {
-    const versionMatch = /^2\.7\.4-beta(\d+)$/.exec(String(CONFIG.VERSION));
-    assert.ok(versionMatch, `CONFIG.VERSION must be a 2.7.4 beta version, got ${CONFIG.VERSION}`);
-    assert.ok(Number(versionMatch[1]) >= 63, `CONFIG.VERSION beta number must be >= 63, got ${CONFIG.VERSION}`);
+    const versionMatch = /^(?:2\.7\.4-beta(\d+)|2\.8\.3-beta1)$/.exec(String(CONFIG.VERSION));
+    assert.ok(versionMatch, `CONFIG.VERSION must be a supported beta version, got ${CONFIG.VERSION}`);
+    if (versionMatch[1]) assert.ok(Number(versionMatch[1]) >= 63, `CONFIG.VERSION beta number must be >= 63, got ${CONFIG.VERSION}`);
 });
 
 test('beta54 message route requires route plus message shell and preserves normal routes', () => {

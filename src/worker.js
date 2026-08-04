@@ -55,6 +55,23 @@ export const Worker = {
     _workerVisualStorageListenerBound: false,
     _diagnosticOperationId: null,
     _diagnosticOperationFeature: 'blocking',
+    _diagnosticPersistAt: 0,
+    _diagnosticPersistMinIntervalMs: 500,
+
+    persistDiagnostics: (force = false) => {
+        if (!RuntimeDiagnostics.enabled()) return false;
+        const now = Date.now();
+        if (!force && now - Worker._diagnosticPersistAt < Worker._diagnosticPersistMinIntervalMs) return false;
+        const persisted = RuntimeDiagnostics.persist();
+        if (persisted) Worker._diagnosticPersistAt = now;
+        return persisted;
+    },
+
+    endDiagnostic: (operationId, stage = 'terminal', fields = {}) => {
+        const entry = RuntimeDiagnostics.end(operationId, stage, fields);
+        Worker.persistDiagnostics(true);
+        return entry;
+    },
 
     saveStats: () => {
         Storage.setJSON(CONFIG.KEYS.WORKER_STATS, {
@@ -159,9 +176,8 @@ export const Worker = {
             // 不在允許清單裡的 key 會被丟掉，這裡不會放寬隱私邊界。
             ...(diagnosticOptions.fields || {}),
         });
-        if (ownsOperation) RuntimeDiagnostics.end(operationId, 'terminal', { reason: result, ok: result === 'success' || result === 'completed', complete: true });
-        // Worker 視窗關掉前不落盤，主視窗就永遠看不到 blocking 的紀錄。
-        RuntimeDiagnostics.persist();
+        if (ownsOperation) Worker.endDiagnostic(operationId, 'terminal', { reason: result, ok: result === 'success' || result === 'completed', complete: true });
+        Worker.persistDiagnostics(true);
         return snapshot;
     },
 
@@ -319,8 +335,10 @@ export const Worker = {
 
     init: async () => {
         Worker._diagnosticOperationFeature = Storage.get(CONFIG.KEYS.WORKER_MODE, '') === 'report' ? 'report' : 'blocking';
+        Worker._diagnosticPersistAt = 0;
         Worker._diagnosticOperationId = RuntimeDiagnostics.begin(Worker._diagnosticOperationFeature, { strategy: Utils.isMobile() ? 'same_tab' : 'background_tab', foreground: !Utils.isMobile(), background: Utils.isMobile() === false });
         RuntimeDiagnostics.record(Worker._diagnosticOperationFeature, 'precondition', { operationId: Worker._diagnosticOperationId, queueCount: Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []).length, pendingCount: Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []).length });
+        Worker.persistDiagnostics(true);
         Worker.loadStats();
         // Pre-initialize UI to capture early logs
         Worker.createStatusUI();
@@ -369,8 +387,12 @@ export const Worker = {
             } catch (e) { }
         };
 
-        // Worker 視窗關閉時清理狀態
-        window.addEventListener('beforeunload', () => {
+        // Worker 關閉前先保存診斷，再清理暫存狀態。
+        let closeHandled = false;
+        const handleWorkerClose = () => {
+            Worker.persistDiagnostics(true);
+            if (closeHandled) return;
+            closeHandled = true;
             Storage.remove(CONFIG.KEYS.VERIFY_PENDING);
             // 批次驗證進度不清除 — 重新開啟 Worker 時可繼續
             const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
@@ -380,7 +402,9 @@ export const Worker = {
                 Storage.setJSON(CONFIG.KEYS.BG_STATUS, status);
             }
             Worker.saveStats();
-        });
+        };
+        window.addEventListener('pagehide', handleWorkerClose);
+        window.addEventListener('beforeunload', handleWorkerClose);
 
         window.hegeLog('[BG-INIT] Worker Started');
 
@@ -393,7 +417,7 @@ export const Worker = {
             const stopBtn = document.getElementById('hege-worker-stop');
             if (stopBtn) stopBtn.style.display = 'none';
             Worker.recordSafetyDiagnostic('cooldown', 'cooldown', MoreLocator.routeType(), {}, {}, { operationId: Worker._diagnosticOperationId });
-            RuntimeDiagnostics.end(Worker._diagnosticOperationId, 'terminal', { reason: 'cooldown', ok: false, cooldownActive: true });
+            Worker.endDiagnostic(Worker._diagnosticOperationId, 'terminal', { reason: 'cooldown', ok: false, cooldownActive: true });
             Worker._diagnosticOperationId = null;
             return;
         }
@@ -973,6 +997,7 @@ export const Worker = {
     updateStatus: (state, current = '', progress = 0, total = 0) => {
         const s = { state, current, progress, total, lastUpdate: Date.now() };
         Storage.setJSON(CONFIG.KEYS.BG_STATUS, s);
+        if (state === 'error') Worker.persistDiagnostics(true);
 
         // Status text
         const el = document.getElementById('bg-status');
@@ -1244,9 +1269,10 @@ export const Worker = {
         const operationFeature = Worker._diagnosticOperationFeature || 'blocking';
         const operationId = Worker._diagnosticOperationId || (Worker._diagnosticOperationId = RuntimeDiagnostics.begin(operationFeature, { strategy: Utils.isMobile() ? 'same_tab' : 'background_tab' }));
         RuntimeDiagnostics.record(operationFeature, 'dequeue', { operationId, queueCount: Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []).length, pendingCount: Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []).length });
+        Worker.persistDiagnostics();
         if (Storage.get(CONFIG.KEYS.BG_CMD) === 'stop') {
             Worker.recordSafetyDiagnostic('queue_advance', 'stopped', MoreLocator.routeType());
-            RuntimeDiagnostics.end(operationId, 'stop', { reason: 'user_stop', ok: false });
+            Worker.endDiagnostic(operationId, 'stop', { reason: 'user_stop', ok: false });
             const workerMode = Storage.get(CONFIG.KEYS.WORKER_MODE, '');
             if (workerMode === 'report') Worker.interruptReportRun();
             Storage.remove(CONFIG.KEYS.BG_CMD);
@@ -1378,7 +1404,7 @@ export const Worker = {
 
             Worker.updateStatus('idle', '✅ 檢舉全部完成！', 0, 0);
             Worker.recordSafetyDiagnostic('queue_advance', 'completed', MoreLocator.routeType());
-            RuntimeDiagnostics.end(Worker._diagnosticOperationId, 'finish', { reason: 'completed', ok: true, complete: true, processedCount: Worker.stats.success + Worker.stats.skipped });
+            Worker.endDiagnostic(Worker._diagnosticOperationId, 'finish', { reason: 'completed', ok: true, complete: true, processedCount: Worker.stats.success + Worker.stats.skipped });
             Worker._diagnosticOperationId = null;
             Worker.completeReportRun();
             Worker.clearStats();
@@ -1492,7 +1518,7 @@ export const Worker = {
 
             Worker.updateStatus('idle', '✅ 全部完成！', 0, 0);
             Worker.recordSafetyDiagnostic('queue_advance', 'completed', MoreLocator.routeType());
-            RuntimeDiagnostics.end(Worker._diagnosticOperationId, 'finish', { reason: 'completed', ok: true, complete: true, processedCount: Worker.stats.success + Worker.stats.skipped });
+            Worker.endDiagnostic(Worker._diagnosticOperationId, 'finish', { reason: 'completed', ok: true, complete: true, processedCount: Worker.stats.success + Worker.stats.skipped });
             Worker._diagnosticOperationId = null;
             Worker.clearStats();
             Storage.remove(CONFIG.KEYS.WORKER_MODE);

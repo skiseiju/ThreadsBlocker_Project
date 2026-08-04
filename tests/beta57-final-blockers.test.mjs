@@ -38,7 +38,7 @@ test('beta57 observeStop owner-scoped and legacy commands finish without Referen
 test('beta57 worker source has terminal cooldown handling for init and verify breaker branches', async () => {
     const fs = await import('node:fs/promises');
     const source = await fs.readFile(new URL('../src/worker.js', import.meta.url), 'utf8');
-    assert.match(source, /Worker\.recordSafetyDiagnostic\('cooldown',[\s\S]{0,260}RuntimeDiagnostics\.end\(Worker\._diagnosticOperationId, 'terminal'/);
+    assert.match(source, /Worker\.recordSafetyDiagnostic\('cooldown',[\s\S]{0,260}Worker\.endDiagnostic\(Worker\._diagnosticOperationId, 'terminal'/);
     assert.match(source, /recordSafetyDiagnostic\('breaker', 'breaker_open'/);
     assert.match(source, /recordSafetyDiagnostic\('retry', 'retry'/);
 });

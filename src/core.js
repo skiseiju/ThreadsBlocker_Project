@@ -17,6 +17,14 @@ const BETA_DIAGNOSTIC_STAGES = new Set([
     'commit', 'rollback', 'panel', 'chip', 'suppression', 'launch', 'precondition', 'worker', 'request', 'ack',
     'close', 'timeout', 'report', 'http', 'config', 'layout', 'error', 'status', 'terminal', 'reposition', 'clamp', 'hide', 'show', 'unknown',
 ]);
+const BETA_DIAGNOSTIC_FAILURE_STAGES = new Set(['failure', 'breaker', 'error', 'timeout', 'rollback']);
+const BETA_DIAGNOSTIC_TERMINAL_STAGES = new Set(['stop', 'finish', 'commit', 'close', 'terminal']);
+const diagnosticEntryPriority = (stage, fields = {}) => {
+    if (BETA_DIAGNOSTIC_FAILURE_STAGES.has(stage) || fields?.failure === true) return 4;
+    if (BETA_DIAGNOSTIC_TERMINAL_STAGES.has(stage) || fields?.terminal === true) return 3;
+    if (stage === 'start') return 2;
+    return 0;
+};
 const BETA_DIAGNOSTIC_REASONS = new Set([
     'end', 'completed', 'threads_partial', 'scroll_stall', 'timeout', 'stopped',
     'rows_unknown', 'rows_missing', 'likes_tab_switch_failed', 'limited', 'empty_end',
@@ -51,11 +59,15 @@ export const RuntimeDiagnostics = {
     LIMIT: 200,
     _entries: [],
     _lastBySignature: new Map(),
+    _lastByRateKey: new Map(),
+    _rateWindows: new Map(),
     _operations: new Map(),
     _observersInstalled: false,
     _observerTarget: null,
     _sessionId: diagnosticSessionId(),
     _startedAt: Date.now(),
+    RATE_LIMIT_PER_MINUTE: 22,
+    RATE_WINDOW_MS: 60 * 1000,
     // 手動 debug／export UI 專用（複製診斷、清除診斷、三無 verbose log）。
     // AGENTS.md 要求正式版移除 beta-only debug/export UI，所以這條仍綁 beta 版號。
     // 注意：它不再控制 ring buffer 是否收集，那是 enabled()。
@@ -67,10 +79,12 @@ export const RuntimeDiagnostics = {
     // 導致使用者回報只有一句描述、完全查不出根因（2.8.0 封鎖災情的實例）。
     enabled() {
         const active = CONFIG.ENABLE_RUNTIME_DIAGNOSTICS === true;
-        if (!active && (this._entries.length || this._lastBySignature.size)) {
+        if (!active && (this._entries.length || this._lastBySignature.size || this._lastByRateKey.size)) {
             this._entries = [];
             this._lastBySignature.clear();
+            this._lastByRateKey.clear();
         }
+        if (!active && this._rateWindows.size) this._rateWindows.clear();
         if (!active && this._operations.size) this._operations.clear();
         if (!active && this._observersInstalled) this.disposeObservers();
         return active;
@@ -208,6 +222,22 @@ export const RuntimeDiagnostics = {
             previous.fields.repeatCount = boundedDiagnosticInt((previous.fields.repeatCount || 1) + 1, 1000000);
             return previous;
         }
+        const priority = diagnosticEntryPriority(safeStage, safeFields);
+        const rateKey = `${safeFeature}|${safeStage}`;
+        let rateWindow = this._rateWindows.get(rateKey) || [];
+        if (priority < 3) {
+            rateWindow = rateWindow.filter(timestamp => timestamp <= now && now - timestamp < this.RATE_WINDOW_MS);
+            this._rateWindows.set(rateKey, rateWindow);
+            if (rateWindow.length >= this.RATE_LIMIT_PER_MINUTE) {
+                const recent = this._lastByRateKey.get(rateKey)
+                    || [...this._entries].reverse().find(item => item.feature === safeFeature && item.stage === safeStage);
+                if (recent) {
+                    recent.fields.repeatCount = boundedDiagnosticInt((recent.fields.repeatCount || 1) + 1, 1000000);
+                    recent.coalesced = true;
+                    return recent;
+                }
+            }
+        }
         const entry = {
             sessionId: this._sessionId,
             operationId: operationId || `${safeFeature}-${diagnosticSessionId()}`,
@@ -217,9 +247,14 @@ export const RuntimeDiagnostics = {
             stage: safeStage,
             fields: safeFields,
         };
-        entry.priority = stage === 'start' ? 2 : (['stop', 'finish', 'commit', 'rollback', 'terminal', 'error', 'close'].includes(stage) || fields?.terminal === true ? 3 : 0);
+        entry.priority = priority;
         this._entries.push(entry);
         this._lastBySignature.set(signature, entry);
+        this._lastByRateKey.set(rateKey, entry);
+        if (priority < 3) {
+            rateWindow.push(now);
+            this._rateWindows.set(rateKey, rateWindow);
+        }
         while (this._entries.length > this.LIMIT) {
             let index = this._entries.findIndex(item => item.priority === 0);
             if (index < 0) index = this._entries.findIndex(item => item.priority < 3);
@@ -234,11 +269,14 @@ export const RuntimeDiagnostics = {
         const safeOperation = /^[a-z_]+-[a-z0-9]{1,16}$/i.test(String(entry.operationId || '')) ? String(entry.operationId) : 'unknown-0';
         const safeFeature = BETA_DIAGNOSTIC_FEATURES.has(entry.feature) ? entry.feature : 'unknown';
         const safeStage = BETA_DIAGNOSTIC_STAGES.has(entry.stage) ? entry.stage : 'unknown';
+        const safeFields = this._safeFields(entry.fields);
         return {
             sessionId: safeSession, operationId: safeOperation,
             timestamp: boundedDiagnosticInt(entry.timestamp, 9999999999999),
             elapsedMs: boundedDiagnosticInt(entry.elapsedMs), feature: safeFeature, stage: safeStage,
-            fields: this._safeFields(entry.fields),
+            priority: diagnosticEntryPriority(safeStage, safeFields),
+            ...(entry.coalesced === true ? { coalesced: true } : {}),
+            fields: safeFields,
         };
     },
     get() { return this.enabled() ? this._entries.slice(-this.LIMIT).map(entry => this._sanitizeEntry(entry)) : []; },
@@ -250,6 +288,8 @@ export const RuntimeDiagnostics = {
     clear() {
         this._entries = [];
         this._lastBySignature.clear();
+        this._lastByRateKey.clear();
+        this._rateWindows.clear();
         this._operations.clear();
         try { Storage.setJSON(CONFIG.KEYS.RUNTIME_DIAGNOSTICS_RING, []); } catch (e) { /* 無 storage 環境 */ }
     },
@@ -498,6 +538,13 @@ const dialogCollectionFailureText = (reason) => ({
     empty_end: '目前沒有可收集的帳號。',
     threads_partial: '名單尚未完整載入，請稍後重試。',
 })[String(reason || '')] || '這次名單尚未完成，請稍後重試。';
+let suppressMessageRouteDiagnostics = false;
+const withoutMessageRouteDiagnostics = (callback) => {
+    const previous = suppressMessageRouteDiagnostics;
+    suppressMessageRouteDiagnostics = true;
+    try { return callback(); } finally { suppressMessageRouteDiagnostics = previous; }
+};
+
 export const isMessageRouteContext = (locationLike = {}, doc = null) => {
     const path = String(locationLike?.pathname || '').toLowerCase();
     const routeMatch = /^\/(?:messages?|direct|inbox)(?:\/|$)/i.test(path);
@@ -569,7 +616,7 @@ export const isMessageRouteContext = (locationLike = {}, doc = null) => {
     // one real, visible message-shell signal exists; route-unchanged overlays
     // must satisfy the complete cohesive signature above.
     const result = routeMatch || strongSignature;
-    if (typeof RuntimeDiagnostics !== 'undefined') RuntimeDiagnostics.record('message_route', 'route', {
+    if (!(typeof suppressMessageRouteDiagnostics !== 'undefined' && suppressMessageRouteDiagnostics) && typeof RuntimeDiagnostics !== 'undefined') RuntimeDiagnostics.record('message_route', 'route', {
         routeMatch, messageRoute: routeMatch, conversationList: signals.conversationList,
         activeConversation: signals.activeConversation, composer: signals.composer,
         actionArea: signals.actionArea, visible: signals.visible, sameRoot: signals.sameRoot,
@@ -734,7 +781,7 @@ const safeCheckboxInsideRoleDialog = (btn) => {
 
 const safeCheckboxMessageRoute = () => {
     try {
-        return Core.isMessageRouteContext(window.location, document) === true;
+        return withoutMessageRouteDiagnostics(() => Core.isMessageRouteContext(window.location, document)) === true;
     } catch (_) {
         return false;
     }
@@ -2341,6 +2388,7 @@ export const Core = {
     _scanInterval: null,
     _navScanHooksInstalled: false,
     _resizeHookInstalled: false,
+    _panelRouteDiagnosticState: null,
     runScannerPass: (updateUI = true) => {
         Core.scanAndInject();
         Core.injectDialogBlockAll();
@@ -2358,24 +2406,52 @@ export const Core = {
     isMessageRouteContext: (locationLike = window.location, doc = document) => isMessageRouteContext(locationLike, doc),
     updatePanelRouteVisibility: () => {
         const panel = document.getElementById('hege-panel');
-        if (!panel) return false;
-        const hidden = Core.isMessageRouteContext(window.location, document);
+        if (!panel) {
+            Core._panelRouteDiagnosticState = null;
+            return false;
+        }
+        const path = String(window.location?.pathname || '');
+        const routeMatch = /^\/(?:messages?|direct|inbox)(?:\/|$)/i.test(path);
+        const pathnameCategory = routeMatch ? 'message'
+            : (/^\/@[^/]+/i.test(path) ? 'profile' : (/\/post\//i.test(path) ? 'post' : 'unknown'));
+        const hidden = withoutMessageRouteDiagnostics(() => Core.isMessageRouteContext(window.location, document));
         const rect = panel.getBoundingClientRect?.() || {};
-        RuntimeDiagnostics.record('message_route', hidden ? 'route' : 'layout', {
-            routeMatch: /^\/(?:messages?|direct|inbox)(?:\/|$)/i.test(String(window.location?.pathname || '')),
-            pathnameCategory: /^\/(?:messages?|direct|inbox)(?:\/|$)/i.test(String(window.location?.pathname || '')) ? 'message'
-                : (/^\/@[^/]+/i.test(String(window.location?.pathname || '')) ? 'profile' : (/\/post\//i.test(String(window.location?.pathname || '')) ? 'post' : 'unknown')),
+        const integerMetric = value => Number.isFinite(Number(value)) ? Math.round(Number(value)) : 0;
+        const nextState = {
             hidden,
-            rectLeft: rect.left, rectTop: rect.top, rectWidth: rect.width, rectHeight: rect.height,
-            viewportWidth: window.innerWidth, viewportHeight: window.innerHeight,
-            mutationTrigger: false,
-        });
-        try {
-            RuntimeDiagnostics.record('panel', hidden ? 'suppression' : 'route', {
-                operationId: panel.dataset?.hegeDiagnosticOperationId,
-                hidden, active: !hidden, visible: !hidden, routeMatch: hidden,
+            pathnameCategory,
+            rectLeft: integerMetric(rect.left),
+            rectTop: integerMetric(rect.top),
+            rectWidth: integerMetric(rect.width),
+            rectHeight: integerMetric(rect.height),
+            viewportWidth: integerMetric(window.innerWidth),
+            viewportHeight: integerMetric(window.innerHeight),
+        };
+        const previousState = Core._panelRouteDiagnosticState;
+        const geometryChanged = !previousState || ['rectLeft', 'rectTop', 'rectWidth', 'rectHeight']
+            .some(key => Math.abs(nextState[key] - previousState[key]) > 1);
+        const stateChanged = !previousState
+            || previousState.hidden !== nextState.hidden
+            || previousState.pathnameCategory !== nextState.pathnameCategory
+            || previousState.viewportWidth !== nextState.viewportWidth
+            || previousState.viewportHeight !== nextState.viewportHeight
+            || geometryChanged;
+        Core._panelRouteDiagnosticState = nextState;
+        if (stateChanged) {
+            RuntimeDiagnostics.record('message_route', hidden ? 'route' : 'layout', {
+                routeMatch, pathnameCategory, hidden,
+                rectLeft: nextState.rectLeft, rectTop: nextState.rectTop,
+                rectWidth: nextState.rectWidth, rectHeight: nextState.rectHeight,
+                viewportWidth: nextState.viewportWidth, viewportHeight: nextState.viewportHeight,
+                mutationTrigger: false,
             });
-        } catch (_) { /* panel diagnostics must never affect route handling */ }
+            try {
+                RuntimeDiagnostics.record('panel', hidden ? 'suppression' : 'route', {
+                    operationId: panel.dataset?.hegeDiagnosticOperationId,
+                    hidden, active: !hidden, visible: !hidden, routeMatch: hidden,
+                });
+            } catch (_) { /* 面板診斷不得影響路由處理 */ }
+        }
         const wasHidden = panel.dataset.hegeMessageHidden === 'true';
         if (hidden && !wasHidden) {
             panel.dataset.hegeMessageHidden = 'true';
@@ -2403,6 +2479,11 @@ export const Core = {
                 rectLeft: after.left, rectTop: after.top, rectWidth: after.width, rectHeight: after.height,
                 viewportWidth: window.innerWidth, viewportHeight: window.innerHeight,
             });
+            Core._panelRouteDiagnosticState = {
+                ...Core._panelRouteDiagnosticState,
+                rectLeft: integerMetric(after.left), rectTop: integerMetric(after.top),
+                rectWidth: integerMetric(after.width), rectHeight: integerMetric(after.height),
+            };
         }
         return hidden;
     },
@@ -2442,7 +2523,6 @@ export const Core = {
                     break;
                 }
             }
-            if (shouldScan) RuntimeDiagnostics.record('message_route', 'route', { mutationTrigger: true, routeUnchanged: true });
             if (shouldScan) Core.scheduleScannerPass();
         });
 
@@ -5471,14 +5551,49 @@ export const Core = {
     // 資訊）仍在 buildBugReportDiagnosticsBundle，仍需逐次勾選同意。
     // 免同意就送的東西必須是最小必要。實測（回報 #45，2.8.1-beta18）完整 ring
     // 有 400 筆、單獨 147KB；每一封回報都背這個量既不必要也不合比例。查根因
-    // 只需要最後那一段，因此輕量層只帶最近 LIGHTWEIGHT_ENTRY_LIMIT 筆。
+    // 只需要有限筆數，因此輕量層先挑重要分級，再以最近的普通紀錄補足上限。
     // 完整 ring 仍保留在需要勾選同意的 buildBugReportDiagnosticsBundle。
     LIGHTWEIGHT_ENTRY_LIMIT: 120,
+    LIGHTWEIGHT_CONTEXT_ENTRY_LIMIT_PER_OPERATION: 5,
 
     buildLightweightDiagnostics: () => {
         const ring = RuntimeDiagnostics.export();
         const allEntries = ring && Array.isArray(ring.entries) ? ring.entries : [];
-        const entries = allEntries.slice(-Core.LIGHTWEIGHT_ENTRY_LIMIT);
+        const priorityEntries = allEntries.filter(entry => diagnosticEntryPriority(entry.stage, entry.fields) > 0);
+        const normalEntries = allEntries.filter(entry => diagnosticEntryPriority(entry.stage, entry.fields) === 0);
+        const prioritized = priorityEntries.length > Core.LIGHTWEIGHT_ENTRY_LIMIT
+            ? [...priorityEntries]
+                .sort((left, right) => diagnosticEntryPriority(right.stage, right.fields) - diagnosticEntryPriority(left.stage, left.fields)
+                    || right.timestamp - left.timestamp)
+                .slice(0, Core.LIGHTWEIGHT_ENTRY_LIMIT)
+            : priorityEntries;
+        const selected = new Set(prioritized);
+        const criticalOperationIds = new Set(
+            prioritized
+                .filter(entry => diagnosticEntryPriority(entry.stage, entry.fields) >= 3)
+                .map(entry => entry.operationId)
+                .filter(operationId => typeof operationId === 'string' && operationId && operationId !== 'unknown-0')
+        );
+        const contextCounts = new Map();
+        const contextual = [];
+        const contextCandidates = allEntries
+            .filter(entry => !selected.has(entry) && criticalOperationIds.has(entry.operationId))
+            .sort((left, right) => right.timestamp - left.timestamp);
+        for (const entry of contextCandidates) {
+            if (prioritized.length + contextual.length >= Core.LIGHTWEIGHT_ENTRY_LIMIT) break;
+            const count = contextCounts.get(entry.operationId) || 0;
+            if (count >= Core.LIGHTWEIGHT_CONTEXT_ENTRY_LIMIT_PER_OPERATION) continue;
+            contextual.push(entry);
+            selected.add(entry);
+            contextCounts.set(entry.operationId, count + 1);
+        }
+        const remainingQuota = Math.max(0, Core.LIGHTWEIGHT_ENTRY_LIMIT - prioritized.length - contextual.length);
+        const recentNormalEntries = normalEntries.slice(-Math.max(0, Core.LIGHTWEIGHT_ENTRY_LIMIT - prioritized.length));
+        const recentNormalCandidates = recentNormalEntries.filter(entry => !selected.has(entry));
+        const olderNormalCandidates = normalEntries.filter(entry => !selected.has(entry) && !recentNormalEntries.includes(entry));
+        const fallbackNormalEntries = [...olderNormalCandidates, ...recentNormalCandidates].slice(-remainingQuota);
+        const entries = [...prioritized, ...contextual, ...fallbackNormalEntries]
+            .sort((left, right) => left.timestamp - right.timestamp);
         const summary = {};
         for (const entry of entries) summary[entry.feature] = (summary[entry.feature] || 0) + 1;
         return {

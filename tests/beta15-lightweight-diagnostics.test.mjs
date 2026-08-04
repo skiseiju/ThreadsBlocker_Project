@@ -110,7 +110,8 @@ test('輕量層有筆數上限，不得整份 ring 免同意送出', () => {
     const limit = Number(coreSource.match(/LIGHTWEIGHT_ENTRY_LIMIT: (\d+)/)?.[1]);
     assert.ok(Number.isInteger(limit) && limit > 0 && limit <= 200, `unexpected limit ${limit}`);
     const builder = coreSource.slice(coreSource.indexOf('buildLightweightDiagnostics: () => {'), coreSource.indexOf('buildBugReportDiagnosticsBundle: () => {'));
-    assert.match(builder, /\.slice\(-Core\.LIGHTWEIGHT_ENTRY_LIMIT\)/, '輕量層必須只帶最近一段');
+    assert.match(builder, /priorityEntries|diagnosticEntryPriority/, '輕量層必須先保留重要紀錄');
+    assert.match(builder, /normalEntries\.slice\(-Math\.max\(0, Core\.LIGHTWEIGHT_ENTRY_LIMIT - prioritized\.length\)\)/, '普通紀錄只能用剩餘額度補最近一段');
     assert.match(builder, /truncatedFrom: allEntries\.length/, '截斷要留下痕跡，不能假裝這就是全部');
 });
 

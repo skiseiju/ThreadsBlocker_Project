@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.8.2', // 正式版：勾選框列判定收斂、冷卻停用、視窗尺量修正
+    VERSION: '2.8.3-beta1', // 診斷噪音收斂、重要紀錄挑選、Worker 提前落盤
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。

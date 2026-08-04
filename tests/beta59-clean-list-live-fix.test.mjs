@@ -175,9 +175,9 @@ test('beta59 diagnostics expose privacy-safe skip breakdown and scroll progress'
         assert.match(coreSource, new RegExp(key));
     }
     assert.match(coreSource, /beforeScrollTop|afterScrollTop/);
-    const versionMatch = /^2\.7\.4-beta(\d+)$/.exec(String(CONFIG.VERSION));
-    assert.ok(versionMatch, `CONFIG.VERSION must be a 2.7.4 beta version, got ${CONFIG.VERSION}`);
-    assert.ok(Number(versionMatch[1]) >= 63, `CONFIG.VERSION beta number must be >= 63, got ${CONFIG.VERSION}`);
+    const versionMatch = /^(?:2\.7\.4-beta(\d+)|2\.8\.3-beta1)$/.exec(String(CONFIG.VERSION));
+    assert.ok(versionMatch, `CONFIG.VERSION must be a supported beta version, got ${CONFIG.VERSION}`);
+    if (versionMatch[1]) assert.ok(Number(versionMatch[1]) >= 63, `CONFIG.VERSION beta number must be >= 63, got ${CONFIG.VERSION}`);
 });
 
 test('beta59 runtime sanitizer keeps new aggregate fields and drops sensitive values', () => {
