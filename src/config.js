@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.8.2-beta4', // 停用冷卻保護自動觸發，保留限制提醒與舊備份併回入口
+    VERSION: '2.8.2-beta5', // 收斂 dialog row resolver，修正活動分頁貼文卡勾選框位置
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。

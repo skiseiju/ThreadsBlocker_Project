@@ -119,11 +119,14 @@ export const RuntimeDiagnostics = {
             'bestExactLinkCount', 'checkedInputCount', 'checkboxContainerCount', 'newUserCount', 'rawUserCount',
             // BUGLIST #11 取證：個人頁「更多」點擊後選單不開的觀測量。全部是數量，不含文字。
             'menuCount', 'overlayCount', 'svgCount',
+            'rowRule', 'rowConfidence', 'rowKindCode', 'followRowCount', 'roleRowCount',
+            'pressableRowCount', 'postCardCount', 'boundedParentCount', 'skippedRowCount',
+            'repositionedCount', 'lowConfidenceCount',
         ];
         for (const key of countKeys) {
             if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = boundedDiagnosticInt(source[key]);
         }
-        const floatKeys = ['elapsedMs', 'durationMs', 'scrollTop', 'beforeScrollTop', 'afterScrollTop', 'clientHeight', 'scrollHeight', 'beforeScrollHeight', 'afterScrollHeight', 'rectTop', 'rectLeft', 'rectWidth', 'rectHeight', 'viewportWidth', 'viewportHeight', 'outerWidth', 'outerHeight', 'innerWidth', 'innerHeight', 'devicePixelRatio', 'sizeRatio', 'resizeRequestedWidth', 'resizeRequestedHeight', 'resizeEffectiveWidth', 'resizeEffectiveHeight'];
+        const floatKeys = ['elapsedMs', 'durationMs', 'scrollTop', 'beforeScrollTop', 'afterScrollTop', 'clientHeight', 'scrollHeight', 'beforeScrollHeight', 'afterScrollHeight', 'rectTop', 'rectLeft', 'rectWidth', 'rectHeight', 'rowCandidateHeight', 'viewportWidth', 'viewportHeight', 'outerWidth', 'outerHeight', 'innerWidth', 'innerHeight', 'devicePixelRatio', 'sizeRatio', 'resizeRequestedWidth', 'resizeRequestedHeight', 'resizeEffectiveWidth', 'resizeEffectiveHeight'];
         for (const key of floatKeys) {
             if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = boundedDiagnosticFloat(source[key]);
         }
@@ -145,7 +148,7 @@ export const RuntimeDiagnostics = {
             // 以及選單裡有沒有出現封鎖字樣。記錄的是布林，不是文字。
             'ownAriaLabel', 'nestedAriaLabel', 'blockTextPresent',
             // 個人頁 root 是靠嚴格判定命中，還是靠放寬路徑救回來的。布林，不含文字。
-            'relaxedRoot',
+            'relaxedRoot', 'followButtonPresent',
         ];
         for (const key of boolKeys) {
             if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = diagnosticBoolean(source[key]);
@@ -323,6 +326,25 @@ export const recordCheckboxOverlapObservation = (fields = {}) => {
                 didInject: diagnosticBoolean(source.didInject),
                 path,
             };
+        if (path === 'dialog_injection') {
+            const optionalIntFields = [
+                'rowRule', 'rowConfidence', 'rowKindCode', 'followRowCount', 'roleRowCount',
+                'pressableRowCount', 'postCardCount', 'boundedParentCount', 'skippedRowCount',
+                'repositionedCount', 'lowConfidenceCount',
+            ];
+            for (const key of optionalIntFields) {
+                if (Object.prototype.hasOwnProperty.call(source, key)) safeFields[key] = boundedDiagnosticInt(source[key]);
+            }
+            if (Object.prototype.hasOwnProperty.call(source, 'rowCandidateHeight')) {
+                safeFields.rowCandidateHeight = boundedDiagnosticFloat(source.rowCandidateHeight);
+            }
+            if (Object.prototype.hasOwnProperty.call(source, 'followButtonPresent')) {
+                safeFields.followButtonPresent = diagnosticBoolean(source.followButtonPresent);
+            }
+            if (Object.prototype.hasOwnProperty.call(source, 'repositioned')) {
+                safeFields.repositioned = diagnosticBoolean(source.repositioned);
+            }
+        }
         const signature = JSON.stringify(safeFields);
         // Scanner polling can be slower than RuntimeDiagnostics' 1000ms
         // coalesce window. Keep one last safe state per path so an unchanged
@@ -735,6 +757,7 @@ export const Core = {
     _selectionSnapshot: new Set(readSelectionSnapshot()),
     _stopVisibilityLatch: readStopLatch(),
     _selectionDiagnosticOperationId: null,
+    _accountRowSequence: 0,
     lastDialogCollectionResult: null,
     lastClickedBtn: null, // Track for shift-click
     lastClickedUsername: null, // Fallback if DOM node is lost
@@ -3014,11 +3037,194 @@ export const Core = {
 
     },
 
+    resolveAccountRowContext: (anchor, ctx, options = {}) => {
+        if (!anchor || !ctx || typeof anchor.getAttribute !== 'function') return null;
+        const href = String(anchor.getAttribute('href') || '');
+        const username = (href.match(/^\/@([^/?#]+)/) || [])[1] || '';
+        if (!username) return null;
+
+        const normalize = value => String(value || '').replace(/^@+/, '').toLowerCase();
+        const normalizedUsername = normalize(username);
+        const exactLinksIn = node => Array.from(node?.querySelectorAll?.('a[href^="/@"]') || [])
+            .filter(link => /^\/@[^/?#]+\/?$/.test(String(link.getAttribute?.('href') || '')));
+        const visibleHeight = node => {
+            try {
+                const rect = node?.getBoundingClientRect?.() || {};
+                if (Number.isFinite(rect.height) && rect.height > 0) return rect.height;
+            } catch (_) { /* DOM 取值失敗時交給其他結構訊號 */ }
+            const fallback = Number(node?.clientHeight || node?.offsetHeight || 0);
+            return Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
+        };
+        const anchorHeight = Math.max(1, visibleHeight(anchor));
+        const maxAccountRowHeight = Math.max(200, anchorHeight * 8);
+        const boundedAccountRow = node => {
+            if (!node || node === ctx || node === document.body || node.matches?.('[role="dialog"]')) return false;
+            if (!node.contains?.(anchor)) return false;
+            const height = visibleHeight(node);
+            return height <= 0 || height <= maxAccountRowHeight;
+        };
+        const boundedPostCard = node => {
+            if (!node || node === ctx || node === document.body || node.matches?.('[role="dialog"]')) return false;
+            if (!node.contains?.(anchor)) return false;
+            const height = visibleHeight(node);
+            return height <= 0 || height <= Math.max(1200, anchorHeight * 32);
+        };
+        const ancestorsUntil = (node, boundary = ctx) => {
+            const result = [];
+            for (let current = node?.parentElement; current; current = current.parentElement) {
+                if (current === boundary || current === document.body) break;
+                if (current.matches?.('[role="dialog"]') && current !== boundary) break;
+                result.push(current);
+            }
+            return result;
+        };
+        const isFollowButton = node => {
+            const text = `${node?.getAttribute?.('aria-label') || ''} ${node?.innerText || node?.textContent || ''}`;
+            return /^(?:追蹤|正在追蹤|Follow|Following)(?:\s|$)/i.test(text.trim())
+                || /(?:追蹤|正在追蹤|Follow|Following)/i.test(text);
+        };
+        const findFollowButton = () => {
+            for (const current of ancestorsUntil(anchor)) {
+                const button = Array.from(current.querySelectorAll?.('button, [role="button"]') || [])
+                    .find(candidate => candidate !== anchor && isFollowButton(candidate));
+                if (button) return button;
+            }
+            return null;
+        };
+        const followButton = findFollowButton();
+        const findFollowRow = () => {
+            if (!followButton) return null;
+            let child = followButton;
+            while (child?.parentElement && child.parentElement !== ctx && child.parentElement !== document.body) {
+                const parent = child.parentElement;
+                if (parent.children?.length >= 2 && parent.contains?.(anchor) && boundedAccountRow(parent)) {
+                    return { row: parent, followButtonContainer: child, height: visibleHeight(parent) };
+                }
+                child = parent;
+            }
+            return null;
+        };
+        const accountHost = (displayAnchor, row, preferredBefore = null) => {
+            const rowLinks = exactLinksIn(row);
+            let host = null;
+            for (let current = displayAnchor?.parentElement; current && current !== row; current = current.parentElement) {
+                const style = typeof window !== 'undefined' && window.getComputedStyle ? window.getComputedStyle(current) : null;
+                const isFlex = style?.display === 'flex' || current.style?.display === 'flex';
+                const isHeader = current.matches?.('header, [data-testid*="post-header" i], [data-hege-post-header="true"]');
+                if ((isHeader || isFlex) && exactLinksIn(current).length <= Math.max(2, rowLinks.length)) {
+                    host = current;
+                    break;
+                }
+            }
+            if (!host) host = displayAnchor?.parentElement || row;
+            let directChild = displayAnchor;
+            while (directChild?.parentElement && directChild.parentElement !== host) directChild = directChild.parentElement;
+            const insertBefore = preferredBefore?.parentElement === host
+                ? preferredBefore
+                : directChild?.parentElement === host ? directChild.nextElementSibling : null;
+            return { host, insertBefore };
+        };
+        const displayAnchorIn = row => {
+            const links = exactLinksIn(row);
+            return links.find(link => normalize((link.getAttribute('href') || '').slice(2)) === normalizedUsername
+                && !link.querySelector?.('img, svg') && String(link.innerText || link.textContent || '').trim())
+                || links.find(link => normalize((link.getAttribute('href') || '').slice(2)) === normalizedUsername)
+                || anchor;
+        };
+        const ensureRowId = row => {
+            if (!row?.dataset) return '';
+            if (!row.dataset.hegeAccountRowId) {
+                Core._accountRowSequence = Number(Core._accountRowSequence || 0) + 1;
+                row.dataset.hegeAccountRowId = String(Core._accountRowSequence);
+            }
+            return row.dataset.hegeAccountRowId;
+        };
+        const result = (row, host, insertBefore, rowKind, matchedBy, confidence, shouldInject = true, extra = {}) => ({
+            row, host: host || row, insertBefore: insertBefore || null, rowKind, matchedBy,
+            confidence, shouldInject, username, followButton, rowId: ensureRowId(row),
+            ruleCode: extra.ruleCode || 0, rowKindCode: rowKind === 'account' ? 1 : (rowKind === 'post-card' ? 2 : 3),
+            candidateHeight: visibleHeight(row), isBehaviorActor: extra.isBehaviorActor !== false,
+        });
+
+        const postCard = anchor.closest?.('article, [role="article"], [data-hege-post-card="true"], [data-testid*="post-card" i]');
+        if (postCard && postCard !== ctx && boundedPostCard(postCard)) {
+            const links = exactLinksIn(postCard);
+            const actorLink = links[0] || anchor;
+            const actorUsername = normalize((actorLink.getAttribute?.('href') || '').slice(2));
+            const sameActor = actorUsername === normalizedUsername;
+            const displayAnchor = sameActor ? displayAnchorIn(postCard) : actorLink;
+            const placement = accountHost(displayAnchor, postCard);
+            return result(postCard, placement.host, placement.insertBefore, 'post-card', 'post_card', 2, sameActor, {
+                ruleCode: 8,
+                isBehaviorActor: sameActor,
+            });
+        }
+
+        const followRow = findFollowRow();
+        if (followRow) {
+            const host = followButton?.parentElement || followRow.row;
+            return result(followRow.row, host, followButton, 'account', 'follow_row', 3, true, { ruleCode: 1 });
+        }
+
+        const semanticRow = anchor.closest?.('[role="listitem"], [data-row-key], [data-key], [data-testid*="row" i], [data-hege-account-row="true"]');
+        if (semanticRow && boundedAccountRow(semanticRow)) {
+            const displayAnchor = displayAnchorIn(semanticRow);
+            const placement = accountHost(displayAnchor, semanticRow);
+            const matchedBy = semanticRow.matches?.('[role="listitem"]') ? 'role_listitem' : 'semantic_row';
+            return result(semanticRow, placement.host, placement.insertBefore, 'account', matchedBy, 3, true, {
+                ruleCode: matchedBy === 'role_listitem' ? 2 : 2,
+            });
+        }
+
+        const pressableRow = anchor.closest?.('[data-pressable-container="true"]');
+        if (pressableRow && boundedPostCard(pressableRow)) {
+            const links = exactLinksIn(pressableRow);
+            const postLike = links.length > 1 || !!pressableRow.querySelector?.('time, a[href*="/post/"], [data-testid*="post" i]');
+            if (postLike) {
+                const actorLink = links[0] || anchor;
+                const sameActor = normalize((actorLink.getAttribute?.('href') || '').slice(2)) === normalizedUsername;
+                const placement = accountHost(sameActor ? displayAnchorIn(pressableRow) : actorLink, pressableRow);
+                return result(pressableRow, placement.host, placement.insertBefore, 'post-card', 'pressable_card', 2, sameActor, {
+                    ruleCode: 3, isBehaviorActor: sameActor,
+                });
+            }
+            if (!boundedAccountRow(pressableRow)) return result(null, null, null, 'unknown', 'unresolved', 0, false, { ruleCode: 0 });
+            const placement = accountHost(displayAnchorIn(pressableRow), pressableRow);
+            return result(pressableRow, placement.host, placement.insertBefore, 'account', 'pressable_row', 2, true, { ruleCode: 3 });
+        }
+
+        const directParent = anchor.parentElement;
+        const nearestDialog = anchor.closest?.('[role="dialog"]');
+        let previewSignal = nearestDialog && nearestDialog !== ctx;
+        for (let current = directParent; current && current !== ctx && current !== document.body; current = current.parentElement) {
+            const style = typeof window !== 'undefined' && window.getComputedStyle ? window.getComputedStyle(current) : null;
+            if (current.matches?.('[data-hege-preview-row="true"], [data-testid*="preview" i]')
+                || current.querySelector?.('time, a[href*="/post/"]')
+                || style?.display === 'flex' && current.children?.length <= 3) {
+                previewSignal = true;
+                break;
+            }
+            if (current.matches?.('[role="dialog"]')) break;
+        }
+        if (directParent && previewSignal && boundedAccountRow(directParent) && exactLinksIn(directParent).length === 1) {
+            const placement = accountHost(anchor, directParent);
+            return result(directParent, placement.host, placement.insertBefore, 'preview', 'bounded_parent', 1, true, { ruleCode: 7 });
+        }
+
+        return result(null, null, null, 'unknown', 'unresolved', 0, false, { ruleCode: 0 });
+    },
+
     injectDialogCheckboxes: () => {
         const fallbackCtx = Core.getTopContext();
         const ctx = DialogCollector.pickBestAccountDialog(fallbackCtx);
         let didInject = false;
         let observationRecorded = false;
+        const resolverStats = {
+            rowRule: 0, rowConfidence: 0, rowKindCode: 0, rowCandidateHeight: 0,
+            followRowCount: 0, roleRowCount: 0, pressableRowCount: 0, postCardCount: 0,
+            boundedParentCount: 0, skippedRowCount: 0, repositionedCount: 0, lowConfidenceCount: 0,
+            followButtonPresent: false, repositioned: false,
+        };
         const recordObservation = () => {
             if (observationRecorded) return;
             observationRecorded = true;
@@ -3030,6 +3236,7 @@ export const Core = {
                 dialogCount: safeCheckboxDialogCount(),
                 accountRowCount: safeCheckboxAccountRowCount(ctx),
                 didInject,
+                ...resolverStats,
             });
         };
         const titleInfo = Core.getSupportedDialogTitle(ctx);
@@ -3039,175 +3246,94 @@ export const Core = {
         }
         const dialogReason = Core.resolveBlockReasonFromTitle(titleInfo.titleText);
         const isProfileList = Core.isProfileListReason(dialogReason);
-
         const links = Array.from(ctx.querySelectorAll('a[href^="/@"]')).filter(a => {
-            // Only filter truly invisible elements (display:none, zero-size); allow off-screen items
             const rect = a.getBoundingClientRect();
-            if (rect.height === 0 || rect.width === 0) return false;
-            return true;
+            return rect.height > 0 && rect.width > 0;
         });
-
         const dbRef = new Set(Storage.getBlockDB());
         const cdqRef = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
-        const activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
-        const activeSet = new Set(activeQueue);
+        const activeSet = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
+        const usernameFrom = anchor => (String(anchor?.getAttribute?.('href') || '').match(/^\/@([^/?#]+)/) || [])[1] || '';
+        const allBoxesIn = node => Array.from(node?.querySelectorAll?.('.hege-checkbox-container[data-username]') || []);
+        const placementFor = (box, placement) => {
+            const host = placement.host || placement.row;
+            if (!host?.appendChild) return false;
+            if (host.style?.display !== 'flex') host.style?.setProperty?.('display', 'flex', 'important');
+            if (host.style?.alignItems !== 'center') host.style?.setProperty?.('align-items', 'center', 'important');
+            if (!host.style?.gap) host.style?.setProperty?.('gap', '8px', 'important');
+            box.style.flexShrink = '0';
+            box.style.cursor = 'pointer';
+            box.style.zIndex = '100';
+            if (box.parentElement === host && (!placement.insertBefore || box.nextSibling === placement.insertBefore)) return true;
+            if (placement.insertBefore?.parentElement === host) host.insertBefore(box, placement.insertBefore);
+            else host.appendChild(box);
+            return true;
+        };
 
-        if (CONFIG.DEBUG_MODE && links.length > 0) {
-        }
-
-        links.forEach((a, idx) => {
-            const isAvatar = a.querySelector('img') || a.querySelector('svg') || a.innerText.trim() === '';
-            const username = a.getAttribute('href').split('/@')[1].split('/')[0];
-
-            if (!isAvatar) {
-                // If it's not an avatar link, we only skip it if it's the 2nd link of the same user (name link)
-                // However, in some views the name link IS the only link with a good flexRow. 
-                // So let's try to process both, but avoid double injection via flexRow check.
-            }
-
-            if (username === Utils.getMyUsername()) return;
-
-            let topContainer = a;
-            let followBtn = null;
-            for (let i = 0; i < 15; i++) {
-                if (!topContainer.parentElement) break;
-                topContainer = topContainer.parentElement;
-                const btns = Array.from(topContainer.querySelectorAll('div[role="button"]'));
-                followBtn = btns.find(b => b.innerText && ['追蹤', '正在追蹤', 'Follow', 'Following'].some(t => b.innerText.includes(t)));
-                if (followBtn) break;
-            }
-
-            let flexRow = null;
-            let followBtnContainer = null;
-
-            // Branch 1: If follow button exists, walk up to find a container holding both user info and follow button
-            if (followBtn) {
-                let child = followBtn;
-                while (child && child !== topContainer) {
-                    let parent = child.parentElement;
-                    let safeUsername = username.replace(/"/g, '');
-                    // Threads lists usually have a clear row container that holds both user info and the follow button.
-                    if (parent && parent.children.length >= 2 && parent.querySelector(`a[href*="/@${safeUsername}"]`)) {
-                        flexRow = parent;
-                        followBtnContainer = child;
-                        break;
-                    }
-                    child = parent;
-                }
-            }
-
-            // Fallback: If no follow button (e.g. current user or specific list type), find a container that looks like a list item.
-            // Beta 53/54 optimization: Finding a stable Row Container.
-            // Priority: role="listitem" -> data-pressable-container -> Common Flex Row classes
-            if (!flexRow) {
-                flexRow = a.closest('div[role="listitem"]') ||
-                    a.closest('div[data-pressable-container="true"]') ||
-                    a.closest('.x1n2onr6.x1f9n5g') ||
-                    (followBtn && followBtn.parentElement ? followBtn.parentElement.closest('.x78zum5.xdt5ytf') : null) ||
-                    (followBtn ? followBtn.parentElement : null);
-            }
-
-            // Beta 73 fallback: For post preview cards and other nested dialogs where standard row detection fails,
-            // anchor the checkbox to the link's immediate parent. This positions it visually beside the account name.
-            if (!flexRow) {
-                flexRow = a.parentElement;
-            }
-
-            if (!flexRow) return;
-
-            // Beta 54: Absolute deduplication. Check the whole row for THIS user's box.
-            const checkboxHost = isProfileList && followBtn
-                ? (followBtn.parentElement || flexRow)
-                : flexRow;
-            const existingBox = checkboxHost.querySelector(`.hege-checkbox-container[data-username="${CSS.escape(username)}"]`)
-                || flexRow.querySelector(`.hege-checkbox-container[data-username="${CSS.escape(username)}"]`);
-            if (existingBox) {
-                if (existingBox.parentElement !== checkboxHost) {
-                    const targetBefore = isProfileList && followBtn && followBtn.parentElement === checkboxHost ? followBtn : null;
-                    if (targetBefore) checkboxHost.insertBefore(existingBox, targetBefore);
-                    else checkboxHost.appendChild(existingBox);
-                    existingBox.classList.toggle('hege-profile-list-checkbox', isProfileList);
-                }
-                const state = Core.resolveCheckboxState(username, { db: dbRef, cdq: cdqRef, bgq: activeSet });
-                Core.applyCheckboxState(existingBox, state);
+        links.forEach(anchor => {
+            const username = usernameFrom(anchor);
+            if (!username || username === Utils.getMyUsername()) return;
+            const placement = Core.resolveAccountRowContext(anchor, ctx, { isProfileList });
+            if (!placement || !placement.row) {
+                resolverStats.skippedRowCount += 1;
                 return;
             }
-
-            // Beta 54: Special case - if a box already exists in this row but for a different username, 
-            // it means we've hit a shared parent. For safety, let's look for a better spot or skip.
-            const hasAnyBoxInPlacement = isProfileList
-                ? checkboxHost.querySelector('.hege-checkbox-container')
-                : flexRow.querySelector('.hege-checkbox-container');
-            if (hasAnyBoxInPlacement) {
-                // If the user's box isn't here, maybe it's in a different sub-flex.
-                // But generally, one box per role="listitem" is the goal.
+            if (placement.shouldInject === false) {
+                if (placement.rowKind === 'post-card') {
+                    allBoxesIn(placement.row)
+                        .filter(box => box.dataset.username === username)
+                        .forEach(box => box.remove());
+                }
+                resolverStats.skippedRowCount += 1;
                 return;
             }
+            resolverStats.rowRule = resolverStats.rowRule || placement.ruleCode;
+            resolverStats.rowConfidence = resolverStats.rowConfidence || placement.confidence;
+            resolverStats.rowKindCode = resolverStats.rowKindCode || placement.rowKindCode;
+            resolverStats.rowCandidateHeight = resolverStats.rowCandidateHeight || placement.candidateHeight;
+            resolverStats.followButtonPresent = resolverStats.followButtonPresent || !!placement.followButton;
+            if (placement.matchedBy === 'follow_row') resolverStats.followRowCount += 1;
+            else if (placement.matchedBy === 'role_listitem' || placement.matchedBy === 'semantic_row') resolverStats.roleRowCount += 1;
+            else if (placement.matchedBy === 'pressable_row' || placement.matchedBy === 'pressable_card') resolverStats.pressableRowCount += 1;
+            else if (placement.matchedBy === 'post_card') resolverStats.postCardCount += 1;
+            else if (placement.matchedBy === 'bounded_parent') resolverStats.boundedParentCount += 1;
+            if (placement.confidence <= 1) resolverStats.lowConfidenceCount += 1;
 
-            const container = document.createElement("div");
-            container.className = "hege-checkbox-container";
-            if (isProfileList) container.classList.add('hege-profile-list-checkbox');
-            container.dataset.username = username;
-            container.style.cursor = 'pointer';
-            container.style.zIndex = '100';
-            container.style.flexShrink = '0';
-
-            const bgMode = Core.getBgMode();
-            if (bgMode === 'UNBLOCKING') {
-                container.style.opacity = '0.4';
-                container.style.filter = 'grayscale(1)';
-                container.style.cursor = 'not-allowed';
-                container.title = '正在解除封鎖';
-            }
-
-            const svgIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-            svgIcon.setAttribute("viewBox", "0 0 24 24");
-            svgIcon.classList.add("hege-svg-icon");
-
-            const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-            rect.setAttribute("x", "2"); rect.setAttribute("y", "2");
-            rect.setAttribute("width", "20"); rect.setAttribute("height", "20");
-            rect.setAttribute("rx", "6"); rect.setAttribute("ry", "6");
-            rect.setAttribute("stroke", "currentColor"); rect.setAttribute("stroke-width", "2.5");
-            rect.setAttribute("fill", "none");
-
-            const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            path.classList.add("hege-checkmark");
-            path.setAttribute("d", "M6 12 l4 4 l8 -8");
-            path.setAttribute("fill", "none");
-
-            svgIcon.appendChild(rect); svgIcon.appendChild(path);
-            container.appendChild(svgIcon);
-
-            container.dataset.username = username;
-
-            const state = Core.resolveCheckboxState(username, { db: dbRef, cdq: cdqRef, bgq: activeSet });
-            Core.applyCheckboxState(container, state);
-
-            // Beta 45: Only use handleGlobalClick to avoid double-toggle issues.
-            // Still keep the prevention listeners to block Threads' native behavior on these specific elements if needed.
-            if (!Utils.isMobile()) {
-                container.addEventListener('pointerdown', (e) => { e.stopPropagation(); }, true);
-                container.addEventListener('pointerup', (e) => { e.stopPropagation(); }, true);
-                container.addEventListener('mousedown', (e) => { e.stopPropagation(); if (e.shiftKey) e.preventDefault(); }, true);
-                container.addEventListener('mouseup', (e) => { e.stopPropagation(); }, true);
-            }
-            container.addEventListener('click', Core.handleGlobalClick, true);
-
-            if (isProfileList && followBtn && followBtn.parentElement) {
-                const host = followBtn.parentElement;
-                host.style.display = 'flex';
-                host.style.alignItems = 'center';
-                host.style.gap = host.style.gap || '8px';
-                host.insertBefore(container, followBtn);
-                didInject = true;
-            } else if (followBtnContainer && followBtnContainer.parentElement === flexRow) {
-                flexRow.insertBefore(container, followBtnContainer);
+            const row = placement.row;
+            const rowId = placement.rowId;
+            const boxesInRow = allBoxesIn(row).filter(box => box.dataset.username === username);
+            const boxesInContext = allBoxesIn(ctx).filter(box => box.dataset.username === username);
+            const misplaced = boxesInContext.filter(box => !row.contains(box)
+                && (!box.dataset.hegeDialogRowId || box.dataset.hegeDialogRowId !== rowId)
+                && box.parentElement?.contains?.(row)
+                && Number(box.dataset.hegeRowConfidence || 0) <= placement.confidence);
+            const existingBox = boxesInRow[0] || misplaced[0] || null;
+            [...boxesInRow.slice(1), ...misplaced.filter(box => box !== existingBox)].forEach(box => box.remove());
+            let container = existingBox;
+            let moved = false;
+            if (!container) {
+                container = Core.createCheckboxContainer(username);
                 didInject = true;
             } else {
-                flexRow.appendChild(container);
-                didInject = true;
+                const oldConfidence = Number(container.dataset.hegeRowConfidence || 0);
+                moved = container.parentElement !== placement.host || oldConfidence < placement.confidence
+                    || container.dataset.hegeDialogRowId !== rowId;
+                if (moved) {
+                    didInject = true;
+                    resolverStats.repositionedCount += 1;
+                    resolverStats.repositioned = true;
+                }
             }
+            container.dataset.username = username;
+            container.dataset.hegeDialogCheckbox = 'true';
+            container.dataset.hegeDialogRowId = rowId;
+            container.dataset.hegeRowConfidence = String(placement.confidence);
+            container.dataset.hegeRowMatchedBy = placement.matchedBy;
+            container.dataset.hegeRowKind = placement.rowKind;
+            if (isProfileList) container.classList.add('hege-profile-list-checkbox');
+            else container.classList.remove('hege-profile-list-checkbox');
+            const placed = placementFor(container, placement);
+            if (placed) Core.applyCheckboxState(container, Core.resolveCheckboxState(username, { db: dbRef, cdq: cdqRef, bgq: activeSet }));
         });
         recordObservation();
     },
