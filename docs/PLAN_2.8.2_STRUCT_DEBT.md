@@ -161,10 +161,18 @@
 
 **影響**：正式版使用者不勾完整診斷時（多數情況），對「封鎖沒跑起來」「卡住不動」這類最需要查的問題，附帶的診斷提供不了任何線索。beta 版預設開完整診斷，所以自測時查得到，正式版查不到，這個落差至今沒被發現。不能靠請使用者勾完整診斷來解決，那份含 log 與頁面資訊，隱私上本來就該是例外。
 
-**修法方向**：兩件事一起做，缺一還是查不到。
+3. **worker 的紀錄只在封鎖完一個帳號後才落盤**。全專案只有 `worker.js:164` 一處呼叫 `RuntimeDiagnostics.persist()`，位置在單一帳號封鎖流程結束之後。worker 根本沒開始跑時（#49 的症狀）一次都不會執行，主視窗送出的回報裡 worker 證據為零。最需要診斷的情境正好是唯一產不出證據的情境。
+
+**更正**：#49 的使用者**有勾完整診斷**（`metadata.userMetadata.diagnosticsBundle` 存在，該欄位只在 `consent.diagnosticConsent === true` 時附上）。完整層 60,802 bytes、199 筆，其中 `message_route` 98 ＋ `panel` 66 佔 82%，`blocking` 掛零。所以這不是同意與否的問題，給了全部仍然查不出來。
+
+**完整評估與數字**見 `docs/history/2026-08-05-diagnostics-budget-assessment.md`（含三層上限該不該調的結論：都不調，只改記法、挑法與落盤時機）。
+
+**修法方向**：三件事一起做，缺一還是查不到。
 
 - `updatePanelRouteVisibility` 的兩筆改成狀態有變化才寫（`hidden` 翻轉、rect 超過閾值位移），穩態不寫。MutationObserver 那筆同樣要收斂或取樣。
 - 輕量層改成照 priority 挑：先取全部 priority > 0 的條目，再用剩餘額度補最近的 priority 0，總數維持 120 筆上限。順序仍照時間排。
+- `persist()` 的呼叫點補在 worker 啟動、佇列取件與任何 terminal／error 事件，不能只掛在單一帳號封鎖完成之後。
+- 三層上限（`LIMIT` 200、`PERSIST_LIMIT` 400、`LIGHTWEIGHT_ENTRY_LIMIT` 120）**都不調整**。噪音佔 82% 的前提下調大只是多帶廢話、體積翻倍而查得到的東西不變。
 
 **驗收**：造一份含 blocking start／stop 與大量 panel 噪音的 ring fixture，改動前 `buildLightweightDiagnostics` 取不到 blocking 條目（red），改動後必定包含（green）；穩態閒置 60 秒的 `panel`／`message_route` 條目數比改動前下降一個數量級以上，兩邊數字寫進報告；`_safeFields` 白名單不放寬。
 
