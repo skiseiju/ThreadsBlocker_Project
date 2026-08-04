@@ -24,10 +24,10 @@ test('載入等待不得再用「頁面上有任何 div[role=button]」當放行
     assert.doesNotMatch(loadPhase, /CONFIG\.SELECTORS\.MORE_SVG/);
 });
 
-test('等待是有界的，逾時仍走 fail-closed 的 menu_not_found', () => {
+test('等待是有界的，逾時記成 profile root 未載入', () => {
     assert.match(workerSource, /const PROFILE_ROOT_WAIT_MS = \d+;/);
     assert.match(loadPhase, /PROFILE_ROOT_WAIT_MS/);
-    assert.match(loadPhase, /recordDiagnostic\('root_resolve', 'menu_not_found'/);
+    assert.match(loadPhase, /recordDiagnostic\('root_resolve', 'missing_profile_root'/);
 });
 
 test('逾時的失敗會記下實際等了多久與視窗尺寸，供下次判讀', () => {
@@ -37,7 +37,7 @@ test('逾時的失敗會記下實際等了多久與視窗尺寸，供下次判�
 
 test('404 仍優先於 root 判定，連結失效不會被誤記成找不到選單', () => {
     assert.ok(
-        loadPhase.indexOf("'vanished'") < loadPhase.indexOf("recordDiagnostic('root_resolve', 'menu_not_found'"),
+        loadPhase.indexOf("'vanished'") < loadPhase.indexOf("recordDiagnostic('root_resolve', 'missing_profile_root'"),
         '404 check must run before the root_resolve failure branch',
     );
 });

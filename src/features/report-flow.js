@@ -4,7 +4,7 @@ import { Storage } from '../storage.js';
 import { UI } from '../ui.js';
 import { Utils } from '../utils.js';
 import { Core } from '../core.js';
-import { Worker } from '../worker.js';
+import { Worker, PROFILE_ROOT_WAIT_MS } from '../worker.js';
 import { MoreLocator } from '../more-locator.js';
 
 const ACCOUNT_CONTENT_REASON = '該帳號發佈的內容不應該顯示在 Threads 上。';
@@ -14,6 +14,7 @@ const DEFAULT_REPORT_PATH = ['這是垃圾訊息'];
 const REPORT_MENU_TIMEOUT_MS = 8000;
 const REPORT_MENU_RETRY_AFTER_MS = 3000;
 const REPORT_OPTION_TIMEOUT_MS = 8000;
+const PROFILE_ROOT_INVALID_PHRASES = ['連結失效', '頁面不存在', 'Page not found', 'Broken link', 'Sorry, this page', '找不到頁面'];
 const REPORT_TEXTS = ['檢舉', '举报', 'Report'];
 const REPORT_ACCOUNT_TEXTS = ['檢舉帳號', '檢舉賬號', '檢舉帐号', '檢舉用戶', '檢舉用户', '檢舉個人檔案', 'Report account', 'Report profile', 'Report user'];
 const REPORT_CONTENT_TEXTS = ['檢舉貼文、訊息或留言', '檢舉貼文', '檢舉留言', '檢舉訊息', '檢舉內容', 'Report post', 'Report comment', 'Report message', 'Report content'];
@@ -381,13 +382,13 @@ Object.assign(Core, {
                 : reason === 'navigation_mismatch' ? 'navigation_mismatch'
                 : reason === 'private_manual_required' ? 'private_manual_required'
                     : reason === 'navigated_to_post_during_report_flow' ? 'navigated_to_post'
-                    : ['missing_profile_root', 'missing_more_button', 'missing_report_menu_item', 'missing_report_option'].includes(reason) ? 'menu_not_found'
+                    : ['missing_more_button', 'missing_report_menu_item', 'missing_report_option'].includes(reason) ? 'menu_not_found'
                         : reason;
             Core.ReportDriver.recordSafetyDiagnostic(
                 Core.ReportDriver.diagnosticPhaseForReason(reason),
                 result,
                 { menuItems: extra.menuItems, confirmButtons: extra.confirmButtons },
-                { elapsedMs: extra.elapsedSinceMenuClickMs, retryCount: extra.retryCount },
+                { elapsedMs: extra.elapsedMs ?? extra.elapsedSinceMenuClickMs, retryCount: extra.retryCount },
             );
             Core.ReportDriver.recordDebugTrace(`skip:${reason}`, user, options, { message, ...extra }, true);
             if (options.keepWorkerOpenOnError) {
@@ -507,14 +508,41 @@ Object.assign(Core, {
         },
 
         findProfileMoreButton(user = '') {
-            if (Worker?.findMoreButton) return Worker.findMoreButton(12000, user);
+            if (Worker?.findMoreButton) return Worker.findMoreButton(PROFILE_ROOT_WAIT_MS, user);
             const profileRoot = Core.findProfileRoot?.(user);
             if (!profileRoot) return null;
-            return Utils.pollUntil(() => MoreLocator.find(profileRoot, { mode: 'profile', trustedRoot: true }), 12000, 150);
+            return Utils.pollUntil(() => MoreLocator.find(profileRoot, { mode: 'profile', trustedRoot: true }), PROFILE_ROOT_WAIT_MS, 150);
         },
 
         findPostContentMoreButton() {
-            return Utils.pollUntil(() => MoreLocator.find(document, { mode: 'post' }), 12000, 150);
+            return Utils.pollUntil(() => MoreLocator.find(document, { mode: 'post' }), PROFILE_ROOT_WAIT_MS, 150);
+        },
+
+        isInvalidProfilePage() {
+            const bodyText = document.body?.innerText || document.body?.textContent || '';
+            return PROFILE_ROOT_INVALID_PHRASES.some(phrase => bodyText.includes(phrase));
+        },
+
+        async waitForProfileRoot(user = '') {
+            const startedAt = Date.now();
+            let profileRoot = null;
+            await Utils.pollUntil(() => {
+                if (Core.ReportDriver.isInvalidProfilePage()) return true;
+                profileRoot = Core.findProfileRoot?.(user) || null;
+                return !!profileRoot;
+            }, PROFILE_ROOT_WAIT_MS);
+
+            if (Core.ReportDriver.isInvalidProfilePage()) {
+                return { root: null, reason: 'vanished', waitMs: Date.now() - startedAt };
+            }
+
+            // 逾時後再補查一次，避免最後一輪輪詢與逾時之間出現空窗。
+            if (!profileRoot) profileRoot = Core.findProfileRoot?.(user) || null;
+            return {
+                root: profileRoot,
+                reason: profileRoot ? 'success' : 'missing_profile_root',
+                waitMs: Date.now() - startedAt,
+            };
         },
 
         findConfirmationButton() {
@@ -828,11 +856,26 @@ Object.assign(Core, {
                 if (needsDialog) Core.ReportDriver.recordSafetyDiagnostic('root_resolve', 'success');
 
                 const row = mode === 'profile' || mode === 'post' ? null : Core.ReportDriver.findRowForUser(ctx, user);
-                const profileRoot = mode === 'profile' ? Core.findProfileRoot?.(user) : null;
-                if (mode === 'profile' && !profileRoot) {
-                    return Core.ReportDriver.skipOrPauseForDebug(user, options, 'missing_profile_root', `找不到 @${user} 的可信 profile root`);
+                const profileRootResult = mode === 'profile'
+                    ? await Core.ReportDriver.waitForProfileRoot(user)
+                    : { root: null, reason: '', waitMs: 0 };
+                const profileRoot = profileRootResult.root;
+                if (mode === 'profile' && profileRootResult.reason === 'vanished') {
+                    return Core.ReportDriver.skipOrPauseForDebug(user, options, 'vanished', `@${user} 的帳號頁面已失效`, {
+                        elapsedMs: profileRootResult.waitMs,
+                    });
                 }
-                if (mode === 'profile') Core.ReportDriver.recordSafetyDiagnostic('root_resolve', 'success');
+                if (mode === 'profile' && !profileRoot) {
+                    return Core.ReportDriver.skipOrPauseForDebug(user, options, 'missing_profile_root', `@${user} 的帳號頁面尚未載入完成`, {
+                        elapsedMs: profileRootResult.waitMs,
+                        waitMs: profileRootResult.waitMs,
+                    });
+                }
+                if (mode === 'profile') {
+                    Core.ReportDriver.recordSafetyDiagnostic('root_resolve', 'success', {}, {
+                        elapsedMs: profileRootResult.waitMs,
+                    });
+                }
                 const privateState = mode === 'profile' ? MoreLocator.detectPrivateProfileState(profileRoot) : { private: false };
                 const routeBeforeMore = MoreLocator.routeType();
                 const moreBtn = mode === 'post'

@@ -8,7 +8,7 @@ import { ReportDebugContext } from './report-debug-context.js';
 // 等「這個帳號的 profile root 真的出現」的上限。原本的載入等待只等到 2.5 秒，
 // 而且條件寬到前一頁的 DOM 就能滿足；改為等真正的 root，需要涵蓋慢網路下的
 // SPA 換頁，同時仍是有界等待，不會卡住整批。
-const PROFILE_ROOT_WAIT_MS = 12000;
+export const PROFILE_ROOT_WAIT_MS = 12000;
 
 // Worker 視窗只有內容區（viewport）下界，沒有外框尺寸規則：外框在不同電腦被
 // 工具列／邊框／縮放吃掉的量不同，拿外框當標準就是 2.8.1 #47 卡死的病因。
@@ -2043,7 +2043,7 @@ export const Worker = {
             // pollUntil 逾時後再取一次，避免最後一輪與逾時之間的空窗。
             if (!profileRoot) profileRoot = Core.findProfileRoot?.(user) || null;
             if (!profileRoot) {
-                recordDiagnostic('root_resolve', 'menu_not_found', {}, {
+                recordDiagnostic('root_resolve', 'missing_profile_root', {}, {
                     waitMs: Date.now() - profileWaitStartedAt,
                     viewportWidth: window.innerWidth,
                     viewportHeight: window.innerHeight,

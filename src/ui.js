@@ -1121,6 +1121,7 @@ export const UI = {
         const reasonLabel = {
             legacy_string: '舊版失敗紀錄', unknown: '未知原因', action_failed: '動作失敗',
             verification_failed: '驗證失敗', menu_not_found: '找不到選單',
+            missing_profile_root: '帳號頁面尚未載入完成',
             navigation_mismatch: '導頁不符', private_manual_required: '私人帳號需手動',
             rate_limited: '平台限制', cooldown: '冷卻保護', timeout: '逾時',
             network_error: '網路錯誤', report_failed: '檢舉失敗',
