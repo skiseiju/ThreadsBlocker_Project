@@ -319,8 +319,12 @@ export const UI = {
                 border-radius: 50%; cursor: pointer; transition: background-color 0.2s;
                 box-sizing: border-box;
             }
+            .hege-checkbox-container.hege-checkbox-compact {
+                width: 24px; height: 24px; min-width: 24px;
+            }
             .hege-checkbox-container:hover { background-color: rgba(255, 255, 255, 0.1); }
             .hege-svg-icon { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; color: rgb(119, 119, 119); transition: all 0.2s; }
+            .hege-checkbox-container.hege-checkbox-compact .hege-svg-icon { width: 16px; height: 16px; }
             @media (prefers-color-scheme: dark) { .hege-svg-icon { color: rgb(119, 119, 119); } }
             @media (prefers-color-scheme: light) { .hege-svg-icon { color: rgb(153, 153, 153); } .hege-checkbox-container:hover { background-color: rgba(0, 0, 0, 0.05); } }
 

@@ -3124,6 +3124,21 @@ export const Core = {
                 : directChild?.parentElement === host ? directChild.nextElementSibling : null;
             return { host, insertBefore };
         };
+        const findPreviewHost = row => {
+            let fallback = row;
+            for (let current = row; current && current !== ctx && current !== document.body; current = current.parentElement) {
+                const style = typeof window !== 'undefined' && window.getComputedStyle ? window.getComputedStyle(current) : null;
+                const links = exactLinksIn(current);
+                const explicitPreview = current.matches?.('[data-hege-preview-row="true"], [data-testid*="preview" i]');
+                const compactFlex = style?.display === 'flex' && links.length === 1
+                    && !!current.querySelector?.('time, a[href*="/post/"]');
+                if ((explicitPreview || compactFlex) && boundedAccountRow(current)) {
+                    fallback = current;
+                    if (explicitPreview) break;
+                }
+            }
+            return fallback;
+        };
         const displayAnchorIn = row => {
             const links = exactLinksIn(row);
             return links.find(link => normalize((link.getAttribute('href') || '').slice(2)) === normalizedUsername
@@ -3153,7 +3168,8 @@ export const Core = {
             const actorUsername = normalize((actorLink.getAttribute?.('href') || '').slice(2));
             const sameActor = actorUsername === normalizedUsername;
             const displayAnchor = sameActor ? displayAnchorIn(postCard) : actorLink;
-            const placement = accountHost(displayAnchor, postCard);
+            const placement = accountHost(displayAnchor, postCard, followButton);
+            if (placement.insertBefore !== followButton) placement.insertBefore = null;
             return result(postCard, placement.host, placement.insertBefore, 'post-card', 'post_card', 2, sameActor, {
                 ruleCode: 8,
                 isBehaviorActor: sameActor,
@@ -3183,7 +3199,8 @@ export const Core = {
             if (postLike) {
                 const actorLink = links[0] || anchor;
                 const sameActor = normalize((actorLink.getAttribute?.('href') || '').slice(2)) === normalizedUsername;
-                const placement = accountHost(sameActor ? displayAnchorIn(pressableRow) : actorLink, pressableRow);
+                const placement = accountHost(sameActor ? displayAnchorIn(pressableRow) : actorLink, pressableRow, followButton);
+                if (placement.insertBefore !== followButton) placement.insertBefore = null;
                 return result(pressableRow, placement.host, placement.insertBefore, 'post-card', 'pressable_card', 2, sameActor, {
                     ruleCode: 3, isBehaviorActor: sameActor,
                 });
@@ -3207,8 +3224,8 @@ export const Core = {
             if (current.matches?.('[role="dialog"]')) break;
         }
         if (directParent && previewSignal && boundedAccountRow(directParent) && exactLinksIn(directParent).length === 1) {
-            const placement = accountHost(anchor, directParent);
-            return result(directParent, placement.host, placement.insertBefore, 'preview', 'bounded_parent', 1, true, { ruleCode: 7 });
+            const previewHost = findPreviewHost(directParent);
+            return result(directParent, previewHost, null, 'preview', 'bounded_parent', 1, true, { ruleCode: 7 });
         }
 
         return result(null, null, null, 'unknown', 'unresolved', 0, false, { ruleCode: 0 });
@@ -3264,7 +3281,15 @@ export const Core = {
             box.style.flexShrink = '0';
             box.style.cursor = 'pointer';
             box.style.zIndex = '100';
-            if (box.parentElement === host && (!placement.insertBefore || box.nextSibling === placement.insertBefore)) return true;
+            const isTailPlacement = placement.rowKind === 'post-card' || placement.rowKind === 'preview';
+            if (isTailPlacement) box.style.marginLeft = 'auto';
+            else box.style.removeProperty('margin-left');
+            if (placement.rowKind === 'preview') box.classList.add('hege-checkbox-compact');
+            else box.classList.remove('hege-checkbox-compact');
+            const atExpectedPosition = placement.insertBefore
+                ? box.nextSibling === placement.insertBefore
+                : !isTailPlacement || box.nextElementSibling === null;
+            if (box.parentElement === host && atExpectedPosition) return true;
             if (placement.insertBefore?.parentElement === host) host.insertBefore(box, placement.insertBefore);
             else host.appendChild(box);
             return true;
@@ -3300,15 +3325,24 @@ export const Core = {
             if (placement.confidence <= 1) resolverStats.lowConfidenceCount += 1;
 
             const row = placement.row;
+            const host = placement.host || row;
             const rowId = placement.rowId;
             const boxesInRow = allBoxesIn(row).filter(box => box.dataset.username === username);
+            const boxesInHost = allBoxesIn(host).filter(box => {
+                if (box.dataset.username !== username) return false;
+                const boxRowId = box.dataset.hegeDialogRowId || '';
+                return !boxRowId || boxRowId === rowId || row.contains(box);
+            });
             const boxesInContext = allBoxesIn(ctx).filter(box => box.dataset.username === username);
-            const misplaced = boxesInContext.filter(box => !row.contains(box)
-                && (!box.dataset.hegeDialogRowId || box.dataset.hegeDialogRowId !== rowId)
-                && box.parentElement?.contains?.(row)
-                && Number(box.dataset.hegeRowConfidence || 0) <= placement.confidence);
-            const existingBox = boxesInRow[0] || misplaced[0] || null;
-            [...boxesInRow.slice(1), ...misplaced.filter(box => box !== existingBox)].forEach(box => box.remove());
+            const sameRowBoxes = boxesInContext.filter(box => box.dataset.hegeDialogRowId === rowId);
+            const boxesInPlacement = [...new Set([...boxesInRow, ...boxesInHost, ...sameRowBoxes])];
+            const misplaced = boxesInContext.filter(box => {
+                if (boxesInPlacement.includes(box)) return false;
+                const mountedAboveRow = box.parentElement?.contains?.(row);
+                return mountedAboveRow && Number(box.dataset.hegeRowConfidence || 0) <= placement.confidence;
+            });
+            const existingBox = boxesInPlacement[0] || misplaced[0] || null;
+            [...boxesInPlacement.slice(1), ...misplaced.filter(box => box !== existingBox)].forEach(box => box.remove());
             let container = existingBox;
             let moved = false;
             if (!container) {
