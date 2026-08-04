@@ -3146,6 +3146,78 @@ export const Core = {
                 || links.find(link => normalize((link.getAttribute('href') || '').slice(2)) === normalizedUsername)
                 || anchor;
         };
+        const previewHeaderSelector = '[data-hege-preview-row="true"], [data-testid*="preview-row" i]';
+        const previewCardSelector = '.preview-card, .preview-card-container, [data-hege-preview-card="true"], [data-testid*="preview-card" i]';
+        const isFlexPreviewHeader = node => {
+            const style = typeof window !== 'undefined' && window.getComputedStyle ? window.getComputedStyle(node) : null;
+            return style?.display === 'flex'
+                && exactLinksIn(node).length >= 2
+                && !!node.querySelector?.('time');
+        };
+        const findPreviewHeaderIn = card => {
+            const marked = card?.querySelector?.(previewHeaderSelector);
+            if (marked) return marked;
+            return Array.from(card?.children || []).find(isFlexPreviewHeader) || null;
+        };
+        const previewAccountRowSelector = '[role="listitem"], [data-row-key], [data-key], [data-testid*="row" i], [data-hege-account-row="true"]';
+        const previewCandidateIsBounded = (candidate, header) => {
+            if (!candidate || !header) return false;
+            const followButtons = Array.from(candidate.querySelectorAll?.('button, [role="button"]') || [])
+                .filter(isFollowButton);
+            if (followButtons.length > 0) return false;
+            const accountRows = Array.from(candidate.querySelectorAll?.(previewAccountRowSelector) || [])
+                .filter(row => !row.matches?.(previewHeaderSelector) && exactLinksIn(row).length === 1);
+            if (new Set(accountRows).size >= 2) return false;
+            const height = visibleHeight(candidate);
+            if (height > Math.max(720, anchorHeight * 24)) return false;
+            if (Array.from(candidate.children || []).length > 12) return false;
+            const headerIsBounded = header.parentElement === candidate
+                || candidate.matches?.(previewCardSelector)
+                || header.closest?.('[data-hege-preview-card="true"]') === candidate;
+            return headerIsBounded;
+        };
+        const findPreviewCard = node => {
+            if (node?.matches?.(previewCardSelector)) {
+                const header = findPreviewHeaderIn(node);
+                if (header && previewCandidateIsBounded(node, header)) return node;
+            }
+            for (let current = node?.parentElement; current && current !== ctx && current !== document.body; current = current.parentElement) {
+                if (current.matches?.('[role="dialog"]')) break;
+                if (current.matches?.(previewCardSelector)) {
+                    const explicitHeader = findPreviewHeaderIn(current);
+                    if (explicitHeader && previewCandidateIsBounded(current, explicitHeader)) return current;
+                    continue;
+                }
+                const header = findPreviewHeaderIn(current);
+                if (!header || header === current) continue;
+                const markedHeaderCount = current.querySelectorAll?.(previewHeaderSelector).length || 0;
+                if (markedHeaderCount > 1) continue;
+                if (markedHeaderCount > 0 && header.parentElement !== current) continue;
+                if (markedHeaderCount === 0 && Array.from(current.children || []).filter(isFlexPreviewHeader).length !== 1) continue;
+                if (Array.from(current.children || []).some(child => child !== header && child.matches?.(previewHeaderSelector))) continue;
+                const links = exactLinksIn(current);
+                const hasTime = !!current.querySelector?.('time');
+                const hasBody = Array.from(current.children || []).some(child => child !== header
+                    && child.contains?.(header) !== true
+                    && String(child.textContent || '').trim());
+                if (links.length >= 2 && (hasTime || hasBody) && previewCandidateIsBounded(current, header)) return current;
+            }
+            return null;
+        };
+        const previewActorIn = card => {
+            if (!card) return null;
+            const header = findPreviewHeaderIn(card) || card;
+            return exactLinksIn(header)[0] || exactLinksIn(card)[0] || null;
+        };
+        const previewCardPlacement = node => {
+            const previewCard = findPreviewCard(node);
+            if (!previewCard) return { previewCard: null, previewActorUsername: '' };
+            const actorLink = previewActorIn(previewCard);
+            return {
+                previewCard,
+                previewActorUsername: normalize((actorLink?.getAttribute?.('href') || '').slice(2)),
+            };
+        };
         const ensureRowId = row => {
             if (!row?.dataset) return '';
             if (!row.dataset.hegeAccountRowId) {
@@ -3159,6 +3231,8 @@ export const Core = {
             confidence, shouldInject, username, followButton, rowId: ensureRowId(row),
             ruleCode: extra.ruleCode || 0, rowKindCode: rowKind === 'account' ? 1 : (rowKind === 'post-card' ? 2 : 3),
             candidateHeight: visibleHeight(row), isBehaviorActor: extra.isBehaviorActor !== false,
+            previewCard: extra.previewCard || null,
+            previewActorUsername: extra.previewActorUsername || '',
         });
 
         const postCard = anchor.closest?.('article, [role="article"], [data-hege-post-card="true"], [data-testid*="post-card" i]');
@@ -3179,7 +3253,14 @@ export const Core = {
         const followRow = findFollowRow();
         if (followRow) {
             const host = followButton?.parentElement || followRow.row;
-            return result(followRow.row, host, followButton, 'account', 'follow_row', 3, true, { ruleCode: 1 });
+            const cardPlacement = previewCardPlacement(anchor);
+            // 找不到可信預覽卡時保留一般帳號列注入，避免不確定判定讓清單整批消失。
+            const isBehaviorActor = !cardPlacement.previewCard || cardPlacement.previewActorUsername === normalizedUsername;
+            return result(followRow.row, host, followButton, 'account', 'follow_row', 3, isBehaviorActor, {
+                ruleCode: 1,
+                isBehaviorActor,
+                ...cardPlacement,
+            });
         }
 
         const semanticRow = anchor.closest?.('[role="listitem"], [data-row-key], [data-key], [data-testid*="row" i], [data-hege-account-row="true"]');
@@ -3187,8 +3268,12 @@ export const Core = {
             const displayAnchor = displayAnchorIn(semanticRow);
             const placement = accountHost(displayAnchor, semanticRow);
             const matchedBy = semanticRow.matches?.('[role="listitem"]') ? 'role_listitem' : 'semantic_row';
-            return result(semanticRow, placement.host, placement.insertBefore, 'account', matchedBy, 3, true, {
+            const cardPlacement = previewCardPlacement(anchor);
+            const isBehaviorActor = !cardPlacement.previewCard || cardPlacement.previewActorUsername === normalizedUsername;
+            return result(semanticRow, placement.host, placement.insertBefore, 'account', matchedBy, 3, isBehaviorActor, {
                 ruleCode: matchedBy === 'role_listitem' ? 2 : 2,
+                isBehaviorActor,
+                ...cardPlacement,
             });
         }
 
@@ -3201,13 +3286,25 @@ export const Core = {
                 const sameActor = normalize((actorLink.getAttribute?.('href') || '').slice(2)) === normalizedUsername;
                 const placement = accountHost(sameActor ? displayAnchorIn(pressableRow) : actorLink, pressableRow, followButton);
                 if (placement.insertBefore !== followButton) placement.insertBefore = null;
-                return result(pressableRow, placement.host, placement.insertBefore, 'post-card', 'pressable_card', 2, sameActor, {
-                    ruleCode: 3, isBehaviorActor: sameActor,
+                const cardPlacement = previewCardPlacement(anchor);
+                const isBehaviorActor = cardPlacement.previewCard
+                    ? cardPlacement.previewActorUsername === normalizedUsername
+                    : sameActor;
+                return result(pressableRow, placement.host, placement.insertBefore, 'post-card', 'pressable_card', 2, isBehaviorActor, {
+                    ruleCode: 3,
+                    isBehaviorActor,
+                    ...cardPlacement,
                 });
             }
             if (!boundedAccountRow(pressableRow)) return result(null, null, null, 'unknown', 'unresolved', 0, false, { ruleCode: 0 });
             const placement = accountHost(displayAnchorIn(pressableRow), pressableRow);
-            return result(pressableRow, placement.host, placement.insertBefore, 'account', 'pressable_row', 2, true, { ruleCode: 3 });
+            const cardPlacement = previewCardPlacement(anchor);
+            const isBehaviorActor = !cardPlacement.previewCard || cardPlacement.previewActorUsername === normalizedUsername;
+            return result(pressableRow, placement.host, placement.insertBefore, 'account', 'pressable_row', 2, isBehaviorActor, {
+                ruleCode: 3,
+                isBehaviorActor,
+                ...cardPlacement,
+            });
         }
 
         const directParent = anchor.parentElement;
@@ -3225,7 +3322,17 @@ export const Core = {
         }
         if (directParent && previewSignal && boundedAccountRow(directParent) && exactLinksIn(directParent).length === 1) {
             const previewHost = findPreviewHost(directParent);
-            return result(directParent, previewHost, null, 'preview', 'bounded_parent', 1, true, { ruleCode: 7 });
+            const cardPlacement = previewCardPlacement(previewHost) || { previewCard: null, previewActorUsername: '' };
+            const previewActorLink = previewActorIn(cardPlacement.previewCard) || exactLinksIn(previewHost)[0] || anchor;
+            const previewActorUsername = cardPlacement.previewActorUsername
+                || normalize((previewActorLink.getAttribute?.('href') || '').slice(2));
+            const isBehaviorActor = previewActorUsername === normalizedUsername;
+            return result(directParent, previewHost, null, 'preview', 'bounded_parent', 1, isBehaviorActor, {
+                ruleCode: 7,
+                isBehaviorActor,
+                previewCard: cardPlacement.previewCard,
+                previewActorUsername,
+            });
         }
 
         return result(null, null, null, 'unknown', 'unresolved', 0, false, { ruleCode: 0 });
@@ -3271,7 +3378,96 @@ export const Core = {
         const cdqRef = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
         const activeSet = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
         const usernameFrom = anchor => (String(anchor?.getAttribute?.('href') || '').match(/^\/@([^/?#]+)/) || [])[1] || '';
+        const normalizeUsername = value => String(value || '').replace(/^@+/, '').toLowerCase();
         const allBoxesIn = node => Array.from(node?.querySelectorAll?.('.hege-checkbox-container[data-username]') || []);
+        const reconcilePreviewCard = (card, actorUsername, preferredBox = null) => {
+            if (!card || !actorUsername) return null;
+            const normalizedActor = normalizeUsername(actorUsername);
+            const boxes = allBoxesIn(card);
+            const actorBoxes = boxes.filter(box => normalizeUsername(box.dataset.username) === normalizedActor);
+            const keep = preferredBox && actorBoxes.includes(preferredBox)
+                ? preferredBox
+                : actorBoxes[0] || null;
+            boxes.forEach(box => {
+                if (box !== keep) box.remove();
+            });
+            return keep;
+        };
+        const getLayoutRect = node => {
+            try {
+                const rect = node?.getBoundingClientRect?.();
+                if (!rect || ![rect.left, rect.right, rect.top, rect.bottom, rect.width, rect.height].every(Number.isFinite)) return null;
+                return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
+            } catch (_) {
+                return null;
+            }
+        };
+        const rectanglesOverlap = (left, right) => !!left && !!right
+            && left.left < right.right && right.left < left.right
+            && left.top < right.bottom && right.top < left.bottom;
+        const rectangleInside = (inner, outer) => !inner || !outer || (
+            inner.left >= outer.left && inner.right <= outer.right
+            && inner.top >= outer.top && inner.bottom <= outer.bottom
+        );
+        const fitPreviewCheckbox = (box, host) => {
+            const computedStyle = typeof window !== 'undefined' && window.getComputedStyle ? window.getComputedStyle(host) : null;
+            const parsedGap = Number.parseFloat(host.style?.gap || computedStyle?.gap || '8');
+            const baseGap = Number.isFinite(parsedGap) && parsedGap >= 0 ? parsedGap : 8;
+            const gapCandidates = [...new Set([baseGap, Math.min(baseGap, 4)])];
+            const sizeCandidates = [24, 20, 18, 16, 14, 12];
+            const icon = box.querySelector?.('.hege-svg-icon');
+            const setSize = size => {
+                if (size === 24) {
+                    box.classList.remove('hege-checkbox-tight');
+                    box.style.removeProperty('width');
+                    box.style.removeProperty('height');
+                    box.style.removeProperty('min-width');
+                    icon?.style?.removeProperty('width');
+                    icon?.style?.removeProperty('height');
+                    return;
+                }
+                box.classList.add('hege-checkbox-tight');
+                box.style.width = `${size}px`;
+                box.style.height = `${size}px`;
+                box.style.minWidth = `${size}px`;
+                const iconSize = Math.max(12, size - 8);
+                if (icon) {
+                    icon.style.width = `${iconSize}px`;
+                    icon.style.height = `${iconSize}px`;
+                }
+            };
+            const isFit = () => {
+                const rowRect = getLayoutRect(host);
+                const boxRect = getLayoutRect(box);
+                if (!rowRect || rowRect.width <= 0 || rowRect.height <= 0 || !boxRect) return true;
+                const siblingRects = Array.from(host.children || [])
+                    .filter(child => child !== box && !child.classList?.contains('hege-checkbox-container'))
+                    .map(getLayoutRect)
+                    .filter(Boolean);
+                const nextRowChildren = Array.from(host.nextElementSibling?.children || []);
+                const nextRowRects = host.nextElementSibling
+                    ? (nextRowChildren.length ? nextRowChildren.map(getLayoutRect) : [getLayoutRect(host.nextElementSibling)])
+                        .filter(Boolean)
+                    : [];
+                const conflicts = [...siblingRects, ...nextRowRects].some(rect => rectanglesOverlap(boxRect, rect));
+                return rectangleInside(boxRect, rowRect) && !conflicts;
+            };
+
+            for (const gap of gapCandidates) {
+                host.style.gap = `${gap}px`;
+                for (const size of sizeCandidates) {
+                    setSize(size);
+                    if (isFit()) return true;
+                }
+            }
+
+            // 最後保留列內換行退路，避免框越過列界線。
+            host.style.gap = `${Math.min(baseGap, 4)}px`;
+            box.classList.add('hege-checkbox-tight');
+            box.style.marginLeft = '0';
+            host.style.flexWrap = 'wrap';
+            return isFit();
+        };
         const placementFor = (box, placement) => {
             const host = placement.host || placement.row;
             if (!host?.appendChild) return false;
@@ -3285,13 +3481,24 @@ export const Core = {
             if (isTailPlacement) box.style.marginLeft = 'auto';
             else box.style.removeProperty('margin-left');
             if (placement.rowKind === 'preview') box.classList.add('hege-checkbox-compact');
-            else box.classList.remove('hege-checkbox-compact');
+            else {
+                const icon = box.querySelector?.('.hege-svg-icon');
+                box.classList.remove('hege-checkbox-compact');
+                box.classList.remove('hege-checkbox-tight');
+                box.style.removeProperty('width');
+                box.style.removeProperty('height');
+                box.style.removeProperty('min-width');
+                icon?.style?.removeProperty('width');
+                icon?.style?.removeProperty('height');
+            }
             const atExpectedPosition = placement.insertBefore
                 ? box.nextSibling === placement.insertBefore
                 : !isTailPlacement || box.nextElementSibling === null;
-            if (box.parentElement === host && atExpectedPosition) return true;
-            if (placement.insertBefore?.parentElement === host) host.insertBefore(box, placement.insertBefore);
-            else host.appendChild(box);
+            if (!(box.parentElement === host && atExpectedPosition)) {
+                if (placement.insertBefore?.parentElement === host) host.insertBefore(box, placement.insertBefore);
+                else host.appendChild(box);
+            }
+            if (placement.rowKind === 'preview') fitPreviewCheckbox(box, host);
             return true;
         };
 
@@ -3303,9 +3510,17 @@ export const Core = {
                 resolverStats.skippedRowCount += 1;
                 return;
             }
+            const previewCard = placement.previewCard;
+            const previewActorUsername = placement.previewActorUsername || '';
+            const cardActorBox = previewCard && previewActorUsername
+                ? reconcilePreviewCard(previewCard, previewActorUsername)
+                : null;
             if (placement.shouldInject === false) {
-                if (placement.rowKind === 'post-card') {
-                    allBoxesIn(placement.row)
+                if (!previewCard) {
+                    const cleanupRoots = placement.rowKind === 'preview'
+                        ? [placement.row, placement.host]
+                        : [placement.row];
+                    [...new Set(cleanupRoots.flatMap(root => allBoxesIn(root)))]
                         .filter(box => box.dataset.username === username)
                         .forEach(box => box.remove());
                 }
@@ -3335,7 +3550,10 @@ export const Core = {
             });
             const boxesInContext = allBoxesIn(ctx).filter(box => box.dataset.username === username);
             const sameRowBoxes = boxesInContext.filter(box => box.dataset.hegeDialogRowId === rowId);
-            const boxesInPlacement = [...new Set([...boxesInRow, ...boxesInHost, ...sameRowBoxes])];
+            const cardBoxes = previewCard && previewActorUsername
+                ? (cardActorBox ? [cardActorBox] : allBoxesIn(previewCard).filter(box => normalizeUsername(box.dataset.username) === normalizeUsername(previewActorUsername)))
+                : [];
+            const boxesInPlacement = [...new Set([...boxesInRow, ...boxesInHost, ...sameRowBoxes, ...cardBoxes])];
             const misplaced = boxesInContext.filter(box => {
                 if (boxesInPlacement.includes(box)) return false;
                 const mountedAboveRow = box.parentElement?.contains?.(row);

@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.8.2-beta7', // 修正預覽卡多輪注入重複新增勾選框
+    VERSION: '2.8.2-beta10', // 同一個對話框的預覽卡與帳號清單各自保留正確框
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。
