@@ -26,6 +26,7 @@
 | 14 | 2.8.2-beta20 | SSOT #12 | 48 小時保留窗硬寫 4 處 | 小 | 未動工 |
 | 15 | 2.8.3-beta1 | 查證 | 正式版輕量診斷查不到根因：面板每 1.5 秒固定寫 2 筆洗掉 ring，且輕量層用 `slice(-120)` 位置切法丟掉 priority 保護過的關鍵筆 | 中 | 未動工（優先，2.8.3 第一項） |
 | 16 | 2.8.3-beta2 | 回報（使用者實測 2026-08-05） | 三無掃描結束後 worker 停在白畫面很久才跳出勾選畫面，期間無任何訊息 | 中 | 未動工 |
+| 17 | 2.8.3-beta3 | 回報（使用者實測 2026-08-05） | 三無掃描吐 `followers_dialog_not_found` 後整趟結束；失敗原因不外顯、無診斷、無重試 | 中 | 未動工（取證優先，依賴第 15 項） |
 
 版號欄是預期值；若某編號實際跨多個 beta（修壞重來），總表如實更新，編號不變。
 
@@ -185,6 +186,33 @@
 **修法方向**：取證後再定。最低限度是這段期間要有訊息，說明正在整理結果與大概還要多久；能縮短耗時更好，但不得為了縮短而讓結果不完整。
 
 **驗收**：掃描結束到結果畫面出現之間，任何時間點畫面都有可讀的狀態文字，無空白期；掃描結果內容與修改前一致。
+
+## 17. 三無掃描 `followers_dialog_not_found` 後整趟結束（2.8.3-beta3，回報）
+
+**實際問題**：使用者 2026-08-05 實測回報，三無掃描過程中出現 `followers_dialog_not_found` 後直接退出三無。
+
+程式中只有兩條路徑會拋出這個 error（`src/features/three-no-watch.js:1182`，來源是 `openFollowersDialog` 回傳 `null`）：
+
+1. **找不到觸發元素**（`three-no-watch.js:1743-1754`）：`Utils.pollUntil(findTrigger, 10000, 250)` 十秒內找不到可點的粉絲入口。`findTrigger` 依序試四種取法：精確粉絲數文字節點（`isFollowerCountText` 要求文字完全符合 `N位粉絲`／`N粉絲`／`N followers`）、粉絲數按鈕、`/followers` 結尾的 href、以及 `CONFIG.FOLLOWERS_TEXTS` 文字比對。四種全落空回傳 `null`，debug step 記為 `followers_trigger_not_found`。
+2. **點了但視窗沒開**（`three-no-watch.js:1771-1799`）：`Utils.simClick` 後等 8000ms，未開再派一次原生 click 事件並等 10000ms，合計 18 秒仍無 dialog，debug step 記為 `dialog_not_found_after_retry`。
+
+拋出後由 `three-no-watch.js:1058-1068` 的 catch 接住，`finishScan({ status: 'failed' })`，整趟掃描結束。
+
+**三個問題疊加**：
+
+- **原因不外顯**：程式其實把卡在哪一步寫進了 scan state 的 `debug.step`，但沒有顯示給使用者，也沒有進 `RuntimeDiagnostics`，所以線上回報查不到是哪一種。
+- **沒有 runtime 診斷**：`openFollowersDialog` 全程沒有任何 `RuntimeDiagnostics.record` 呼叫，`followers` feature 在 ring 中對這一步是空白。
+- **失敗即整趟放棄**：這一步只重試一次點擊，沒有退回重載頁面再試、沒有換取法重試、沒有從 cursor 斷點接續。相較封鎖流程有完整重試與 breaker，這裡是單點脆弱。Threads 頁面本來就會慢與改版面，一次沒開就作廢代價過高。
+
+**動工順序**：**取證優先，先做診斷再談重試**。第 15 項修完 ring 的噪音與挑法後才動工，否則新加的條目會被同樣的問題洗掉。
+
+**修法方向**（分兩段，第一段先出）：
+
+第一段（取證）：`openFollowersDialog` 的四種取法各自成敗、輪詢耗時、點擊後 dialog 出現與否、頁面上 `div[role="dialog"]` 的數量，都用 `RuntimeDiagnostics.record('followers', ...)` 記下來，欄位限數字與布林，取法用列舉代號（`count_text_node`／`count_button`／`href_path`／`text_match`），不得記入帳號、網址或選單文字。失敗時 UI 訊息要說明卡在哪一步，取代目前只吐一個代碼。
+
+第二段（重試）：依第一段量到的實際失敗分布再定。可能方向包含重載頁面後重試、放寬 `isFollowerCountText` 的比對、以及失敗後從 cursor 斷點接續而非整趟作廢。**第一段的數字出來前不得直接改判定條件**，避免又是憑名字猜 selector。
+
+**驗收**：第一段完成後，同一個失敗情境的回報中，`followers` feature 必定含有可分辨兩種成因的條目；UI 訊息能說出卡在哪一步。第二段驗收待第一段數字出爐後再定。
 
 ---
 
