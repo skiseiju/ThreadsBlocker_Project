@@ -204,7 +204,11 @@
 - **沒有 runtime 診斷**：`openFollowersDialog` 全程沒有任何 `RuntimeDiagnostics.record` 呼叫，`followers` feature 在 ring 中對這一步是空白。
 - **失敗即整趟放棄**：這一步只重試一次點擊，沒有退回重載頁面再試、沒有換取法重試、沒有從 cursor 斷點接續。相較封鎖流程有完整重試與 breaker，這裡是單點脆弱。Threads 頁面本來就會慢與改版面，一次沒開就作廢代價過高。
 
-**動工順序**：**取證優先，先做診斷再談重試**。第 15 項修完 ring 的噪音與挑法後才動工，否則新加的條目會被同樣的問題洗掉。
+**動工順序**：**取證優先，先做診斷再談重試**。
+
+**複核修正（Fable，2026-08-05）**：原本寫「必須等第 15 項修完才能動工」，這個依賴寫法過強。真正的依賴只指向根因 B。若第 17 項用 `error`／terminal stage 記錄，priority 3 在 ring 的 200 上限內不會被噪音淘汰（`core.js:228-233` 的淘汰順序先砍 0），會丟的環節只有輕量層的位置切法。另外 `openFollowersDialog` 的失敗原因已寫進 scan state 的 `debug.step`，而 `buildBugReportDiagnosticsBundle`（`core.js:5499` 起）已讀 `THREE_NO_SCAN_STATE`，只是只取 status 不取 debug；把 `debug.step` 的列舉代號放進 bundle 可以完全繞過 ring。
+
+因此第一段的程式與測試**可與第 15 項並行開發**，驗收合併在 beta3 做。計畫本身一版一修串行出版，並行與否只影響開發不影響發布。
 
 **修法方向**（分兩段，第一段先出）：
 
