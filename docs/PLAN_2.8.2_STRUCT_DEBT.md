@@ -28,6 +28,8 @@
 | 16 | 2.8.3-beta2 | 回報（使用者實測 2026-08-05） | 三無掃描結束後 worker 停在白畫面很久才跳出勾選畫面，期間無任何訊息 | 中 | 未動工 |
 | 17 | 2.8.3-beta3 | 回報（使用者實測 2026-08-05） | 三無掃描吐 `followers_dialog_not_found` 後整趟結束；失敗原因不外顯、無診斷、無重試 | 中 | 未動工（取證優先，可與第 15 項並行） |
 | 18 | 2.8.3-beta4 | 回報（使用者實測 2026-08-05） | 找不到連結／找不到帳號的失敗帳號，封鎖跑完後不會從佇列清掉，永遠留在開始封鎖清單 | 中 | 未動工（先取證） |
+| 19 | 2.8.3-beta5 | **beta1 診斷實測抓到**（2026-08-05） | 檢舉大量失敗實為 `missing_profile_root`，profile root 只查一次不等載入即放棄（4 至 9ms），且對外顯示成「找不到選單」誤導 | 中 | 未動工（優先，疑似線上 #42／#43／#44 同源） |
+| 20 | 2.8.3-beta6 | beta1 診斷實測抓到（2026-08-05） | `panel/clamp` 仍每 1.5 秒寫一筆內容相同的紀錄，beta1 的穩態抑制沒覆蓋到這個呼叫點 | 小 | 未動工 |
 
 版號欄是預期值；若某編號實際跨多個 beta（修壞重來），總表如實更新，編號不變。
 
@@ -238,6 +240,69 @@ if (q.length > 0 && q[0] === rawTarget) { q.shift(); ... }
 **修法方向**：取證後再定。可考慮的方向包含移除改成以正規化後的值為準而非頭端比對、以及每輪結束時做一次殘留對帳。**不得在沒有數字的情況下直接放寬比對條件**，那會把「清不掉」換成「清掉不該清的」。
 
 **驗收**：造一份佇列頭端與 `rawTarget` 不一致的 fixture，改動前該筆在跑完後仍留在佇列（red），改動後必定被移除（green）；同時斷言正常情境下不會誤移除其他帳號。
+
+## 19. 檢舉大量失敗實為 profile root 沒等載入（2.8.3-beta5，beta1 診斷實測抓到）
+
+**來源**：這是 2.8.3-beta1 診斷修正上機後第一份實測 ring 抓到的問題，證明修法達到目的。使用者 2026-08-05 跑檢舉佇列，主動貼出診斷。
+
+**實測數字**（ring `58af9b6a0b90`，version `2.8.3-beta1`）：
+
+第一批 20 筆檢舉中約 8 筆失敗，第二批續跑再見數筆。所有失敗形狀完全一致：
+
+```
+stage=navigation  reason=menu_not_found  candidateCount=0  menuItems=0  elapsedMs=0
+stage=terminal    priority=3  ok=false  reason=failure  elapsedMs=4 至 9
+```
+
+成功案例作為對照：
+
+```
+stage=navigation  candidateCount=0  repeatCount=2
+stage=navigation  candidateCount=1        <- 失敗案例從來沒有這一筆
+stage=menu        menuItems=19 至 71      約 700ms
+stage=action  x3
+stage=confirm     confirmButtons=1 至 3
+stage=finish      priority=3  elapsedMs=5,700 至 10,500
+```
+
+**成功要 6 至 10 秒，失敗只要 4 至 9 毫秒。**
+
+**根因**（已由程式碼確認，非推測）：
+
+`src/features/report-flow.js:831-834`
+
+```
+const profileRoot = mode === 'profile' ? Core.findProfileRoot?.(user) : null;
+if (mode === 'profile' && !profileRoot) {
+    return Core.ReportDriver.skipOrPauseForDebug(user, options, 'missing_profile_root', ...);
+}
+```
+
+`findProfileRoot` 是**同步單次查詢，沒有輪詢也沒有等待**。頁面還沒 render 完就查，查不到立刻放棄，這就是 4 毫秒的來源。整條流程其他步驟都有輪詢預算，只有這一步沒有。
+
+**第二個問題，對外標籤錯誤**：`report-flow.js:384` 把 `missing_profile_root` 一律映射成 `menu_not_found`，UI 顯示「找不到選單」（`src/ui.js:1123`）。使用者看到的訊息與實際成因無關，選單根本還沒走到。
+
+**疑似同源的線上回報**：#42「一直出現封鎖失敗的訊息」、#43「進行封鎖時一直出現找不到選單」、#44「失敗顯示：封鎖 · 找不到選單，但可以手動封鎖，是否因為封鎖清單太長導致選單較慢」。#44 的使用者自己就猜到是「太慢」，方向正確而我們給了錯的標籤。**這三則是封鎖流程不是檢舉流程，動工前必須確認封鎖側是否有同樣的單次查詢，不得直接假設同源。**
+
+**修法方向**：
+
+- `findProfileRoot` 這一步比照流程其他步驟給輪詢預算，等到 root 出現或逾時，逾時才算失敗。預算值依實測 render 時間決定。
+- 失敗標籤與實際成因對齊，`missing_profile_root` 不得再顯示成「找不到選單」。
+- 檢查封鎖側 `MoreLocator` 相關路徑是否有同樣的單次查詢。
+
+**驗收**：模擬 profile root 延遲 N 毫秒出現的 fixture，改動前立即失敗（red），改動後在預算內成功（green）；逾時情境仍正確失敗且標籤為 root 相關而非選單。實機重跑同一份檢舉佇列，失敗筆數顯著下降，數字寫進報告。
+
+## 20. `panel/clamp` 穩態噪音未收斂（2.8.3-beta6，beta1 診斷實測抓到）
+
+**實際問題**：同一份 beta1 實測 ring 顯示，`panel/clamp` 仍每約 1500ms 寫一筆，且內容重複。連續四筆 `rectLeft` 都是 `1147.125`、`rectWidth` 都是 `224.875`，換位置後又連續四筆相同值。21 秒內 `panel` 共 32 筆。
+
+**成因**：beta1 的穩態抑制只改了 `Core.updatePanelRouteVisibility`（`core.js:2364`／`2374`），沒有覆蓋 `panel/clamp` 這個呼叫點（`src/ui.js:11` 的 `panelDiagnostics`，由 `anchorPanel` 觸發）。`record` 的去重窗 1000ms 對 1500ms 間隔無效，理由與根因 A 相同。
+
+beta1 新增的 `record()` 每分鐘 22 筆通用上限會把它從約 40 筆壓到 22 筆，屬於防線生效，但那仍是每分鐘 22 個浪費掉的名額。
+
+**修法方向**：`panel/clamp` 比照 `updatePanelRouteVisibility` 改成有變化才寫，rect 與 viewport 用整數比較避免浮點抖動。
+
+**驗收**：面板位置不變的穩態 60 秒，`panel/clamp` 條目數降到個位數；面板真的被夾住或位移時仍必定記錄。
 
 ---
 
