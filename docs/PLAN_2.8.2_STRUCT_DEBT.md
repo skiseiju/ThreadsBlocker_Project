@@ -14,7 +14,7 @@
 | 3 | 2.8.2-beta3 | 遺留 | 每日上限提醒出現後仍繼續執行 | 小 | **已落地**（`28fef19`）；需跑到上限才看得到，待自然遇到時驗 |
 | 4 | 2.8.2-beta4 | 查證 | 自動冷卻保護停用，只留提醒；舊備份給併回入口 | 中 | **Fixed**（`3e7405b`；2026-08-04 實機診斷確認封鎖流程正常、無冷卻觸發） |
 | 4.5 | 2.8.2-beta5〜10 | 回報 | 查看動態各分頁勾選框重複繪製、位置錯誤、清單無限延伸（2.7.4-beta73 回歸） | 大 | **Fixed**（`625a6e1`／`ea60cbc`／`2b40ff0`；2026-08-04 使用者實機＋診斷驗收通過） |
-| 5 | 2.8.2-beta11 | 遺留 | 檢舉偶發 `submit_not_confirmed`，取證不足 | 中（先取證） | 未動工 |
+| 5 | 2.8.2-beta11 | 遺留 | 檢舉偶發 `submit_not_confirmed`，實為第一次 action 後下一步沒出現 | 中 | 未動工（**取證已完成**，見下方第 4 節；可直接修） |
 | 6 | 2.8.2-beta12 | SSOT #4 | dialog context 兩套競爭取法混用（first-vs-last 斷層線） | 中 | 未動工 |
 | 7 | 2.8.2-beta13 | SSOT #5 | username 從 href 解析有多套互相矛盾的 parser | 中 | 未動工 |
 | 8 | 2.8.2-beta14 | SSOT #1 | 「是否執行中」判斷 14 處分叉，stopping 被當成沒在跑 | 大 | 未動工 |
@@ -77,6 +77,37 @@
 **驗收**：實機跑到上限提醒出現，流程停止；重新整理頁面不得自動續跑；隔日計數重置後可正常執行。
 
 ## 4. 檢舉偶發 `submit_not_confirmed`（beta4，先取證）
+
+> **2026-08-05 更新：取證已完成，不必再做取證版。** beta2 上機實測直接抓到一筆，證據如下，可直接進入修法階段。
+>
+> **失敗案例**（`report-e5de0d33df9a`，ring `ee7f24efce8d`）：
+>
+> ```
+> navigation  success          7ms
+> navigation  candidateCount=1 0ms
+> menu        menuItems=74     0ms
+> action      elapsedMs=668
+> [6.5 秒空白，沒有任何條目]
+> confirm     confirmButtons=0  reason=submit_not_confirmed
+> terminal    elapsedMs=7154    ok=false
+> ```
+>
+> **成功案例對照**（`report-fb84291e117d`）：
+>
+> ```
+> menu    menuItems=19
+> action  elapsedMs=721
+> action  elapsedMs=2856      <- 失敗案例沒有這一筆
+> action  elapsedMs=4351      <- 失敗案例沒有這一筆
+> confirm confirmButtons=1    elapsedMs=7794
+> finish  ok=true
+> ```
+>
+> **關鍵差異**：成功案例有**三筆** `action`，對應檢舉流程的三個步驟（選檢舉帳號、選理由、送出）。失敗案例只有**一筆** action 就停住，接著空白 6.5 秒，最後 confirm 階段量到 `confirmButtons=0`。
+>
+> **這代表問題不在送出，而在第一次點擊之後的下一個步驟沒有出現**。`submit_not_confirmed` 這個名字誤導了方向，實際卡點在流程中段。動工時應該從「第一次 action 之後等待下一個畫面」這一段查起，不是從送出按鈕查起。
+>
+> 另外注意成功案例的 `menuItems` 是 19，失敗案例是 74。兩者選單內容量差很多，是否相關待驗證，不得直接當成因。
 
 **實際問題**：檢舉流程偶發以 `submit_not_confirmed` 收場，代表送出後等不到確認訊號，該筆檢舉成功與否不明。beta12 加了「路由變了就停手」的保險絲後，此 reason 只剩視窗過小時出現，正常尺寸未再重現；但保險絲是新加的，且現有 RuntimeDiagnostics 對「送出後的確認等待」記錄不足，真的再發生時查不到是送出失敗、確認 dialog 沒出現、還是確認文字比對失敗。
 
