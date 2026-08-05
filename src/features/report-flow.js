@@ -171,7 +171,7 @@ Object.assign(Core, {
             if (['private_manual_required'].includes(reason)) return 'menu_resolve';
             if (['navigation_mismatch', 'navigated_to_post_during_report_flow'].includes(reason)) return 'navigation_check';
             if (['menu_not_found', 'missing_report_menu_item'].includes(reason)) return 'menu_resolve';
-            if (['missing_report_option', 'blank_dialog_stuck', 'blank_report_dialog_stuck'].includes(reason)) return 'action_resolve';
+            if (['missing_report_option', 'missing_report_step', 'blank_dialog_stuck', 'blank_report_dialog_stuck'].includes(reason)) return 'action_resolve';
             if (['submit_not_confirmed'].includes(reason)) return 'confirm_resolve';
             return 'action_resolve';
         },
@@ -192,7 +192,11 @@ Object.assign(Core, {
                     elapsedMs: timing.elapsedMs ?? extra.elapsedMs ?? 0,
                     retryCount: timing.retryCount ?? extra.retryCount ?? 0,
                 },
-                { feature: 'report', operationId: Core.ReportDriver._diagnosticOperationId },
+                {
+                    feature: 'report',
+                    operationId: Core.ReportDriver._diagnosticOperationId,
+                    fields: { ...(timing.fields || {}), ...(extra.fields || {}) },
+                },
             );
         },
 
@@ -387,7 +391,7 @@ Object.assign(Core, {
             Core.ReportDriver.recordSafetyDiagnostic(
                 Core.ReportDriver.diagnosticPhaseForReason(reason),
                 result,
-                { menuItems: extra.menuItems, confirmButtons: extra.confirmButtons },
+                { menuItems: extra.menuItems, confirmButtons: extra.confirmButtons, fields: extra.fields || {} },
                 { elapsedMs: extra.elapsedMs ?? extra.elapsedSinceMenuClickMs, retryCount: extra.retryCount },
             );
             Core.ReportDriver.recordDebugTrace(`skip:${reason}`, user, options, { message, ...extra }, true);
@@ -526,9 +530,12 @@ Object.assign(Core, {
         async waitForProfileRoot(user = '') {
             const startedAt = Date.now();
             let profileRoot = null;
+            let rootSeenThenMissing = false;
             await Utils.pollUntil(() => {
                 if (Core.ReportDriver.isInvalidProfilePage()) return true;
-                profileRoot = Core.findProfileRoot?.(user) || null;
+                const nextRoot = Core.findProfileRoot?.(user) || null;
+                if (profileRoot && !nextRoot) rootSeenThenMissing = true;
+                profileRoot = nextRoot;
                 return !!profileRoot;
             }, PROFILE_ROOT_WAIT_MS);
 
@@ -538,10 +545,19 @@ Object.assign(Core, {
 
             // 逾時後再補查一次，避免最後一輪輪詢與逾時之間出現空窗。
             if (!profileRoot) profileRoot = Core.findProfileRoot?.(user) || null;
+            const observation = Core.getProfileRootObservation?.(user) || {};
+            const liveRoot = profileRoot ? Core.findProfileRoot?.(user) || null : null;
+            if (profileRoot && !liveRoot) rootSeenThenMissing = true;
             return {
                 root: profileRoot,
                 reason: profileRoot ? 'success' : 'missing_profile_root',
                 waitMs: Date.now() - startedAt,
+                observation: {
+                    ...observation,
+                    rootSeenThenMissing,
+                    invalidProfilePage: Core.ReportDriver.isInvalidProfilePage(),
+                    restrictionSignal: Core.ReportDriver.hasExplicitRestrictionSignal(),
+                },
             };
         },
 
@@ -869,11 +885,13 @@ Object.assign(Core, {
                     return Core.ReportDriver.skipOrPauseForDebug(user, options, 'missing_profile_root', `@${user} 的帳號頁面尚未載入完成`, {
                         elapsedMs: profileRootResult.waitMs,
                         waitMs: profileRootResult.waitMs,
+                        fields: profileRootResult.observation || {},
                     });
                 }
                 if (mode === 'profile') {
                     Core.ReportDriver.recordSafetyDiagnostic('root_resolve', 'success', {}, {
                         elapsedMs: profileRootResult.waitMs,
+                        fields: profileRootResult.observation || {},
                     });
                 }
                 const privateState = mode === 'profile' ? MoreLocator.detectPrivateProfileState(profileRoot) : { private: false };
@@ -958,6 +976,7 @@ Object.assign(Core, {
                 if (window.hegeLog) window.hegeLog(`[只檢舉] 執行檢舉路徑=${JSON.stringify(path)}`);
                 Core.ReportDriver.logVisibleOptions('準備進入檢舉路徑', { mode, user });
                 let pathIndex = 0;
+                let reachedConfirmationGate = false;
                 let loggedFirstPathResolution = false;
                 while (pathIndex < path.length) {
                     const waitStartedAt = Date.now();
@@ -969,6 +988,7 @@ Object.assign(Core, {
                     }, REPORT_OPTION_TIMEOUT_MS, 150);
                     const waitElapsedMs = Date.now() - waitStartedAt;
                     const sinceMenuClickMs = Date.now() - reportMenuClickAt;
+                    if (match?.done) reachedConfirmationGate = true;
                     if (!loggedFirstPathResolution && pathIndex === 0) {
                         if (!match) {
                             Core.ReportDriver.recordDebugTrace('report_flow_timeout_after_menu_click', user, options, {
@@ -1022,11 +1042,22 @@ Object.assign(Core, {
                         if (pathIndex === 0) {
                             if (Core.ReportDriver.hasExplicitRestrictionSignal()) Core.ReportDriver.remindReportRateLimit(user, 'missing_first_report_option');
                         }
-                        return Core.ReportDriver.skipOrPauseForDebug(user, options, 'missing_report_option', `找不到檢舉選項「${path[pathIndex]}」`, {
+                        const missingReason = pathIndex > 0 ? 'missing_report_step' : 'missing_report_option';
+                        const missingMessage = pathIndex > 0
+                            ? `檢舉第 ${pathIndex + 1} 步尚未出現`
+                            : `找不到檢舉選項「${path[pathIndex]}」`;
+                        return Core.ReportDriver.skipOrPauseForDebug(user, options, missingReason, missingMessage, {
                             pathIndex,
                             remainingPath: path.slice(pathIndex),
                             visibleOptions,
                             privateProfile: privateState.private,
+                            elapsedMs: waitElapsedMs,
+                            fields: {
+                                waitingForStep: pathIndex > 0,
+                                nextStepIndex: pathIndex,
+                                actionCount: pathIndex,
+                                dialogCount: document.querySelectorAll('div[role="dialog"]').length,
+                            },
                         });
                     }
                     if (match.done) break;
@@ -1048,6 +1079,12 @@ Object.assign(Core, {
                     Core.ReportDriver.recordSafetyDiagnostic('action_resolve', 'success', {}, {
                         elapsedMs: Date.now() - diagnosticStartedAt,
                         retryCount: diagnosticRetryCount,
+                        fields: {
+                            waitingForStep: pathIndex + match.offset + 1 < path.length,
+                            nextStepIndex: pathIndex + match.offset + 1,
+                            actionCount: pathIndex + 1,
+                            dialogCount: document.querySelectorAll('div[role="dialog"]').length,
+                        },
                     });
                     pathIndex += match.offset + 1;
                     await Utils.safeSleep(700);
@@ -1103,11 +1140,25 @@ Object.assign(Core, {
                             pathname: location.pathname,
                         });
                     }
-                    return Core.ReportDriver.skipOrPauseForDebug(user, options, 'submit_not_confirmed', `@${user} 沒有拿到明確送出成功訊號`, {
+                    const submitReason = !reachedConfirmationGate && pathIndex < path.length
+                        ? 'missing_report_step'
+                        : 'submit_not_confirmed';
+                    const submitMessage = submitReason === 'missing_report_step'
+                        ? `檢舉第 ${pathIndex + 1} 步尚未出現`
+                        : `@${user} 沒有拿到明確送出成功訊號`;
+                    return Core.ReportDriver.skipOrPauseForDebug(user, options, submitReason, submitMessage, {
                         remainingPath: path.slice(pathIndex),
                         visibleOptions: Core.ReportDriver.getVisibleReportOptionTexts(),
                         hadConfirmDialog: !!submitOriginDialog,
                         privateProfile: privateState.private,
+                        elapsedMs: Date.now() - reportMenuClickAt,
+                        fields: {
+                            waitingForStep: submitReason === 'missing_report_step',
+                            nextStepIndex: pathIndex,
+                            actionCount: pathIndex,
+                            dialogCount: document.querySelectorAll('div[role="dialog"]').length,
+                            waitingForConfirm: submitReason === 'submit_not_confirmed',
+                        },
                     });
                 }
                 Core.ReportDriver.recordSafetyDiagnostic('confirm_resolve', 'success', {

@@ -15,12 +15,21 @@ const BETA_DIAGNOSTIC_STAGES = new Set([
     'start', 'dequeue', 'finish', 'stop', 'route', 'navigation', 'tab', 'wait', 'dialog', 'rows', 'scroll', 'progress',
     'menu', 'action', 'confirm', 'retry', 'breaker', 'cooldown', 'failure', 'selection', 'snapshot', 'restore', 'anchor_filter',
     'commit', 'rollback', 'panel', 'chip', 'suppression', 'launch', 'precondition', 'worker', 'request', 'ack',
-    'close', 'timeout', 'report', 'http', 'config', 'layout', 'error', 'status', 'terminal', 'reposition', 'clamp', 'hide', 'show', 'unknown',
+    'close', 'timeout', 'report', 'http', 'config', 'layout', 'error', 'status', 'terminal', 'reposition', 'clamp', 'hide', 'show',
+    'aggregate', 'storage', 'render', 'unknown',
 ]);
 const BETA_DIAGNOSTIC_FAILURE_STAGES = new Set(['failure', 'breaker', 'error', 'timeout', 'rollback']);
 const BETA_DIAGNOSTIC_TERMINAL_STAGES = new Set(['stop', 'finish', 'commit', 'close', 'terminal']);
+export const DIAGNOSTIC_SUCCESS_RESULTS = Object.freeze(['success', 'completed']);
+// `already_blocked` 與 `already_unblocked` 都是可接受的略過結果。它們不算
+// 失敗，也不算成功，因為這次沒有執行新的狀態變更。
+export const DIAGNOSTIC_NON_FAILURE_RESULTS = Object.freeze(['already_blocked', 'already_unblocked']);
+export const isDiagnosticSuccessResult = result => DIAGNOSTIC_SUCCESS_RESULTS.includes(String(result || ''));
+export const isDiagnosticNonFailureResult = result => DIAGNOSTIC_NON_FAILURE_RESULTS.includes(String(result || ''));
+export const isDiagnosticFailureResult = result => !isDiagnosticSuccessResult(result) && !isDiagnosticNonFailureResult(result);
 const diagnosticEntryPriority = (stage, fields = {}) => {
-    if (BETA_DIAGNOSTIC_FAILURE_STAGES.has(stage) || fields?.failure === true) return 4;
+    const hasResult = typeof fields?.reason === 'string';
+    if (BETA_DIAGNOSTIC_FAILURE_STAGES.has(stage) || fields?.failure === true || (hasResult && isDiagnosticFailureResult(fields.reason))) return 4;
     if (BETA_DIAGNOSTIC_TERMINAL_STAGES.has(stage) || fields?.terminal === true) return 3;
     if (stage === 'start') return 2;
     return 0;
@@ -30,9 +39,9 @@ const BETA_DIAGNOSTIC_REASONS = new Set([
     'rows_unknown', 'rows_missing', 'likes_tab_switch_failed', 'limited', 'empty_end',
     'missing_dialog', 'unknown_dialog_schema', 'max_scrolls', 'unknown', 'error', 'success', 'failure', 'failed', 'private',
     'protected', 'not_found', 'already_blocked', 'already_unblocked', 'user_stop', 'breaker_open', 'cooldown', 'rate_limited', 'retry',
-    'network', 'worker_closed', 'disappeared', 'vanished', 'navigation_mismatch', 'menu_not_found', 'missing_more_button',
+    'network', 'network_error', 'worker_closed', 'disappeared', 'vanished', 'navigation_mismatch', 'menu_not_found', 'missing_more_button',
     'scan_in_flight', 'stopping_in_progress', 'worker_busy', 'owner_mismatch', 'popup_blocked', 'worker_start_failed', 'not_chrome_extension', 'scan_page',
-    'missing_profile_root', 'submit_not_confirmed', 'exception', 'report_failed',
+    'missing_profile_root', 'missing_report_step', 'missing_report_option', 'submit_not_confirmed', 'action_failed', 'verification_failed', 'exception', 'report_failed',
 ]);
 const BETA_DIAGNOSTIC_TABS = new Set(['likes', 'quotes', 'reposts', 'followers', 'unknown']);
 const BETA_DIAGNOSTIC_PATHS = new Set(['message', 'profile', 'post', 'unknown']);
@@ -136,6 +145,9 @@ export const RuntimeDiagnostics = {
             'rowRule', 'rowConfidence', 'rowKindCode', 'followRowCount', 'roleRowCount',
             'pressableRowCount', 'postCardCount', 'boundedParentCount', 'skippedRowCount',
             'repositionedCount', 'lowConfidenceCount',
+            'recognizedMenuItemCount', 'knownReportItemCount', 'knownFollowItemCount', 'knownCopyLinkItemCount',
+            'profileRootCandidateCount', 'profileRootEvidenceCount', 'strictRootCandidateCount', 'relaxedRootCandidateCount',
+            'nextStepIndex', 'actionCount', 'storageWriteCount', 'storageWriteBytes', 'cursorSizeBytes', 'resultSizeBytes',
         ];
         for (const key of countKeys) {
             if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = boundedDiagnosticInt(source[key]);
@@ -162,7 +174,9 @@ export const RuntimeDiagnostics = {
             // 以及選單裡有沒有出現封鎖字樣。記錄的是布林，不是文字。
             'ownAriaLabel', 'nestedAriaLabel', 'blockTextPresent',
             // 個人頁 root 是靠嚴格判定命中，還是靠放寬路徑救回來的。布林，不含文字。
-            'relaxedRoot', 'followButtonPresent',
+            'relaxedRoot', 'relaxedRootAttempted', 'strictRootMatched', 'rootSeenThenMissing', 'sameMenuElement',
+            'followButtonPresent', 'profileRouteMatch', 'privateProfile', 'invalidProfilePage', 'restrictionSignal', 'waitingForStep', 'waitingForConfirm',
+            'renderTriggered', 'resultPersisted', 'externalWait', 'waitingForExternal',
         ];
         for (const key of boolKeys) {
             if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = diagnosticBoolean(source[key]);
@@ -491,6 +505,7 @@ export const measureCleanListContext = (collectCtx) => {
 export const FAILED_REASON_ENUM = Object.freeze([
     'unknown', 'legacy_string', 'action_failed', 'verification_failed',
     'menu_not_found', 'navigation_mismatch', 'private_manual_required',
+    'missing_profile_root', 'missing_report_step', 'missing_report_option', 'submit_not_confirmed',
     'rate_limited', 'cooldown', 'timeout', 'network_error', 'report_failed',
 ]);
 
@@ -797,6 +812,9 @@ const safeCheckboxAccountRowCount = (ctx) => {
 
 export const Core = {
     RuntimeDiagnostics,
+    isDiagnosticFailureResult,
+    isDiagnosticSuccessResult,
+    isDiagnosticNonFailureResult,
     recordCheckboxOverlapObservation,
     resetCheckboxOverlapObservation,
     blockQueue: new Set(),
@@ -1355,6 +1373,33 @@ export const Core = {
                 const area = (item) => Math.max(0, item.rect.width) * Math.max(0, item.rect.height);
                 return area(a) - area(b);
             })[0]?.root || null;
+    },
+
+    // 只讀取個人頁 root 的結構數量與既有 gate 偵測結果，供逾時診斷使用。
+    // 這裡不改寫 root 判定，也不保存頁面文字。
+    getProfileRootObservation: (username = '') => {
+        const roots = [
+            ...document.querySelectorAll('main, [role="main"], [aria-label="直欄內文"], [aria-label="Column body"], [aria-label="Column Body"]'),
+        ].filter(Boolean);
+        const routeMatch = Core.profileRouteMatches(username);
+        const relaxedModeAttempted = routeMatch && Core._lastProfileRootMode !== 'strict';
+        const rows = roots.map(root => {
+            const strictUsername = !!Core.findProfileHeaderUsernameElement(root, username);
+            const relaxedUsername = !!Core.findProfileUsernameEvidence(root, username);
+            const actionAnchor = !!Core.findProfileActionAnchor(root);
+            const privateProfile = MoreLocator.detectPrivateProfileState(root).private === true;
+            return { strictUsername, relaxedUsername, actionAnchor, privateProfile };
+        });
+        return {
+            profileRootCandidateCount: roots.length,
+            profileRootEvidenceCount: rows.filter(row => row.strictUsername || row.relaxedUsername).length,
+            strictRootCandidateCount: rows.filter(row => row.strictUsername && row.actionAnchor).length,
+            relaxedRootCandidateCount: rows.filter(row => row.relaxedUsername && row.actionAnchor).length,
+            relaxedRootAttempted: relaxedModeAttempted,
+            strictRootMatched: Core._lastProfileRootMode === 'strict',
+            profileRouteMatch: routeMatch,
+            privateProfile: rows.some(row => row.privateProfile),
+        };
     },
 
     // 最近一次 findProfileRoot 走的是哪條路：strict / relaxed / none。

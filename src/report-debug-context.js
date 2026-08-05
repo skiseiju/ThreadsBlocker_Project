@@ -30,6 +30,7 @@ export const ReportDebugContext = {
         'navigated_to_post',
         'missing_dialog',
         'missing_report_option',
+        'missing_report_step',
         'missing_profile_root',
         'exception',
         'unknown',

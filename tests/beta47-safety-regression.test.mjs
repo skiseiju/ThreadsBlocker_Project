@@ -28,7 +28,7 @@ assert.match(core, /unknown_dialog_schema/, 'unknown dialog collection must fail
 
 // B. A missing menu is never rate-limited; only explicit platform restriction reaches
 // the cooldown counter. This guards the beta46 regression where empty menus caused cooldown.
-assert.match(worker, /\['menu_not_found', 'navigation_mismatch', 'private_manual_required'\]/, 'per-user recoverable outcomes must be separate');
+assert.match(worker, /\['menu_not_found', 'missing_profile_root', 'navigation_mismatch', 'private_manual_required'\]/, 'per-user recoverable outcomes must be separate');
 assert.match(worker, /result === 'rate_limited'[\s\S]{0,700}consecutiveRateLimits\+\+/, 'only explicit rate_limited results increment the counter');
 assert.match(worker, /result === 'cooldown'[\s\S]{0,520}triggerCooldown/, 'only explicit cooldown results can trigger cooldown');
 assert.match(worker, /result === 'cooldown'[\s\S]{0,700}consecutiveRateLimits\+\+[\s\S]{0,700}consecutiveRateLimits >= 3/, 'three explicit restriction signals are required');

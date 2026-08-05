@@ -166,8 +166,8 @@ export const Worker = {
             confirmButtons: counts.confirmButtons,
             retryCount: timing.retryCount,
             elapsedMs: timing.elapsedMs,
-            failure: ['failed', 'failure', 'error'].includes(result),
-            success: result === 'success' || result === 'completed',
+            failure: Core.isDiagnosticFailureResult(result),
+            success: Core.isDiagnosticSuccessResult(result),
             private: result === 'private_manual_required',
             protected: result === 'protected',
             alreadyBlocked: result === 'already_blocked',
@@ -176,7 +176,7 @@ export const Worker = {
             // 不在允許清單裡的 key 會被丟掉，這裡不會放寬隱私邊界。
             ...(diagnosticOptions.fields || {}),
         });
-        if (ownsOperation) Worker.endDiagnostic(operationId, 'terminal', { reason: result, ok: result === 'success' || result === 'completed', complete: true });
+        if (ownsOperation) Worker.endDiagnostic(operationId, 'terminal', { reason: result, ok: Core.isDiagnosticSuccessResult(result), complete: true });
         Worker.persistDiagnostics(true);
         return snapshot;
     },
@@ -1659,7 +1659,7 @@ export const Worker = {
 
                 Worker.updateStatus('running', targetUser, 0, currentTotal);
                 setTimeout(Worker.runStep, 100);
-            } else if (['menu_not_found', 'navigation_mismatch', 'private_manual_required'].includes(result)) {
+            } else if (['menu_not_found', 'missing_profile_root', 'navigation_mismatch', 'private_manual_required'].includes(result)) {
                 // These are actionable per-user outcomes, not platform rate limits.
                 Worker.consecutiveRateLimits = 0;
                 Worker.stats.failed++;
@@ -2001,6 +2001,51 @@ export const Worker = {
         let confirmButtons = 0;
         let postFallbackAttempts = 0;
         let diagnosticRetryCount = 0;
+        let rootSeenThenMissing = false;
+        let profileRootObservation = {};
+        let moreButtonFields = {};
+        let menuElementBeforeRetry = null;
+        let menuElementAfterRetry = null;
+        let sameMenuElement = false;
+        let clickRetried = false;
+        const getMenuElement = () => document.querySelector('[role="menu"]')
+            || document.querySelector('div[role="menuitem"]')?.closest?.('[role="menu"]')
+            || document.querySelector('div[role="menuitem"]')
+            || null;
+        const getMenuObservation = () => {
+            const menuRoot = document.querySelector('[role="menu"]');
+            const nodes = menuRoot
+                ? Array.from(menuRoot.querySelectorAll('div[role="menuitem"], div[role="button"]'))
+                : Array.from(document.querySelectorAll('div[role="menuitem"]'));
+            let recognizedMenuItemCount = 0;
+            let knownReportItemCount = 0;
+            let knownFollowItemCount = 0;
+            let knownCopyLinkItemCount = 0;
+            for (const node of nodes) {
+                const text = node.innerText || node.textContent || '';
+                const reportItem = /檢舉|举报|Report/i.test(text);
+                const followItem = /取消追蹤|解除追蹤|Unfollow|Following|追蹤中/i.test(text);
+                const copyLinkItem = /複製連結|复制链接|Copy link|Copy URL/i.test(text);
+                if (reportItem) knownReportItemCount++;
+                if (followItem) knownFollowItemCount++;
+                if (copyLinkItem) knownCopyLinkItemCount++;
+                if (reportItem || followItem || copyLinkItem || Utils.isBlockText(text) || Utils.isUnblockText(text)) {
+                    recognizedMenuItemCount++;
+                }
+            }
+            const currentMenuElement = getMenuElement();
+            if (clickRetried && !menuElementAfterRetry && currentMenuElement) {
+                menuElementAfterRetry = currentMenuElement;
+                sameMenuElement = !!menuElementBeforeRetry && menuElementBeforeRetry === menuElementAfterRetry;
+            }
+            return {
+                recognizedMenuItemCount,
+                knownReportItemCount,
+                knownFollowItemCount,
+                knownCopyLinkItemCount,
+                sameMenuElement,
+            };
+        };
         const recordDiagnostic = (phase, result, extra = {}, fields = {}) => Worker.recordSafetyDiagnostic(
             phase,
             result,
@@ -2023,14 +2068,16 @@ export const Worker = {
             setStep('載入中...');
             // 舊條件是「頁面上有 MORE_SVG 或任何 div[role=button]」。SPA 換頁時前一頁
             // 的 DOM 還在，這個條件在毫秒內就成立，等於根本沒等到本人的個人頁就往下
-            // 走，findProfileRoot 因此回 null 並記成 menu_not_found。實機診斷顯示失敗
+            // 走，findProfileRoot 因此回 null，失敗會被誤標成選單問題。實機診斷顯示失敗
             // 全部發生在 dequeue 後 1–8ms，且都停在 root_resolve，從沒走到「更多」按鈕。
             // 改成等到「這個 user 的 profile root 真的出現」才繼續，才是 fail-closed。
             const profileWaitStartedAt = Date.now();
             let profileRoot = null;
             await Utils.pollUntil(() => {
                 if (checkFor404()) return true;
-                profileRoot = Core.findProfileRoot?.(user) || null;
+                const nextRoot = Core.findProfileRoot?.(user) || null;
+                if (profileRoot && !nextRoot) rootSeenThenMissing = true;
+                profileRoot = nextRoot;
                 return !!profileRoot;
             }, PROFILE_ROOT_WAIT_MS);
 
@@ -2042,18 +2089,29 @@ export const Worker = {
 
             // pollUntil 逾時後再取一次，避免最後一輪與逾時之間的空窗。
             if (!profileRoot) profileRoot = Core.findProfileRoot?.(user) || null;
+            profileRootObservation = Core.getProfileRootObservation?.(user) || {};
             if (!profileRoot) {
                 recordDiagnostic('root_resolve', 'missing_profile_root', {}, {
                     waitMs: Date.now() - profileWaitStartedAt,
                     viewportWidth: window.innerWidth,
                     viewportHeight: window.innerHeight,
                     relaxedRoot: false,
+                    ...profileRootObservation,
+                    rootSeenThenMissing,
+                    invalidProfilePage: checkFor404(),
+                    restrictionSignal: checkForError(),
                 });
-                return 'menu_not_found';
+                return 'missing_profile_root';
             }
+            const resolvedRootMode = Core._lastProfileRootMode;
+            const liveRoot = Core.findProfileRoot?.(user) || null;
+            if (profileRoot && !liveRoot) rootSeenThenMissing = true;
             recordDiagnostic('root_resolve', 'success', {}, {
                 waitMs: Date.now() - profileWaitStartedAt,
-                relaxedRoot: Core._lastProfileRootMode === 'relaxed',
+                relaxedRoot: resolvedRootMode === 'relaxed',
+                ...profileRootObservation,
+                strictRootMatched: resolvedRootMode === 'strict',
+                rootSeenThenMissing,
             });
             const privateState = MoreLocator.detectPrivateProfileState(profileRoot);
 
@@ -2089,7 +2147,14 @@ export const Worker = {
                     if (privateState.private) setStep('需要手動處理：私人帳號');
                     return missingMoreResult;
                 }
-                recordDiagnostic('more_resolve', 'success');
+                const ownLabel = profileBtn.getAttribute?.('aria-label') || '';
+                const nestedLabel = profileBtn.querySelector?.('svg[aria-label]')?.getAttribute('aria-label') || '';
+                moreButtonFields = {
+                    ownAriaLabel: !!ownLabel,
+                    nestedAriaLabel: !!nestedLabel,
+                    svgCount: profileBtn.querySelectorAll?.('svg').length ?? 0,
+                };
+                recordDiagnostic('more_resolve', 'success', {}, moreButtonFields);
 
                 setStep('開啟選單...');
                 await Worker.blockVisualStep(user, '準備點「更多」', profileBtn, 420);
@@ -2105,8 +2170,6 @@ export const Worker = {
                     } catch (e) { }
                     // #11 取證：只記錄，不改行為。要分辨「點到的是 ⋯ 本身」還是
                     // 「點到包住 ⋯ 的外層容器」，光看座標與父層文案分不出來。
-                    const ownLabel = profileBtn.getAttribute?.('aria-label') || '';
-                    const nestedLabel = profileBtn.querySelector?.('svg[aria-label]')?.getAttribute('aria-label') || '';
                     const identity = [
                         `tag=${profileBtn.tagName}`,
                         `role=${profileBtn.getAttribute?.('role') || '-'}`,
@@ -2147,7 +2210,6 @@ export const Worker = {
                 recordDiagnostic('navigation_check', 'success');
 
                 // 2. Wait for Menu (智慧等待 + retry click)
-                let clickRetried = false;
                 const menuStartTime = Date.now();
 
                 const menuResult = await Utils.pollUntil(() => {
@@ -2157,6 +2219,7 @@ export const Worker = {
                         if (testMenu.length === 0) {
                             clickRetried = true;
                             diagnosticRetryCount++;
+                            menuElementBeforeRetry = getMenuElement();
                             // #11 取證：分辨「完全沒有任何浮層」與「浮層開了但不是我們要的選單」。
                             const menuItemCount = document.querySelectorAll('div[role="menuitem"]').length;
                             const menuCount = document.querySelectorAll('[role="menu"]').length;
@@ -2171,6 +2234,8 @@ export const Worker = {
                                 menuCount,
                                 dialogCount,
                                 overlayCount,
+                                ...getMenuObservation(),
+                                ...moreButtonFields,
                             });
                             Utils.simClick(profileBtn);
                         }
@@ -2241,6 +2306,8 @@ export const Worker = {
                             menuCount: document.querySelectorAll('[role="menu"]').length,
                             dialogCount: document.querySelectorAll('div[role="dialog"]').length,
                             blockTextPresent: seenTexts.some(t => Utils.isBlockText(t)),
+                            ...getMenuObservation(),
+                            ...moreButtonFields,
                         });
 
                         // 關閉 Profile 選單
@@ -2304,9 +2371,16 @@ export const Worker = {
                         const missingActionResult = checkForError()
                             ? 'cooldown'
                             : privateState.private ? 'private_manual_required' : 'menu_not_found';
-                        recordDiagnostic('menu_resolve', missingActionResult);
-                        // 全部失敗 — 診斷 dump；沒有明確限制訊息就 fail closed
                         const allMenuItems = document.querySelectorAll('div[role="menuitem"]');
+                        recordDiagnostic('menu_resolve', missingActionResult, {}, {
+                            ...getMenuObservation(),
+                            ...moreButtonFields,
+                            menuItems: allMenuItems.length,
+                            menuCount: document.querySelectorAll('[role="menu"]').length,
+                            dialogCount: document.querySelectorAll('div[role="dialog"]').length,
+                            blockTextPresent: Array.from(allMenuItems).some(item => Utils.isBlockText(item.innerText || item.textContent || '')),
+                        });
+                        // 全部失敗 — 診斷 dump；沒有明確限制訊息就 fail closed
                         const menuTexts = Array.from(allMenuItems).map(el => (el.innerText || el.textContent || '').trim().substring(0, 30));
                         const allBtns = document.querySelectorAll('div[role="button"]');
                         const btnTexts = Array.from(allBtns).map(el => (el.innerText || el.textContent || '').trim().substring(0, 30)).filter(t => t.length > 0);
@@ -2332,7 +2406,10 @@ export const Worker = {
             }
 
             menuItems = Math.min(document.querySelectorAll('div[role="menuitem"], div[role="button"]').length, ReportDebugContext.MAX_COUNT);
-            recordDiagnostic('menu_resolve', 'success');
+            recordDiagnostic('menu_resolve', 'success', {}, {
+                ...getMenuObservation(),
+                ...moreButtonFields,
+            });
             recordDiagnostic('action_resolve', 'success');
             setStep(isUnblock ? '點擊解除封鎖...' : '點擊封鎖...');
             await Worker.blockVisualStep(user, isUnblock ? '準備點「解除封鎖」' : '準備點「封鎖」', blockBtn, 420);

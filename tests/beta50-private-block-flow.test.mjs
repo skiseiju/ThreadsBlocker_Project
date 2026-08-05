@@ -195,7 +195,9 @@ test('beta50 private gate is downstream of validated More resolution', () => {
     const autoBlock = workerSource.slice(workerSource.indexOf('autoBlock: async'));
     const moreIndex = autoBlock.indexOf('Worker.findMoreButton(12000, user)');
     assert.equal(autoBlock.slice(0, moreIndex).includes("return 'private_manual_required'"), false, 'private text must not short-circuit before More resolution');
-    assert.match(autoBlock, /recordDiagnostic\('more_resolve', 'success'\)/);
+    const moreSuccessMatch = autoBlock.match(/recordDiagnostic\('more_resolve', 'success'(?:,\s*[^;\n]*)?\);/);
+    assert.ok(moreSuccessMatch, 'more_resolve success must be recorded');
+    assert.ok(moreSuccessMatch.index < autoBlock.indexOf("return 'private_manual_required'"), 'more_resolve success must precede the private gate');
     assert.match(autoBlock, /recordDiagnostic\('confirm_resolve', 'success'\)/);
 });
 

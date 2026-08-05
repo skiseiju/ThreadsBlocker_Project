@@ -9,6 +9,20 @@ import { ReportDebugContext } from '../report-debug-context.js';
 // Persistent three-no debug material follows the diagnostics lifecycle gate.
 // UI copy remains separately beta-visible through Utils.isBetaBuild() below.
 const isThreeNoDebugLogActive = () => Core.RuntimeDiagnostics?.betaDebugUI?.() === true;
+const serializedByteLength = (value) => {
+    let serialized = '';
+    try {
+        serialized = typeof value === 'string' ? value : JSON.stringify(value);
+    } catch (_) {
+        return 0;
+    }
+    if (typeof serialized !== 'string') serialized = String(serialized ?? '');
+    try {
+        return typeof TextEncoder === 'function' ? new TextEncoder().encode(serialized).length : serialized.length;
+    } catch (_) {
+        return serialized.length;
+    }
+};
 
 Object.assign(Core, {
     ThreeNoWatch: {
@@ -3248,6 +3262,43 @@ Object.assign(Core, {
             const stopped = status === 'stopped';
             const failed = status === 'failed';
             const shouldPersistFindings = completed || stopped || failed;
+            const diagnosticOperationId = String(activeState.diagnosticOperationId || runtime.diagnosticOperationId || '').trim();
+            const finishStartedAt = Date.now();
+            const storageMetrics = {
+                writeCount: 0,
+                writeBytes: 0,
+            };
+            const recordFinishDiagnostic = (stage, fields = {}) => {
+                try {
+                    return Core.RuntimeDiagnostics?.record('three_no', stage, {
+                        ...(diagnosticOperationId ? { operationId: diagnosticOperationId } : {}),
+                        ...fields,
+                    });
+                } catch (_) {
+                    return null;
+                }
+            };
+            const noteStorageWrite = (value, count = 1) => {
+                const writeCount = Math.max(0, parseInt(count || '0', 10) || 0);
+                storageMetrics.writeCount += writeCount;
+                storageMetrics.writeBytes += serializedByteLength(value) * writeCount;
+            };
+            recordFinishDiagnostic('status', {
+                active: true,
+                complete: completed,
+                stopped,
+                failure: failed,
+                checkedCount: parseInt(runtime.index || '0', 10) || 0,
+                candidateCount: Array.isArray(runtime.usernames) ? runtime.usernames.length : 0,
+                queuedCount: Array.isArray(runtime.findings) ? runtime.findings.length : 0,
+            });
+            const aggregationStartedAt = Date.now();
+            recordFinishDiagnostic('aggregate', {
+                active: true,
+                candidateCount: batchUsernames.length,
+                checkedCount: parseInt(runtime.index || '0', 10) || 0,
+                queuedCount: findings.length,
+            });
             const cursor = Storage.getThreeNoScanCursor();
             const cursorMatches = owner && cursor.owner === owner && cursor.reachedEnd !== true;
             const baseScannedUsers = cursorMatches ? cursor.scannedUsers : [];
@@ -3277,6 +3328,7 @@ Object.assign(Core, {
                 if (!username) return false;
                 return !(scanProgressUserSet.has(username) && !currentFindingUsers.has(username));
             });
+            const aggregationInputCount = previousFindingsToMerge.length + findings.length;
             const findingsByUser = new Map();
             [...previousFindingsToMerge, ...findings].forEach(item => {
                 const username = Core.ThreeNoWatch.normalizeUsername(item?.username || '');
@@ -3378,6 +3430,19 @@ Object.assign(Core, {
             });
             const mergedFindings = Array.from(findingsByUser.values())
                 .filter(item => !Storage.isThreeNoUserSafe(item.username));
+            recordFinishDiagnostic('aggregate', {
+                active: false,
+                complete: true,
+                elapsedMs: Date.now() - aggregationStartedAt,
+                uniqueBefore: aggregationInputCount,
+                uniqueAfter: mergedFindings.length,
+                duplicateCount: Math.max(0, aggregationInputCount - findingsByUser.size),
+                processedCount: findingsByUser.size,
+                candidateCount: batchUsernames.length,
+                checkedCount: checkedCandidateCount,
+                remainingCount: unprocessedCandidates.size,
+                queuedCount: mergedFindings.length,
+            });
             const previousUsernames = new Set(previousFindings.map(item => Core.ThreeNoWatch.normalizeUsername(item?.username || '')).filter(Boolean));
             const newUnignoredFindings = findings
                 .map(item => Core.ThreeNoWatch.normalizeUsername(item?.username || ''))
@@ -3396,19 +3461,37 @@ Object.assign(Core, {
                 appendFinishDebug('finish_rejected_late_not_owned', beforePersist.status);
                 return false;
             }
+            const storageStartedAt = Date.now();
+            recordFinishDiagnostic('storage', {
+                active: true,
+                candidateCount: batchUsernames.length,
+                checkedCount: checkedCandidateCount,
+                remainingCount: unprocessedCandidates.size,
+                queuedCount: mergedFindings.length,
+                storageWriteCount: 0,
+                storageWriteBytes: 0,
+            });
             if (shouldPersistFindings && owner) {
-                Storage.setThreeNoScanCursor({
+                const cursorPayload = {
                     owner,
                     startedAt: cursorMatches ? (cursor.startedAt || runtime.startedAt || completedAt) : (runtime.startedAt || completedAt),
                     updatedAt: completedAt,
                     batchesCompleted: (cursorMatches ? cursor.batchesCompleted : 0) + (completed ? 1 : 0),
                     reachedEnd: completed ? hasMore !== true : false,
                     scannedUsers,
+                };
+                noteStorageWrite(cursorPayload, 1);
+                recordFinishDiagnostic('storage', {
+                    active: true,
+                    cursorSizeBytes: serializedByteLength(cursorPayload),
+                    storageWriteCount: storageMetrics.writeCount,
+                    storageWriteBytes: storageMetrics.writeBytes,
                 });
+                Storage.setThreeNoScanCursor(cursorPayload);
             }
             const scanId = runtime.scanId || patch.scanId || `three-no:${scanDate}:${completedAt}`;
             const debugLog = Core.ThreeNoWatch.getScanDebugLog(scanId);
-            const payload = Storage.setThreeNoScanResults({
+            const resultInput = {
                 scanId,
                 scanTargetOwner: owner,
                 scanDate,
@@ -3428,8 +3511,29 @@ Object.assign(Core, {
                 debug: patch.debug || {},
                 debugLog,
                 users: shouldPersistFindings ? mergedFindings : findings,
+            };
+            recordFinishDiagnostic('render', {
+                active: true,
+                renderTriggered: false,
+                resultPersisted: false,
+                candidateCount: batchUsernames.length,
+                checkedCount: checkedCandidateCount,
+                queuedCount: mergedFindings.length,
             });
-            const finalStateWritten = Core.ThreeNoWatch.setScanState({
+            const payload = Storage.setThreeNoScanResults(resultInput);
+            noteStorageWrite(payload, 1);
+            recordFinishDiagnostic('render', {
+                active: false,
+                complete: true,
+                renderTriggered: true,
+                resultPersisted: true,
+                resultSizeBytes: serializedByteLength(payload),
+                elapsedMs: Date.now() - finishStartedAt,
+                candidateCount: batchUsernames.length,
+                checkedCount: checkedCandidateCount,
+                queuedCount: payload.threeNoFollowersCount,
+            });
+            const terminalStatePayload = {
                 ...payload,
                 ownerToken: runtimeOwnerToken || undefined,
                 users: undefined,
@@ -3440,19 +3544,48 @@ Object.assign(Core, {
                     debugLogCount: debugLog.length,
                     autoBlockRemoved: true,
                 },
-            });
+            };
+            const finalStateWritten = Core.ThreeNoWatch.setScanState(terminalStatePayload);
             if (finalStateWritten === false) return false;
+            const terminalDebugLogWriteCount = isThreeNoDebugLogActive() && terminalStatePayload.debug?.step ? 1 : 0;
+            const terminalStateWriteCount = 1 + terminalDebugLogWriteCount + 2;
+            noteStorageWrite(terminalStatePayload, terminalStateWriteCount);
             Storage.set(CONFIG.KEYS.THREE_NO_LAST_SCAN_DATE, scanDate);
+            noteStorageWrite(scanDate, 1);
             if (runtimeOwnerToken && runtimeScanId) Core.ThreeNoWatch.clearOwnedScan(runtimeScanId, runtimeOwnerToken);
             else {
                 Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_LOCK);
                 Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_COMMAND);
             }
-            Storage.setThreeNoUnreadCount(Math.max(Storage.getThreeNoUnreadCount(), newUnignoredFindings.length || payload.threeNoFollowersCount));
+            const unreadCount = Math.max(Storage.getThreeNoUnreadCount(), newUnignoredFindings.length || payload.threeNoFollowersCount);
+            Storage.setThreeNoUnreadCount(unreadCount);
+            noteStorageWrite(String(unreadCount), 1);
             sessionStorage.removeItem(Core.ThreeNoWatch.stateKey);
             localStorage.removeItem(Core.ThreeNoWatch.runtimeBackupKey);
+            recordFinishDiagnostic('storage', {
+                active: false,
+                complete: true,
+                elapsedMs: Date.now() - storageStartedAt,
+                storageWriteCount: storageMetrics.writeCount,
+                storageWriteBytes: storageMetrics.writeBytes,
+                cursorSizeBytes: shouldPersistFindings && owner ? serializedByteLength({ owner, scannedUsers }) : 0,
+                resultSizeBytes: serializedByteLength(payload),
+                candidateCount: batchUsernames.length,
+                checkedCount: checkedCandidateCount,
+                remainingCount: unprocessedCandidates.size,
+                queuedCount: payload.threeNoFollowersCount,
+            });
             if (completed) {
                 let statsUploadTimeoutId;
+                let statsUploadTimedOut = false;
+                const statsUploadStartedAt = Date.now();
+                recordFinishDiagnostic('wait', {
+                    active: true,
+                    externalWait: true,
+                    waitingForExternal: true,
+                    candidateCount: batchUsernames.length,
+                    checkedCount: checkedCandidateCount,
+                });
                 try {
                     const configuredTimeout = Number(CONFIG.THREE_NO_SCAN_STATS_UPLOAD_TIMEOUT_MS);
                     const statsUploadTimeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout >= 0
@@ -3461,13 +3594,27 @@ Object.assign(Core, {
                     await Promise.race([
                         Promise.resolve().then(() => UI.tryUploadThreeNoScanStats({ scanId: payload.scanId })),
                         new Promise(resolve => {
-                            statsUploadTimeoutId = setTimeout(resolve, statsUploadTimeoutMs);
+                            statsUploadTimeoutId = setTimeout(() => {
+                                statsUploadTimedOut = true;
+                                resolve();
+                            }, statsUploadTimeoutMs);
                         }),
                     ]);
                 } catch (err) {
                     if (CONFIG.DEBUG_MODE) console.warn('[留友封][ThreeNo] stats upload skipped/failed', err);
                 } finally {
                     if (statsUploadTimeoutId !== undefined) clearTimeout(statsUploadTimeoutId);
+                    recordFinishDiagnostic('wait', {
+                        active: false,
+                        complete: true,
+                        externalWait: true,
+                        waitingForExternal: false,
+                        timedOut: statsUploadTimedOut,
+                        waitMs: Date.now() - statsUploadStartedAt,
+                        elapsedMs: Date.now() - finishStartedAt,
+                        candidateCount: batchUsernames.length,
+                        checkedCount: checkedCandidateCount,
+                    });
                 }
             }
             // Stopped workers must close only after terminal state, result/cursor
