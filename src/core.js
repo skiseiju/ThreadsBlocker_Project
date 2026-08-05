@@ -99,6 +99,8 @@ export const RuntimeDiagnostics = {
     _sessionId: diagnosticSessionId(),
     _startedAt: Date.now(),
     RATE_LIMIT_PER_MINUTE: 22,
+    // priority 2／3 是啟動與正常結束訊息，保留較寬的每分鐘額度；priority 4 不限流。
+    RATE_LIMIT_PRIORITY_2_3_PER_MINUTE: 60,
     RATE_WINDOW_MS: 60 * 1000,
     // 手動 debug／export UI 專用（複製診斷、清除診斷、三無 verbose log）。
     // AGENTS.md 要求正式版移除 beta-only debug/export UI，所以這條仍綁 beta 版號。
@@ -260,12 +262,14 @@ export const RuntimeDiagnostics = {
             return previous;
         }
         const priority = diagnosticEntryPriority(safeStage, safeFields);
-        const rateKey = `${safeFeature}|${safeStage}`;
+        const rateClass = priority >= 2 ? 'priority' : 'ordinary';
+        const rateKey = `${safeFeature}|${safeStage}|${rateClass}`;
+        const rateLimit = priority >= 2 ? this.RATE_LIMIT_PRIORITY_2_3_PER_MINUTE : this.RATE_LIMIT_PER_MINUTE;
         let rateWindow = this._rateWindows.get(rateKey) || [];
-        if (priority < 3) {
+        if (priority < 4) {
             rateWindow = rateWindow.filter(timestamp => timestamp <= now && now - timestamp < this.RATE_WINDOW_MS);
             this._rateWindows.set(rateKey, rateWindow);
-            if (rateWindow.length >= this.RATE_LIMIT_PER_MINUTE) {
+            if (rateWindow.length >= rateLimit) {
                 const recent = this._lastByRateKey.get(rateKey)
                     || [...this._entries].reverse().find(item => item.feature === safeFeature && item.stage === safeStage);
                 if (recent) {
@@ -288,7 +292,7 @@ export const RuntimeDiagnostics = {
         this._entries.push(entry);
         this._lastBySignature.set(signature, entry);
         this._lastByRateKey.set(rateKey, entry);
-        if (priority < 3) {
+        if (priority < 4) {
             rateWindow.push(now);
             this._rateWindows.set(rateKey, rateWindow);
         }
@@ -845,6 +849,7 @@ export const Core = {
     _selectionSnapshot: new Set(readSelectionSnapshot()),
     _stopVisibilityLatch: readStopLatch(),
     _selectionDiagnosticOperationId: null,
+    _checkboxStateSources: null,
     _accountRowSequence: 0,
     lastDialogCollectionResult: null,
     lastClickedBtn: null, // Track for shift-click
@@ -854,8 +859,61 @@ export const Core = {
     // Running selection snapshot is independent from the mutable active queue.
     isSelectionLatched: (username = '') => Core._stopVisibilityLatch && Core._selectionSnapshot.has(username),
 
+    readCheckboxQueueStateSources: () => {
+        const db = new Set(Storage.getBlockDB());
+        const cdq = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
+        const bgq = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
+        const liveBgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
+        const liveState = String(liveBgStatus?.state || '').toLowerCase();
+        const liveSession = liveState === 'running' || liveState === 'stopping'
+            || bgq.size > 0
+            || Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []).length > 0;
+        return { db, cdq, bgq, liveSession };
+    },
+
+    beginCheckboxStatePass: () => {
+        const sources = Core.readCheckboxQueueStateSources();
+        Core.ensureCheckboxSelectionLatch(sources);
+        Core._checkboxStateSources = sources;
+        return sources;
+    },
+
+    endCheckboxStatePass: () => {
+        Core._checkboxStateSources = null;
+    },
+
+    getCheckboxQueueStateSources: () => {
+        if (Core._checkboxStateSources) return Core._checkboxStateSources;
+        const sources = Core.readCheckboxQueueStateSources();
+        Core.ensureCheckboxSelectionLatch(sources);
+        Core._checkboxStateSources = sources;
+        const clear = () => {
+            if (Core._checkboxStateSources === sources) Core._checkboxStateSources = null;
+        };
+        if (typeof queueMicrotask === 'function') queueMicrotask(clear);
+        else Promise.resolve().then(clear);
+        return sources;
+    },
+
+    ensureCheckboxSelectionLatch: (sources = null) => {
+        const state = sources && typeof sources === 'object' ? sources : null;
+        if (!state || state.selectionLatchEnsured === true) return false;
+        state.selectionLatchEnsured = true;
+        if (state.liveSession !== true) return false;
+        const users = [...new Set([
+            ...Core.pendingUsers,
+            ...(state.bgq instanceof Set ? state.bgq : new Set(state.bgq || [])),
+        ].filter(Boolean))];
+        const hasNewUsers = users.some(username => !Core._selectionSnapshot.has(username));
+        if (Core._stopVisibilityLatch && !hasNewUsers) return false;
+        Core.beginBlockSession(users);
+        return true;
+    },
+
     beginBlockSession: (usernames = []) => {
-        const users = Array.isArray(usernames) ? usernames : [];
+        const users = [...new Set((Array.isArray(usernames) ? usernames : []).filter(Boolean))];
+        const hasNewUsers = users.some(username => !Core._selectionSnapshot.has(username));
+        if (Core._stopVisibilityLatch && !hasNewUsers) return Core._selectionSnapshot.size;
         const operationId = RuntimeDiagnostics.begin('selection', { strategy: 'semantic_row', active: true });
         Core._selectionDiagnosticOperationId = operationId;
         RuntimeDiagnostics.record('selection', 'snapshot', { selectedCount: users.length, flickerLatch: true, active: true, operationId });
@@ -1235,18 +1293,13 @@ export const Core = {
         return container;
     },
 
-    syncCheckboxQueueState: (container, username, queueElement = null) => {
+    syncCheckboxQueueState: (container, username, queueElement = null, stateSources = null) => {
         if (!container || !username) return;
-        const db = new Set(Storage.getBlockDB());
-        const cdq = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
-        const bgq = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
-        const liveBgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
-        const liveState = String(liveBgStatus.state || '').toLowerCase();
-        const liveSession = liveState === 'running' || liveState === 'stopping'
-            || bgq.size > 0 || Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []).length > 0;
-        if (liveSession) {
-            Core.beginBlockSession([...Core.pendingUsers, ...bgq]);
-        }
+        const sources = stateSources || Core.getCheckboxQueueStateSources();
+        Core.ensureCheckboxSelectionLatch(sources);
+        const db = sources.db instanceof Set ? sources.db : new Set(sources.db || []);
+        const cdq = sources.cdq instanceof Set ? sources.cdq : new Set(sources.cdq || []);
+        const bgq = sources.bgq instanceof Set ? sources.bgq : new Set(sources.bgq || []);
         const state = Core.resolveCheckboxState(username, { db, cdq, bgq });
         Core.applyCheckboxState(container, state);
         if (state === 'checked' && queueElement) Core.blockQueue.add(queueElement);
@@ -1451,7 +1504,7 @@ export const Core = {
         return relaxed;
     },
 
-    injectProfileHeaderCheckbox: (scanResults = null) => {
+    injectProfileHeaderCheckbox: (scanResults = null, stateSources = null) => {
         const username = Core.ThreeNoWatch?.getCurrentProfileUsername?.() || '';
         const profileRoot = Core.findProfileRoot(username);
         if (!profileRoot) return;
@@ -1478,7 +1531,7 @@ export const Core = {
                 host.style.setProperty('overflow', 'visible', 'important');
                 actionAnchor.insertAdjacentElement('beforebegin', existing);
             }
-            Core.syncCheckboxQueueState(existing, username, existing.parentElement);
+            Core.syncCheckboxQueueState(existing, username, existing.parentElement, stateSources);
             Core.syncInlineFakeAccountBadge(existing, scanResults);
             return;
         }
@@ -1489,7 +1542,7 @@ export const Core = {
         host.style.setProperty('align-items', 'center', 'important');
         host.style.setProperty('overflow', 'visible', 'important');
         actionAnchor.insertAdjacentElement('beforebegin', container);
-        Core.syncCheckboxQueueState(container, username, host);
+        Core.syncCheckboxQueueState(container, username, host, stateSources);
         Core.syncInlineFakeAccountBadge(container, scanResults);
     },
 
@@ -2461,11 +2514,16 @@ export const Core = {
     _resizeHookInstalled: false,
     _panelRouteDiagnosticState: null,
     runScannerPass: (updateUI = true) => {
-        Core.scanAndInject();
-        Core.injectDialogBlockAll();
-        Core.injectDialogCheckboxes();
-        if (updateUI) Core.updateControllerUI();
-        Core.updatePanelRouteVisibility();
+        const checkboxSources = Core.beginCheckboxStatePass();
+        try {
+            Core.scanAndInject(checkboxSources);
+            Core.injectDialogBlockAll();
+            Core.injectDialogCheckboxes(checkboxSources);
+            if (updateUI) Core.updateControllerUI();
+            Core.updatePanelRouteVisibility();
+        } finally {
+            Core.endCheckboxStatePass();
+        }
     },
     scheduleScannerPass: (delay = 120) => {
         clearTimeout(Core._scanDebounce);
@@ -3487,7 +3545,7 @@ export const Core = {
         return result(null, null, null, 'unknown', 'unresolved', 0, false, { ruleCode: 0 });
     },
 
-    injectDialogCheckboxes: () => {
+    injectDialogCheckboxes: (stateSources = null) => {
         const fallbackCtx = Core.getTopContext();
         const ctx = DialogCollector.pickBestAccountDialog(fallbackCtx);
         let didInject = false;
@@ -3523,9 +3581,10 @@ export const Core = {
             const rect = a.getBoundingClientRect();
             return rect.height > 0 && rect.width > 0;
         });
-        const dbRef = new Set(Storage.getBlockDB());
-        const cdqRef = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
-        const activeSet = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
+        const checkboxSources = stateSources || Core.getCheckboxQueueStateSources();
+        const dbRef = checkboxSources.db instanceof Set ? checkboxSources.db : new Set(checkboxSources.db || []);
+        const cdqRef = checkboxSources.cdq instanceof Set ? checkboxSources.cdq : new Set(checkboxSources.cdq || []);
+        const activeSet = checkboxSources.bgq instanceof Set ? checkboxSources.bgq : new Set(checkboxSources.bgq || []);
         const usernameFrom = anchor => (String(anchor?.getAttribute?.('href') || '').match(/^\/@([^/?#]+)/) || [])[1] || '';
         const normalizeUsername = value => String(value || '').replace(/^@+/, '').toLowerCase();
         const allBoxesIn = node => Array.from(node?.querySelectorAll?.('.hege-checkbox-container[data-username]') || []);
@@ -3739,13 +3798,14 @@ export const Core = {
         recordObservation();
     },
 
-    scanAndInject: () => {
+    scanAndInject: (stateSources = null) => {
         // Performance: Only run if window is active/visible to save CPU
         if (document.hidden) return;
 
         const inlineThreeNoResults = Storage.getThreeNoScanResults();
         Core.syncInlineFakeAccountLinkBadges(inlineThreeNoResults);
-        Core.injectProfileHeaderCheckbox(inlineThreeNoResults);
+        const checkboxSources = stateSources || Core.getCheckboxQueueStateSources();
+        Core.injectProfileHeaderCheckbox(inlineThreeNoResults, checkboxSources);
         const currentProfile = Core.ThreeNoWatch?.getCurrentProfileUsername?.() || '';
         const profileHeaderBottom = currentProfile ? (() => {
             const tabLabels = new Set(['串文', 'Threads', '回覆', 'Replies', '影音內容', 'Media', '轉發', 'Reposts']);
@@ -3766,9 +3826,9 @@ export const Core = {
         if (moreSvgs.length === 0) return;
 
         // Optimization: cache the three checkbox sources for this scanner pass.
-        const db = new Set(Storage.getBlockDB());
-        const cdq = new Set(Storage.getJSON(CONFIG.KEYS.COOLDOWN_QUEUE, []));
-        const bgq = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
+        const db = checkboxSources.db instanceof Set ? checkboxSources.db : new Set(checkboxSources.db || []);
+        const cdq = checkboxSources.cdq instanceof Set ? checkboxSources.cdq : new Set(checkboxSources.cdq || []);
+        const bgq = checkboxSources.bgq instanceof Set ? checkboxSources.bgq : new Set(checkboxSources.bgq || []);
 
         moreSvgs.forEach(svg => {
             const btn = svg.closest('div[role="button"]');

@@ -657,8 +657,10 @@ import './features/three-no-watch.js';
                         return { ok: false, added: 0, skipped: targets.length };
                     }
 
+                    if (toAdd.length > 0 || currentQueue.length > 0) {
+                        Core.beginBlockSession([...new Set([...currentQueue, ...toAdd])]);
+                    }
                     if (toAdd.length > 0) {
-                        Core.beginBlockSession(toAdd);
                         Core.setBlockContext(toAdd, {
                             reason: 'three_no_follower_report',
                             batch: options.scanId || '',
