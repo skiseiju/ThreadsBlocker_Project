@@ -29,8 +29,9 @@
 | 17 | 2.8.3-beta4 | 回報（使用者實測 2026-08-05） | 三無掃描吐 `followers_dialog_not_found` 後整趟結束；失敗原因不外顯、無診斷、無重試 | 中 | **取證已落地**（`c2b5343`）；重試段待實機失敗分布出爐後再定 |
 | 18 | 2.8.3-beta4 | 回報（使用者實測 2026-08-05） | 找不到連結／找不到帳號的失敗帳號，封鎖跑完後不會從佇列清掉，永遠留在開始封鎖清單 | 中 | 未動工（先取證） |
 | 19 | 2.8.3-beta2 | beta1 診斷實測抓到（2026-08-05） | 檢舉大量失敗實為 `missing_profile_root`，profile root 只查一次不等載入即放棄（4 至 9ms），且對外顯示成「找不到選單」誤導 | 中 | **Fixed**（`4d629a5`；2026-08-05 實機 ring 驗收，改後等滿 12,032ms 才放棄且標籤正確） |
-| 24 | 2.8.3-beta3 | beta2 實測抓到（2026-08-05） | 等滿 12 秒仍找不到 profile root 的帳號約佔兩成，成因未知 | 中 | **取證已落地**（`0a0d507`）；成因待實機 ring |
-| 20 | 2.8.3-beta4 | beta1 診斷實測抓到（2026-08-05） | `panel/clamp` 仍每 1.5 秒寫一筆內容相同的紀錄，beta1 的穩態抑制沒覆蓋到這個呼叫點 | 小 | **Fixed**（`c2b5343`；穩態 40 筆降至 1 筆，三種真實變化仍必定記錄） |
+| 24 | 2.8.3-beta5 | beta2 實測抓到（2026-08-05） | 等滿 12 秒仍找不到 profile root：**成因已查明**，頁面全程零候選、網址正確、無任何閘門，是頁面真的沒 render | 中 | 未動工（成因見下方第 24 節；修法待定） |
+| 20 | 2.8.3-beta4 | beta1 診斷實測抓到（2026-08-05） | `panel/clamp` 穩態噪音 | 小 | **Fixed**（`c2b5343`；實機 panel 從 109 筆降到 26 筆，clamp 只剩 2 筆） |
+| 25 | 2.8.3-beta5 | **beta4 實測抓到**（2026-08-05） | 噪音轉移到 `panel/reposition` 與 `selection/layout`：簽章含會變動的計數欄位，去重形同虛設 | 小 | 未動工 |
 | 21 | 2.8.3-beta3 | beta2 封鎖實測抓到（2026-08-05） | `failure` 旗標只認三個字串，實際的失敗理由全部落在外面，分級仍是 0，長批次會被沖掉 | 小 | **Fixed**（`0a0d507`；改反向定義，語意來源收斂為一份） |
 | 22 | 2.8.3-beta3 | beta2 封鎖實測確認（2026-08-05） | 封鎖對外仍回報「找不到選單」，即使診斷已正確記為 `missing_profile_root` | 中 | **Fixed**（`0a0d507`；重試資格與失敗清單行為不變，僅標籤改變） |
 | 23 | 2.8.3-beta3 | beta2 封鎖實測抓到（2026-08-05） | 選單開得起來但只有 7 項且無封鎖選項，等 9 秒後失敗，成因未知 | 中 | **取證已落地**（`0a0d507`）；成因待實機 ring |
@@ -397,6 +398,43 @@ menuItems=7  menuCount=1  dialogCount=0  confirmButtons=0  blockTextPresent=fals
 **成因未知，不得推測**。可能是點到了錯的「更多」按鈕、可能該帳號狀態不提供封鎖選項、也可能選單還在展開中就被判讀。動工前必須先取證。
 
 **驗收**：待取證後定。
+
+## 24. 等滿 12 秒仍找不到 profile root（成因已查明，2026-08-05 beta4 實機）
+
+**beta3 加的取證欄位直接回答了這一項。** 實測 ring `a4ddf8037e05`（`2.8.3-beta4`，檢舉 45 筆，失敗 1 筆）：
+
+```
+stage=navigation  reason=missing_profile_root  elapsedMs=12042  priority=4  failure=true
+profileRootCandidateCount=0    profileRootEvidenceCount=0
+strictRootCandidateCount=0     relaxedRootCandidateCount=0
+strictRootMatched=false        relaxedRootAttempted=true
+rootSeenThenMissing=false      profileRouteMatch=true
+privateProfile=false           invalidProfilePage=false      restrictionSignal=false
+```
+
+成功案例的對照全部是 `profileRootCandidateCount=1`、`strictRootMatched=true`，且在 2 至 12ms 內完成。
+
+**結論**：整整 12 秒內頁面上**一個候選都沒有**，寬鬆判定也試過了同樣是零，root 從未出現過也不是出現後消失。網址是對的（`profileRouteMatch=true`），帳號不是不公開、頁面沒失效、也沒有平台限制訊號。
+
+**所以這不是偵測邏輯的問題，是那個帳號頁面在 worker 視窗裡真的沒有 render 出來。** 排除了「selector 過嚴」「判定太保守」這兩個方向。
+
+**修法方向待定**，可考慮的方向包含重載該分頁再試一次、拉長預算、或把這類帳號移到獨立的稍後重試清單。**動工前需要更多樣本判斷這是特定帳號的特性還是隨機的載入失敗**，目前樣本數太少（本次 45 筆中只有 1 筆）。
+
+## 25. 噪音轉移到 `panel/reposition` 與 `selection/layout`（beta4 實機抓到）
+
+**beta4 修好了 `panel/clamp`**（實機 `panel` 從 109 筆降到 26 筆，clamp 只剩 2 筆），**但噪音轉移了**。
+
+同一份 ring 的閒置區間，`panel/reposition` 每約 1500ms 寫一筆，rect 完全相同（`1226.046875` / `145.953125`），連續 20 筆。`selection/layout` 25 筆，`didInject` 全部是 `false`。
+
+**根因**：`shouldRecordPanelReposition`（`src/ui.js:78-105`）的簽章包含 `menuItems` 與 `candidateCount`。實測 `menuItems` 在 87 到 320 之間持續變動，因為那是頁面上的按鈕總數，會隨捲動與載入改變。**簽章裡混進了與觀測目標無關的變動欄位，去重因此永遠不成立**，直到撞上 30 筆上限才停。
+
+`selection/layout` 的 `accountRowCount` 在 25 到 201 之間變動，是同一個問題。
+
+**這與 beta1 的浮點 rect、beta4 的 clamp 是同一類錯誤**：拿會變的東西當「有沒有變化」的判準。
+
+**修法方向**：簽章只留真正代表狀態的欄位（`found`、`fallback`、`messageRoute`、整數化 rect 與 viewport），把 `menuItems`、`candidateCount`、`accountRowCount` 這類會漂移的計數移出簽章，仍然記錄在欄位裡。同時盤點所有簽章式去重的呼叫點，確認沒有其他地方犯同樣的錯。
+
+**驗收**：閒置穩態 60 秒，`panel/reposition` 與 `selection/layout` 各降到個位數；真正的位移與注入變化仍必定記錄。
 
 ---
 
