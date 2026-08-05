@@ -1,4 +1,4 @@
-import { CONFIG } from './config.js';
+import { CONFIG, buildDiagnosticStateSignature } from './config.js';
 import { Utils } from './utils.js';
 import { Storage } from './storage.js';
 import { UI } from './ui.js';
@@ -253,7 +253,7 @@ export const RuntimeDiagnostics = {
         const safeFields = this._safeFields(fields);
         const operationId = typeof fields?.operationId === 'string' && /^[a-z_]+-[a-z0-9]{1,16}$/i.test(fields.operationId)
             ? fields.operationId : null;
-        const signature = `${safeFeature}|${safeStage}|${operationId || ''}|${JSON.stringify(safeFields)}`;
+        const signature = `${safeFeature}|${safeStage}|${operationId || ''}|${buildDiagnosticStateSignature(safeFields)}`;
         const previous = this._lastBySignature.get(signature);
         if (previous && now - previous.timestamp <= 1000) {
             previous.fields.repeatCount = boundedDiagnosticInt((previous.fields.repeatCount || 1) + 1, 1000000);
@@ -422,7 +422,7 @@ export const recordCheckboxOverlapObservation = (fields = {}) => {
                 safeFields.repositioned = diagnosticBoolean(source.repositioned);
             }
         }
-        const signature = JSON.stringify(safeFields);
+        const signature = buildDiagnosticStateSignature(safeFields);
         // Scanner polling can be slower than RuntimeDiagnostics' 1000ms
         // coalesce window. Keep one last safe state per path so an unchanged
         // DOM shape never consumes the dedicated evidence quota over time.
@@ -1575,7 +1575,10 @@ export const Core = {
                     maxAttempts: 12,
                     waitMs: 150,
                     onObservation: ({ attempt, snapshot, selected, evidence, contextChanged, rootChanged, stableObservations }) => {
-                        const signature = `${contextChanged ? 'new' : 'same'}:${selected}:${evidence}:${snapshot.signature}`;
+                        const signature = buildDiagnosticStateSignature({
+                            contextChanged, rootChanged, selectedTab: selected, activeTab: selected, evidence,
+                            loading: snapshot.loading, dialogFound: !!snapshot.context, listFound: snapshot.candidateCount > 0,
+                        });
                         const previous = previousSignature;
                         previousSignature = signature;
                         recordCleanDiagnostic('wait', {
@@ -2496,15 +2499,9 @@ export const Core = {
             viewportHeight: integerMetric(window.innerHeight),
         };
         const previousState = Core._panelRouteDiagnosticState;
-        const geometryChanged = !previousState || ['rectLeft', 'rectTop', 'rectWidth', 'rectHeight']
-            .some(key => Math.abs(nextState[key] - previousState[key]) > 1);
-        const stateChanged = !previousState
-            || previousState.hidden !== nextState.hidden
-            || previousState.pathnameCategory !== nextState.pathnameCategory
-            || previousState.viewportWidth !== nextState.viewportWidth
-            || previousState.viewportHeight !== nextState.viewportHeight
-            || geometryChanged;
-        Core._panelRouteDiagnosticState = nextState;
+        const signature = buildDiagnosticStateSignature(nextState);
+        const stateChanged = !previousState || previousState.signature !== signature;
+        Core._panelRouteDiagnosticState = { ...nextState, signature };
         if (stateChanged) {
             RuntimeDiagnostics.record('message_route', hidden ? 'route' : 'layout', {
                 routeMatch, pathnameCategory, hidden,
@@ -2547,10 +2544,14 @@ export const Core = {
                 rectLeft: after.left, rectTop: after.top, rectWidth: after.width, rectHeight: after.height,
                 viewportWidth: window.innerWidth, viewportHeight: window.innerHeight,
             });
-            Core._panelRouteDiagnosticState = {
+            const afterState = {
                 ...Core._panelRouteDiagnosticState,
                 rectLeft: integerMetric(after.left), rectTop: integerMetric(after.top),
                 rectWidth: integerMetric(after.width), rectHeight: integerMetric(after.height),
+            };
+            Core._panelRouteDiagnosticState = {
+                ...afterState,
+                signature: buildDiagnosticStateSignature(afterState),
             };
         }
         return hidden;

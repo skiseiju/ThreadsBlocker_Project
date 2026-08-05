@@ -1,5 +1,80 @@
+// 診斷簽章只保留能描述目前狀態的欄位。所有去重呼叫點都使用這份清單，
+// 量測值仍保留在診斷 fields，但不參與簽章比較。
+export const DIAGNOSTIC_SIGNATURE_MEASUREMENT_FIELDS = Object.freeze([
+    'candidateCount', 'moreCandidates', 'menuItems', 'confirmButtons', 'postFallbackAttempts', 'validCount', 'eligibleCount', 'rejectedCount', 'duplicateCount', 'selectedCount',
+    'visibleCount', 'actionableCount', 'unknownCount', 'observedUnique', 'uniqueBefore', 'uniqueAfter', 'uniqueDelta', 'mutationCount', 'retryCount', 'tabCandidates',
+    'rowCandidates', 'validAccountRows', 'rollbackRestoredCount', 'queueCount', 'exactLinkCount', 'uniqueCandidateCount', 'uniqueExactAccountCount', 'duplicateExactLinkCount',
+    'acceptedUniqueAccountCount', 'excludedInvalidCount', 'excludedInvisibleCount', 'excludedOutOfBoundsCount', 'excludedHeadingHeaderCount', 'excludedNavigationCount',
+    'excludedNestedDialogCount', 'classifiedLinkCount', 'unclassifiedLinkCount', 'pendingCount', 'selectedVisualCount', 'dialogCount', 'accountRowCount', 'listCount',
+    'scrollRootCandidates', 'scrollCount', 'totalHint', 'pollCount', 'waitMs', 'renderObservations', 'repeatCount', 'processedCount', 'failedCount',
+    'queuedCount', 'remainingCount', 'failureCount', 'breakerCount', 'visibleRows', 'uniqueVisibleRows', 'uniqueUnknownRows', 'uniqueEligibleCount', 'uniqueRowCount',
+    'rowCount', 'operationCount', 'checkedCount', 'requestCount', 'selfSkippedCount', 'ownerSkippedCount', 'replySkippedCount', 'scrollAttempt', 'visibleProgress',
+    'bestExactLinkCount', 'checkedInputCount', 'checkboxContainerCount', 'newUserCount', 'rawUserCount', 'menuCount', 'overlayCount', 'svgCount', 'followRowCount',
+    'roleRowCount', 'pressableRowCount', 'postCardCount', 'boundedParentCount', 'skippedRowCount', 'repositionedCount', 'lowConfidenceCount', 'recognizedMenuItemCount',
+    'knownReportItemCount', 'knownFollowItemCount', 'knownCopyLinkItemCount', 'profileRootCandidateCount', 'profileRootEvidenceCount', 'strictRootCandidateCount',
+    'relaxedRootCandidateCount', 'nextStepIndex', 'actionCount', 'storageWriteCount', 'storageWriteBytes', 'cursorSizeBytes', 'resultSizeBytes', 'elapsedMs',
+    'durationMs', 'scrollTop', 'beforeScrollTop', 'afterScrollTop', 'clientHeight', 'scrollHeight', 'beforeScrollHeight', 'afterScrollHeight', 'rowCandidateHeight',
+    'devicePixelRatio', 'sizeRatio', 'resizeRequestedWidth', 'resizeRequestedHeight', 'resizeEffectiveWidth', 'resizeEffectiveHeight', 'errorLine', 'ancestorDepth',
+]);
+
+export const DIAGNOSTIC_SIGNATURE_STATUS_FIELDS = Object.freeze([
+    'routeMatch', 'routeUnchanged', 'messageRoute', 'profileRoute', 'postRoute', 'searchRoute', 'tagRoute', 'conversationList', 'activeConversation', 'composer',
+    'actionArea', 'strongSignature', 'dialogFound', 'listFound', 'scrollRootFound', 'scrollRootSelected', 'visible', 'mutation', 'progress', 'atBottom', 'loading',
+    'contextChanged', 'rootChanged', 'evidence',
+    'selectedTab', 'activeTab', 'switchAttempt', 'switchSucceeded', 'clamped', 'hidden', 'stopped', 'timedOut', 'aborted', 'complete', 'ok', 'rollback',
+    'committed', 'sameRoot', 'cohesive', 'rootAdvanced', 'historyTrigger', 'mutationTrigger', 'resizeTrigger', 'bounce', 'repositioned', 'found', 'clicked',
+    'created', 'attached', 'closed', 'disappeared', 'foreground', 'background', 'fallback', 'diagnosticsAttached', 'diagnosticsFallback', 'retry', 'breakerOpen',
+    'cooldownActive', 'stopRequested', 'stopAcknowledged', 'flickerLatch', 'idle', 'active', 'visibleStop', 'manualFollowUp', 'atomic', 'protected', 'private',
+    'notFound', 'alreadyBlocked', 'success', 'failure', 'terminal', 'preserved', 'verifiedLikesContext', 'activityDialog', 'contextMatch', 'ctxIsRoleDialog',
+    'ctxVisible', 'isMessageRoute', 'didInject', 'insideRoleDialog', 'ownAriaLabel', 'nestedAriaLabel', 'blockTextPresent', 'relaxedRoot', 'relaxedRootAttempted',
+    'strictRootMatched', 'rootSeenThenMissing', 'sameMenuElement', 'followButtonPresent', 'profileRouteMatch', 'privateProfile', 'invalidProfilePage',
+    'restrictionSignal', 'waitingForStep', 'waitingForConfirm', 'renderTriggered', 'resultPersisted', 'externalWait', 'waitingForExternal', 'ariaSelected',
+    'rectTop', 'rectLeft', 'rectWidth', 'rectHeight', 'viewportWidth', 'viewportHeight', 'outerWidth', 'outerHeight', 'innerWidth', 'innerHeight',
+    'rowRule', 'rowConfidence', 'rowKindCode', 'statusCode', 'attempt', 'stopReason', 'activeTabCategory', 'pathnameCategory', 'path', 'strategy', 'classificationStrategy',
+    'detector', 'errorName', 'errorCode', 'errorStack', 'errorFunction', 'tag', 'role', 'hrefCategory', 'category', 'httpBucket', 'reason', 'failureType',
+    'dialogPresent', 'layoutSignature',
+]);
+
+const diagnosticMeasurementFieldSet = new Set(DIAGNOSTIC_SIGNATURE_MEASUREMENT_FIELDS);
+const diagnosticIntegerStatusFieldSet = new Set([
+    'rectTop', 'rectLeft', 'rectWidth', 'rectHeight', 'viewportWidth', 'viewportHeight', 'outerWidth', 'outerHeight', 'innerWidth', 'innerHeight',
+    'rowRule', 'rowConfidence', 'rowKindCode', 'statusCode',
+]);
+
+const diagnosticSignatureValue = (key, value) => {
+    if (diagnosticIntegerStatusFieldSet.has(key)) {
+        const number = Number(value);
+        return Number.isFinite(number) ? Math.round(number) : 0;
+    }
+    if (key === 'dialogPresent') return value === true;
+    if (typeof value === 'boolean' || typeof value === 'string') return value;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    return null;
+};
+
+export const buildDiagnosticStateSignature = (fields = {}) => {
+    const source = fields && typeof fields === 'object' ? fields : {};
+    const projected = {};
+    for (const key of DIAGNOSTIC_SIGNATURE_STATUS_FIELDS) {
+        if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+        const value = diagnosticSignatureValue(key, source[key]);
+        if (value !== null) projected[key] = value;
+    }
+    if (Object.prototype.hasOwnProperty.call(source, 'dialogCount')) {
+        projected.dialogPresent = Number(source.dialogCount) > 0;
+    }
+    const ordered = {};
+    for (const key of Object.keys(projected).sort()) ordered[key] = projected[key];
+    return JSON.stringify(ordered);
+};
+
+export const isDiagnosticMeasurementField = key => {
+    const normalized = String(key || '');
+    return diagnosticMeasurementFieldSet.has(normalized) || /Count$/i.test(normalized);
+};
+
 export const CONFIG = {
-    VERSION: '2.8.3-beta4', // 面板穩態噪音收斂與三無粉絲名單失敗取證
+    VERSION: '2.8.3-beta5', // 去除診斷簽章中的量測值
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。

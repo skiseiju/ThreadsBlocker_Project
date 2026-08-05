@@ -1,5 +1,5 @@
 // 只檢舉 Phase 1：在既有 likes dialog 內逐筆走 Threads 檢舉流程
-import { CONFIG } from '../config.js';
+import { CONFIG, buildDiagnosticStateSignature } from '../config.js';
 import { Storage } from '../storage.js';
 import { UI } from '../ui.js';
 import { Utils } from '../utils.js';
@@ -631,10 +631,11 @@ Object.assign(Core, {
                 Core.ReportDriver._blankDialogSignature = '';
                 return null;
             }
-            const signature = rawDialogs.map(dialog => {
+            const layoutSignature = rawDialogs.map(dialog => {
                 const rect = dialog.getBoundingClientRect();
                 return `${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.width)},${Math.round(rect.height)}`;
             }).join('|');
+            const signature = buildDiagnosticStateSignature({ layoutSignature });
             const now = Date.now();
             if (Core.ReportDriver._blankDialogSignature !== signature) {
                 Core.ReportDriver._blankDialogSignature = signature;

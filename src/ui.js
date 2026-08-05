@@ -1,4 +1,4 @@
-import { CONFIG } from './config.js';
+import { CONFIG, buildDiagnosticStateSignature } from './config.js';
 import { Utils } from './utils.js';
 import { Storage } from './storage.js';
 import { BUNDLED_RELEASE_NOTES } from './release-notes.js';
@@ -56,21 +56,11 @@ const panelClampDiagnosticMetric = value => {
     return Number.isFinite(number) ? Math.round(number) : 0;
 };
 
-const panelClampDiagnosticStateFrom = (fields = {}) => ({
-    clamped: fields?.clamped === true,
-    rectLeft: panelClampDiagnosticMetric(fields?.rectLeft),
-    rectTop: panelClampDiagnosticMetric(fields?.rectTop),
-    rectWidth: panelClampDiagnosticMetric(fields?.rectWidth),
-    rectHeight: panelClampDiagnosticMetric(fields?.rectHeight),
-    viewportWidth: panelClampDiagnosticMetric(fields?.viewportWidth),
-    viewportHeight: panelClampDiagnosticMetric(fields?.viewportHeight),
-});
-
 const panelClampDiagnosticStateChanged = (panel, fields = {}) => {
     if (!panel) return false;
-    const next = panelClampDiagnosticStateFrom(fields);
+    const next = buildDiagnosticStateSignature(fields);
     const previous = panelClampDiagnosticState.get(panel);
-    const changed = !previous || Object.keys(next).some(key => next[key] !== previous[key]);
+    const changed = previous !== next;
     if (changed) panelClampDiagnosticState.set(panel, next);
     return changed;
 };
@@ -78,23 +68,7 @@ const panelClampDiagnosticStateChanged = (panel, fields = {}) => {
 export const shouldRecordPanelReposition = (fields = {}) => {
     try {
         if (panelRepositionRecordCount >= PANEL_REPOSITION_RECORD_LIMIT) return false;
-        const rounded = value => {
-            const number = Number(value);
-            return Number.isFinite(number) ? Math.round(number) : 0;
-        };
-        const signature = [
-            `found:${fields?.found ? 1 : 0}`,
-            `fallback:${fields?.fallback ? 1 : 0}`,
-            `messageRoute:${fields?.messageRoute ? 1 : 0}`,
-            `rectTop:${rounded(fields?.rectTop)}`,
-            `rectLeft:${rounded(fields?.rectLeft)}`,
-            `rectWidth:${rounded(fields?.rectWidth)}`,
-            `rectHeight:${rounded(fields?.rectHeight)}`,
-            `viewportWidth:${rounded(fields?.viewportWidth)}`,
-            `viewportHeight:${rounded(fields?.viewportHeight)}`,
-            `menuItems:${rounded(fields?.menuItems)}`,
-            `candidateCount:${rounded(fields?.candidateCount)}`,
-        ].join('|');
+        const signature = buildDiagnosticStateSignature(fields);
         if (signature === lastPanelRepositionSignature) return false;
         lastPanelRepositionSignature = signature;
         panelRepositionRecordCount += 1;
