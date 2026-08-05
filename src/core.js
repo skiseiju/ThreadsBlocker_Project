@@ -42,13 +42,36 @@ const BETA_DIAGNOSTIC_REASONS = new Set([
     'network', 'network_error', 'worker_closed', 'disappeared', 'vanished', 'navigation_mismatch', 'menu_not_found', 'missing_more_button',
     'scan_in_flight', 'stopping_in_progress', 'worker_busy', 'owner_mismatch', 'popup_blocked', 'worker_start_failed', 'not_chrome_extension', 'scan_page',
     'missing_profile_root', 'missing_report_step', 'missing_report_option', 'submit_not_confirmed', 'action_failed', 'verification_failed', 'exception', 'report_failed',
+    'followers_trigger_not_found', 'followers_dialog_not_found', 'followers_dialog_not_found_after_retry',
 ]);
 const BETA_DIAGNOSTIC_TABS = new Set(['likes', 'quotes', 'reposts', 'followers', 'unknown']);
 const BETA_DIAGNOSTIC_PATHS = new Set(['message', 'profile', 'post', 'unknown']);
 // Checkbox-overlap observations use a separate path vocabulary. These are
 // not pathname categories and must not change the meaning of `pathnameCategory`.
 const BETA_DIAGNOSTIC_CHECKBOX_PATHS = new Set(['dialog_injection', 'inline_post_injection']);
-const BETA_DIAGNOSTIC_STRATEGIES = new Set(['semantic_row', 'scroll_ancestor', 'dialog_context', 'active_tab', 'split_signature', 'route', 'history_replace', 'window_open', 'same_tab', 'background_tab', 'verified_likes_context', 'unknown']);
+const BETA_DIAGNOSTIC_STRATEGIES = new Set(['semantic_row', 'scroll_ancestor', 'dialog_context', 'active_tab', 'split_signature', 'route', 'history_replace', 'window_open', 'same_tab', 'background_tab', 'verified_likes_context', 'count_text_node', 'count_button', 'href_path', 'text_match', 'unknown']);
+const BETA_THREE_NO_DEBUG_STEPS = new Set([
+    'user_stop_requested', 'network_discovery', 'network_action_marker',
+    'followers_candidate_threshold_reached', 'followers_auto_collecting',
+    'followers_auto_stopped_no_progress', 'followers_batch_no_profile_candidates',
+    'followers_cycle_already_complete', 'followers_empty_after_dialog_opened',
+    'completed_no_next_user', 'stop_requested_continue_candidate_labeling',
+    'profile_probe_start', 'profile_probe_continue', 'profile_check_result',
+    'stopped_after_candidate_labeling', 'completed_after_profile_check',
+    'finding_followers_trigger', 'followers_trigger_not_found',
+    'click_followers_trigger', 'first_click_no_dialog_retrying',
+    'dialog_opened_after_retry', 'dialog_not_found_after_retry',
+    'collect_followers_scroll', 'collect_followers_done', 'navigate_to_profile_probe',
+    'about_more_click', 'about_menu_item_click', 'about_dialog_checked',
+    'stopped_before_followers_dialog', 'stopped_after_followers_dialog_open',
+    'stopped_after_followers_media_wait', 'stopped_at_followers_phase_boundary',
+    'stopped_after_followers_collection', 'stopped_after_followers_collection_before_profile',
+    'stopped_at_profile_phase_boundary', 'stopped_before_next_profile',
+    'stop_observed_at_load', 'stop_observed_at_bootstrap', 'finish_rejected_early_terminal',
+    'finish_rejected_early_not_owned', 'finish_rejected_late_terminal',
+    'finish_rejected_late_not_owned', 'worker_close_scheduled', 'worker_close_called',
+    'unknown',
+]);
 const boundedDiagnosticInt = (value, max = 1000000) => Number.isFinite(value)
     ? Math.max(0, Math.min(max, Math.floor(Number(value)))) : 0;
 const boundedDiagnosticFloat = (value, max = 10000000) => Number.isFinite(value)
@@ -135,7 +158,7 @@ export const RuntimeDiagnostics = {
             'excludedHeadingHeaderCount', 'excludedNavigationCount', 'excludedNestedDialogCount',
             'classifiedLinkCount', 'unclassifiedLinkCount',
             'pendingCount', 'selectedVisualCount', 'dialogCount', 'accountRowCount', 'listCount', 'scrollRootCandidates',
-            'scrollCount', 'totalHint', 'attempt', 'waitMs', 'renderObservations',
+            'scrollCount', 'totalHint', 'attempt', 'pollCount', 'waitMs', 'renderObservations',
             'repeatCount', 'processedCount', 'failedCount', 'queuedCount', 'remainingCount', 'failureCount',
             'breakerCount', 'visibleRows', 'uniqueVisibleRows', 'uniqueUnknownRows', 'uniqueEligibleCount', 'uniqueRowCount', 'rowCount', 'operationCount', 'statusCode', 'checkedCount', 'requestCount',
             'selfSkippedCount', 'ownerSkippedCount', 'replySkippedCount', 'scrollAttempt', 'visibleProgress',
@@ -5678,6 +5701,10 @@ export const Core = {
         const bgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
         const reportBatch = Storage.getJSON(CONFIG.KEYS.REPORT_DEBUG_BATCH, {});
         const scanState = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_STATE, {});
+        const rawThreeNoDebugStep = String(scanState?.debug?.step || '');
+        const threeNoDebugStep = BETA_THREE_NO_DEBUG_STEPS.has(rawThreeNoDebugStep)
+            ? rawThreeNoDebugStep
+            : 'unknown';
         const rawStatus = String(
             ['starting', 'ready', 'scanning', 'collecting_followers', 'followers_collected', 'checking_profiles'].includes(String(scanState.status || '').toLowerCase())
                 ? 'three_no'
@@ -5697,6 +5724,7 @@ export const Core = {
             counts,
             elapsedMs,
             retryCount,
+            threeNoDebugStep,
         };
         const runtimeDiagnostics = RuntimeDiagnostics.export();
         if (runtimeDiagnostics?.entries?.length) bundle.runtimeDiagnostics = runtimeDiagnostics;

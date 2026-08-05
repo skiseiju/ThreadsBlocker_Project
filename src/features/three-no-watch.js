@@ -713,7 +713,14 @@ Object.assign(Core, {
                 ? `已抓到備選名單：${total}${triaged > 0 ? `（本批掃過 ${triaged}）` : ''}`
                 : '';
             const current = state.current ? `@${state.current}` : '';
-            const error = state.error ? `<div style="margin-top:8px;color:#ff9f9a;">${Utils.escapeHTML(state.error)}</div>` : '';
+            const failureMessages = {
+                followers_trigger_not_found: '卡在尋找粉絲入口：頁面上沒有找到可點擊的粉絲元素。',
+                followers_dialog_not_found_after_retry: '卡在點擊粉絲入口後等待對話框：第一次點擊與重試都沒有開啟視窗。',
+                followers_dialog_not_found: '卡在點擊粉絲入口後等待對話框：視窗沒有開啟。',
+            };
+            const failureKey = String(state.error || state.debug?.step || '');
+            const failureText = failureMessages[failureKey] || String(state.error || '');
+            const error = failureText ? `<div style="margin-top:8px;color:#ff9f9a;">${Utils.escapeHTML(failureText)}</div>` : '';
             const debug = state.debug && typeof state.debug === 'object' ? state.debug : {};
             const debugRows = Object.entries(debug)
                 .filter(([, value]) => value !== undefined && value !== null && value !== '')
@@ -1074,11 +1081,16 @@ Object.assign(Core, {
                     ? String(err.message)
                     : '';
                 if (startupError) Core.ThreeNoWatch.markWorkerSignal(scanId, startupError);
+                const failureError = String(err?.message || err || 'worker_start_failed');
+                const carriesFollowerDebug = ['followers_trigger_not_found', 'followers_dialog_not_found', 'followers_dialog_not_found_after_retry'].includes(failureError);
+                const failureState = Core.ThreeNoWatch.getScanState();
+                const failureDebug = carriesFollowerDebug && failureState?.debug && typeof failureState.debug === 'object'
+                    ? failureState.debug
+                    : undefined;
                 await Core.ThreeNoWatch.finishScan({
                     status: 'failed',
-                    error: ['worker_blocked', 'not_logged_in', 'owner_unknown', 'owner_mismatch', 'followers_dialog_not_found'].includes(String(err?.message || ''))
-                        ? String(err.message)
-                        : String(err?.message || err || 'worker_start_failed'),
+                    error: failureError,
+                    ...(failureDebug ? { debug: failureDebug } : {}),
                 });
             }
         },
@@ -1193,7 +1205,12 @@ Object.assign(Core, {
             if (await Core.ThreeNoWatch.observeStop('stopped_before_followers_dialog')) return;
             const dialog = await Core.ThreeNoWatch.openFollowersDialog();
             if (await Core.ThreeNoWatch.observeStop('stopped_after_followers_dialog_open')) return;
-            if (!dialog) throw new Error('followers_dialog_not_found');
+            if (!dialog) {
+                const failedStep = String(Core.ThreeNoWatch.getScanState()?.debug?.step || '');
+                throw new Error(failedStep === 'followers_trigger_not_found'
+                    ? 'followers_trigger_not_found'
+                    : 'followers_dialog_not_found_after_retry');
+            }
             await Core.ThreeNoWatch.waitForFollowersListMedia(dialog);
             if (await Core.ThreeNoWatch.observeStop('stopped_after_followers_media_wait')) return;
 
@@ -1644,6 +1661,64 @@ Object.assign(Core, {
         },
 
         openFollowersDialog: async () => {
+            const diagnostics = Core.RuntimeDiagnostics;
+            const diagnosticOperationId = diagnostics?.begin?.('followers', { active: true, strategy: 'unknown' }) || null;
+            const triggerStrategies = ['count_text_node', 'count_button', 'href_path', 'text_match'];
+            const strategyObservations = new Map(triggerStrategies.map(strategy => [strategy, { attempts: 0, found: false }]));
+            const diagnosticRecord = (stage, fields = {}) => {
+                try {
+                    return diagnostics?.record?.('followers', stage, {
+                        ...(diagnosticOperationId ? { operationId: diagnosticOperationId } : {}),
+                        ...fields,
+                    }) || null;
+                } catch (_) {
+                    return null;
+                }
+            };
+            const endDiagnosticOperation = (reason, fields = {}) => {
+                try {
+                    return diagnostics?.end?.(diagnosticOperationId, 'terminal', {
+                        reason,
+                        ok: reason === 'success',
+                        complete: reason === 'success',
+                        ...fields,
+                    }) || null;
+                } catch (_) {
+                    return null;
+                }
+            };
+            const noteStrategy = (strategy, found) => {
+                const observation = strategyObservations.get(strategy);
+                if (!observation) return;
+                observation.attempts += 1;
+                if (found) observation.found = true;
+            };
+            const recordStrategyObservations = () => {
+                for (const strategy of triggerStrategies) {
+                    const observation = strategyObservations.get(strategy);
+                    diagnosticRecord('wait', {
+                        strategy,
+                        attempt: observation?.attempts || 0,
+                        found: observation?.found === true,
+                        complete: true,
+                    });
+                }
+            };
+            const POLL_SAMPLE_INTERVAL = 12;
+            const MAX_POLL_SAMPLES = 4;
+            const pollSampleCounts = new Map();
+            const recordPollSample = (phase, phaseStartedAt, pollCount, waitMs, fields = {}) => {
+                if (pollCount !== 1 && pollCount % POLL_SAMPLE_INTERVAL !== 0) return;
+                const sampleCount = pollSampleCounts.get(phase) || 0;
+                if (sampleCount >= MAX_POLL_SAMPLES) return;
+                pollSampleCounts.set(phase, sampleCount + 1);
+                diagnosticRecord('wait', {
+                    ...fields,
+                    pollCount,
+                    waitMs,
+                    elapsedMs: Math.max(0, Date.now() - phaseStartedAt),
+                });
+            };
             const snapshotCandidates = (limit = 10) => Array.from(document.querySelectorAll('span[dir="auto"], span, a, button, div[role="button"], [tabindex="0"]'))
                 .filter(el => !el.closest('[role="dialog"]'))
                 .map(el => {
@@ -1691,12 +1766,16 @@ Object.assign(Core, {
                     .filter(el => !el.closest('[role="dialog"]'))
                     .filter(isVisible)
                     .find(el => isFollowerCountText(el.innerText || el.textContent || el.getAttribute('title') || ''));
-                if (followerCountTextNode) return {
-                    element: followerCountTextNode,
-                    strategy: 'count_text_node',
-                    text: (followerCountTextNode.innerText || followerCountTextNode.textContent || followerCountTextNode.getAttribute('title') || '').replace(/\s+/g, ' ').trim(),
-                    href: '',
-                };
+                if (followerCountTextNode) {
+                    noteStrategy('count_text_node', true);
+                    return {
+                        element: followerCountTextNode,
+                        strategy: 'count_text_node',
+                        text: (followerCountTextNode.innerText || followerCountTextNode.textContent || followerCountTextNode.getAttribute('title') || '').replace(/\s+/g, ' ').trim(),
+                        href: '',
+                    };
+                }
+                noteStrategy('count_text_node', false);
 
                 const followerCountButton = Array.from(document.querySelectorAll('div[role="button"], button, [tabindex="0"], span[dir="auto"], span'))
                     .filter(el => !el.closest('[role="dialog"]'))
@@ -1706,12 +1785,16 @@ Object.assign(Core, {
                         const cursor = window.getComputedStyle(el).cursor;
                         return el.matches('div[role="button"], button, [tabindex="0"]') || cursor === 'pointer';
                     });
-                if (followerCountButton) return {
-                    element: followerCountButton.matches('span') ? clickableAncestor(followerCountButton) : followerCountButton,
-                    strategy: 'count_button',
-                    text: (followerCountButton.innerText || followerCountButton.textContent || '').replace(/\s+/g, ' ').trim(),
-                    href: '',
-                };
+                if (followerCountButton) {
+                    noteStrategy('count_button', true);
+                    return {
+                        element: followerCountButton.matches('span') ? clickableAncestor(followerCountButton) : followerCountButton,
+                        strategy: 'count_button',
+                        text: (followerCountButton.innerText || followerCountButton.textContent || '').replace(/\s+/g, ' ').trim(),
+                        href: '',
+                    };
+                }
+                noteStrategy('count_button', false);
 
                 const hrefTrigger = Array.from(document.querySelectorAll('a[href]'))
                     .filter(el => !el.closest('[role="dialog"]'))
@@ -1726,7 +1809,11 @@ Object.assign(Core, {
                         }
                     })
                     .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0];
-                if (hrefTrigger) return { element: clickableAncestor(hrefTrigger), strategy: 'href_path', text: (hrefTrigger.innerText || hrefTrigger.textContent || '').replace(/\s+/g, ' ').trim(), href: hrefTrigger.getAttribute('href') || '' };
+                if (hrefTrigger) {
+                    noteStrategy('href_path', true);
+                    return { element: clickableAncestor(hrefTrigger), strategy: 'href_path', text: (hrefTrigger.innerText || hrefTrigger.textContent || '').replace(/\s+/g, ' ').trim(), href: hrefTrigger.getAttribute('href') || '' };
+                }
+                noteStrategy('href_path', false);
 
                 const candidates = Array.from(document.querySelectorAll('a, button, div[role="button"], [tabindex="0"], span, div'))
                     .filter(el => !el.closest('[role="dialog"]'))
@@ -1739,9 +1826,11 @@ Object.assign(Core, {
                     const isShortFollowerLabel = text.length <= 48 && [...texts].some(t => text === t || compactText === String(t || '').replace(/\s+/g, ''));
                     if (isCompactFollowerCount || isShortFollowerLabel) {
                         const target = clickableAncestor(el);
+                        noteStrategy('text_match', true);
                         return { element: target, strategy: 'text_match', text, href: target.getAttribute?.('href') || '' };
                     }
                 }
+                noteStrategy('text_match', false);
                 return null;
             };
 
@@ -1754,7 +1843,35 @@ Object.assign(Core, {
                 },
             });
 
-            const triggerInfo = await Utils.pollUntil(findTrigger, 10000, 250);
+            const triggerPollStartedAt = Date.now();
+            let triggerPollCount = 0;
+            let triggerInfo;
+            try {
+                triggerInfo = await Utils.pollUntil(() => {
+                    triggerPollCount += 1;
+                    const result = findTrigger();
+                    recordPollSample('trigger', triggerPollStartedAt, triggerPollCount, 10000, {
+                        strategy: result?.strategy || 'unknown',
+                        found: !!result?.element,
+                    });
+                    return result;
+                }, 10000, 250);
+            } catch (error) {
+                diagnosticRecord('failure', { reason: 'exception', failure: true, pollCount: triggerPollCount });
+                endDiagnosticOperation('exception', { ok: false, pollCount: triggerPollCount });
+                throw error;
+            }
+            const triggerElapsedMs = Math.max(0, Date.now() - triggerPollStartedAt);
+            recordStrategyObservations();
+            diagnosticRecord('wait', {
+                strategy: triggerInfo?.strategy || 'unknown',
+                found: !!triggerInfo?.element,
+                complete: true,
+                attempt: triggerPollCount,
+                pollCount: triggerPollCount,
+                waitMs: 10000,
+                elapsedMs: triggerElapsedMs,
+            });
             if (!triggerInfo?.element) {
                 Core.ThreeNoWatch.setScanState({
                     status: 'collecting_followers',
@@ -1763,6 +1880,19 @@ Object.assign(Core, {
                         url: window.location.href,
                         candidates: snapshotCandidates(16).map(item => `${item.tag}${item.role ? `[${item.role}]` : ''}: ${item.text}`),
                     },
+                });
+                diagnosticRecord('failure', {
+                    reason: 'followers_trigger_not_found',
+                    failure: true,
+                    found: false,
+                    attempt: triggerPollCount,
+                    pollCount: triggerPollCount,
+                    waitMs: 10000,
+                    elapsedMs: triggerElapsedMs,
+                });
+                endDiagnosticOperation('followers_trigger_not_found', {
+                    waitMs: triggerElapsedMs,
+                    elapsedMs: triggerElapsedMs,
                 });
                 return null;
             }
@@ -1782,9 +1912,62 @@ Object.assign(Core, {
                 },
             });
 
-            Utils.simClick(trigger);
-            let dialog = await Utils.pollUntil(() => Core.ThreeNoWatch.findActiveFollowersDialog(), 8000, 250);
-            if (dialog) return dialog;
+            const waitForDialog = async (maxMs, clickAttempt, retry) => {
+                const dialogPollStartedAt = Date.now();
+                let dialogPollCount = 0;
+                let result;
+                try {
+                    result = await Utils.pollUntil(() => {
+                        dialogPollCount += 1;
+                        const foundDialog = Core.ThreeNoWatch.findActiveFollowersDialog();
+                        recordPollSample(`dialog_${clickAttempt}`, dialogPollStartedAt, dialogPollCount, maxMs, {
+                            attempt: clickAttempt,
+                            retry,
+                            clicked: true,
+                            dialogFound: !!foundDialog,
+                            dialogCount: document.querySelectorAll('div[role="dialog"]').length,
+                        });
+                        return foundDialog;
+                    }, maxMs, 250);
+                } catch (error) {
+                    diagnosticRecord('failure', {
+                        reason: 'exception',
+                        failure: true,
+                        clicked: true,
+                        retry,
+                        pollCount: dialogPollCount,
+                    });
+                    endDiagnosticOperation('exception', { ok: false, retry, pollCount: dialogPollCount });
+                    throw error;
+                }
+                const elapsedMs = Math.max(0, Date.now() - dialogPollStartedAt);
+                const dialogCount = document.querySelectorAll('div[role="dialog"]').length;
+                diagnosticRecord('dialog', {
+                    attempt: clickAttempt,
+                    retry,
+                    clicked: true,
+                    dialogFound: !!result,
+                    dialogCount,
+                    pollCount: dialogPollCount,
+                    waitMs: maxMs,
+                    elapsedMs,
+                });
+                return { dialog: result, elapsedMs, dialogCount, pollCount: dialogPollCount };
+            };
+
+            try {
+                Utils.simClick(trigger);
+            } catch (error) {
+                diagnosticRecord('failure', { reason: 'exception', failure: true, clicked: false });
+                endDiagnosticOperation('exception', { ok: false });
+                throw error;
+            }
+            let dialogWait = await waitForDialog(8000, 1, false);
+            let dialog = dialogWait.dialog;
+            if (dialog) {
+                endDiagnosticOperation('success', { dialogFound: true, dialogCount: dialogWait.dialogCount, waitMs: dialogWait.elapsedMs });
+                return dialog;
+            }
 
             Core.ThreeNoWatch.setScanState({
                 status: 'collecting_followers',
@@ -1796,9 +1979,16 @@ Object.assign(Core, {
                     dialogCount: document.querySelectorAll('div[role="dialog"]').length,
                 },
             });
-            trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-            if (typeof trigger.click === 'function') trigger.click();
-            dialog = await Utils.pollUntil(() => Core.ThreeNoWatch.findActiveFollowersDialog(), 10000, 250);
+            try {
+                trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                if (typeof trigger.click === 'function') trigger.click();
+            } catch (error) {
+                diagnosticRecord('failure', { reason: 'exception', failure: true, clicked: false, retry: true });
+                endDiagnosticOperation('exception', { ok: false, retry: true });
+                throw error;
+            }
+            dialogWait = await waitForDialog(10000, 2, true);
+            dialog = dialogWait.dialog;
             Core.ThreeNoWatch.setScanState({
                 status: 'collecting_followers',
                 debug: {
@@ -1810,6 +2000,27 @@ Object.assign(Core, {
                     candidates: snapshotCandidates(12).map(item => `${item.tag}: ${item.text}`),
                 },
             });
+            if (dialog) {
+                endDiagnosticOperation('success', { dialogFound: true, dialogCount: dialogWait.dialogCount, waitMs: dialogWait.elapsedMs, retry: true });
+            } else {
+                diagnosticRecord('failure', {
+                    reason: 'followers_dialog_not_found_after_retry',
+                    failure: true,
+                    clicked: true,
+                    retry: true,
+                    dialogFound: false,
+                    dialogCount: dialogWait.dialogCount,
+                    pollCount: dialogWait.pollCount,
+                    waitMs: 10000,
+                    elapsedMs: dialogWait.elapsedMs,
+                });
+                endDiagnosticOperation('followers_dialog_not_found_after_retry', {
+                    retry: true,
+                    dialogFound: false,
+                    dialogCount: dialogWait.dialogCount,
+                    waitMs: dialogWait.elapsedMs,
+                });
+            }
             return dialog;
         },
 

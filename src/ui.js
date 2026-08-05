@@ -49,6 +49,31 @@ const safePanelMessageRoute = () => {
 let panelRepositionRecordCount = 0;
 let lastPanelRepositionSignature = '';
 const PANEL_REPOSITION_RECORD_LIMIT = 30;
+const panelClampDiagnosticState = new WeakMap();
+
+const panelClampDiagnosticMetric = value => {
+    const number = Number(value);
+    return Number.isFinite(number) ? Math.round(number) : 0;
+};
+
+const panelClampDiagnosticStateFrom = (fields = {}) => ({
+    clamped: fields?.clamped === true,
+    rectLeft: panelClampDiagnosticMetric(fields?.rectLeft),
+    rectTop: panelClampDiagnosticMetric(fields?.rectTop),
+    rectWidth: panelClampDiagnosticMetric(fields?.rectWidth),
+    rectHeight: panelClampDiagnosticMetric(fields?.rectHeight),
+    viewportWidth: panelClampDiagnosticMetric(fields?.viewportWidth),
+    viewportHeight: panelClampDiagnosticMetric(fields?.viewportHeight),
+});
+
+const panelClampDiagnosticStateChanged = (panel, fields = {}) => {
+    if (!panel) return false;
+    const next = panelClampDiagnosticStateFrom(fields);
+    const previous = panelClampDiagnosticState.get(panel);
+    const changed = !previous || Object.keys(next).some(key => next[key] !== previous[key]);
+    if (changed) panelClampDiagnosticState.set(panel, next);
+    return changed;
+};
 
 export const shouldRecordPanelReposition = (fields = {}) => {
     try {
@@ -948,7 +973,17 @@ export const UI = {
             panel.style.left = `${left}px`;
             panel.style.right = 'auto';
         }
-        panelDiagnostics(panel, 'clamp', { clamped: changed, active: true, rectLeft: left, rectTop: top, rectWidth: rect.width, rectHeight: rect.height, viewportWidth: window.innerWidth, viewportHeight: window.innerHeight });
+        const diagnosticFields = {
+            clamped: changed,
+            active: true,
+            rectLeft: panelClampDiagnosticMetric(left),
+            rectTop: panelClampDiagnosticMetric(top),
+            rectWidth: panelClampDiagnosticMetric(rect.width),
+            rectHeight: panelClampDiagnosticMetric(rect.height),
+            viewportWidth: panelClampDiagnosticMetric(window.innerWidth),
+            viewportHeight: panelClampDiagnosticMetric(window.innerHeight),
+        };
+        if (panelClampDiagnosticStateChanged(panel, diagnosticFields)) panelDiagnostics(panel, 'clamp', diagnosticFields);
         return changed;
     },
 

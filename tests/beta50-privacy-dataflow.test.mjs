@@ -44,7 +44,7 @@ test('beta50 automatic bug-report diagnostics use only the closed schema', () =>
     const payload = Core.buildBugReportDiagnosticsBundle();
     assert.deepEqual(Object.keys(payload).sort(), [
         'collectedAt', 'counts', 'elapsedMs', 'phase', 'result', 'retryCount',
-        'routeType', 'status', 'type', 'version',
+        'routeType', 'status', 'threeNoDebugStep', 'type', 'version',
     ]);
     assert.deepEqual(Object.keys(payload.counts).sort(), [
         'confirmButtons', 'menuItems', 'moreCandidates', 'postFallbackAttempts',

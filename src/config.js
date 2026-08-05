@@ -1,5 +1,5 @@
 export const CONFIG = {
-    VERSION: '2.8.3-beta3', // 失敗分級、封鎖 root 標籤與檢舉第二步診斷
+    VERSION: '2.8.3-beta4', // 面板穩態噪音收斂與三無粉絲名單失敗取證
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。
