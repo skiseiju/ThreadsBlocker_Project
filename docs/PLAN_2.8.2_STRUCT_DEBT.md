@@ -30,6 +30,9 @@
 | 18 | 2.8.3-beta4 | 回報（使用者實測 2026-08-05） | 找不到連結／找不到帳號的失敗帳號，封鎖跑完後不會從佇列清掉，永遠留在開始封鎖清單 | 中 | 未動工（先取證） |
 | 19 | 2.8.3-beta5 | **beta1 診斷實測抓到**（2026-08-05） | 檢舉大量失敗實為 `missing_profile_root`，profile root 只查一次不等載入即放棄（4 至 9ms），且對外顯示成「找不到選單」誤導 | 中 | 未動工（優先，疑似線上 #42／#43／#44 同源） |
 | 20 | 2.8.3-beta6 | beta1 診斷實測抓到（2026-08-05） | `panel/clamp` 仍每 1.5 秒寫一筆內容相同的紀錄，beta1 的穩態抑制沒覆蓋到這個呼叫點 | 小 | 未動工 |
+| 21 | 2.8.3-beta3 | **beta2 封鎖實測抓到**（2026-08-05） | `failure` 旗標只認三個字串，實際的失敗理由全部落在外面，分級仍是 0，長批次會被沖掉 | 小 | 未動工（**最優先**，不修則第 15 項的四層分級對真實失敗無效） |
+| 22 | 2.8.3-beta7 | beta2 封鎖實測確認（2026-08-05） | 封鎖對外仍回報「找不到選單」，即使診斷已正確記為 `missing_profile_root` | 中 | 未動工（線上 #42／#43／#44 直接相關） |
+| 23 | 2.8.3-beta8 | beta2 封鎖實測抓到（2026-08-05） | 選單開得起來但只有 7 項且無封鎖選項，等 9 秒後失敗，成因未知 | 中 | 未動工（先取證） |
 
 版號欄是預期值；若某編號實際跨多個 beta（修壞重來），總表如實更新，編號不變。
 
@@ -303,6 +306,65 @@ beta1 新增的 `record()` 每分鐘 22 筆通用上限會把它從約 40 筆壓
 **修法方向**：`panel/clamp` 比照 `updatePanelRouteVisibility` 改成有變化才寫，rect 與 viewport 用整數比較避免浮點抖動。
 
 **驗收**：面板位置不變的穩態 60 秒，`panel/clamp` 條目數降到個位數；面板真的被夾住或位移時仍必定記錄。
+
+## 21. `failure` 旗標涵蓋不足，真實失敗仍是 priority 0（2.8.3-beta3，beta2 封鎖實測抓到）
+
+**這一項最優先。不修的話，第 15 項第二輪做的四層分級對真實世界的失敗完全無效。**
+
+**實際問題**：`src/worker.js:169`
+
+```js
+failure: ['failed', 'failure', 'error'].includes(result),
+```
+
+而 `diagnosticEntryPriority`（`src/core.js:21`）給 priority 4 的條件是 stage 屬失敗集合，或 `fields.failure === true`。
+
+封鎖流程實際產生的失敗理由是 `menu_not_found`、`missing_profile_root`、`navigation_mismatch`、`verification_failed`、`action_failed`、`already_blocked` 這些，**沒有一個在那三個字串裡**，而且它們被記錄時用的 stage 是 `navigation`、`menu`、`dequeue`，也不在失敗 stage 集合裡。
+
+**實測佐證**（ring `ee7f24efce8d`，version `2.8.3-beta2`，封鎖 58 筆跑到 36 筆）：
+
+| 條目 | stage | reason | priority |
+|---|---|---|---:|
+| 等滿 12,018ms 後失敗 | `navigation` | `missing_profile_root` | **0** |
+| 同一筆的外層結果 | `dequeue` | `menu_not_found` | **0** |
+| 等 9,099ms 後選單無封鎖選項 | `menu` | `menu_not_found` | **0** |
+
+三筆全部 priority 0。這正是 Fable 複核的根因 D 所預言的情形，第二輪只修了分級表，沒修產生條目的那一端。
+
+**後果**：一趟 100 帳號的封鎖產生數百筆 priority 0 條目，中段的失敗會被後段的正常紀錄擠掉，輕量層挑不到。線上使用者回報封鎖失敗時，我們仍然看不到失敗那一筆。
+
+**修法方向**：`failure` 的判定改成涵蓋所有非成功、非略過的結果。建議做法是反向定義，成功類（`success`／`completed`／`already_blocked`／`already_unblocked`）與明確的非失敗類之外一律視為失敗，避免未來新增 reason 又漏掉。判定必須只有一份實作，與 `diagnosticEntryPriority` 共用同一組語意來源。
+
+`already_blocked` 是否算失敗要明確決定並寫進註解，它不是錯誤但也不是成功。
+
+**驗收**：模擬 100 帳號封鎖，其中第 30 筆為 `menu_not_found`、第 60 筆為 `missing_profile_root`，改動前輕量層兩筆都取不到（red），改動後兩筆都必定入選（green）。既有成功條目不得誤判為失敗。
+
+## 22. 封鎖對外仍報「找不到選單」（2.8.3-beta7，beta2 實測確認）
+
+**實際問題**：beta2 已把封鎖的 root 診斷改記 `missing_profile_root`，但 `autoBlock` 對外回傳值維持 `menu_not_found`，因此使用者看到的失敗原因仍是「找不到選單」。實測 ring 同一筆操作內兩個 reason 並存，`navigation` 記 `missing_profile_root`，`dequeue` 記 `menu_not_found`。
+
+beta2 刻意沒動，理由是改回傳值會牽動 `runStep` 分支、`FAILED_QUEUE` 與重試白名單，屬於獨立的一件事。
+
+**線上直接相關**：#42「一直出現封鎖失敗的訊息」、#43「一直出現找不到選單」、#44「找不到選單，但可以手動封鎖，是否因為清單太長導致選單較慢」。#44 的判斷方向正確，我們給了錯的標籤。
+
+**修法方向**：`autoBlock` 的回傳值與 `runStep` 分支、失敗佇列 reason、重試白名單一併對齊，讓 root 逾時與選單問題成為兩個可分辨的結果。動工前先列出所有讀取這個回傳值的位置。
+
+**驗收**：root 逾時的帳號在失敗清單顯示載入相關文字，選單問題的帳號顯示選單相關文字，兩者可分辨；重試行為不變。
+
+## 23. 選單開得起來但沒有封鎖選項（2.8.3-beta8，beta2 實測抓到）
+
+**實際問題**：實測 ring 出現一筆與上述兩種都不同的失敗：
+
+```
+stage=menu  reason=menu_not_found  elapsedMs=9099
+menuItems=7  menuCount=1  dialogCount=0  confirmButtons=0  blockTextPresent=false
+```
+
+`menuCount=1` 代表選單確實開起來了，但只有 7 項且不含封鎖字樣。對照成功案例的 `menuItems` 落在 20 至 88 之間，這個 7 明顯是另一種選單。
+
+**成因未知，不得推測**。可能是點到了錯的「更多」按鈕、可能該帳號狀態不提供封鎖選項、也可能選單還在展開中就被判讀。動工前必須先取證。
+
+**驗收**：待取證後定。
 
 ---
 
