@@ -775,25 +775,15 @@ export const resolveControllerStatus = (input = {}) => {
     return 'idle';
 };
 
-export const hasActiveControllerSession = (input = {}) => {
-    const bg = input.bgStatus && typeof input.bgStatus === 'object' ? input.bgStatus : {};
-    const state = String(bg.state || input.state || '').toLowerCase();
-    const blockQueueCount = Number(input.blockQueueCount);
-    const reportQueueCount = Number(input.reportQueueCount);
-    return input.sessionActive === true
-        || input.threeNoActive === true
-        || state === 'running'
-        || state === 'stopping'
-        || blockQueueCount > 0
-        || reportQueueCount > 0;
-};
-
 export const resolveStopVisibility = (input = {}) => {
     const bg = input.bgStatus && typeof input.bgStatus === 'object' ? input.bgStatus : {};
     const state = String(bg.state || input.state || '').toLowerCase();
     const terminal = ['idle', 'completed', 'stopped', 'failed', 'error'].includes(state)
         || input.terminal === true;
-    const activeSession = hasActiveControllerSession({ ...input, state });
+    const activeSession = input.sessionActive === true
+        || input.threeNoActive === true
+        || state === 'running'
+        || state === 'stopping';
     // Show button if there's an active session
     if (activeSession) return true;
     // Terminal state OR unknown state with no active session: release the latch
@@ -875,22 +865,9 @@ export const Core = {
         const bgq = new Set(Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []));
         const liveBgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
         const liveState = String(liveBgStatus?.state || '').toLowerCase();
-        const activeWithoutReportQueue = hasActiveControllerSession({
-            state: liveState,
-            blockQueueCount: bgq.size,
-            reportQueueCount: 0,
-        });
-        const reportQueueCount = activeWithoutReportQueue
-            ? 0
-            : (() => {
-                const reportQueue = Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []);
-                return Array.isArray(reportQueue) ? reportQueue.length : 0;
-            })();
-        const liveSession = hasActiveControllerSession({
-            state: liveState,
-            blockQueueCount: bgq.size,
-            reportQueueCount,
-        });
+        const liveSession = liveState === 'running' || liveState === 'stopping'
+            || bgq.size > 0
+            || Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []).length > 0;
         return { db, cdq, bgq, liveSession };
     },
 
