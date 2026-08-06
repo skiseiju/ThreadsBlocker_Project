@@ -28,6 +28,7 @@ export const isDiagnosticSuccessResult = result => DIAGNOSTIC_SUCCESS_RESULTS.in
 export const isDiagnosticNonFailureResult = result => DIAGNOSTIC_NON_FAILURE_RESULTS.includes(String(result || ''));
 export const isDiagnosticFailureResult = result => !isDiagnosticSuccessResult(result) && !isDiagnosticNonFailureResult(result);
 const diagnosticEntryPriority = (stage, fields = {}) => {
+    if (fields?.category === 'execution_start') return 4;
     const hasResult = typeof fields?.reason === 'string';
     if (BETA_DIAGNOSTIC_FAILURE_STAGES.has(stage) || fields?.failure === true || (hasResult && isDiagnosticFailureResult(fields.reason))) return 4;
     if (BETA_DIAGNOSTIC_TERMINAL_STAGES.has(stage) || fields?.terminal === true) return 3;
@@ -81,6 +82,46 @@ const diagnosticSessionId = () => {
     try { return crypto.randomUUID().replace(/-/g, '').slice(0, 12); } catch (e) {
         return Math.random().toString(36).slice(2, 14);
     }
+};
+
+// 逐帳號計時只接受既有流程節點的時間戳，輸出固定為非負毫秒整數。
+// 缺少某個節點時保留為未列帳時間，不用猜測或補等待。
+export const buildAccountTimingFields = ({
+    accountStartedAt = 0,
+    navigationStartedAt = null,
+    rootAppearedAt = null,
+    menuOpenedAt = null,
+    actionSentAt = null,
+    confirmationCompletedAt = null,
+    accountEndedAt = 0,
+} = {}) => {
+    const toTime = value => Number.isFinite(Number(value)) ? Number(value) : null;
+    const fallbackStart = toTime(accountStartedAt) ?? 0;
+    const start = toTime(navigationStartedAt) ?? fallbackStart;
+    const end = Math.max(start, toTime(accountEndedAt) ?? start);
+    const clamp = value => {
+        const timestamp = toTime(value);
+        return timestamp === null ? null : Math.max(start, Math.min(end, timestamp));
+    };
+    const root = clamp(rootAppearedAt);
+    const menu = clamp(menuOpenedAt);
+    const action = clamp(actionSentAt);
+    const confirmation = clamp(confirmationCompletedAt);
+    const segment = (from, to) => from === null || to === null ? 0 : Math.max(0, Math.floor(to - from));
+    const navigationToRootMs = segment(start, root);
+    const rootToMenuMs = segment(root, menu);
+    const menuToActionMs = segment(menu, action);
+    const actionToConfirmMs = segment(action, confirmation);
+    const totalMs = Math.max(0, Math.floor(end - start));
+    const accountedMs = navigationToRootMs + rootToMenuMs + menuToActionMs + actionToConfirmMs;
+    return {
+        navigationToRootMs,
+        rootToMenuMs,
+        menuToActionMs,
+        actionToConfirmMs,
+        totalMs,
+        unaccountedMs: Math.max(0, totalMs - accountedMs),
+    };
 };
 
 // Beta-only, session-memory diagnostics. No storage, DOM text, URLs, handles,
@@ -181,6 +222,10 @@ export const RuntimeDiagnostics = {
         for (const key of floatKeys) {
             if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = boundedDiagnosticFloat(source[key]);
         }
+        const timingKeys = ['navigationToRootMs', 'rootToMenuMs', 'menuToActionMs', 'actionToConfirmMs', 'totalMs', 'unaccountedMs'];
+        for (const key of timingKeys) {
+            if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = boundedDiagnosticInt(source[key]);
+        }
         const boolKeys = [
             'routeMatch', 'routeUnchanged', 'messageRoute', 'profileRoute', 'postRoute', 'searchRoute', 'tagRoute', 'conversationList',
             'activeConversation', 'composer', 'actionArea', 'strongSignature', 'dialogFound', 'listFound',
@@ -266,7 +311,8 @@ export const RuntimeDiagnostics = {
         const rateKey = `${safeFeature}|${safeStage}|${rateClass}`;
         const rateLimit = priority >= 2 ? this.RATE_LIMIT_PRIORITY_2_3_PER_MINUTE : this.RATE_LIMIT_PER_MINUTE;
         let rateWindow = this._rateWindows.get(rateKey) || [];
-        if (priority < 4) {
+        const bypassRateLimit = safeFields.category === 'account_timing';
+        if (priority < 4 && !bypassRateLimit) {
             rateWindow = rateWindow.filter(timestamp => timestamp <= now && now - timestamp < this.RATE_WINDOW_MS);
             this._rateWindows.set(rateKey, rateWindow);
             if (rateWindow.length >= rateLimit) {
@@ -292,7 +338,7 @@ export const RuntimeDiagnostics = {
         this._entries.push(entry);
         this._lastBySignature.set(signature, entry);
         this._lastByRateKey.set(rateKey, entry);
-        if (priority < 4) {
+        if (priority < 4 && !bypassRateLimit) {
             rateWindow.push(now);
             this._rateWindows.set(rateKey, rateWindow);
         }
@@ -304,6 +350,64 @@ export const RuntimeDiagnostics = {
             for (const [key, value] of this._lastBySignature.entries()) if (value === removed) this._lastBySignature.delete(key);
         }
         return entry;
+    },
+    recordAccountTiming(feature = 'blocking', timing = {}) {
+        if (!this.enabled()) return null;
+        const safeFeature = BETA_DIAGNOSTIC_FEATURES.has(feature) ? feature : 'unknown';
+        const operationId = `${safeFeature}-${diagnosticSessionId()}`;
+        return this.record(safeFeature, 'finish', {
+            operationId,
+            category: 'account_timing',
+            terminal: true,
+            ...timing,
+        });
+    },
+    getActiveExecution() {
+        try {
+            const key = CONFIG.KEYS.RUNTIME_DIAGNOSTICS_EXECUTION;
+            Storage.invalidate(key);
+            const active = Storage.getJSON(key, null);
+            if (!active || typeof active !== 'object' || Array.isArray(active)) return null;
+            const operationId = typeof active.operationId === 'string'
+                && /^[a-z_]+-[a-z0-9]{1,16}$/i.test(active.operationId)
+                ? active.operationId : '';
+            const feature = BETA_DIAGNOSTIC_FEATURES.has(active.feature) ? active.feature : '';
+            const startedAt = boundedDiagnosticInt(active.startedAt, 9999999999999);
+            return operationId && feature && startedAt > 0 ? { operationId, feature, startedAt } : null;
+        } catch (_) {
+            return null;
+        }
+    },
+    startExecution(feature = 'blocking', fields = {}) {
+        if (!this.enabled()) return null;
+        const safeFeature = BETA_DIAGNOSTIC_FEATURES.has(feature) ? feature : 'unknown';
+        const force = fields?.force === true;
+        const markerFields = { ...(fields && typeof fields === 'object' ? fields : {}) };
+        delete markerFields.force;
+        const active = this.getActiveExecution();
+        if (active && !force && active.feature === safeFeature) return active.operationId;
+        if (active && force) Storage.remove(CONFIG.KEYS.RUNTIME_DIAGNOSTICS_EXECUTION);
+
+        const operationId = `${safeFeature}-${diagnosticSessionId()}`;
+        const startedAt = Date.now();
+        Storage.setJSON(CONFIG.KEYS.RUNTIME_DIAGNOSTICS_EXECUTION, { operationId, feature: safeFeature, startedAt });
+        this.record(safeFeature, 'start', {
+            ...markerFields,
+            operationId,
+            category: 'execution_start',
+            active: true,
+        });
+        this.persist();
+        return operationId;
+    },
+    ensureExecution(feature = 'blocking', fields = {}) {
+        return this.startExecution(feature, fields);
+    },
+    endExecution(operationId = null) {
+        const active = this.getActiveExecution();
+        if (!active || (operationId && active.operationId !== operationId)) return false;
+        Storage.remove(CONFIG.KEYS.RUNTIME_DIAGNOSTICS_EXECUTION);
+        return true;
     },
     _sanitizeEntry(entry = {}) {
         const safeSession = /^[a-z0-9]{1,32}$/i.test(String(entry.sessionId || '')) ? String(entry.sessionId) : this._sessionId;
@@ -333,6 +437,7 @@ export const RuntimeDiagnostics = {
         this._rateWindows.clear();
         this._operations.clear();
         try { Storage.setJSON(CONFIG.KEYS.RUNTIME_DIAGNOSTICS_RING, []); } catch (e) { /* 無 storage 環境 */ }
+        try { Storage.remove(CONFIG.KEYS.RUNTIME_DIAGNOSTICS_EXECUTION); } catch (e) { /* 無 storage 環境 */ }
     },
     // Worker 跑在另一個視窗，它的 _entries 在視窗關閉時就消失，主視窗按「複製
     // 診斷資料」只會拿到主視窗自己的紀錄。persist/loadPersisted 讓兩邊接得起來。
@@ -364,6 +469,21 @@ export const RuntimeDiagnostics = {
         const entries = this._mergeEntries(this._loadPersisted(), this.get()).slice(-this.PERSIST_LIMIT);
         const summary = {};
         for (const entry of entries) summary[entry.feature] = (summary[entry.feature] || 0) + 1;
+        let latestStartIndex = -1;
+        entries.forEach((entry, index) => {
+            if (entry.stage === 'start' && entry.fields?.category === 'execution_start') latestStartIndex = index;
+        });
+        summary.executionBoundary = latestStartIndex >= 0
+            ? {
+                latestStartAt: entries[latestStartIndex].timestamp,
+                entriesAfterLatestStart: entries.length - latestStartIndex - 1,
+                entriesBeforeLatestStart: latestStartIndex,
+            }
+            : {
+                latestStartAt: 0,
+                entriesAfterLatestStart: 0,
+                entriesBeforeLatestStart: entries.length,
+            };
         return { schema: this.SCHEMA, version: CONFIG.VERSION, sessionId: this._sessionId, summary, entries };
     },
 };
@@ -4689,6 +4809,7 @@ export const Core = {
             return;
         }
 
+        RuntimeDiagnostics.startExecution('blocking', { strategy: 'same_tab', force: true });
         Core.beginBlockSession([...newQ, ...toAdd]);
 
         Storage.setJSON(CONFIG.KEYS.BG_QUEUE, newQ);
@@ -4724,6 +4845,7 @@ export const Core = {
             return;
         }
 
+        RuntimeDiagnostics.startExecution('report', { strategy: 'same_tab', force: true });
         if (Storage.getJSON(CONFIG.KEYS.REPORT_BATCH_USERS, []).length === 0) {
             Storage.setJSON(CONFIG.KEYS.REPORT_BATCH_USERS, q);
         }

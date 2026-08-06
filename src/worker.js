@@ -1,7 +1,7 @@
 import { CONFIG } from './config.js';
 import { Utils } from './utils.js';
 import { Storage } from './storage.js';
-import { Core, RuntimeDiagnostics } from './core.js';
+import { Core, RuntimeDiagnostics, buildAccountTimingFields } from './core.js';
 import { MoreLocator } from './more-locator.js';
 import { ReportDebugContext } from './report-debug-context.js';
 
@@ -55,8 +55,10 @@ export const Worker = {
     _workerVisualStorageListenerBound: false,
     _diagnosticOperationId: null,
     _diagnosticOperationFeature: 'blocking',
+    _diagnosticExecutionId: null,
     _diagnosticPersistAt: 0,
     _diagnosticPersistMinIntervalMs: 500,
+    _accountNavigationStartedAt: null,
 
     persistDiagnostics: (force = false) => {
         if (!RuntimeDiagnostics.enabled()) return false;
@@ -71,6 +73,12 @@ export const Worker = {
         const entry = RuntimeDiagnostics.end(operationId, stage, fields);
         Worker.persistDiagnostics(true);
         return entry;
+    },
+
+    endExecution: () => {
+        const ended = RuntimeDiagnostics.endExecution(Worker._diagnosticExecutionId);
+        Worker._diagnosticExecutionId = null;
+        return ended;
     },
 
     saveStats: () => {
@@ -336,6 +344,11 @@ export const Worker = {
     init: async () => {
         Worker._diagnosticOperationFeature = Storage.get(CONFIG.KEYS.WORKER_MODE, '') === 'report' ? 'report' : 'blocking';
         Worker._diagnosticPersistAt = 0;
+        Worker._diagnosticExecutionId = RuntimeDiagnostics.ensureExecution(Worker._diagnosticOperationFeature, {
+            strategy: Utils.isMobile() ? 'same_tab' : 'background_tab',
+            foreground: !Utils.isMobile(),
+            background: Utils.isMobile() === false,
+        });
         Worker._diagnosticOperationId = RuntimeDiagnostics.begin(Worker._diagnosticOperationFeature, { strategy: Utils.isMobile() ? 'same_tab' : 'background_tab', foreground: !Utils.isMobile(), background: Utils.isMobile() === false });
         RuntimeDiagnostics.record(Worker._diagnosticOperationFeature, 'precondition', { operationId: Worker._diagnosticOperationId, queueCount: Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []).length, pendingCount: Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []).length });
         Worker.persistDiagnostics(true);
@@ -418,6 +431,7 @@ export const Worker = {
             if (stopBtn) stopBtn.style.display = 'none';
             Worker.recordSafetyDiagnostic('cooldown', 'cooldown', MoreLocator.routeType(), {}, {}, { operationId: Worker._diagnosticOperationId });
             Worker.endDiagnostic(Worker._diagnosticOperationId, 'terminal', { reason: 'cooldown', ok: false, cooldownActive: true });
+            Worker.endExecution();
             Worker._diagnosticOperationId = null;
             return;
         }
@@ -994,8 +1008,12 @@ export const Worker = {
         }
     },
 
-    updateStatus: (state, current = '', progress = 0, total = 0) => {
+    updateStatus: (state, current = '', progress = 0, total = 0, metadata = null) => {
         const s = { state, current, progress, total, lastUpdate: Date.now() };
+        const navigationStartedAt = Number(metadata?.accountNavigationStartedAt);
+        if (Number.isFinite(navigationStartedAt) && navigationStartedAt > 0) {
+            s.accountNavigationStartedAt = Math.floor(navigationStartedAt);
+        }
         Storage.setJSON(CONFIG.KEYS.BG_STATUS, s);
         if (state === 'error') Worker.persistDiagnostics(true);
 
@@ -1273,6 +1291,7 @@ export const Worker = {
         if (Storage.get(CONFIG.KEYS.BG_CMD) === 'stop') {
             Worker.recordSafetyDiagnostic('queue_advance', 'stopped', MoreLocator.routeType());
             Worker.endDiagnostic(operationId, 'stop', { reason: 'user_stop', ok: false });
+            Worker.endExecution();
             const workerMode = Storage.get(CONFIG.KEYS.WORKER_MODE, '');
             if (workerMode === 'report') Worker.interruptReportRun();
             Storage.remove(CONFIG.KEYS.BG_CMD);
@@ -1405,6 +1424,7 @@ export const Worker = {
             Worker.updateStatus('idle', '✅ 檢舉全部完成！', 0, 0);
             Worker.recordSafetyDiagnostic('queue_advance', 'completed', MoreLocator.routeType());
             Worker.endDiagnostic(Worker._diagnosticOperationId, 'finish', { reason: 'completed', ok: true, complete: true, processedCount: Worker.stats.success + Worker.stats.skipped });
+            Worker.endExecution();
             Worker._diagnosticOperationId = null;
             Worker.completeReportRun();
             Worker.clearStats();
@@ -1519,6 +1539,7 @@ export const Worker = {
             Worker.updateStatus('idle', '✅ 全部完成！', 0, 0);
             Worker.recordSafetyDiagnostic('queue_advance', 'completed', MoreLocator.routeType());
             Worker.endDiagnostic(Worker._diagnosticOperationId, 'finish', { reason: 'completed', ok: true, complete: true, processedCount: Worker.stats.success + Worker.stats.skipped });
+            Worker.endExecution();
             Worker._diagnosticOperationId = null;
             Worker.clearStats();
             Storage.remove(CONFIG.KEYS.WORKER_MODE);
@@ -1589,13 +1610,19 @@ export const Worker = {
         const onTargetPage = new RegExp(`^/@${targetUser.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\/|$)`).test(location.pathname);
         if (!onTargetPage) {
             Worker.recordSafetyDiagnostic('navigation_check', 'success', MoreLocator.routeType());
-            Worker.updateStatus('running', `${isUnblock ? '解鎖前往' : '前往'}: ${targetUser}`, 0, currentTotal);
+            const navigationStartedAt = Date.now();
+            Worker.updateStatus('running', `${isUnblock ? '解鎖前往' : '前往'}: ${targetUser}`, 0, currentTotal, { accountNavigationStartedAt: navigationStartedAt });
             await Utils.speedSleep(500 + Math.random() * 300);
             const useReplies = Storage.get(CONFIG.KEYS.POST_FALLBACK) !== 'false';
             const navPath = useReplies ? `/@${targetUser}/replies` : `/@${targetUser}`;
             history.replaceState(null, '', `${navPath}?hege_bg=true`);
             location.reload();
         } else {
+            const previousStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
+            const navigationStartedAt = Number(previousStatus?.accountNavigationStartedAt);
+            Worker._accountNavigationStartedAt = Number.isFinite(navigationStartedAt) && navigationStartedAt > 0
+                ? Math.floor(navigationStartedAt)
+                : null;
             Worker.updateStatus('running', `${isUnblock ? '解除封鎖中' : '封鎖中'}: ${targetUser}`, 0, currentTotal);
             const result = await Worker.autoBlock(targetUser, isUnblock);
             Storage.recordBlock();
@@ -1996,6 +2023,15 @@ export const Worker = {
         }
 
         const diagnosticStartedAt = Date.now();
+        const navigationStartedAt = Number(Worker._accountNavigationStartedAt);
+        Worker._accountNavigationStartedAt = null;
+        const accountStartedAt = Number.isFinite(navigationStartedAt) && navigationStartedAt > 0
+            ? Math.floor(navigationStartedAt)
+            : diagnosticStartedAt;
+        let rootAppearedAt = null;
+        let menuOpenedAt = null;
+        let actionSentAt = null;
+        let confirmationCompletedAt = null;
         let moreCandidates = 0;
         let menuItems = 0;
         let confirmButtons = 0;
@@ -2078,6 +2114,7 @@ export const Worker = {
                 const nextRoot = Core.findProfileRoot?.(user) || null;
                 if (profileRoot && !nextRoot) rootSeenThenMissing = true;
                 profileRoot = nextRoot;
+                if (profileRoot && rootAppearedAt === null) rootAppearedAt = Date.now();
                 return !!profileRoot;
             }, PROFILE_ROOT_WAIT_MS);
 
@@ -2089,6 +2126,7 @@ export const Worker = {
 
             // pollUntil 逾時後再取一次，避免最後一輪與逾時之間的空窗。
             if (!profileRoot) profileRoot = Core.findProfileRoot?.(user) || null;
+            if (profileRoot && rootAppearedAt === null) rootAppearedAt = Date.now();
             profileRootObservation = Core.getProfileRootObservation?.(user) || {};
             if (!profileRoot) {
                 recordDiagnostic('root_resolve', 'missing_profile_root', {}, {
@@ -2267,6 +2305,7 @@ export const Worker = {
                 }, 8000, 150);
 
                 if (menuResult) {
+                    if (menuOpenedAt === null) menuOpenedAt = Date.now();
                     if (menuResult.action === 'already_unblocked') { recordDiagnostic('menu_resolve', 'already_unblocked'); setStep('已解鎖 (略過)'); return 'already_unblocked'; }
                     if (menuResult.action === 'already_blocked') { recordDiagnostic('menu_resolve', 'already_blocked'); setStep('已封鎖 (略過)'); return 'already_blocked'; }
                     if (menuResult.action === 'found') blockBtn = menuResult.btn;
@@ -2350,6 +2389,7 @@ export const Worker = {
                             }, 6000, 150);
 
                             if (postMenuResult) {
+                                if (menuOpenedAt === null) menuOpenedAt = Date.now();
                                 if (postMenuResult.action === 'already_blocked') { recordDiagnostic('menu_resolve', 'already_blocked'); setStep('已封鎖 (略過)'); return 'already_blocked'; }
                                 if (postMenuResult.action === 'found') { blockBtn = postMenuResult.btn; }
                             }
@@ -2419,6 +2459,7 @@ export const Worker = {
                 phase: 'before_click',
                 fallbackUsed: postFallbackUsed,
             });
+            actionSentAt = Date.now();
             Utils.simClick(blockBtn);
 
             // 3. Wait for Confirmation Dialog (智慧等待)
@@ -2453,6 +2494,7 @@ export const Worker = {
                     : Utils.isUnblockText(pageText); // 封鎖後應看到「解除封鎖」
 
                 if (directBlocked) {
+                    confirmationCompletedAt = Date.now();
                     recordDiagnostic('confirm_resolve', 'success');
                     if (window.hegeLog) window.hegeLog(`[DIAG] @${user} 無確認 dialog 但偵測到已${isUnblock ? '解鎖' : '封鎖'}，視為成功`);
                     setStep(isUnblock ? '✅ 已解除封鎖 (直接)' : '✅ 已封鎖 (直接)');
@@ -2502,6 +2544,7 @@ export const Worker = {
             }, 5000, 150);
 
             if (closeResult === 'success') {
+                confirmationCompletedAt = Date.now();
                 recordDiagnostic('confirm_resolve', 'success');
                 setStep(isUnblock ? '✅ 已解除封鎖' : '✅ 已封鎖');
                 Core.ThreeNoWatch?.appendNetworkActionMarker?.(isUnblock ? 'unblock_success' : 'block_success', {
@@ -2534,6 +2577,7 @@ export const Worker = {
             }
 
             if (likelyBlocked) {
+                confirmationCompletedAt = Date.now();
                 recordDiagnostic('confirm_resolve', 'success');
                 setStep(isUnblock ? '✅ 已解除封鎖 (超時)' : '✅ 已封鎖 (超時)');
                 return 'success';
@@ -2547,6 +2591,19 @@ export const Worker = {
             console.error('autoBlock error:', e);
             recordDiagnostic('action_resolve', 'failed');
             return 'failed';
+        } finally {
+            const timing = buildAccountTimingFields({
+                accountStartedAt,
+                navigationStartedAt: Number.isFinite(navigationStartedAt) && navigationStartedAt > 0
+                    ? navigationStartedAt
+                    : accountStartedAt,
+                rootAppearedAt,
+                menuOpenedAt,
+                actionSentAt,
+                confirmationCompletedAt,
+                accountEndedAt: Date.now(),
+            });
+            RuntimeDiagnostics.recordAccountTiming('blocking', timing);
         }
     }
 };
