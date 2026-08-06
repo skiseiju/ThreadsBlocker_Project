@@ -1,6 +1,6 @@
 import { CONFIG } from '../config.js';
 import { Storage } from '../storage.js';
-import { Utils } from '../utils.js';
+import { Utils, isBackgroundWorkerBusy } from '../utils.js';
 import { Reporter } from '../reporter.js';
 import { UI } from '../ui.js';
 import { Core } from '../core.js';
@@ -956,7 +956,7 @@ Object.assign(Core, {
                 }
 
                 const bgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
-                const workerRunning = bgStatus.state === 'running' && (now - (bgStatus.lastUpdate || 0) < 30000);
+                const workerRunning = isBackgroundWorkerBusy(bgStatus);
                 if (workerRunning || Utils.isSweepRunning()) return endLaunch('worker_busy');
 
                 Core.ThreeNoWatch.clearTerminalScanBeforeStart();

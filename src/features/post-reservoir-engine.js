@@ -2,7 +2,7 @@
 import { CONFIG } from '../config.js';
 import { Storage } from '../storage.js';
 import { UI } from '../ui.js';
-import { Utils } from '../utils.js';
+import { Utils, isBackgroundWorkerBusy } from '../utils.js';
 import { Core } from '../core.js';
 import { DialogCollector } from '../dialog-collector.js';
 
@@ -155,7 +155,7 @@ Object.assign(Core, {
 
             // 跨 tab 防爭搶：worker 在跑、BG_QUEUE 還有人，都 skip
             const bgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
-            const workerActive = bgStatus.state === 'running' && (Date.now() - (bgStatus.lastUpdate || 0) < 30000);
+            const workerActive = isBackgroundWorkerBusy(bgStatus);
             if (workerActive) {
                 console.log('[SweepDriver] tick skipped: another tab worker is running');
                 return;

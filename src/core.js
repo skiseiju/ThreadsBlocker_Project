@@ -1,5 +1,5 @@
 import { CONFIG, buildDiagnosticStateSignature } from './config.js';
-import { Utils } from './utils.js';
+import { Utils, isBackgroundWorkerRunning } from './utils.js';
 import { Storage } from './storage.js';
 import { UI } from './ui.js';
 import { Reporter } from './reporter.js';
@@ -1113,7 +1113,7 @@ export const Core = {
 
     startFailureRetry: (type) => {
         const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
-        const isRunning = Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running';
+        const isRunning = isBackgroundWorkerRunning(status);
         if (isRunning) return false;
         const nextMode = normalizeFailureType(type);
         Storage.remove(CONFIG.KEYS.BG_CMD);
@@ -2618,7 +2618,7 @@ export const Core = {
 
     getBgMode: () => {
         const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
-        const isRunning = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
+        const isRunning = isBackgroundWorkerRunning(status);
         if (!isRunning) return 'IDLE';
         const queue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
         const first = queue[0] || '';
@@ -2987,7 +2987,7 @@ export const Core = {
             batch: batchId,
         });
         const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
-        const isRunning = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
+        const isRunning = isBackgroundWorkerRunning(status);
 
         if (isRunning) {
             const activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
@@ -3116,7 +3116,7 @@ export const Core = {
             });
 
             const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
-            const isRunning = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
+            const isRunning = isBackgroundWorkerRunning(status);
 
             if (isRunning) {
                 const activeQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
@@ -4376,7 +4376,7 @@ export const Core = {
 
         // Check if worker needs to be opened
         const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
-        const running = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
+        const running = isBackgroundWorkerRunning(status);
         if (!running) {
             Storage.remove(CONFIG.KEYS.BG_CMD);
             Storage.set(CONFIG.KEYS.WORKER_MODE, 'block');
@@ -4633,8 +4633,7 @@ export const Core = {
         const limitWarningMessage = String(workerStats?.limitWarningMessage || '').trim();
         const hasStructuredLimitWarning = Number.isFinite(workerStats?.limitWarningDone)
             && Number.isFinite(workerStats?.limitWarningLimit);
-        const isBackgroundRunning = bgStatus.state === 'running'
-            && (Date.now() - (bgStatus.lastUpdate || 0) < 10000);
+        const isBackgroundRunning = isBackgroundWorkerRunning(bgStatus);
         const showLimitWarning = isBackgroundRunning && limitWarningMessage.length > 0;
         const panelLimitWarning = showLimitWarning && hasStructuredLimitWarning
             ? `⚠️ 已封鎖 ${workerStats.limitWarningDone}/${workerStats.limitWarningLimit}，超過自訂安全估計值，可能被平台限制，程式會繼續執行`
@@ -4717,7 +4716,7 @@ export const Core = {
         const firstTask = bgqArr[0] || '';
         const isUnblockTask = firstTask.startsWith(CONFIG.UNBLOCK_PREFIX);
 
-        if (bgStatus.state === 'running' && (Date.now() - (bgStatus.lastUpdate || 0) < 10000)) {
+        if (isBackgroundWorkerRunning(bgStatus)) {
             shouldShowStop = true;
             const bgEta = getQueueEtaText(bgStatus.total);
             mainText = `${isUnblockTask ? '解除封鎖' : '背景執行'}中 剩餘 ${bgStatus.total} 人${bgEta ? ' ' + bgEta : ''}`;
@@ -5566,7 +5565,7 @@ export const Core = {
         UI.showToast(`已匯入 ${newUsers.length} 筆至背景佇列`);
 
         const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
-        const isRunning = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
+        const isRunning = isBackgroundWorkerRunning(status);
 
         if (!isRunning) {
             UI.showConfirm(`已匯入 ${newUsers.length} 筆名單。\n是否立即開始背景執行？`, () => {

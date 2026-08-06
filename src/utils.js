@@ -1,6 +1,23 @@
 import { CONFIG } from './config.js';
 import { Storage } from './storage.js';
 
+export const BACKGROUND_WORKER_RUNNING_WINDOW_MS = 10000;
+export const BACKGROUND_WORKER_BUSY_WINDOW_MS = 30000;
+
+// 背景 worker 是否在跑其實對應三個不同問題：
+// 1. 現在是什麼狀態，用於顯示。
+// 2. 可以開新流程嗎，用於互斥閘門，判準應該更保守。
+// 3. 已經結束了嗎，用於收尾。
+// 依 docs/PLAN_2.8.2_STRUCT_DEBT.md 第 7 節，本輪只做語意命名。
+// 甲組採 10 秒、乙組採 30 秒，兩個數值刻意保留。
+// 目前 13 處都只認 state === 'running'，停止中會被當成沒在跑，這是第 8 項尚未拍板的部分。
+// resolveControllerStatus 才是完整判準，目前只有一處在使用。
+export const isBackgroundWorkerRunning = (bgStatus = {}) =>
+    bgStatus.state === 'running' && (Date.now() - (bgStatus.lastUpdate || 0) < BACKGROUND_WORKER_RUNNING_WINDOW_MS);
+
+export const isBackgroundWorkerBusy = (bgStatus = {}) =>
+    bgStatus.state === 'running' && (Date.now() - (bgStatus.lastUpdate || 0) < BACKGROUND_WORKER_BUSY_WINDOW_MS);
+
 export const Utils = {
     escapeHTML: (str) => {
         const div = document.createElement('div');
@@ -298,7 +315,7 @@ export const Utils = {
         const hasSweeping = entries.some(p => p && p.status === 'sweeping');
         const bgQueue = Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []);
         const bgStatus = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
-        const workerRunning = bgStatus.state === 'running' && (Date.now() - (bgStatus.lastUpdate || 0) < 30000);
+        const workerRunning = isBackgroundWorkerBusy(bgStatus);
         const verifyPending = Storage.get(CONFIG.KEYS.VERIFY_PENDING);
         const batchVerify = Storage.getJSON(CONFIG.KEYS.BATCH_VERIFY, []);
         const flowActive = state === 'RELOADING' || state === 'SCANNING';

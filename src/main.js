@@ -1,6 +1,6 @@
 import { CONFIG } from './config.js';
 import { Storage } from './storage.js';
-import { Utils } from './utils.js';
+import { Utils, isBackgroundWorkerRunning } from './utils.js';
 import { UI } from './ui.js';
 import { Core } from './core.js';
 import { Worker } from './worker.js';
@@ -617,7 +617,7 @@ import './features/three-no-watch.js';
 
             const launchBlockWorker = (options = {}) => {
                 const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
-                const running = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
+                const running = isBackgroundWorkerRunning(status);
                 if (running && !options.force) {
                     UI.showToast('封鎖 worker 已在執行，已更新背景佇列');
                     return;
@@ -792,7 +792,7 @@ import './features/three-no-watch.js';
                     }
 
                     const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
-                    const running = (Date.now() - (status.lastUpdate || 0) < 10000 && status.state === 'running');
+                    const running = isBackgroundWorkerRunning(status);
                     if (!running) {
                         launchBlockWorker();
                     }
