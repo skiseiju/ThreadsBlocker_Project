@@ -48,8 +48,8 @@ globalThis.CustomEvent = class CustomEvent { constructor(type, init = {}) { this
 // Import resolveStopVisibility from core.js (now exported)
 const { resolveStopVisibility } = await import('../src/core.js');
 
-test('beta74 stop visibility reflects running state, not queue length', () => {
-    // Case 1: Queue has items but idle (no worker running) -> should NOT show
+test('beta74 stop visibility keeps queued work active until the queue drains', () => {
+    // 第 1 項：worker 進入閒置後仍有佇列，停止按鈕維持顯示
     const queuedButIdle = resolveStopVisibility({
         blockQueueCount: 37,
         reportQueueCount: 0,
@@ -59,7 +59,7 @@ test('beta74 stop visibility reflects running state, not queue length', () => {
         threeNoActive: false,
         stopLatch: false,
     });
-    assert.equal(queuedButIdle, false, 'Queue with items but idle state must NOT show stop button');
+    assert.equal(queuedButIdle, true, 'Queue with items must keep showing stop button after the worker becomes idle');
 
     // Case 2: Worker running (state === 'running') -> should show
     const running = resolveStopVisibility({
@@ -111,7 +111,7 @@ test('beta74 stop visibility reflects running state, not queue length', () => {
     });
     assert.equal(latchedEmptyState, false, 'Latch must be released when state is empty/unknown (beta76 regression guard)');
 
-    // Case 6: Terminal state with no active session -> should NOT show
+    // 第 6 項：terminal 狀態仍有佇列，代表工作尚未結束
     const terminalNoSession = resolveStopVisibility({
         blockQueueCount: 37,
         reportQueueCount: 0,
@@ -121,10 +121,21 @@ test('beta74 stop visibility reflects running state, not queue length', () => {
         threeNoActive: false,
         stopLatch: false,
     });
-    assert.equal(terminalNoSession, false, 'Terminal state with no active session must NOT show stop button');
+    assert.equal(terminalNoSession, true, 'Terminal state with queued work must keep showing stop button');
 
-    // Case 7 (new): Terminal state with latch set -> should NOT show (latch is released)
-    // This is the regression guard: latch must be cleared when terminal is reached
+    // 第 6b 項：terminal 狀態且佇列為空，正常完成時收起停止按鈕
+    const terminalEmptyQueue = resolveStopVisibility({
+        blockQueueCount: 0,
+        reportQueueCount: 0,
+        cooldownQueueCount: 0,
+        bgStatus: { state: 'completed' },
+        sessionActive: false,
+        threeNoActive: false,
+        stopLatch: false,
+    });
+    assert.equal(terminalEmptyQueue, false, 'Terminal state with an empty queue must hide stop button');
+
+    // 第 7 項：terminal 狀態、佇列為空且 latch 存在時釋放 latch
     const terminalWithLatch = resolveStopVisibility({
         blockQueueCount: 0,
         reportQueueCount: 0,
@@ -163,4 +174,4 @@ test('beta74 stop visibility reflects running state, not queue length', () => {
     assert.equal(sessionActive, true, 'Session active must show stop button');
 });
 
-console.log('beta74 stop visibility idle contract: queue-idle no-show running-show three-no-show stopping-show latch-show terminal-release session-show');
+console.log('beta74 stop visibility contract: queued-idle-show running-show three-no-show stopping-show latch-show terminal-queued-show terminal-empty-hide session-show');
