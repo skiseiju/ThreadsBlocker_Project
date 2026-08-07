@@ -528,37 +528,37 @@ Object.assign(Core, {
         },
 
         async waitForProfileRoot(user = '') {
-            const startedAt = Date.now();
-            let profileRoot = null;
-            let rootSeenThenMissing = false;
-            await Utils.pollUntil(() => {
-                if (Core.ReportDriver.isInvalidProfilePage()) return true;
-                const nextRoot = Core.findProfileRoot?.(user) || null;
-                if (profileRoot && !nextRoot) rootSeenThenMissing = true;
-                profileRoot = nextRoot;
-                return !!profileRoot;
-            }, PROFILE_ROOT_WAIT_MS);
+            const result = await Worker.resolveProfileRootWithRetry(user, {
+                mode: 'report',
+                findRoot: () => Core.findProfileRoot?.(user) || null,
+                isInvalidProfilePage: () => Core.ReportDriver.isInvalidProfilePage(),
+                hasRestrictionSignal: () => Core.ReportDriver.hasExplicitRestrictionSignal(),
+            });
 
-            if (Core.ReportDriver.isInvalidProfilePage()) {
-                return { root: null, reason: 'vanished', waitMs: Date.now() - startedAt };
+            if (result.retryRequested) {
+                if (Worker.isStopRequested()) {
+                    Worker.clearProfileRootRetry(user, 'report');
+                    return { ...result, reason: 'stopped', retryRequested: false };
+                }
+                const canReload = Worker.canReloadCurrentPage();
+                if (canReload) {
+                    Core.ReportDriver.recordSafetyDiagnostic('root_resolve', 'missing_profile_root', {}, {
+                        elapsedMs: result.waitMs,
+                        fields: {
+                            attempt: result.attempt,
+                            retry: true,
+                            renderTriggered: true,
+                            success: false,
+                            ...result.observation,
+                        },
+                    });
+                    if (Worker.reloadCurrentPage()) return { ...result, reason: 'reload_requested', reloadRequested: true };
+                }
+                Worker.clearProfileRootRetry(user, 'report');
+                return { ...result, reason: 'missing_profile_root', retryRequested: false };
             }
 
-            // 逾時後再補查一次，避免最後一輪輪詢與逾時之間出現空窗。
-            if (!profileRoot) profileRoot = Core.findProfileRoot?.(user) || null;
-            const observation = Core.getProfileRootObservation?.(user) || {};
-            const liveRoot = profileRoot ? Core.findProfileRoot?.(user) || null : null;
-            if (profileRoot && !liveRoot) rootSeenThenMissing = true;
-            return {
-                root: profileRoot,
-                reason: profileRoot ? 'success' : 'missing_profile_root',
-                waitMs: Date.now() - startedAt,
-                observation: {
-                    ...observation,
-                    rootSeenThenMissing,
-                    invalidProfilePage: Core.ReportDriver.isInvalidProfilePage(),
-                    restrictionSignal: Core.ReportDriver.hasExplicitRestrictionSignal(),
-                },
-            };
+            return result;
         },
 
         findConfirmationButton() {
@@ -877,6 +877,20 @@ Object.assign(Core, {
                     ? await Core.ReportDriver.waitForProfileRoot(user)
                     : { root: null, reason: '', waitMs: 0 };
                 const profileRoot = profileRootResult.root;
+                if (mode === 'profile' && profileRootResult.reason === 'stopped') {
+                    Core.ReportDriver.recordSafetyDiagnostic('root_resolve', 'stopped', {}, {
+                        elapsedMs: profileRootResult.waitMs,
+                        fields: {
+                            attempt: profileRootResult.attempt,
+                            retry: profileRootResult.attempt === 2,
+                            stopRequested: true,
+                            ...profileRootResult.observation,
+                        },
+                    });
+                    Worker.handleStopRequested();
+                    return true;
+                }
+                if (mode === 'profile' && profileRootResult.reason === 'reload_requested') return true;
                 if (mode === 'profile' && profileRootResult.reason === 'vanished') {
                     return Core.ReportDriver.skipOrPauseForDebug(user, options, 'vanished', `@${user} 的帳號頁面已失效`, {
                         elapsedMs: profileRootResult.waitMs,
@@ -886,13 +900,23 @@ Object.assign(Core, {
                     return Core.ReportDriver.skipOrPauseForDebug(user, options, 'missing_profile_root', `@${user} 的帳號頁面尚未載入完成`, {
                         elapsedMs: profileRootResult.waitMs,
                         waitMs: profileRootResult.waitMs,
-                        fields: profileRootResult.observation || {},
+                        fields: {
+                            attempt: profileRootResult.attempt,
+                            retry: profileRootResult.attempt === 2,
+                            success: false,
+                            ...(profileRootResult.observation || {}),
+                        },
                     });
                 }
                 if (mode === 'profile') {
                     Core.ReportDriver.recordSafetyDiagnostic('root_resolve', 'success', {}, {
                         elapsedMs: profileRootResult.waitMs,
-                        fields: profileRootResult.observation || {},
+                        fields: {
+                            attempt: profileRootResult.attempt,
+                            retry: profileRootResult.attempt === 2,
+                            success: true,
+                            ...(profileRootResult.observation || {}),
+                        },
                     });
                 }
                 const privateState = mode === 'profile' ? MoreLocator.detectPrivateProfileState(profileRoot) : { private: false };

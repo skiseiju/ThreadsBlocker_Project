@@ -192,6 +192,7 @@ test('missing_profile_root 是診斷與 UI 可辨識的 root reason', async () =
         readFile(new URL('../src/ui.js', import.meta.url), 'utf8'),
     ]);
     assert.match(coreSource, /'missing_profile_root'/);
-    assert.match(reportSource, /reason: profileRoot \? 'success' : 'missing_profile_root'/);
+    assert.match(reportSource, /resolveProfileRootWithRetry/);
+    assert.match(reportSource, /reason: 'missing_profile_root'/);
     assert.match(uiSource, /missing_profile_root: '帳號頁面尚未載入完成'/);
 });

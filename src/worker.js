@@ -59,6 +59,7 @@ export const Worker = {
     _diagnosticPersistAt: 0,
     _diagnosticPersistMinIntervalMs: 500,
     _accountNavigationStartedAt: null,
+    _stopHandled: false,
 
     persistDiagnostics: (force = false) => {
         if (!RuntimeDiagnostics.enabled()) return false;
@@ -135,6 +136,208 @@ export const Worker = {
     clearStats: () => {
         Worker.resetStatsState(0);
         Storage.remove(CONFIG.KEYS.WORKER_STATS);
+    },
+
+    // 停止按鈕沿用 Core.markStopRequested 寫入的同一個 BG_CMD。每次讀取前
+    // 先清除本視窗快取，讓桌面背景 worker 能即時看見主視窗的停止指令。
+    isStopRequested: () => {
+        try {
+            Storage.invalidate(CONFIG.KEYS.BG_CMD);
+            return Storage.get(CONFIG.KEYS.BG_CMD) === 'stop';
+        } catch (_) {
+            return false;
+        }
+    },
+
+    getProfileRootRetryAttempt: (user, mode = 'block') => {
+        try {
+            Storage.invalidate(CONFIG.KEYS.PROFILE_ROOT_RETRY);
+            const state = Storage.getJSON(CONFIG.KEYS.PROFILE_ROOT_RETRY, null);
+            if (!state || typeof state !== 'object' || Array.isArray(state)) return 1;
+            if (String(state.user || '') !== String(user || '') || String(state.mode || '') !== String(mode || '')) return 1;
+            return Number(state.attempt) === 1 ? 2 : 1;
+        } catch (_) {
+            return 1;
+        }
+    },
+
+    markProfileRootRetry: (user, mode = 'block') => {
+        Storage.setJSON(CONFIG.KEYS.PROFILE_ROOT_RETRY, {
+            user: String(user || ''),
+            mode: String(mode || 'block'),
+            attempt: 1,
+            requestedAt: Date.now(),
+        });
+        return true;
+    },
+
+    clearProfileRootRetry: (user = '', mode = '') => {
+        try {
+            Storage.invalidate(CONFIG.KEYS.PROFILE_ROOT_RETRY);
+            const state = Storage.getJSON(CONFIG.KEYS.PROFILE_ROOT_RETRY, null);
+            if (!state || typeof state !== 'object' || Array.isArray(state)) return false;
+            if (user && String(state.user || '') !== String(user)) return false;
+            if (mode && String(state.mode || '') !== String(mode)) return false;
+            Storage.remove(CONFIG.KEYS.PROFILE_ROOT_RETRY);
+            return true;
+        } catch (_) {
+            return false;
+        }
+    },
+
+    canReloadCurrentPage: () => {
+        try {
+            return typeof globalThis.history?.replaceState === 'function'
+                && typeof globalThis.location?.reload === 'function';
+        } catch (_) {
+            return false;
+        }
+    },
+
+    reloadCurrentPage: () => {
+        if (!Worker.canReloadCurrentPage()) return false;
+        try {
+            const currentPath = `${globalThis.location.pathname || ''}${globalThis.location.search || ''}${globalThis.location.hash || ''}`;
+            globalThis.history.replaceState(null, '', currentPath);
+            globalThis.location.reload();
+            return true;
+        } catch (_) {
+            return false;
+        }
+    },
+
+    // 等待 profile root 的共用流程。兩個 worker 呼叫點都只允許一次重載，
+    // 404、限制訊號與停止指令會在輪詢中直接結束，不會進入下一輪等待。
+    resolveProfileRootWithRetry: async (user, {
+        mode = 'block',
+        findRoot = () => Core.findProfileRoot?.(user) || null,
+        isInvalidProfilePage = () => false,
+        hasRestrictionSignal = () => false,
+    } = {}) => {
+        const attempt = Worker.getProfileRootRetryAttempt(user, mode);
+        if (attempt === 2) Worker.clearProfileRootRetry(user, mode);
+        const startedAt = Date.now();
+        let profileRoot = null;
+        let rootSeenThenMissing = false;
+        let rootAppearedAt = null;
+        const STOP_SIGNAL = 'stop_requested';
+        const INVALID_SIGNAL = 'invalid_profile_page';
+        const RESTRICTION_SIGNAL = 'restriction_signal';
+
+        const pollResult = await Utils.pollUntil(() => {
+            if (Worker.isStopRequested()) return STOP_SIGNAL;
+            if (isInvalidProfilePage()) return INVALID_SIGNAL;
+            if (hasRestrictionSignal()) return RESTRICTION_SIGNAL;
+            const nextRoot = findRoot();
+            if (profileRoot && !nextRoot) rootSeenThenMissing = true;
+            profileRoot = nextRoot;
+            if (profileRoot && rootAppearedAt === null) rootAppearedAt = Date.now();
+            return profileRoot ? profileRoot : null;
+        }, PROFILE_ROOT_WAIT_MS);
+
+        const stopped = pollResult === STOP_SIGNAL || Worker.isStopRequested();
+        const invalid = pollResult === INVALID_SIGNAL || isInvalidProfilePage();
+        const restricted = pollResult === RESTRICTION_SIGNAL || hasRestrictionSignal();
+        const observation = Core.getProfileRootObservation?.(user) || {};
+        const waitMs = Date.now() - startedAt;
+
+        if (stopped) {
+            Worker.clearProfileRootRetry(user, mode);
+            return {
+                root: null,
+                reason: 'stopped',
+                attempt,
+                waitMs,
+                observation: { ...observation, rootSeenThenMissing, invalidProfilePage: invalid, restrictionSignal: restricted },
+                rootAppearedAt,
+            };
+        }
+        if (invalid) {
+            Worker.clearProfileRootRetry(user, mode);
+            return {
+                root: null,
+                reason: 'vanished',
+                attempt,
+                waitMs,
+                observation: { ...observation, rootSeenThenMissing, invalidProfilePage: true, restrictionSignal: restricted },
+                rootAppearedAt,
+            };
+        }
+
+        if (profileRoot) {
+            return {
+                root: profileRoot,
+                reason: 'success',
+                attempt,
+                waitMs,
+                observation: { ...observation, rootSeenThenMissing, invalidProfilePage: false, restrictionSignal: restricted },
+                rootAppearedAt,
+            };
+        }
+
+        // 限制訊號沿用原本的 missing_profile_root 結果，交由各側既有的
+        // 限制處理與失敗清單分支接手，但不再多等或重載。
+        if (restricted) {
+            Worker.clearProfileRootRetry(user, mode);
+            return {
+                root: null,
+                reason: 'missing_profile_root',
+                attempt,
+                waitMs,
+                retryRequested: false,
+                observation: { ...observation, rootSeenThenMissing, invalidProfilePage: false, restrictionSignal: true },
+                rootAppearedAt,
+            };
+        }
+
+        if (attempt === 1) {
+            Worker.markProfileRootRetry(user, mode);
+            return {
+                root: null,
+                reason: 'retry_requested',
+                attempt,
+                waitMs,
+                retryRequested: true,
+                observation: { ...observation, rootSeenThenMissing, invalidProfilePage: false, restrictionSignal: false },
+                rootAppearedAt,
+            };
+        }
+
+        Worker.clearProfileRootRetry(user, mode);
+        return {
+            root: null,
+            reason: 'missing_profile_root',
+            attempt,
+            waitMs,
+            retryRequested: false,
+            observation: { ...observation, rootSeenThenMissing, invalidProfilePage: false, restrictionSignal: false },
+            rootAppearedAt,
+        };
+    },
+
+    handleStopRequested: () => {
+        if (Worker._stopHandled) return true;
+        Worker._stopHandled = true;
+        Worker.clearProfileRootRetry();
+        Worker.recordSafetyDiagnostic('queue_advance', 'stopped', MoreLocator.routeType());
+        Worker.endDiagnostic(Worker._diagnosticOperationId, 'stop', { reason: 'user_stop', ok: false });
+        Worker.endExecution();
+        const workerMode = Storage.get(CONFIG.KEYS.WORKER_MODE, '');
+        if (workerMode === 'report') Worker.interruptReportRun();
+        Storage.remove(CONFIG.KEYS.BG_CMD);
+        Storage.remove(CONFIG.KEYS.WORKER_MODE);
+        Storage.remove(CONFIG.KEYS.VERIFY_PENDING);
+        Storage.remove('hege_sweep_worker_standby');
+        Storage.remove('hege_batch_verify_idx');
+        Storage.setJSON(CONFIG.KEYS.BATCH_VERIFY, []);
+        sessionStorage.removeItem('hege_sweep_state');
+        sessionStorage.removeItem('hege_sweep_target');
+        sessionStorage.removeItem('hege_sweep_last_first_user');
+        sessionStorage.removeItem('hege_sweep_auto_triggered_once');
+        Worker.updateStatus('stopped', '已停止');
+        Worker.clearStats();
+        Worker.navigateBack();
+        return true;
     },
 
     // Closed, aggregate-only diagnostics for block/report gates. This writer
@@ -342,6 +545,7 @@ export const Worker = {
     },
 
     init: async () => {
+        Worker._stopHandled = false;
         Worker._diagnosticOperationFeature = Storage.get(CONFIG.KEYS.WORKER_MODE, '') === 'report' ? 'report' : 'blocking';
         Worker._diagnosticPersistAt = 0;
         Worker._diagnosticExecutionId = RuntimeDiagnostics.ensureExecution(Worker._diagnosticOperationFeature, {
@@ -1288,25 +1492,8 @@ export const Worker = {
         const operationId = Worker._diagnosticOperationId || (Worker._diagnosticOperationId = RuntimeDiagnostics.begin(operationFeature, { strategy: Utils.isMobile() ? 'same_tab' : 'background_tab' }));
         RuntimeDiagnostics.record(operationFeature, 'dequeue', { operationId, queueCount: Storage.getJSON(CONFIG.KEYS.BG_QUEUE, []).length, pendingCount: Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []).length });
         Worker.persistDiagnostics();
-        if (Storage.get(CONFIG.KEYS.BG_CMD) === 'stop') {
-            Worker.recordSafetyDiagnostic('queue_advance', 'stopped', MoreLocator.routeType());
-            Worker.endDiagnostic(operationId, 'stop', { reason: 'user_stop', ok: false });
-            Worker.endExecution();
-            const workerMode = Storage.get(CONFIG.KEYS.WORKER_MODE, '');
-            if (workerMode === 'report') Worker.interruptReportRun();
-            Storage.remove(CONFIG.KEYS.BG_CMD);
-            Storage.remove(CONFIG.KEYS.WORKER_MODE);
-            Storage.remove(CONFIG.KEYS.VERIFY_PENDING);
-            Storage.remove('hege_sweep_worker_standby');
-            Storage.remove('hege_batch_verify_idx');
-            Storage.setJSON(CONFIG.KEYS.BATCH_VERIFY, []);
-            sessionStorage.removeItem('hege_sweep_state');
-            sessionStorage.removeItem('hege_sweep_target');
-            sessionStorage.removeItem('hege_sweep_last_first_user');
-            sessionStorage.removeItem('hege_sweep_auto_triggered_once');
-            Worker.updateStatus('stopped', '已停止');
-            Worker.clearStats();
-            Worker.navigateBack();
+        if (Worker.isStopRequested()) {
+            Worker.handleStopRequested();
             return;
         }
 
@@ -1625,6 +1812,11 @@ export const Worker = {
                 : null;
             Worker.updateStatus('running', `${isUnblock ? '解除封鎖中' : '封鎖中'}: ${targetUser}`, 0, currentTotal);
             const result = await Worker.autoBlock(targetUser, isUnblock);
+            if (result === 'profile_root_reload') return;
+            if (result === 'stopped') {
+                Worker.handleStopRequested();
+                return;
+            }
             Storage.recordBlock();
 
             if (result === 'success' || result === 'already_blocked' || result === 'already_unblocked') {
@@ -2107,37 +2299,76 @@ export const Worker = {
             // 走，findProfileRoot 因此回 null，失敗會被誤標成選單問題。實機診斷顯示失敗
             // 全部發生在 dequeue 後 1–8ms，且都停在 root_resolve，從沒走到「更多」按鈕。
             // 改成等到「這個 user 的 profile root 真的出現」才繼續，才是 fail-closed。
-            const profileWaitStartedAt = Date.now();
-            let profileRoot = null;
-            await Utils.pollUntil(() => {
-                if (checkFor404()) return true;
-                const nextRoot = Core.findProfileRoot?.(user) || null;
-                if (profileRoot && !nextRoot) rootSeenThenMissing = true;
-                profileRoot = nextRoot;
-                if (profileRoot && rootAppearedAt === null) rootAppearedAt = Date.now();
-                return !!profileRoot;
-            }, PROFILE_ROOT_WAIT_MS);
+            const profileRootResult = await Worker.resolveProfileRootWithRetry(user, {
+                mode: 'block',
+                findRoot: () => Core.findProfileRoot?.(user) || null,
+                isInvalidProfilePage: checkFor404,
+                hasRestrictionSignal: checkForError,
+            });
+            let profileRoot = profileRootResult.root;
+            rootAppearedAt = profileRootResult.rootAppearedAt;
+            rootSeenThenMissing = profileRootResult.observation?.rootSeenThenMissing === true;
+            profileRootObservation = profileRootResult.observation || {};
 
-            if (checkFor404()) {
+            if (profileRootResult.reason === 'stopped') {
+                recordDiagnostic('root_resolve', 'stopped', {}, {
+                    waitMs: profileRootResult.waitMs,
+                    attempt: profileRootResult.attempt,
+                    retry: profileRootResult.attempt === 2,
+                    stopRequested: true,
+                    ...profileRootObservation,
+                });
+                return 'stopped';
+            }
+
+            if (profileRootResult.reason === 'vanished') {
                 recordDiagnostic('root_resolve', 'vanished');
                 setStep('跳過: 連結失效 (404)');
                 return 'vanished';
             }
 
-            // pollUntil 逾時後再取一次，避免最後一輪與逾時之間的空窗。
-            if (!profileRoot) profileRoot = Core.findProfileRoot?.(user) || null;
-            if (profileRoot && rootAppearedAt === null) rootAppearedAt = Date.now();
-            profileRootObservation = Core.getProfileRootObservation?.(user) || {};
+            if (profileRootResult.retryRequested) {
+                if (Worker.isStopRequested()) {
+                    Worker.clearProfileRootRetry(user, 'block');
+                    recordDiagnostic('root_resolve', 'stopped', {}, {
+                        waitMs: profileRootResult.waitMs,
+                        attempt: profileRootResult.attempt,
+                        retry: profileRootResult.attempt === 2,
+                        stopRequested: true,
+                        ...profileRootObservation,
+                    });
+                    return 'stopped';
+                }
+                const canReload = Worker.canReloadCurrentPage();
+                recordDiagnostic('root_resolve', 'missing_profile_root', {}, {
+                    waitMs: profileRootResult.waitMs,
+                    attempt: profileRootResult.attempt,
+                    retry: canReload,
+                    renderTriggered: canReload,
+                    success: false,
+                    viewportWidth: window.innerWidth,
+                    viewportHeight: window.innerHeight,
+                    ...profileRootObservation,
+                });
+                if (canReload) {
+                    setStep('頁面未完成載入，重新載入後再試一次');
+                    if (Worker.reloadCurrentPage()) return 'profile_root_reload';
+                }
+                Worker.clearProfileRootRetry(user, 'block');
+                profileRootResult.retryRequested = false;
+            }
+
             if (!profileRoot) {
                 recordDiagnostic('root_resolve', 'missing_profile_root', {}, {
-                    waitMs: Date.now() - profileWaitStartedAt,
+                    waitMs: profileRootResult.waitMs,
+                    attempt: profileRootResult.attempt,
+                    retry: profileRootResult.attempt === 2,
+                    success: false,
                     viewportWidth: window.innerWidth,
                     viewportHeight: window.innerHeight,
                     relaxedRoot: false,
                     ...profileRootObservation,
                     rootSeenThenMissing,
-                    invalidProfilePage: checkFor404(),
-                    restrictionSignal: checkForError(),
                 });
                 return 'missing_profile_root';
             }
@@ -2145,7 +2376,10 @@ export const Worker = {
             const liveRoot = Core.findProfileRoot?.(user) || null;
             if (profileRoot && !liveRoot) rootSeenThenMissing = true;
             recordDiagnostic('root_resolve', 'success', {}, {
-                waitMs: Date.now() - profileWaitStartedAt,
+                waitMs: profileRootResult.waitMs,
+                attempt: profileRootResult.attempt,
+                retry: profileRootResult.attempt === 2,
+                success: true,
                 relaxedRoot: resolvedRootMode === 'relaxed',
                 ...profileRootObservation,
                 strictRootMatched: resolvedRootMode === 'strict',

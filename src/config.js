@@ -75,7 +75,7 @@ export const isDiagnosticMeasurementField = key => {
 };
 
 export const CONFIG = {
-    VERSION: '2.8.3', // 檢舉載入等待、勾選掃描效能與診斷根因取證修正
+    VERSION: '2.8.4-beta1', // 個人頁未 render 時重載一次再試
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。
@@ -144,6 +144,7 @@ export const CONFIG = {
         BG_STATUS: 'hege_bg_status',
         BG_QUEUE: 'hege_active_queue',
         BG_CMD: 'hege_bg_command',
+        PROFILE_ROOT_RETRY: 'hege_profile_root_retry',
         WORKER_MODE: 'hege_worker_mode',
         COOLDOWN: 'hege_rate_limit_until',
         COOLDOWN_PROTECTION_ENABLED: 'hege_cooldown_protection_enabled',
@@ -264,6 +265,7 @@ export const CONFIG = {
     SYNC_KEYS: [
         'hege_bg_status',          // BG_STATUS
         'hege_worker_mode',        // WORKER_MODE
+        'hege_profile_root_retry', // profile root 單次重載重試狀態
         'hege_block_db_v1',        // DB_KEY
         'hege_active_queue',       // BG_QUEUE
         'hege_rate_limit_until',   // COOLDOWN

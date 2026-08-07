@@ -14,9 +14,11 @@ import { readFile } from 'node:fs/promises';
 const workerSource = await readFile(new URL('../src/worker.js', import.meta.url), 'utf8');
 const autoBlock = workerSource.slice(workerSource.indexOf('autoBlock: async'));
 const loadPhase = autoBlock.slice(0, autoBlock.indexOf('detectPrivateProfileState'));
+const rootWaitHelper = workerSource.slice(workerSource.indexOf('resolveProfileRootWithRetry: async'));
 
 test('autoBlock 的載入等待必須等到本人的 profile root', () => {
-    assert.match(loadPhase, /pollUntil\(\(\) => \{[\s\S]*findProfileRoot\?\.\(user\)/);
+    assert.match(loadPhase, /resolveProfileRootWithRetry\(user, \{[\s\S]*findRoot: \(\) => Core\.findProfileRoot\?\.\(user\)/);
+    assert.match(rootWaitHelper, /Utils\.pollUntil\(\(\) => \{[\s\S]*findRoot\(\)/);
 });
 
 test('載入等待不得再用「頁面上有任何 div[role=button]」當放行條件', () => {
@@ -25,13 +27,13 @@ test('載入等待不得再用「頁面上有任何 div[role=button]」當放行
 });
 
 test('等待是有界的，逾時記成 profile root 未載入', () => {
-    assert.match(workerSource, /const PROFILE_ROOT_WAIT_MS = \d+;/);
-    assert.match(loadPhase, /PROFILE_ROOT_WAIT_MS/);
+    assert.match(workerSource, /export const PROFILE_ROOT_WAIT_MS = 12000;/);
+    assert.match(rootWaitHelper, /PROFILE_ROOT_WAIT_MS/);
     assert.match(loadPhase, /recordDiagnostic\('root_resolve', 'missing_profile_root'/);
 });
 
 test('逾時的失敗會記下實際等了多久與視窗尺寸，供下次判讀', () => {
-    assert.match(loadPhase, /waitMs: Date\.now\(\) - profileWaitStartedAt/);
+    assert.match(loadPhase, /waitMs: profileRootResult\.waitMs/);
     assert.match(loadPhase, /viewportWidth: window\.innerWidth/);
 });
 
