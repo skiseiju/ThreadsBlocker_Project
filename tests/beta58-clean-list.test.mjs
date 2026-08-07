@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { CONFIG } from '../src/config.js';
 import { RuntimeDiagnostics } from '../src/core.js';
 import { diagnosticsEnabled, diagnosticsSkipReason } from './helpers/diagnostics-gate.mjs';
+import { assertSupportedVersion } from './helpers/version-contract.mjs';
 
 const collectorSource = await readFile(new URL('../src/dialog-collector.js', import.meta.url), 'utf8');
 const coreSource = await readFile(new URL('../src/core.js', import.meta.url), 'utf8');
@@ -97,9 +98,7 @@ test('beta58 verified contract is shared by clean-list and post-reservoir and di
     assert.match(reservoirSource, /typedState\.unknownRows/);
     assert.match(coreSource, /uniqueVisibleRows|uniqueUnknownRows/);
     assert.match(coreSource, /BETA_DIAGNOSTIC_STRATEGIES/);
-    const versionMatch = /^(?:2\.7\.4-beta(\d+)|2\.8\.3-beta\d+)$/.exec(String(CONFIG.VERSION));
-    assert.ok(versionMatch, `CONFIG.VERSION must be a supported beta version, got ${CONFIG.VERSION}`);
-    if (versionMatch[1]) assert.ok(Number(versionMatch[1]) >= 63, `CONFIG.VERSION beta number must be >= 63, got ${CONFIG.VERSION}`);
+    assertSupportedVersion(CONFIG.VERSION);
     assert.doesNotMatch(coreSource, /record\('clean_list',[\s\S]{0,300}(?:username|href|outerHTML|innerText)/i);
     const previous = { version: CONFIG.VERSION, enabled: CONFIG.ENABLE_BETA_DIAGNOSTICS };
     CONFIG.VERSION = '2.7.4-beta63';

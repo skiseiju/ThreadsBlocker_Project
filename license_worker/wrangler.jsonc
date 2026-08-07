@@ -1,0 +1,45 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "threadsblocker-license",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "vars": {
+    "PAYUNI_ENV": "production",
+    "PAYUNI_MER_ID": "U012070036",
+    "PAYUNI_MONTHLY_URL": "https://api.payuni.com.tw/api/period/U012070036/ThJq7toMSg9",
+    "PAYUNI_ANNUAL_URL": "https://api.payuni.com.tw/api/uop/receive_info/2/1/U012070036/CA9tPkodFvyy7yKml2fK2",
+    "PAYUNI_EARLY_ANNUAL_URL": "https://api.payuni.com.tw/api/uop/receive_info/2/1/U012070036/M4J17naF4nDr2Zmki85sJ",
+    "PUBLIC_BASE_URL": "https://threadsblocker-license.skiseiju.workers.dev",
+    "EARLY_BIRD_END": "2026-09-30"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "CHECKOUTS",
+      "id": "ccf7d41a77b147dd853f5df06919e762"
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": { "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.05 }
+  },
+  "env": {
+    "sandbox": {
+      "name": "threadsblocker-license-sandbox",
+      "vars": {
+        "PAYUNI_ENV": "sandbox",
+        "PAYUNI_MER_ID": "S003219190",
+        "PUBLIC_BASE_URL": "https://threadsblocker-license-sandbox.skiseiju.workers.dev",
+        "EARLY_BIRD_END": "2099-12-31"
+      },
+      "kv_namespaces": [
+        {
+          "binding": "CHECKOUTS",
+          "id": "422636d9f7f144cc9d187c2152a97ba6"
+        }
+      ]
+    }
+  }
+}

@@ -1473,7 +1473,7 @@ export const UI = {
         overlay.className = 'hege-manager-overlay';
 
         Utils.setHTML(overlay, `
-            <div class="hege-manager-box">
+            <div class="hege-manager-box" style="height:auto;max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px);display:flex;flex-direction:column;overflow:hidden;">
                 <div class="hege-manager-header">
                     <span class="hege-manager-title" style="display:flex; align-items:center; gap:6px;">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"></path></svg>
@@ -1483,7 +1483,7 @@ export const UI = {
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
                     </span>
                 </div>
-                <div style="padding: 20px;">
+                <div style="flex:1 1 auto;padding:20px;overflow:auto;min-height:0;-webkit-overflow-scrolling:touch;">
                     <p style="margin-bottom: 12px; color: #666; font-size: 12px;">版本 ${CONFIG.VERSION}</p>
                     <p style="margin-bottom: 8px; color: #ccc;">問題描述：</p>
                     <textarea id="hege-report-msg" rows="4" style="width: 100%; box-sizing: border-box; background: #222; border: 1px solid #444; color: #fff; padding: 10px; border-radius: 8px; font-family: inherit; resize: vertical;" placeholder="請描述您遇到的問題..."></textarea>
@@ -1511,7 +1511,7 @@ export const UI = {
                         <span>我同意本次問題回報附上上述完整診斷附件（單次同意，不會改變平台同步設定）。</span>
                     </label>
                 </div>
-                <div class="hege-manager-footer">
+                <div class="hege-manager-footer" style="flex:0 0 auto;position:sticky;bottom:0;z-index:1;padding-bottom:max(16px,env(safe-area-inset-bottom));">
                     <span id="hege-report-status" style="font-size: 13px; color: #888;"></span>
                     <div style="display: flex; gap: 12px;">
                         <button class="hege-manager-btn secondary" id="hege-report-cancel">取消</button>

@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { CONFIG } from '../src/config.js';
 import { RuntimeDiagnostics } from '../src/core.js';
 import { diagnosticsEnabled, diagnosticsSkipReason } from './helpers/diagnostics-gate.mjs';
+import { assertSupportedVersion } from './helpers/version-contract.mjs';
 
 const utilsSource = await readFile(new URL('../src/utils.js', import.meta.url), 'utf8');
 const coreSource = await readFile(new URL('../src/core.js', import.meta.url), 'utf8');
@@ -175,9 +176,7 @@ test('beta59 diagnostics expose privacy-safe skip breakdown and scroll progress'
         assert.match(coreSource, new RegExp(key));
     }
     assert.match(coreSource, /beforeScrollTop|afterScrollTop/);
-    const versionMatch = /^(?:2\.7\.4-beta(\d+)|2\.8\.3-beta\d+)$/.exec(String(CONFIG.VERSION));
-    assert.ok(versionMatch, `CONFIG.VERSION must be a supported beta version, got ${CONFIG.VERSION}`);
-    if (versionMatch[1]) assert.ok(Number(versionMatch[1]) >= 63, `CONFIG.VERSION beta number must be >= 63, got ${CONFIG.VERSION}`);
+    assertSupportedVersion(CONFIG.VERSION);
 });
 
 test('beta59 runtime sanitizer keeps new aggregate fields and drops sensitive values', () => {
