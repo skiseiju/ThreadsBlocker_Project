@@ -10,6 +10,10 @@ import { ReportDebugContext } from './report-debug-context.js';
 // SPA 換頁，同時仍是有界等待，不會卡住整批。
 export const PROFILE_ROOT_WAIT_MS = 12000;
 
+// 重試標記必須涵蓋頁面重載與第二輪 12000ms 等待。30 秒提供第二輪等待
+// 加上 18 秒的重載與初始化緩衝，過期後會回到第一次等待，避免殘留標記永久跳過重試。
+export const PROFILE_ROOT_RETRY_TTL_MS = 30000;
+
 // Worker 視窗只有內容區（viewport）下界，沒有外框尺寸規則：外框在不同電腦被
 // 工具列／邊框／縮放吃掉的量不同，拿外框當標準就是 2.8.1 #47 卡死的病因。
 // 實測可運作的 viewport 下界：700x453 全數成功，670x457 以下開始出現選單打不開。
@@ -154,6 +158,15 @@ export const Worker = {
             Storage.invalidate(CONFIG.KEYS.PROFILE_ROOT_RETRY);
             const state = Storage.getJSON(CONFIG.KEYS.PROFILE_ROOT_RETRY, null);
             if (!state || typeof state !== 'object' || Array.isArray(state)) return 1;
+            const requestedAt = state.requestedAt;
+            const now = Date.now();
+            if (typeof requestedAt !== 'number'
+                || !Number.isFinite(requestedAt)
+                || requestedAt > now
+                || now - requestedAt > PROFILE_ROOT_RETRY_TTL_MS) {
+                Storage.remove(CONFIG.KEYS.PROFILE_ROOT_RETRY);
+                return 1;
+            }
             if (String(state.user || '') !== String(user || '') || String(state.mode || '') !== String(mode || '')) return 1;
             return Number(state.attempt) === 1 ? 2 : 1;
         } catch (_) {
@@ -233,7 +246,7 @@ export const Worker = {
             profileRoot = nextRoot;
             if (profileRoot && rootAppearedAt === null) rootAppearedAt = Date.now();
             return profileRoot ? profileRoot : null;
-        }, PROFILE_ROOT_WAIT_MS);
+        }, PROFILE_ROOT_WAIT_MS, 100, { scaleBySpeed: false });
 
         const stopped = pollResult === STOP_SIGNAL || Worker.isStopRequested();
         const invalid = pollResult === INVALID_SIGNAL || isInvalidProfilePage();
@@ -624,6 +637,12 @@ export const Worker = {
         window.addEventListener('beforeunload', handleWorkerClose);
 
         window.hegeLog('[BG-INIT] Worker Started');
+
+        // 重載後先處理停止指令，避免進入第二輪 profile root 等待。
+        if (Worker.isStopRequested()) {
+            Worker.handleStopRequested();
+            return;
+        }
 
         // Cooldown check
         const cooldownUntil = parseInt(Storage.get(CONFIG.KEYS.COOLDOWN) || '0');
@@ -2352,6 +2371,11 @@ export const Worker = {
                 });
                 if (canReload) {
                     setStep('頁面未完成載入，重新載入後再試一次');
+                    // 重新載入發出前再讀一次停止指令，交回既有 stopped 收尾。
+                    if (Worker.isStopRequested()) {
+                        Worker.clearProfileRootRetry(user, 'block');
+                        return 'stopped';
+                    }
                     if (Worker.reloadCurrentPage()) return 'profile_root_reload';
                 }
                 Worker.clearProfileRootRetry(user, 'block');

@@ -552,6 +552,11 @@ Object.assign(Core, {
                             ...result.observation,
                         },
                     });
+                    // 重新載入發出前再讀一次停止指令，交回既有 stopped 收尾。
+                    if (Worker.isStopRequested()) {
+                        Worker.clearProfileRootRetry(user, 'report');
+                        return { ...result, reason: 'stopped', retryRequested: false };
+                    }
                     if (Worker.reloadCurrentPage()) return { ...result, reason: 'reload_requested', reloadRequested: true };
                 }
                 Worker.clearProfileRootRetry(user, 'report');

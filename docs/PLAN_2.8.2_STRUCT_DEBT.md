@@ -38,10 +38,10 @@
 | 23 | 2.8.3-beta3 | beta2 封鎖實測抓到（2026-08-05） | 選單開得起來但只有 7 項且無封鎖選項，等 9 秒後失敗，成因未知 | 中 | **取證已落地**（`0a0d507`）；成因待實機 ring |
 | 24 | 2.8.4-beta1 | beta2 實測抓到（2026-08-05） | 等滿 12 秒仍找不到 profile root，頁面真的沒 render | 中 | **Fixed**（`42651a4`；逾時後重載一次再試，並記錄救回率待實機驗證） |
 | 26 | 2.8.4-beta2 | 回報 #47 第二句 | 回報問題視窗訊息太長，送出按鈕被推到畫面外 | 小 | **Fixed**（`dc30726`；外框限高、內容區捲動、送出列 sticky） |
-| 28 | 未定 | Codex 複核 2.8.4-beta1（2026-08-08） | profile root 重試標記沒有時效檢查，worker 中途關閉後標記永久殘留，同一帳號下次直接被當成已重試而不給重載 | 小 | 未動工 |
-| 29 | 未定 | Codex 複核 2.8.4-beta1（2026-08-08） | profile root 等待被速度模式倍率縮放，加速模式只等 4.8 秒。**2.8.3 起就存在，影響所有加速模式使用者** | 中 | 未動工 |
+| 28 | 2.8.4-beta3 | Codex 複核 2.8.4-beta1（2026-08-08） | profile root 重試標記沒有時效檢查，worker 中途關閉後標記永久殘留，同一帳號下次直接被當成已重試而不給重載 | 小 | **Fixed**（2.8.4-beta3；加入 30 秒時效與無效標記清除） |
+| 29 | 2.8.4-beta3 | Codex 複核 2.8.4-beta1（2026-08-08） | profile root 等待被速度模式倍率縮放，加速模式只等 4.8 秒。**2.8.3 起就存在，影響所有加速模式使用者** | 中 | **Fixed**（2.8.4-beta3；profile root 明確走不縮放等待） |
 | 30 | 未定 | Codex 複核 2.8.4-beta1（2026-08-08） | 多個 worker 分頁同時跑時共用同一份重試標記，會互相覆寫造成額外重載 | 小 | 未動工，依附第 8 項 |
-| 31 | 未定 | Codex 複核 2.8.4-beta1（2026-08-08） | 重載發出到新頁接手的空窗期，停止指令無法取消已發出的 reload | 小 | 未動工 |
+| 31 | 2.8.4-beta3 | Codex 複核 2.8.4-beta1（2026-08-08） | 重載發出到新頁接手的空窗期，停止指令無法取消已發出的 reload | 小 | **Fixed**（2.8.4-beta3；重載前與初始化優先檢查停止） |
 
 版號欄是預期值；若某編號實際跨多個 beta（修壞重來），總表如實更新，編號不變。
 
@@ -485,6 +485,8 @@ privateProfile=false           invalidProfilePage=false      restrictionSignal=f
 
 **驗收**：造 fixture 模擬標記殘留超過時效，斷言仍取得完整的兩輪機會。
 
+**2.8.4-beta3 結果**：`PROFILE_ROOT_RETRY_TTL_MS` 設為 30000ms；缺漏、非數字、未來時間與超過時效的標記會清除，正常流程仍依序使用 attempt 1 與 attempt 2。
+
 ## 29. profile root 等待被速度模式縮放（Codex 複核抓到，2.8.3 起就存在）
 
 `Utils.pollUntil`（`src/utils.js:177-188`）會把傳入的 `maxMs` 乘上速度模式倍率，下限 2000ms：
@@ -513,6 +515,8 @@ const adjustedMax = Math.max(2000, Math.round(maxMs * profile.multiplier));
 
 **驗收**：四種速度模式下實際等待預算一致，並加守門測試擋住未來再被縮放。
 
+**2.8.4-beta3 結果**：`pollUntil` 保留原本預設倍率，profile root 共用呼叫明確傳入不縮放選項；封鎖與只檢舉四種模式的預算均為 12000ms。
+
 ## 30. 多分頁 worker 共用同一份重試標記（Codex 複核抓到）
 
 `hege_profile_root_retry` 是單一全域鍵，沒有 worker instance 或分頁 owner。兩個 worker 分頁同時執行時會互相覆寫與清除，造成額外重載。
@@ -530,6 +534,8 @@ const adjustedMax = Math.max(2000, Math.round(maxMs * profile.multiplier));
 若 reload 被忽略、卡住或落到未注入擴充功能的錯誤頁，worker 會停在「正在停止」。
 
 **修法方向**：重載前先檢查停止並提前返回，或在重載後的初始化路徑優先處理停止指令。
+
+**2.8.4-beta3 結果**：封鎖與只檢舉的 profile root reload 前各有一次即時停止檢查，`Worker.init` 在排入 `runStep` 前優先處理既有停止指令。
 
 ## 每版固定流程
 

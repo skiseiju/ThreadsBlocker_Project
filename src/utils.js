@@ -174,10 +174,14 @@ export const Utils = {
     // conditionFn: () => truthy value or null/false
     // maxMs: 最長等待毫秒
     // intervalMs: 偵測間隔（預設 100ms）
-    pollUntil: async (conditionFn, maxMs = 5000, intervalMs = 100) => {
-        const profile = Utils.getSpeedProfile();
-        // timeout 下限 2 秒，避免 turbo 模式在慢網路下誤判
-        const adjustedMax = Math.max(2000, Math.round(maxMs * profile.multiplier));
+    // options.scaleBySpeed=false 時沿用上方 safeSleep 的頁面載入原則，頁面載入等待不受速度模式影響。
+    pollUntil: async (conditionFn, maxMs = 5000, intervalMs = 100, options = {}) => {
+        const scaleBySpeed = options?.scaleBySpeed !== false;
+        // timeout 下限 2 秒，避免 turbo 模式在慢網路下誤判。頁面載入等待
+        // 明確標示不縮放時，沿用 safeSleep 的原則，不能讀取速度倍率。
+        const adjustedMax = scaleBySpeed
+            ? Math.max(2000, Math.round(maxMs * Utils.getSpeedProfile().multiplier))
+            : maxMs;
         const start = Date.now();
         while (Date.now() - start < adjustedMax) {
             const result = conditionFn();
