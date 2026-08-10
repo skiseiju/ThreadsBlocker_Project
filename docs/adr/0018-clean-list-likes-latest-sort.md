@@ -1,7 +1,7 @@
 # ADR 0018：清理名單先切 Likes「最新」排序
 
 - 日期：2026-08-10
-- 狀態：已採納並實作（2.8.4-beta7；beta6 installed 分類失敗已由真實 DOM 證據修正，beta7 installed 驗收待執行）
+- 狀態：已採納並實作（2.8.4-beta8；beta7 installed 的 shared-dialog 入口生命週期失敗已由真實 DOM 證據修正，beta8 installed 驗收待執行）
 - 相關：[ADR 0003](0003-merge-dialog-buttons.md)（清理名單入口與合併）、[ADR 0004](0004-engagement-strategy-order.md)（Likes dialog 的開啟順序）、[ADR 0017](0017-likes-progress-idle-timeout.md)（名單依最後進度停止）、`src/core.js`、`src/config.js`、`tests/beta99-clean-list-latest-sort.test.mjs`
 
 ## 背景
@@ -35,9 +35,16 @@ Beta6 的 fixture 使用可直接辨識的 `Likes` heading 與 selected Likes ta
 
 Beta7 只在 `handleCleanList` 傳入 `preferLatestLikesSort: true` 時，接受「目前 dialog 內可見的 heading 同時含數字與已知 Likes 語系標籤」作為直接 Likes context 證據。一般 row／顯示名稱文字、隱藏的背景 heading 與共享 reservoir caller 不採用此放寬；分類成功後仍必須完成本 ADR 原有的 scoped sort menu 選取與驗證，才開始收集。
 
+## Beta7 installed 失敗與 Beta8 修正
+
+真實 Threads 的「貼文動態 → 1,742 個讚」不是建立第二個 dialog，而是在同一個 `role="dialog"` 內保留已隱藏的 Activity 畫面並顯示新的 Likes 畫面。Beta7 的掃描器雖能辨識可見的計數 Likes 標題，卻把隱藏 Activity 畫面裡既有的「清理名單」按鈕當成可沿用入口；按鈕因此維持 0×0 且仍綁著舊畫面的 handler，使用者無法從可見 Likes 工具列啟動修正流程。
+
+Beta8 只沿用目前可見標題所在局部 subtree 內的入口。若同一 dialog 的其他隱藏 subtree 留有舊入口，掃描器會移除它並在目前工具列建立、綁定新的唯一入口。原本「短暫 lazy render 時保留入口」的行為仍適用於同一局部 subtree；跨畫面入口不再沿用。
+
 ## 影響與驗證邊界
 
 - 真實 Threads 已證明「預設」停在 82、「最新」可超過 150；這是來源排序的 live 證據，不是 beta6 installed 功能驗收。
 - red-first fixture 在修正前 0/2 通過：清理名單沒有提出排序需求，collector 也停在 fixture 的 82 人。
 - 修正後 fixture 2/2 通過：只從 scoped dialog 開啟 portal menu、選到「最新」、收集 140 人並關閉 menu。
-- beta6 installed 已證明未切換排序；beta7 仍需安裝／重載後在真實貼文重跑，才能宣稱 installed 功能通過。
+- beta6 installed 已證明直接計數 Likes 標題未通過分類；beta7 已修正分類，但仍受下列 shared-dialog 入口生命週期問題阻擋。
+- beta7 installed 已證明 shared-dialog 轉場後入口停留在隱藏 Activity subtree；beta8 必須重載後確認可見入口、自動切換「最新」及收集超過 82 人，才能宣稱 installed 功能通過。

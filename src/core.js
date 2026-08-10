@@ -3187,7 +3187,11 @@ export const Core = {
         }
 
         const cleanListNodes = Array.from(ctx.querySelectorAll?.('.hege-clean-list-btn') || []);
-        const existingCleanList = localCtx.querySelector('.hege-clean-list-btn') || cleanListNodes[0] || null;
+        // Threads keeps the hidden Activity screen mounted when it swaps the
+        // same dialog to a counted Likes screen.  A button outside the current
+        // visible header subtree carries a stale handler closure, so replace it
+        // instead of treating it as the active clean-list entry.
+        const existingCleanList = localCtx.querySelector('.hege-clean-list-btn') || null;
         cleanListNodes.filter(btn => btn !== existingCleanList).forEach(btn => btn.remove());
         localCtx.querySelectorAll('.hege-block-all-btn, .hege-report-only-btn, .hege-endless-sweep-btn').forEach(btn => btn.remove());
         // Keep an already injected button through transient virtualization/lazy

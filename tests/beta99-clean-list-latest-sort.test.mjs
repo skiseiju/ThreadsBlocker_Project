@@ -207,4 +207,57 @@ test('beta7 direct counted Likes dialog switches to Latest before collecting', a
     assert.equal(output.result.users.length, 140);
 });
 
-console.log('beta7 clean-list latest-sort contract: direct counted Likes headings reach the scoped portal menu');
+test('beta8 moves the clean-list entry from hidden Activity content to the visible counted Likes toolbar', async () => {
+    const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+    await page.goto(`${moduleOrigin}/@owner/post/123`);
+    const output = await page.evaluate(async () => {
+        const { Core } = await import('/core.js');
+        document.body.innerHTML = `
+          <div id="shared-dialog" role="dialog" style="width:700px;height:520px;overflow:auto">
+            <section id="activity-screen">
+              <div><div id="activity-header"><h1>貼文動態</h1></div></div>
+              <div><a href="/@activity1">activity1</a></div>
+              <div><a href="/@activity2">activity2</a></div>
+            </section>
+            <section id="likes-screen" style="display:none">
+              <div>
+                <div id="likes-header"><h1>1,742個讚</h1></div>
+                <div><span dir="auto">排序</span></div>
+              </div>
+              <div><a href="/@latest1">latest1</a></div>
+              <div><a href="/@latest2">latest2</a></div>
+            </section>
+          </div>`;
+
+        Core.injectDialogBlockAll();
+        const firstButton = document.querySelector('.hege-clean-list-btn');
+        const firstInActivity = !!document.querySelector('#activity-screen .hege-clean-list-btn');
+
+        document.querySelector('#activity-screen').style.display = 'none';
+        document.querySelector('#likes-screen').style.display = 'block';
+        Core.injectDialogBlockAll();
+
+        const buttons = Array.from(document.querySelectorAll('.hege-clean-list-btn'));
+        const currentButton = document.querySelector('#likes-screen .hege-clean-list-btn');
+        const rect = currentButton?.getBoundingClientRect() || {};
+        currentButton?.click();
+        return {
+            firstInActivity,
+            buttonCount: buttons.length,
+            movedToLikes: !!currentButton,
+            replacedForFreshBinding: !!currentButton && currentButton !== firstButton,
+            visible: Number(rect.width) > 0 && Number(rect.height) > 0,
+            pickerOpened: !!document.querySelector('#hege-clean-list-picker-overlay'),
+        };
+    });
+    await page.close();
+
+    assert.equal(output.firstInActivity, true);
+    assert.equal(output.buttonCount, 1);
+    assert.equal(output.movedToLikes, true);
+    assert.equal(output.replacedForFreshBinding, true);
+    assert.equal(output.visible, true);
+    assert.equal(output.pickerOpened, true);
+});
+
+console.log('beta8 clean-list latest-sort contract: counted Likes headings and shared-dialog transitions are covered');
