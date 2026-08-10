@@ -1,4 +1,6 @@
 // 只檢舉 Phase 1：在既有 likes dialog 內逐筆走 Threads 檢舉流程
+// 相關 ADR：docs/adr/0012-profile-identity-gate-relaxed-fallback.md、
+// docs/adr/0013-lightweight-diagnostics-by-default.md。
 import { CONFIG, buildDiagnosticStateSignature } from '../config.js';
 import { Storage } from '../storage.js';
 import { UI } from '../ui.js';
@@ -538,29 +540,79 @@ Object.assign(Core, {
             if (result.retryRequested) {
                 if (Worker.isStopRequested()) {
                     Worker.clearProfileRootRetry(user, 'report');
-                    return { ...result, reason: 'stopped', retryRequested: false };
+                    return {
+                        ...result,
+                        reason: 'stopped',
+                        retryRequested: false,
+                        reloadRequested: false,
+                        reloadResumed: false,
+                    };
                 }
                 const canReload = Worker.canReloadCurrentPage();
                 if (canReload) {
+                    // 重新載入發出前再讀一次停止指令，交回既有 stopped 收尾。
+                    if (Worker.isStopRequested()) {
+                        Worker.clearProfileRootRetry(user, 'report');
+                        return {
+                            ...result,
+                            reason: 'stopped',
+                            retryRequested: false,
+                            reloadRequested: false,
+                            reloadResumed: false,
+                        };
+                    }
+                    // 這筆只代表「即將要求 reload」；新頁真的恢復後，attempt 2
+                    // 的 root_resolve 才會記 reloadResumed=true。
                     Core.ReportDriver.recordSafetyDiagnostic('root_resolve', 'missing_profile_root', {}, {
                         elapsedMs: result.waitMs,
                         fields: {
                             attempt: result.attempt,
                             retry: true,
-                            renderTriggered: true,
+                            reloadRequested: true,
+                            reloadResumed: false,
                             success: false,
                             ...result.observation,
                         },
                     });
-                    // 重新載入發出前再讀一次停止指令，交回既有 stopped 收尾。
-                    if (Worker.isStopRequested()) {
-                        Worker.clearProfileRootRetry(user, 'report');
-                        return { ...result, reason: 'stopped', retryRequested: false };
+                    if (Worker.reloadCurrentPage()) {
+                        return {
+                            ...result,
+                            reason: 'reload_requested',
+                            reloadRequested: true,
+                            reloadResumed: false,
+                        };
                     }
-                    if (Worker.reloadCurrentPage()) return { ...result, reason: 'reload_requested', reloadRequested: true };
+                    Worker.clearProfileRootRetry(user, 'report');
+                    // 使用獨立 retry stage，避免同一毫秒內後續的 root_resolve
+                    // 最終失敗在持久化合併時蓋掉這筆決定性原因。
+                    Core.ReportDriver.recordSafetyDiagnostic('retry', 'failure', {}, {
+                        elapsedMs: result.waitMs,
+                        fields: {
+                            attempt: result.attempt,
+                            retry: true,
+                            reloadRequested: true,
+                            reloadResumed: false,
+                            failureType: 'reload_call_failed',
+                        },
+                    });
+                    return {
+                        ...result,
+                        reason: 'missing_profile_root',
+                        retryRequested: false,
+                        reloadRequested: true,
+                        reloadResumed: false,
+                        reloadFailureType: 'reload_call_failed',
+                    };
                 }
                 Worker.clearProfileRootRetry(user, 'report');
-                return { ...result, reason: 'missing_profile_root', retryRequested: false };
+                return {
+                    ...result,
+                    reason: 'missing_profile_root',
+                    retryRequested: false,
+                    reloadRequested: false,
+                    reloadResumed: false,
+                    reloadFailureType: 'reload_unavailable',
+                };
             }
 
             return result;
@@ -888,6 +940,8 @@ Object.assign(Core, {
                         fields: {
                             attempt: profileRootResult.attempt,
                             retry: profileRootResult.attempt === 2,
+                            reloadRequested: profileRootResult.reloadRequested === true,
+                            reloadResumed: profileRootResult.attempt === 2 || profileRootResult.reloadResumed === true,
                             stopRequested: true,
                             ...profileRootResult.observation,
                         },
@@ -899,6 +953,12 @@ Object.assign(Core, {
                 if (mode === 'profile' && profileRootResult.reason === 'vanished') {
                     return Core.ReportDriver.skipOrPauseForDebug(user, options, 'vanished', `@${user} 的帳號頁面已失效`, {
                         elapsedMs: profileRootResult.waitMs,
+                        fields: {
+                            attempt: profileRootResult.attempt,
+                            retry: profileRootResult.attempt === 2,
+                            reloadResumed: profileRootResult.attempt === 2,
+                            ...(profileRootResult.observation || {}),
+                        },
                     });
                 }
                 if (mode === 'profile' && !profileRoot) {
@@ -908,6 +968,9 @@ Object.assign(Core, {
                         fields: {
                             attempt: profileRootResult.attempt,
                             retry: profileRootResult.attempt === 2,
+                            reloadRequested: profileRootResult.reloadRequested === true,
+                            reloadResumed: profileRootResult.attempt === 2 || profileRootResult.reloadResumed === true,
+                            ...(profileRootResult.reloadFailureType ? { failureType: profileRootResult.reloadFailureType } : {}),
                             success: false,
                             ...(profileRootResult.observation || {}),
                         },
@@ -919,6 +982,7 @@ Object.assign(Core, {
                         fields: {
                             attempt: profileRootResult.attempt,
                             retry: profileRootResult.attempt === 2,
+                            reloadResumed: profileRootResult.attempt === 2,
                             success: true,
                             ...(profileRootResult.observation || {}),
                         },

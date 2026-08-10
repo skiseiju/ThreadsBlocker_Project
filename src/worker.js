@@ -1,3 +1,5 @@
+// 相關 ADR：docs/adr/0012-profile-identity-gate-relaxed-fallback.md、
+// docs/adr/0013-lightweight-diagnostics-by-default.md。
 import { CONFIG } from './config.js';
 import { Utils } from './utils.js';
 import { Storage } from './storage.js';
@@ -2334,6 +2336,7 @@ export const Worker = {
                     waitMs: profileRootResult.waitMs,
                     attempt: profileRootResult.attempt,
                     retry: profileRootResult.attempt === 2,
+                    reloadResumed: profileRootResult.attempt === 2,
                     stopRequested: true,
                     ...profileRootObservation,
                 });
@@ -2341,7 +2344,13 @@ export const Worker = {
             }
 
             if (profileRootResult.reason === 'vanished') {
-                recordDiagnostic('root_resolve', 'vanished');
+                recordDiagnostic('root_resolve', 'vanished', {}, {
+                    waitMs: profileRootResult.waitMs,
+                    attempt: profileRootResult.attempt,
+                    retry: profileRootResult.attempt === 2,
+                    reloadResumed: profileRootResult.attempt === 2,
+                    ...profileRootObservation,
+                });
                 setStep('跳過: 連結失效 (404)');
                 return 'vanished';
             }
@@ -2353,33 +2362,69 @@ export const Worker = {
                         waitMs: profileRootResult.waitMs,
                         attempt: profileRootResult.attempt,
                         retry: profileRootResult.attempt === 2,
+                        reloadRequested: false,
+                        reloadResumed: false,
                         stopRequested: true,
                         ...profileRootObservation,
                     });
                     return 'stopped';
                 }
                 const canReload = Worker.canReloadCurrentPage();
-                recordDiagnostic('root_resolve', 'missing_profile_root', {}, {
-                    waitMs: profileRootResult.waitMs,
-                    attempt: profileRootResult.attempt,
-                    retry: canReload,
-                    renderTriggered: canReload,
-                    success: false,
-                    viewportWidth: window.innerWidth,
-                    viewportHeight: window.innerHeight,
-                    ...profileRootObservation,
-                });
                 if (canReload) {
                     setStep('頁面未完成載入，重新載入後再試一次');
                     // 重新載入發出前再讀一次停止指令，交回既有 stopped 收尾。
                     if (Worker.isStopRequested()) {
                         Worker.clearProfileRootRetry(user, 'block');
+                        recordDiagnostic('root_resolve', 'stopped', {}, {
+                            waitMs: profileRootResult.waitMs,
+                            attempt: profileRootResult.attempt,
+                            retry: false,
+                            reloadRequested: false,
+                            reloadResumed: false,
+                            stopRequested: true,
+                            ...profileRootObservation,
+                        });
                         return 'stopped';
                     }
+                    // 這筆只代表「即將要求 reload」，不宣稱瀏覽器已完成重載。
+                    // 新頁成功初始化後的 attempt 2 才會記 reloadResumed=true。
+                    recordDiagnostic('root_resolve', 'missing_profile_root', {}, {
+                        waitMs: profileRootResult.waitMs,
+                        attempt: profileRootResult.attempt,
+                        retry: true,
+                        reloadRequested: true,
+                        reloadResumed: false,
+                        success: false,
+                        viewportWidth: window.innerWidth,
+                        viewportHeight: window.innerHeight,
+                        ...profileRootObservation,
+                    });
                     if (Worker.reloadCurrentPage()) return 'profile_root_reload';
+                    Worker.clearProfileRootRetry(user, 'block');
+                    recordDiagnostic('retry', 'failure', {}, {
+                        waitMs: profileRootResult.waitMs,
+                        attempt: profileRootResult.attempt,
+                        retry: true,
+                        reloadRequested: true,
+                        reloadResumed: false,
+                        failureType: 'reload_call_failed',
+                    });
+                    return 'missing_profile_root';
                 }
                 Worker.clearProfileRootRetry(user, 'block');
-                profileRootResult.retryRequested = false;
+                recordDiagnostic('root_resolve', 'missing_profile_root', {}, {
+                    waitMs: profileRootResult.waitMs,
+                    attempt: profileRootResult.attempt,
+                    retry: false,
+                    reloadRequested: false,
+                    reloadResumed: false,
+                    success: false,
+                    failureType: 'reload_unavailable',
+                    viewportWidth: window.innerWidth,
+                    viewportHeight: window.innerHeight,
+                    ...profileRootObservation,
+                });
+                return 'missing_profile_root';
             }
 
             if (!profileRoot) {
@@ -2387,6 +2432,7 @@ export const Worker = {
                     waitMs: profileRootResult.waitMs,
                     attempt: profileRootResult.attempt,
                     retry: profileRootResult.attempt === 2,
+                    reloadResumed: profileRootResult.attempt === 2,
                     success: false,
                     viewportWidth: window.innerWidth,
                     viewportHeight: window.innerHeight,
@@ -2403,6 +2449,7 @@ export const Worker = {
                 waitMs: profileRootResult.waitMs,
                 attempt: profileRootResult.attempt,
                 retry: profileRootResult.attempt === 2,
+                reloadResumed: profileRootResult.attempt === 2,
                 success: true,
                 relaxedRoot: resolvedRootMode === 'relaxed',
                 ...profileRootObservation,

@@ -1,3 +1,4 @@
+// 相關 ADR：docs/adr/0013-lightweight-diagnostics-by-default.md。
 // 診斷簽章只保留能描述目前狀態的欄位。所有去重呼叫點都使用這份清單，
 // 量測值仍保留在診斷 fields，但不參與簽章比較。
 export const DIAGNOSTIC_SIGNATURE_MEASUREMENT_FIELDS = Object.freeze([
@@ -29,7 +30,7 @@ export const DIAGNOSTIC_SIGNATURE_STATUS_FIELDS = Object.freeze([
     'notFound', 'alreadyBlocked', 'success', 'failure', 'terminal', 'preserved', 'verifiedLikesContext', 'activityDialog', 'contextMatch', 'ctxIsRoleDialog',
     'ctxVisible', 'isMessageRoute', 'didInject', 'insideRoleDialog', 'ownAriaLabel', 'nestedAriaLabel', 'blockTextPresent', 'relaxedRoot', 'relaxedRootAttempted',
     'strictRootMatched', 'rootSeenThenMissing', 'sameMenuElement', 'followButtonPresent', 'profileRouteMatch', 'privateProfile', 'invalidProfilePage',
-    'restrictionSignal', 'waitingForStep', 'waitingForConfirm', 'renderTriggered', 'resultPersisted', 'externalWait', 'waitingForExternal', 'ariaSelected',
+    'restrictionSignal', 'waitingForStep', 'waitingForConfirm', 'renderTriggered', 'reloadRequested', 'reloadResumed', 'resultPersisted', 'externalWait', 'waitingForExternal', 'ariaSelected',
     'rectTop', 'rectLeft', 'rectWidth', 'rectHeight', 'viewportWidth', 'viewportHeight', 'outerWidth', 'outerHeight', 'innerWidth', 'innerHeight',
     'rowRule', 'rowConfidence', 'rowKindCode', 'statusCode', 'attempt', 'stopReason', 'activeTabCategory', 'pathnameCategory', 'path', 'strategy', 'classificationStrategy',
     'detector', 'errorName', 'errorCode', 'errorStack', 'errorFunction', 'tag', 'role', 'hrefCategory', 'category', 'httpBucket', 'reason', 'failureType',
@@ -75,7 +76,7 @@ export const isDiagnosticMeasurementField = key => {
 };
 
 export const CONFIG = {
-    VERSION: '2.8.4-beta4', // Likes 名單依最後進度計時，避免 lazy-load 空窗過早結算
+    VERSION: '2.8.4-beta5', // profile root reload 診斷分清要求、恢復與呼叫失敗
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。

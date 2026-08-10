@@ -1,3 +1,11 @@
+## v2.8.4-beta5 — profile root 重載診斷分清要求與恢復
+
+* **TL;DR：profile root 第一輪逾時只記「已要求重載」，新頁真的進入第二輪才記「已恢復」；重載不可用與呼叫失敗也有各自原因，不再把 API capability 誤當成功。**
+* **要求與恢復分離**：封鎖與只檢舉共用 `reloadRequested`／`reloadResumed`，保留 attempt 1／2、12 秒等待、30 秒 retry marker 與既有停止檢查。
+* **失敗原因**：重載 API 不可用記為 `reload_unavailable`，實際呼叫失敗記為 `reload_call_failed`；失敗會清除 retry marker，避免留下錯誤的第二輪狀態。
+* **隱私與範圍**：新欄位是封閉白名單布林／列舉，不含帳號、URL 或 DOM 文字；不處理多 worker 共用 retry marker 的既有競態。
+* **回歸契約**：beta94 驗證要求／恢復時序，beta97 覆蓋封鎖與只檢舉的 unavailable／call-failed 路徑；beta98 保留前一版 Likes 無進度停止契約。
+
 ## v2.8.4-beta4 — 按讚名單依最後進度停止
 
 * **TL;DR：按讚名單只要仍有新帳號或捲動範圍推進就繼續收集；連續 5 秒完全沒有進度才結算，避免 Threads lazy-load 空窗把數千筆名單過早停在數十筆。**

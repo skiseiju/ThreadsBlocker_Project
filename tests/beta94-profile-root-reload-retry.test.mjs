@@ -116,6 +116,10 @@ test('red：root 永遠不存在時只重載一次，最終失敗且診斷最多
         assert.deepEqual(events.map(event => event.fields.attempt), [1, 2]);
         assert.equal(events[0].fields.retry, true);
         assert.equal(events[1].fields.retry, true);
+        assert.equal(events[0].fields.reloadRequested, true);
+        assert.equal(events[0].fields.reloadResumed, false);
+        assert.notEqual(events[0].fields.renderTriggered, true);
+        assert.equal(events[1].fields.reloadResumed, true);
         assert.equal(elapsedMs, PROFILE_ROOT_WAIT_MS * 2);
         console.log(JSON.stringify({ fixture: 'red-never-rendered', elapsedMs, rootResolveDiagnostics: events.length, reloads: reloadCount, final: second }));
     } finally {

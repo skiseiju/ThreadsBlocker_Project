@@ -1,5 +1,6 @@
 // 相關 ADR：docs/adr/0003-merge-dialog-buttons.md、
 // docs/adr/0004-engagement-strategy-order.md、
+// docs/adr/0013-lightweight-diagnostics-by-default.md、
 // docs/adr/0017-likes-progress-idle-timeout.md。
 import { CONFIG, buildDiagnosticStateSignature } from './config.js';
 import { Utils, isBackgroundWorkerRunning } from './utils.js';
@@ -252,7 +253,7 @@ export const RuntimeDiagnostics = {
             // 個人頁 root 是靠嚴格判定命中，還是靠放寬路徑救回來的。布林，不含文字。
             'relaxedRoot', 'relaxedRootAttempted', 'strictRootMatched', 'rootSeenThenMissing', 'sameMenuElement',
             'followButtonPresent', 'profileRouteMatch', 'privateProfile', 'invalidProfilePage', 'restrictionSignal', 'waitingForStep', 'waitingForConfirm',
-            'renderTriggered', 'resultPersisted', 'externalWait', 'waitingForExternal',
+            'renderTriggered', 'reloadRequested', 'reloadResumed', 'resultPersisted', 'externalWait', 'waitingForExternal',
         ];
         for (const key of boolKeys) {
             if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = diagnosticBoolean(source[key]);

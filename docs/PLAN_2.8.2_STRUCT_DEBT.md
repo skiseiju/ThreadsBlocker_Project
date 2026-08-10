@@ -42,6 +42,7 @@
 | 29 | 2.8.4-beta3 | Codex 複核 2.8.4-beta1（2026-08-08） | profile root 等待被速度模式倍率縮放，加速模式只等 4.8 秒。**2.8.3 起就存在，影響所有加速模式使用者** | 中 | **Fixed**（2.8.4-beta3；profile root 明確走不縮放等待） |
 | 30 | 未定 | Codex 複核 2.8.4-beta1（2026-08-08） | 多個 worker 分頁同時跑時共用同一份重試標記，會互相覆寫造成額外重載 | 小 | 未動工，依附第 8 項 |
 | 31 | 2.8.4-beta3 | Codex 複核 2.8.4-beta1（2026-08-08） | 重載發出到新頁接手的空窗期，停止指令無法取消已發出的 reload | 小 | **Fixed**（2.8.4-beta3；重載前與初始化優先檢查停止） |
+| 32 | 2.8.4-beta5 | Codex 診斷複核（2026-08-10） | `renderTriggered` 在 reload 呼叫前只依 capability 寫成 true，若呼叫失敗或新頁未接手，診斷會誤稱已觸發 | 小 | **Fixed**（2.8.4-beta5；拆成要求／恢復，另記 unavailable／call failed） |
 
 版號欄是預期值；若某編號實際跨多個 beta（修壞重來），總表如實更新，編號不變。
 
@@ -536,6 +537,12 @@ const adjustedMax = Math.max(2000, Math.round(maxMs * profile.multiplier));
 **修法方向**：重載前先檢查停止並提前返回，或在重載後的初始化路徑優先處理停止指令。
 
 **2.8.4-beta3 結果**：封鎖與只檢舉的 profile root reload 前各有一次即時停止檢查，`Worker.init` 在排入 `runStep` 前優先處理既有停止指令。
+
+## 32. profile root reload 診斷把 capability 誤當成功（Codex 診斷複核）
+
+`renderTriggered` 原本在真正呼叫 `reloadCurrentPage()` 前，直接使用 `canReloadCurrentPage()` 的結果。這只能證明 API 存在，不能證明 `history.replaceState`／`location.reload` 沒有拋錯，更不能證明新頁已載入並重新注入 worker。最需要取證的「要求重載後第二輪完全沒出現」因此只會看到一筆看似成功的 `renderTriggered=true`。
+
+**2.8.4-beta5 結果**：第一輪逾時改記 `reloadRequested`，只有新頁讀到 attempt 2 才記 `reloadResumed`；API 不可用與呼叫失敗分別記為 `reload_unavailable`／`reload_call_failed`。兩個欄位都是封閉白名單布林，failure type 是既有安全列舉形狀，不含帳號、URL 或 DOM 文字。封鎖與只檢舉都新增 executable fixture；多分頁 owner 仍維持第 30 項另處理。
 
 ## 每版固定流程
 
