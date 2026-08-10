@@ -1,5 +1,6 @@
 // 相關 ADR：docs/adr/0012-profile-identity-gate-relaxed-fallback.md、
-// docs/adr/0013-lightweight-diagnostics-by-default.md。
+// docs/adr/0013-lightweight-diagnostics-by-default.md、
+// docs/adr/0021-daily-block-window-success-only.md。
 import { CONFIG } from './config.js';
 import { Utils } from './utils.js';
 import { Storage } from './storage.js';
@@ -27,6 +28,15 @@ const normalizeLimitWarningNumber = (value) => {
     if (value === null || value === undefined || value === '') return null;
     const number = Number(value);
     return Number.isFinite(number) && number >= 0 ? number : null;
+};
+
+const formatBlockWindowReleaseAt = value => {
+    const timestamp = normalizeLimitWarningNumber(value);
+    if (!timestamp) return '';
+    const date = new Date(timestamp);
+    if (!Number.isFinite(date.getTime())) return '';
+    const pad = number => String(number).padStart(2, '0');
+    return `${date.getMonth() + 1}/${date.getDate()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 };
 
 const readWindowMetrics = () => {
@@ -1437,6 +1447,7 @@ export const Worker = {
         if (onPage) {
             const result = await Worker.verifyBlock(user, isUnblock);
             if (result) {
+                if (!isUnblock) Storage.recordSuccessfulBlock();
                 if (window.hegeLog) window.hegeLog(`[批次驗證] @${user} ✅ 確認成功`);
             } else {
                 if (window.hegeLog) window.hegeLog(`[批次驗證] @${user} ❌ 驗證失敗`);
@@ -1589,6 +1600,7 @@ export const Worker = {
                 } else {
                     Storage.addToBlockDBFromContext(targetUser);
                 }
+                if (!isUnblockVerify) Storage.recordSuccessfulBlock();
                 Core.removeFailure(targetUser, 'block');
                 Worker.updateStatus('running', targetUser, 0, currentTotal);
                 setTimeout(Worker.runStep, 100);
@@ -1759,13 +1771,22 @@ export const Worker = {
 
         const hasStructuredDailyLimitWarning = Number.isFinite(Worker.limitWarningDone)
             && Number.isFinite(Worker.limitWarningLimit);
-        if (!Storage.isUnderLimit()) {
+        const blockWindow = Storage.getBlockWindowStats();
+        if (!Storage.isUnderLimit(blockWindow)) {
             const limit = Storage.getDailyBlockLimit();
-            const done = Storage.getBlocksLast24h();
+            const done = blockWindow.count;
+            const nextReleaseLabel = formatBlockWindowReleaseAt(blockWindow.nextReleaseAt);
+            const legacyLastReleaseLabel = formatBlockWindowReleaseAt(blockWindow.legacyLastReleaseAt);
+            const releaseDetail = nextReleaseLabel
+                ? `最早一筆將於 ${nextReleaseLabel} 自動退出 24 小時計數，之後依各筆時間逐筆釋放。`
+                : '紀錄會依各筆成功時間逐筆退出 24 小時計數。';
+            const legacyDetail = blockWindow.legacyCount > 0
+                ? `其中 ${blockWindow.legacyCount} 筆是舊版估計紀錄，最晚將於 ${legacyLastReleaseLabel} 退出；新版本不再把失敗、已封鎖或解除封鎖算進來。`
+                : '';
             Worker.setLimitWarning(
-                `⚠️ 已封鎖 ${done} 筆，超過你自訂上限 ${limit} 筆。這是自訂的安全估計值，超過可能被平台限制，但程式會繼續執行。`,
+                `⚠️ 近 24 小時封鎖計數 ${done} 筆，已達或超過你自訂上限 ${limit} 筆。${releaseDetail}${legacyDetail}這是自訂的安全估計值，超過可能被平台限制，但程式會繼續執行。`,
                 {
-                    compactMessage: `⚠️ 已封鎖 ${done}/${limit}，超過自訂上限仍繼續`,
+                    compactMessage: `⚠️ 近24h ${done}/${limit}；${nextReleaseLabel} 起逐筆釋放${blockWindow.legacyCount > 0 ? `；含舊版估計 ${blockWindow.legacyCount}` : ''}`,
                     done,
                     limit,
                 },
@@ -1773,6 +1794,7 @@ export const Worker = {
         } else if (
             hasStructuredDailyLimitWarning
             || Worker.limitWarningMessage.startsWith('⚠️ 已封鎖')
+            || Worker.limitWarningMessage.startsWith('⚠️ 近 24 小時封鎖計數')
             || Worker.limitWarningMessage.startsWith('⚠️ Meta')
         ) {
             Worker.setLimitWarning('');
@@ -1838,8 +1860,6 @@ export const Worker = {
                 Worker.handleStopRequested();
                 return;
             }
-            Storage.recordBlock();
-
             if (result === 'success' || result === 'already_blocked' || result === 'already_unblocked') {
                 // Post-block/unblock verification via adaptive sampling
                 Worker.verifyCount++;
@@ -1854,7 +1874,9 @@ export const Worker = {
                 }
 
                 // No inline verification — turbo 模式記錄到批次驗證佇列
-                Worker.addToBatchVerify(rawTarget);
+                const deferredBatchVerification = result === 'success'
+                    ? Worker.addToBatchVerify(rawTarget)
+                    : false;
                 Worker.stats.success++;
                 Worker.consecutiveRateLimits = 0;
                 Worker.saveStats();
@@ -1875,6 +1897,9 @@ export const Worker = {
                     Storage.removeFromBlockDB(targetUser);
                 } else {
                     Storage.addToBlockDBFromContext(targetUser);
+                    if (result === 'success' && !isUnblock && !deferredBatchVerification) {
+                        Storage.recordSuccessfulBlock();
+                    }
                 }
                 // 失敗紀錄只在「這次真的成功」時才移除。重試流程不再事先清空整份
                 // 失敗清單，否則重試沒跑起來或中途停掉，名單就憑空消失（BUGLIST #12）。
@@ -1997,14 +2022,15 @@ export const Worker = {
     // Turbo 模式：將成功封鎖的帳號加入批次驗證佇列（20% 抽樣，每 5 筆取 1）
     addToBatchVerify: (rawTarget) => {
         const profile = Utils.getSpeedProfile();
-        if (!profile.forceVerify) return;
+        if (!profile.forceVerify) return false;
         // 20% sampling: only add every 5th successfully blocked user (same rate as smart mode Level 0)
-        if (Worker.stats.success % 5 !== 0) return;
+        if (Worker.stats.success % 5 !== 0) return false;
         const bv = Storage.getJSON(CONFIG.KEYS.BATCH_VERIFY, []);
         if (!bv.includes(rawTarget)) {
             bv.push(rawTarget);
             Storage.setJSON(CONFIG.KEYS.BATCH_VERIFY, bv);
         }
+        return true;
     },
 
     findMoreButton: async (timeout = 5000, username = '') => await Utils.pollUntil(() => {

@@ -4,7 +4,8 @@
 // docs/adr/0017-likes-progress-idle-timeout.md、
 // docs/adr/0018-clean-list-likes-latest-sort.md、
 // docs/adr/0019-clean-list-two-pass-sort-scan.md、
-// docs/adr/0020-clean-list-stop-settles-collected-users.md。
+// docs/adr/0020-clean-list-stop-settles-collected-users.md、
+// docs/adr/0021-daily-block-window-success-only.md。
 import { CONFIG, buildDiagnosticStateSignature } from './config.js';
 import { Utils, isBackgroundWorkerRunning } from './utils.js';
 import { Storage } from './storage.js';
@@ -5122,12 +5123,13 @@ export const Core = {
         Storage.invalidate(CONFIG.KEYS.WORKER_STATS);
         const workerStats = Storage.getJSON(CONFIG.KEYS.WORKER_STATS, {});
         const limitWarningMessage = String(workerStats?.limitWarningMessage || '').trim();
+        const limitWarningCompactMessage = String(workerStats?.limitWarningCompactMessage || '').trim();
         const hasStructuredLimitWarning = Number.isFinite(workerStats?.limitWarningDone)
             && Number.isFinite(workerStats?.limitWarningLimit);
         const isBackgroundRunning = isBackgroundWorkerRunning(bgStatus);
         const showLimitWarning = isBackgroundRunning && limitWarningMessage.length > 0;
         const panelLimitWarning = showLimitWarning && hasStructuredLimitWarning
-            ? `⚠️ 已封鎖 ${workerStats.limitWarningDone}/${workerStats.limitWarningLimit}，超過自訂安全估計值，可能被平台限制，程式會繼續執行`
+            ? (limitWarningCompactMessage || limitWarningMessage)
             : (showLimitWarning ? limitWarningMessage : '');
 
         const pendingEndlessCount = reservoirEntries.filter(p => p.advanceOnComplete && p.status !== 'done').length;

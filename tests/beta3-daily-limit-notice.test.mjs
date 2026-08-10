@@ -43,6 +43,7 @@ test('主面板背景狀態列顯示提醒，清空或停止後還原原本狀�
     assert.ok(panelEnd > panelStart, '找不到主面板狀態列結尾');
     assert.match(panelSource, /CONFIG\.KEYS\.WORKER_STATS/);
     assert.match(panelSource, /limitWarningMessage/);
+    assert.match(panelSource, /limitWarningCompactMessage/);
     assert.match(panelSource, /limitWarningDone/);
     assert.match(panelSource, /limitWarningLimit/);
     assert.match(panelSource, /hasStructuredLimitWarning/);
@@ -58,10 +59,13 @@ test('主面板背景狀態列顯示提醒，清空或停止後還原原本狀�
     assert.doesNotMatch(panelSource, /textContent\.includes\(['"]冷卻['"]\)/, '定點絕保護不可依賴狀態文字比對');
 });
 
-test('每日上限文案包含自訂估計值與平台限制風險，且移除舊文案', () => {
-    assert.match(workerSource, /已封鎖 \$\{done\} 筆，超過你自訂上限 \$\{limit\} 筆/);
+test('每日上限文案包含rolling窗口、自訂估計值與平台限制風險，且移除舊文案', () => {
+    assert.match(workerSource, /近 24 小時封鎖計數 \$\{done\} 筆，已達或超過你自訂上限 \$\{limit\} 筆/);
+    assert.match(workerSource, /最早一筆將於 \$\{nextReleaseLabel\} 自動退出 24 小時計數/);
+    assert.match(workerSource, /舊版估計/);
+    assert.match(workerSource, /逐筆/);
     assert.match(workerSource, /這是自訂的安全估計值，超過可能被平台限制，但程式會繼續執行/);
-    assert.match(workerSource, /compactMessage: `⚠️ 已封鎖 \$\{done\}\/\$\{limit\}，超過自訂上限仍繼續`/);
+    assert.match(workerSource, /compactMessage/);
     assert.doesNotMatch(workerSource, /⚠️ Meta 上限提醒/);
 });
 
@@ -83,10 +87,10 @@ test('上限提醒的結構化欄位會隨 save/load/reset/clear 一起處理', 
 });
 
 test('守門：每日上限只產生提醒，不得由 isUnderLimit 中斷流程', () => {
-    const uses = workerSource.match(/Storage\.isUnderLimit\(\)/g) || [];
+    const uses = workerSource.match(/Storage\.isUnderLimit\(blockWindow\)/g) || [];
     assert.equal(uses.length, 1, 'isUnderLimit 應維持唯一使用點');
 
-    const limitStart = workerSource.indexOf('if (!Storage.isUnderLimit())');
+    const limitStart = workerSource.indexOf('if (!Storage.isUnderLimit(blockWindow))');
     const limitEnd = workerSource.indexOf('// Record initial total', limitStart);
     assert.ok(limitStart >= 0 && limitEnd > limitStart, '找不到上限提醒區段');
     const limitSource = workerSource.slice(limitStart, limitEnd);

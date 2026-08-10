@@ -1,7 +1,8 @@
 // 相關 ADR：docs/adr/0013-lightweight-diagnostics-by-default.md、
 // docs/adr/0018-clean-list-likes-latest-sort.md、
 // docs/adr/0019-clean-list-two-pass-sort-scan.md、
-// docs/adr/0020-clean-list-stop-settles-collected-users.md。
+// docs/adr/0020-clean-list-stop-settles-collected-users.md、
+// docs/adr/0021-daily-block-window-success-only.md。
 // 診斷簽章只保留能描述目前狀態的欄位。所有去重呼叫點都使用這份清單，
 // 量測值仍保留在診斷 fields，但不參與簽章比較。
 export const DIAGNOSTIC_SIGNATURE_MEASUREMENT_FIELDS = Object.freeze([
@@ -79,7 +80,7 @@ export const isDiagnosticMeasurementField = key => {
 };
 
 export const CONFIG = {
-    VERSION: '2.8.4-beta11', // 手動停止會結算並保留兩輪目前已抓到的帳號
+    VERSION: '2.8.4-beta12', // 每日封鎖計數只記成功結果，並顯示rolling 24h釋放時間
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。
@@ -196,6 +197,7 @@ export const CONFIG = {
         DAILY_BLOCK_LIMIT: 'hege_daily_block_limit',
         BLOCK_VISUAL_DEBUG: 'hege_block_visual_debug',
         BLOCK_TIMESTAMPS_RING: 'hege_block_timestamps_ring',
+        BLOCK_SUCCESS_COUNTER_STARTED_AT: 'hege_block_success_counter_started_at',
         REPORT_QUEUE: 'hege_report_queue',
         REPORT_FAILED_QUEUE: 'hege_report_failed_queue',
         REPORT_BATCH_PATH: 'hege_report_batch_path',
@@ -281,6 +283,7 @@ export const CONFIG = {
         'hege_sweep_stopped',
         'hege_block_timestamps',   // DB_TIMESTAMPS
         'hege_block_timestamps_ring', // BLOCK_TIMESTAMPS_RING
+        'hege_block_success_counter_started_at', // BLOCK_SUCCESS_COUNTER_STARTED_AT
         'hege_block_context_map', // BLOCK_CONTEXT_MAP
         'hege_block_visual_debug', // BLOCK_VISUAL_DEBUG
         'hege_report_queue',        // REPORT_QUEUE

@@ -1,5 +1,14 @@
+// 相關 ADR：docs/adr/0001-unify-daily-block-limit.md、
+// docs/adr/0021-daily-block-window-success-only.md。
 // Simple Adapter for LocalStorage / SessionStorage with Memory Cache
 import { CONFIG } from './config.js';
+
+const BLOCK_WINDOW_MS = 24 * 60 * 60 * 1000;
+const BLOCK_RING_RETENTION_MS = 48 * 60 * 60 * 1000;
+const normalizeBlockTimestamp = value => {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+};
 
 export const Storage = {
     cache: {},
@@ -526,27 +535,55 @@ export const Storage = {
         return CONFIG.DAILY_LIMIT_OPTIONS.includes(limit) ? limit : CONFIG.DAILY_LIMIT_DEFAULT;
     },
 
-    recordBlock: () => {
-        const now = Date.now();
-        const cutoff = now - 48 * 60 * 60 * 1000;
-        const ring = Storage.getJSON(CONFIG.KEYS.BLOCK_TIMESTAMPS_RING, [])
-            .filter(t => typeof t === 'number' && t >= cutoff);
-        ring.push(now);
-        Storage.setJSON(CONFIG.KEYS.BLOCK_TIMESTAMPS_RING, ring);
+    getBlockSuccessCounterStartedAt: (at = Date.now()) => {
+        const now = normalizeBlockTimestamp(at) || Date.now();
+        const stored = normalizeBlockTimestamp(Storage.get(CONFIG.KEYS.BLOCK_SUCCESS_COUNTER_STARTED_AT, '0'));
+        if (stored > 0 && stored <= now) return stored;
+        Storage.set(CONFIG.KEYS.BLOCK_SUCCESS_COUNTER_STARTED_AT, String(now));
+        return now;
     },
 
-    getBlocksLast24h: () => {
-        const now = Date.now();
-        const cutoff48h = now - 48 * 60 * 60 * 1000;
-        const cutoff24h = now - 24 * 60 * 60 * 1000;
+    recordSuccessfulBlock: (at = Date.now()) => {
+        const requestedAt = normalizeBlockTimestamp(at) || Date.now();
+        const successCounterStartedAt = Storage.getBlockSuccessCounterStartedAt(requestedAt);
+        const recordedAt = Math.max(requestedAt, successCounterStartedAt);
+        const cutoff = recordedAt - BLOCK_RING_RETENTION_MS;
         const ring = Storage.getJSON(CONFIG.KEYS.BLOCK_TIMESTAMPS_RING, [])
-            .filter(t => typeof t === 'number' && t >= cutoff48h);
+            .map(normalizeBlockTimestamp)
+            .filter(t => t > cutoff && t <= recordedAt);
+        ring.push(recordedAt);
         Storage.setJSON(CONFIG.KEYS.BLOCK_TIMESTAMPS_RING, ring);
-        return ring.filter(t => t >= cutoff24h).length;
+        return recordedAt;
     },
 
-    isUnderLimit: () => {
-        return Storage.getBlocksLast24h() < Storage.getDailyBlockLimit();
+    getBlockWindowStats: (at = Date.now()) => {
+        const now = normalizeBlockTimestamp(at) || Date.now();
+        const successCounterStartedAt = Storage.getBlockSuccessCounterStartedAt(now);
+        const cutoff48h = now - BLOCK_RING_RETENTION_MS;
+        const cutoff24h = now - BLOCK_WINDOW_MS;
+        const ring = Storage.getJSON(CONFIG.KEYS.BLOCK_TIMESTAMPS_RING, [])
+            .map(normalizeBlockTimestamp)
+            .filter(t => t > cutoff48h && t <= now);
+        Storage.setJSON(CONFIG.KEYS.BLOCK_TIMESTAMPS_RING, ring);
+
+        const recent = ring.filter(t => t > cutoff24h);
+        const legacy = recent.filter(t => t < successCounterStartedAt);
+        return {
+            count: recent.length,
+            legacyCount: legacy.length,
+            nextReleaseAt: recent.length > 0 ? Math.min(...recent) + BLOCK_WINDOW_MS : 0,
+            legacyLastReleaseAt: legacy.length > 0 ? Math.max(...legacy) + BLOCK_WINDOW_MS : 0,
+            successCounterStartedAt,
+        };
+    },
+
+    getBlocksLast24h: () => Storage.getBlockWindowStats().count,
+
+    isUnderLimit: (windowStats = null) => {
+        const count = Number.isFinite(windowStats?.count)
+            ? windowStats.count
+            : Storage.getBlockWindowStats().count;
+        return count < Storage.getDailyBlockLimit();
     },
 
     getDailyReportLimit: () => {

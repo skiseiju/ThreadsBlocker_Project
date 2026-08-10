@@ -246,6 +246,8 @@ Desktop: click(handleGlobalClick, capture: true) + ontouchend(stopPropagation)
 | `hege_cooldown_queue` | localStorage (JSON) | 觸發冷卻時備份的待處理佇列（含回滾名單） |
 | `hege_rate_limit_until` | localStorage | 12 小時冷卻解除的時間戳記 |
 | `hege_block_timestamps` | localStorage (JSON) | 紀錄最近 50 筆封鎖歷史用於智慧回滾 |
+| `hege_block_timestamps_ring` | localStorage (JSON) | 每筆成功封鎖的時間戳；顯示計數採 rolling 24h，raw 最多保留 48h |
+| `hege_block_success_counter_started_at` | localStorage | success-only 計數規則啟用時間；用來把尚未到期的舊版 attempt 估計與新成功紀錄分開顯示 |
 | `hege_verify_pending` | localStorage | Reload 驗證時暫存的待驗證使用者名稱 |
 | `hege_post_fallback` | localStorage | 貼文備案封鎖開關 (`true`/`false`，預設 `true`) |
 | `hege_release_notes_seen_version` | localStorage | 已看過新版更新摘要的版本；只控制 changelog / 贊助提示是否重複顯示，不影響佇列、同意或封鎖資料 |
@@ -345,6 +347,13 @@ svg[aria-label="更多"] viewBox="0 0 24 24"
 | `cooldown` | 明確限制訊號計數 +1；累積第 3 次且保護開啟才觸發 `triggerCooldown()`，否則記錄失敗並繼續 |
 
 > 上表的三振計數與冷卻只屬 **block worker**。只檢舉流程若看到明確限制訊息，會將本次 safe snapshot 記為 `rate_limited`，提示後跳過目前帳號並繼續 report queue；不共用 block worker 的三次冷卻，也不會自動呼叫 `triggerCooldown()`。
+
+### 每日封鎖 rolling 24h 計數
+
+- 每日安全估計只記錄本次真正進入 `success` 且不是解除封鎖的結果；`already_blocked`、`already_unblocked`、失敗、限流、載入／選單問題與解除封鎖都不計。
+- 有 inline 或 turbo batch 抽樣驗證的成功會延後到驗證通過才寫入，避免同一筆先寫一次、驗證成功再寫一次。
+- 每個 timestamp 在自己的時間滿 24 小時後逐筆退出，不在午夜或固定時間整批歸零。超限提醒會顯示最早下一筆的退出時間。
+- Beta12 以前的 ring 無 outcome，保守保留到各自到期並標為舊版估計；`hege_block_success_counter_started_at` 之後才是 success-only。舊資料不會被升版直接清空，也不會永久污染新計數。
 
 ---
 

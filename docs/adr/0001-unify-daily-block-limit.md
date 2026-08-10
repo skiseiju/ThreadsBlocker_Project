@@ -1,5 +1,9 @@
 # 0001 統一每日封鎖安全上限
 
+- 日期：2026-04-17
+- 狀態：已採納；rolling window 的成功計數與舊資料遷移由 [ADR 0021](0021-daily-block-window-success-only.md) 補充
+- 相關：無（本 ADR 開啟每日封鎖安全上限領域）、`src/storage.js`、`src/worker.js`、`src/config.js`
+
 ## 背景
 
 原本系統同時存在「延時封鎖（`DELAYED_QUEUE` 100/8h）」與「水庫批次大小（`SWEEP_BATCH_SIZE`）」兩個分散設定。兩者本質上都在處理同一件事：避免 Meta 在短時間內看到太多封鎖動作，降低帳號被限制的風險。
