@@ -1,3 +1,6 @@
+// 相關 ADR：docs/adr/0003-merge-dialog-buttons.md、
+// docs/adr/0004-engagement-strategy-order.md、
+// docs/adr/0017-likes-progress-idle-timeout.md。
 import { CONFIG, buildDiagnosticStateSignature } from './config.js';
 import { Utils, isBackgroundWorkerRunning } from './utils.js';
 import { Storage } from './storage.js';
@@ -10,6 +13,9 @@ import { MoreLocator } from './more-locator.js';
 // 清理名單的版面落地等待預算。Threads 的按讚名單是 lazy render，可見性過濾要等
 // 到 anchor 真的有尺寸才算數；等不到就維持 rows_missing，但不再幾百毫秒就放棄。
 const CLEAN_LIST_LAYOUT_WAIT_MS = 8000;
+// Threads 的 Likes lazy-load 可能在批次間短暫沒有任何 DOM 變化。停止條件以
+// 「最後一次取得新帳號或捲動範圍推進」起算，避免把網路空窗誤判為名單結尾。
+export const CLEAN_LIST_NO_PROGRESS_TIMEOUT_MS = 5000;
 const BETA_DIAGNOSTIC_FEATURES = new Set(['blocking', 'report', 'selection', 'panel', 'three_no', 'followers', 'clean_list', 'reservoir', 'likes', 'message_route', 'runtime', 'unknown']);
 const BETA_DIAGNOSTIC_STAGES = new Set([
     'start', 'dequeue', 'finish', 'stop', 'route', 'navigation', 'tab', 'wait', 'dialog', 'rows', 'scroll', 'progress',
@@ -1870,12 +1876,18 @@ export const Core = {
         const initialRenderDeadlineMs = Number.isFinite(options.initialRenderDeadlineMs)
             ? Math.max(300, Math.min(3000, Math.floor(options.initialRenderDeadlineMs)))
             : 1200;
+        const noProgressTimeoutMs = Number.isFinite(options.noProgressTimeoutMs)
+            ? Math.max(1000, Math.min(30000, Math.floor(options.noProgressTimeoutMs)))
+            : CLEAN_LIST_NO_PROGRESS_TIMEOUT_MS;
         const initialRenderStartedAt = Date.now();
         let initialGateComplete = false;
         let initialGateExpired = false;
         let stableEmptyObservations = 0;
         let explicitEmptyState = false;
         let isAborted = false;
+        let lastProgressAt = Date.now();
+        // 保留連續觀察次數作為 debounce；它不再單獨決定停止，真正的期限由
+        // noProgressTimeoutMs 控制。
         let unchangedCount = 0;
         let scrollCount = 0;
         let reachedEnd = false;
@@ -1937,6 +1949,8 @@ export const Core = {
                 listFound: sawVisibleRows,
                 loading: !sawVisibleRows,
             });
+            // 初始版面等待有自己的預算，不應吃掉後續 lazy-load 的無進度時間。
+            lastProgressAt = Date.now();
             while (scrollCount < maxScrolls && !isAborted) {
                 // The Likes list only gains scroll range once lazy rows arrive,
                 // so the first resolution can find no candidate and fall back to
@@ -2028,23 +2042,28 @@ export const Core = {
                 const rootAdvanced = after.scrollTop > before.scrollTop || after.scrollHeight > before.scrollHeight;
                 const visibleProgress = Math.max(0, visibleUnique - before.uniqueRows);
                 const progress = rootAdvanced || visibleProgress > 0;
+                if (!progress) unchangedCount += 1;
+                else {
+                    unchangedCount = 0;
+                    lastProgressAt = Date.now();
+                }
+                const noProgressMs = Math.max(0, Date.now() - lastProgressAt);
                 const atBottom = after.scrollTop + after.clientHeight >= after.scrollHeight - 2;
                 recordCleanDiagnostic('scroll', {
                     scrollAttempt: scrollCount, beforeScrollTop: before.scrollTop, afterScrollTop: after.scrollTop,
                     scrollTop: after.scrollTop, clientHeight: after.clientHeight,
                     beforeScrollHeight: before.scrollHeight, afterScrollHeight: after.scrollHeight, scrollHeight: after.scrollHeight,
-                    atBottom, progress, visibleProgress, rootAdvanced, strategy: 'scroll_ancestor',
+                    atBottom, progress, visibleProgress, rootAdvanced, waitMs: noProgressMs, strategy: 'scroll_ancestor',
                 });
-                if (!progress) unchangedCount += 1;
-                else unchangedCount = 0;
                 // 一列都還沒排版完成時，「沒有變化」代表還沒載好，不是已經到底。
                 // 在版面等待預算用完之前不要據此收工，否則會把還沒渲染的名單判成空的。
                 if (!sawVisibleRows && Date.now() < layoutWaitUntil) {
+                    lastProgressAt = Date.now();
                     unchangedCount = 0;
                     await Utils.safeSleep(200);
                     continue;
                 }
-                if (unchangedCount >= 4 && renderObservations >= 2) {
+                if (unchangedCount >= 4 && noProgressMs >= noProgressTimeoutMs && renderObservations >= 2) {
                     reachedEnd = atBottom;
                     stalled = !reachedEnd;
                     break;
