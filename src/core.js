@@ -1,7 +1,8 @@
 // 相關 ADR：docs/adr/0003-merge-dialog-buttons.md、
 // docs/adr/0004-engagement-strategy-order.md、
 // docs/adr/0013-lightweight-diagnostics-by-default.md、
-// docs/adr/0017-likes-progress-idle-timeout.md。
+// docs/adr/0017-likes-progress-idle-timeout.md、
+// docs/adr/0018-clean-list-likes-latest-sort.md。
 import { CONFIG, buildDiagnosticStateSignature } from './config.js';
 import { Utils, isBackgroundWorkerRunning } from './utils.js';
 import { Storage } from './storage.js';
@@ -44,7 +45,7 @@ const diagnosticEntryPriority = (stage, fields = {}) => {
 };
 const BETA_DIAGNOSTIC_REASONS = new Set([
     'end', 'completed', 'threads_partial', 'scroll_stall', 'timeout', 'stopped',
-    'rows_unknown', 'rows_missing', 'likes_tab_switch_failed', 'limited', 'empty_end',
+    'rows_unknown', 'rows_missing', 'likes_tab_switch_failed', 'likes_sort_switch_failed', 'limited', 'empty_end',
     'missing_dialog', 'unknown_dialog_schema', 'max_scrolls', 'unknown', 'error', 'success', 'failure', 'failed', 'private',
     'protected', 'not_found', 'already_blocked', 'already_unblocked', 'user_stop', 'breaker_open', 'cooldown', 'rate_limited', 'retry',
     'network', 'network_error', 'worker_closed', 'disappeared', 'vanished', 'navigation_mismatch', 'menu_not_found', 'missing_more_button',
@@ -701,6 +702,7 @@ const dialogCollectionFailureText = (reason) => ({
     unknown_dialog_schema: '目前無法安全辨識名單，請先讓名單載入後再試。',
     likes_tab_not_identified: '找不到按讚分頁，請稍後重試。',
     likes_tab_switch_failed: '已開啟按讚名單，但沒有找到可勾選的帳號，請稍後重試。',
+    likes_sort_switch_failed: '無法把按讚名單切換成「最新」排序，這次沒有送出不完整名單。',
     scroll_stall: '名單暫時無法繼續載入，請往下捲動後再試。',
     limited: '名單尚未完整載入，請稍後重試。',
     timeout: '名單收集逾時，請稍後重試。',
@@ -1673,6 +1675,101 @@ export const Core = {
         Core.syncInlineFakeAccountBadge(container, scanResults);
     },
 
+    ensureLatestLikesSort: async (initialCtx) => {
+        const normalize = value => DialogCollector.normalizeText(value);
+        const allowedSort = new Set((CONFIG.SORT_TEXTS || ['排序', 'Sort']).map(normalize));
+        const allowedLatest = new Set((CONFIG.LATEST_SORT_TEXTS || ['最新', 'Latest']).map(normalize));
+        const isVisible = (node) => {
+            if (!node?.getBoundingClientRect) return false;
+            const rect = node.getBoundingClientRect();
+            const style = typeof window !== 'undefined' ? window.getComputedStyle?.(node) : null;
+            return rect.width > 0 && rect.height > 0
+                && style?.display !== 'none' && style?.visibility !== 'hidden';
+        };
+        const exactLabel = (node, allowed) => [
+            node?.getAttribute?.('aria-label'),
+            node?.innerText,
+            node?.textContent,
+        ].map(normalize).some(value => value && allowed.has(value));
+        const ownsCurrentDialog = (node, ctx) => {
+            if (ctx?.getAttribute?.('role') !== 'dialog') return true;
+            return node?.closest?.('[role="dialog"]') === ctx;
+        };
+        const findTrigger = ctx => Array.from(ctx?.querySelectorAll?.(
+            '[aria-haspopup="menu"], [role="button"], button'
+        ) || []).find(node => isVisible(node) && ownsCurrentDialog(node, ctx) && exactLabel(node, allowedSort)) || null;
+        const selectedItem = item => ['aria-checked', 'aria-selected', 'data-selected']
+            .some(attribute => normalize(item?.getAttribute?.(attribute)) === 'true')
+            || /(?:^|[\s_-])(active|selected)(?:$|[\s_-])/.test(normalize(item?.className))
+            || !!item?.querySelector?.('svg, [role="img"]');
+        const visibleMenus = () => Array.from(document.querySelectorAll('[role="menu"], [role="listbox"]')).filter(isVisible);
+        const openLatestMenuItem = async (trigger) => {
+            if (normalize(trigger?.getAttribute?.('aria-expanded')) === 'true') {
+                Utils.simClick(trigger);
+                await Utils.safeSleep(80);
+            }
+            const priorMenus = new Set(visibleMenus());
+            Utils.simClick(trigger);
+            for (let attempt = 0; attempt < 20; attempt += 1) {
+                const candidates = Array.from(document.querySelectorAll(
+                    '[role="menuitem"], [role="menuitemradio"], [role="option"]'
+                )).filter(item => {
+                    if (!isVisible(item) || !exactLabel(item, allowedLatest)) return false;
+                    const menu = item.closest?.('[role="menu"], [role="listbox"]');
+                    return !!menu && isVisible(menu) && !priorMenus.has(menu);
+                });
+                if (candidates.length === 1) {
+                    const menu = candidates[0].closest?.('[role="menu"], [role="listbox"]');
+                    return { item: candidates[0], menuItemCount: menu?.querySelectorAll?.('[role="menuitem"], [role="menuitemradio"], [role="option"]')?.length || 0 };
+                }
+                if (attempt < 19) await Utils.safeSleep(60);
+            }
+            return null;
+        };
+        const closeMenu = async (trigger) => {
+            if (normalize(trigger?.getAttribute?.('aria-expanded')) === 'true') {
+                Utils.simClick(trigger);
+                await Utils.safeSleep(80);
+            }
+        };
+
+        const trigger = findTrigger(initialCtx);
+        if (!trigger) return { ok: true, available: false, switched: false, ctx: initialCtx, menuItemCount: 0 };
+
+        const initialMenu = await openLatestMenuItem(trigger);
+        if (!initialMenu) {
+            await closeMenu(trigger);
+            return { ok: false, reason: 'likes_sort_switch_failed', ctx: initialCtx, menuItemCount: 0 };
+        }
+        if (selectedItem(initialMenu.item)) {
+            await closeMenu(trigger);
+            return { ok: true, available: true, switched: false, ctx: initialCtx, menuItemCount: initialMenu.menuItemCount };
+        }
+
+        Utils.simClick(initialMenu.item);
+        await Utils.safeSleep(350);
+        let liveCtx = initialCtx;
+        let liveTrigger = null;
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+            const topContext = Core.getTopContext?.();
+            if (topContext && topContext !== document.body) liveCtx = topContext;
+            liveTrigger = findTrigger(liveCtx);
+            if (liveTrigger) break;
+            if (attempt < 19) await Utils.safeSleep(75);
+        }
+        if (!liveTrigger) return { ok: false, reason: 'likes_sort_switch_failed', ctx: liveCtx, menuItemCount: initialMenu.menuItemCount };
+
+        const verificationMenu = await openLatestMenuItem(liveTrigger);
+        if (!verificationMenu) {
+            await closeMenu(liveTrigger);
+            return { ok: false, reason: 'likes_sort_switch_failed', ctx: liveCtx, menuItemCount: initialMenu.menuItemCount };
+        }
+        const latestSelected = selectedItem(verificationMenu.item);
+        await closeMenu(liveTrigger);
+        if (!latestSelected) return { ok: false, reason: 'likes_sort_switch_failed', ctx: liveCtx, menuItemCount: verificationMenu.menuItemCount };
+        return { ok: true, available: true, switched: true, ctx: liveCtx, menuItemCount: verificationMenu.menuItemCount };
+    },
+
     collectVisibleDialogUsers: (ctx) => {
         if (!ctx) return [];
         const containerRect = ctx.getBoundingClientRect();
@@ -1822,6 +1919,19 @@ export const Core = {
                     rowCount: readiness.snapshot?.rowCount || 0,
                     uniqueVisibleRows: readiness.snapshot?.rowCount || 0,
                 });
+            }
+            if (options.preferLatestLikesSort === true && verifiedLikesContext) {
+                const latestSort = await Core.ensureLatestLikesSort(ctx);
+                recordCleanDiagnostic('menu', {
+                    switchAttempt: latestSort.available === true,
+                    switchSucceeded: latestSort.ok === true,
+                    found: latestSort.available === true,
+                    menuItems: latestSort.menuItemCount || 0,
+                    activeTab: true,
+                    activeTabCategory: 'likes',
+                });
+                if (!latestSort.ok) return fail(latestSort.reason || 'likes_sort_switch_failed');
+                ctx = latestSort.ctx || ctx;
             }
         }
 
@@ -3296,7 +3406,7 @@ export const Core = {
                 };
                 if (actions.collect) {
                     const activeCtx = Core.getTopContext();
-                    const collection = normalizeDialogCollectionResult(await Core.collectFullDialogUsers(activeCtx, { operationId }));
+                    const collection = normalizeDialogCollectionResult(await Core.collectFullDialogUsers(activeCtx, { operationId, preferLatestLikesSort: true }));
                     fullUsers = collection.users;
                     if (!shouldCommitDialogCollection(collection)) {
                         const reason = collection.reason || 'rows_missing';

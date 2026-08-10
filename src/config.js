@@ -1,4 +1,5 @@
-// 相關 ADR：docs/adr/0013-lightweight-diagnostics-by-default.md。
+// 相關 ADR：docs/adr/0013-lightweight-diagnostics-by-default.md、
+// docs/adr/0018-clean-list-likes-latest-sort.md。
 // 診斷簽章只保留能描述目前狀態的欄位。所有去重呼叫點都使用這份清單，
 // 量測值仍保留在診斷 fields，但不參與簽章比較。
 export const DIAGNOSTIC_SIGNATURE_MEASUREMENT_FIELDS = Object.freeze([
@@ -76,7 +77,7 @@ export const isDiagnosticMeasurementField = key => {
 };
 
 export const CONFIG = {
-    VERSION: '2.8.4-beta5', // profile root reload 診斷分清要求、恢復與呼叫失敗
+    VERSION: '2.8.4-beta6', // 清理名單先切 Likes「最新」排序再完整收集
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。
@@ -327,6 +328,9 @@ export const CONFIG = {
     ACTIVITY_TEXTS: ['查看動態', '查看动态', 'View activity', '活動', 'Activity', 'アクティビティを見る', 'アクティビティ', '활동 보기', '활동', 'ดูกิจกรรม', 'กิจกรรม', 'Lihat aktivitas', 'Aktivitas', 'Ver actividad', 'Actividad', 'Voir l\'activité', 'Activité', 'Aktivität ansehen', 'Aktivität', 'Visualizza attività', 'Attività', 'Ver atividade', 'Atividade', 'Посмотреть активность', 'Активность', 'Zobacz aktywność', 'Aktywność', 'Etkinliği gör', 'Etkinlik', 'Xem hoạt động', 'Hoạt động', 'عرض النشاط', 'النشاط', 'गतिविधि देखें', 'गतिविधि', 'Activiteit bekijken', 'Activiteit', 'Tingnan ang aktibidad', 'Aktibidad'],
     // 「按讚內容」分頁
     LIKES_TAB_TEXTS: ['按讚內容', '点赞内容', 'Likes', '讚', '赞', 'いいね', '좋아요', 'ถูกใจ', 'Suka', 'Me gusta', 'J\'aime', 'Gefällt mir', 'Mi piace', 'Curtidas', 'Нравится', 'Polubienia', 'Beğeni', 'Thích', 'إعجابات', 'पसंद', 'Vind-ik-leuks', 'Mga Like'],
+    // Likes 名單排序控制與「最新」選項
+    SORT_TEXTS: ['排序', 'Sort', '並べ替え', '정렬', 'เรียงลำดับ', 'Urutkan', 'Ordenar', 'Trier', 'Sortieren', 'Ordina', 'Сортировать', 'Sortuj', 'Sırala', 'Sắp xếp', 'فرز', 'क्रमबद्ध करें', 'Sorteren', 'I-sort'],
+    LATEST_SORT_TEXTS: ['最新', 'Latest', '최신순', 'ล่าสุด', 'Terbaru', 'Más recientes', 'Plus récents', 'Neueste', 'Più recenti', 'Mais recentes', 'Сначала новые', 'Najnowsze', 'En yeniler', 'Mới nhất', 'الأحدث', 'सबसे नया', 'Nieuwste', 'Pinakabago'],
     // 對話框標題關鍵字（判斷是否為互動面板）
     DIALOG_HEADER_TEXTS: ['讚', '赞', '引用', '轉發', '转发', '貼文動態', '帖子动态', '活動', '活动', '粉絲', '粉丝', '追蹤中', '关注中', '正在追蹤', '正在关注', 'Likes', 'Quotes', 'Reposts', 'Activity', 'Followers', 'Following', 'いいね', '引用', '再投稿', 'アクティビティ', 'フォロワー', 'フォロー中', '좋아요', '인용', '리포스트', '활동', '팔로워', '팔로잉', 'ถูกใจ', 'การอ้างอิง', 'รีโพสต์', 'กิจกรรม', 'ผู้ติดตาม', 'กำลังติดตาม', 'Suka', 'Kutipan', 'Repost', 'Aktivitas', 'Pengikut', 'Mengikuti', 'Me gusta', 'Citas', 'Republicaciones', 'Actividad', 'Seguidores', 'Siguiendo', 'J\'aime', 'Citations', 'Activité', 'Abonnés', 'Abonnements', 'Gefällt mir', 'Zitate', 'Aktivität', 'Follower', 'Gefolgt', 'Mi piace', 'Citazioni', 'Attività', 'Follower', 'Seguiti', 'Curtidas', 'Citações', 'Republicações', 'Atividade', 'Seguidores', 'Seguindo', 'Нравится', 'Цитаты', 'Репосты', 'Активность', 'Подписчики', 'Подписки', 'Polubienia', 'Cytaty', 'Aktywność', 'Obserwujący', 'Obserwowani', 'Beğeni', 'Alıntılar', 'Etkinlik', 'Takipçiler', 'Takip edilenler', 'Thích', 'Trích dẫn', 'Đăng lại', 'Hoạt động', 'Người theo dõi', 'Đang theo dõi', 'إعجابات', 'اقتباسات', 'إعادة النشر', 'النشاط', 'المتابعون', 'يتابع', 'पसंद', 'उद्धरण', 'रीपोस्ट', 'गतिविधि', 'फ़ॉलोअर', 'फ़ॉलो कर रहे हैं', 'Vind-ik-leuks', 'Citaten', 'Activiteit', 'Volgers', 'Volgend', 'Mga Like', 'Mga Quote', 'Mga Repost', 'Aktibidad', 'Mga Follower', 'Sinusubaybayan'],
 
