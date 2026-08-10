@@ -40,12 +40,18 @@ test('beta53 collector contract rejects partial results before any commit', () =
 });
 
 test('beta53 complete allowlist is conservative for partial collector reasons', () => {
-  const helperMatch = coreSource.match(/export const COMPLETE_DIALOG_REASONS[\s\S]*?export const shouldCommitDialogCollection = \(raw = \{\}\) => normalizeDialogCollectionResult\(raw\)\.complete;/);
+  const helperMatch = coreSource.match(/export const COMPLETE_DIALOG_REASONS[\s\S]*?export const shouldCommitDialogCollection = \(raw = \{\}\) => \{[\s\S]*?\n\};/);
   assert.ok(helperMatch, 'structured result helper must be extractable');
   const helper = Function(`${helperMatch[0].replace(/^export const /gm, 'const ')}\nreturn shouldCommitDialogCollection;`)();
   for (const reason of ['rows_unknown', 'scroll_stall', 'timeout', 'likes_tab_switch_failed', 'limited', 'threads_partial']) {
     assert.equal(helper({ users: ['partial'], reason, complete: false }), false, reason);
   }
+  assert.equal(helper({ users: ['partial'], reason: 'stopped', complete: false }), false, 'stopped without explicit settlement');
+  assert.equal(helper({ users: ['partial'], reason: 'stopped', complete: false, partialCommit: true }), true, 'user-stopped settlement');
+  assert.equal(helper({ users: [], reason: 'stopped', complete: false, partialCommit: true }), false, 'empty stop');
+  assert.equal(helper({ users: ['partial'], reason: 'timeout', complete: false, partialCommit: true }), false, 'non-stop may not opt in');
+  assert.equal(helper({ users: ['partial'], reason: 'stopped', complete: false, partialCommit: true, truncated: true }), false, 'truncated stop');
+  assert.equal(helper({ users: ['partial'], reason: 'stopped', complete: false, partialCommit: true, partial: true }), false, 'technical partial stop');
   assert.equal(helper({ users: ['done'], reason: 'end', complete: true, counts: { unknownRows: 0 } }), true);
 });
 

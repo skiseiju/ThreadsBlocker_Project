@@ -1,7 +1,7 @@
 # ADR 0019：清理名單採兩種排序各掃一輪
 
 - 日期：2026-08-10
-- 狀態：已採納並實作（2.8.4-beta10；installed 實機驗收待執行）
+- 狀態：已採納並實作（2.8.4-beta10；手動停止的結算語意由 [ADR 0020](0020-clean-list-stop-settles-collected-users.md) 補充）
 - 相關：[ADR 0003](0003-merge-dialog-buttons.md)（清理名單入口）、[ADR 0004](0004-engagement-strategy-order.md)（Likes dialog 開啟順序）、[ADR 0017](0017-likes-progress-idle-timeout.md)（每輪依最後進度停止）、[ADR 0018](0018-clean-list-likes-latest-sort.md)（排序 locator、選取驗證與 retry）、`src/core.js`、`src/config.js`、`tests/beta99-clean-list-latest-sort.test.mjs`
 
 ## 背景
@@ -17,7 +17,7 @@ ADR 0018 原本要求清理名單在收集前先切成「最新」，用來避�
 - 第一輪完整結束後才開啟目前 Likes dialog 的 scoped 排序選單。若「最新」目前未選取，第二輪切到「最新」；若第一輪本來已是「最新」，只在排序選單恰有兩個可見選項時切到唯一另一項，確保第二輪不是相同排序重掃。
 - 排序切換沿用 ADR 0018 的 portal menu 隔離、選取標記 double-check、React trigger 重抓與最多一次自動 retry。切換未驗證成功時不得開始第二輪。
 - 第二輪重新使用同一個單輪 collector，因此同樣有 5 秒無進度期限、每輪 800 次捲動上限、初始版面等待與手動停止。兩輪結果以大小寫不敏感的 username 去重合併，合併後仍受 1000 人安全上限約束。
-- 兩輪都必須完整且沒有 unknown／truncated 結果才可交給既有 atomic commit。第一輪成功但排序或第二輪失敗時，回傳空名單並由既有 rollback 恢復操作前狀態。
+- 除 ADR 0020 定義的使用者手動「停止並結算」外，兩輪都必須完整且沒有 unknown／truncated 結果才可交給既有 atomic commit。第一輪成功但排序或第二輪非手動失敗時，回傳空名單並由既有 rollback 恢復操作前狀態。
 - 舊版面完全沒有排序控制時，保留 ADR 0018 的相容行為：只提交已完整完成的第一輪；粉絲／追蹤中等非 verified Likes 名單不進排序第二輪。
 
 ## 取代範圍

@@ -3,7 +3,8 @@
 // docs/adr/0013-lightweight-diagnostics-by-default.md、
 // docs/adr/0017-likes-progress-idle-timeout.md、
 // docs/adr/0018-clean-list-likes-latest-sort.md、
-// docs/adr/0019-clean-list-two-pass-sort-scan.md。
+// docs/adr/0019-clean-list-two-pass-sort-scan.md、
+// docs/adr/0020-clean-list-stop-settles-collected-users.md。
 import { CONFIG, buildDiagnosticStateSignature } from './config.js';
 import { Utils, isBackgroundWorkerRunning } from './utils.js';
 import { Storage } from './storage.js';
@@ -692,9 +693,19 @@ export const normalizeDialogCollectionResult = (raw = {}) => {
         && COMPLETE_DIALOG_REASONS.includes(reason)
         && !source.truncated && !source.partial
         && Number(counts.unknownRows || source.unknownRows || 0) === 0;
+    // A user-triggered "停止並結算" is intentionally incomplete, but the
+    // clean-list orchestrator may explicitly preserve the verified usernames
+    // already harvested. Never infer this from `reason` alone: shared callers
+    // remain fail-closed unless the orchestrator opts in with partialCommit.
+    const partialCommit = source.partialCommit === true
+        && reason === 'stopped'
+        && users.length > 0
+        && !source.truncated
+        && !source.partial;
     return {
-        ok: complete,
+        ok: complete || partialCommit,
         complete,
+        partialCommit,
         users,
         reason,
         counts,
@@ -703,7 +714,10 @@ export const normalizeDialogCollectionResult = (raw = {}) => {
         verifiedLikesContext: source.verifiedLikesContext === true,
     };
 };
-export const shouldCommitDialogCollection = (raw = {}) => normalizeDialogCollectionResult(raw).complete;
+export const shouldCommitDialogCollection = (raw = {}) => {
+    const normalized = normalizeDialogCollectionResult(raw);
+    return normalized.complete || normalized.partialCommit;
+};
 const dialogCollectionFailureText = (reason) => ({
     missing_dialog: '找不到名單視窗，請稍後重試。',
     dialog_missing: '找不到名單視窗，請稍後重試。',
@@ -713,6 +727,7 @@ const dialogCollectionFailureText = (reason) => ({
     likes_tab_not_identified: '找不到按讚分頁，請稍後重試。',
     likes_tab_switch_failed: '已開啟按讚名單，但沒有找到可勾選的帳號，請稍後重試。',
     likes_sort_switch_failed: '無法切換按讚名單排序，這次沒有送出不完整名單。',
+    stopped: '已停止掃描，尚未掃到可加入的帳號。',
     scroll_stall: '名單暫時無法繼續載入，請往下捲動後再試。',
     limited: '名單尚未完整載入，請稍後重試。',
     timeout: '名單收集逾時，請稍後重試。',
@@ -2394,16 +2409,70 @@ export const Core = {
         const label = options.label || '掃描整串帳號名單';
         const finish = (result) => {
             const normalized = normalizeDialogCollectionResult(result);
+            const committable = normalized.complete || normalized.partialCommit;
             Core.lastDialogCollectionResult = normalized;
             if (ownsOperation) {
-                RuntimeDiagnostics.end(operationId, normalized.complete ? 'commit' : 'rollback', {
+                RuntimeDiagnostics.end(operationId, committable ? 'commit' : 'rollback', {
                     reason: normalized.reason,
                     ok: normalized.ok,
                     complete: normalized.complete,
                     atomic: true,
+                    stopped: normalized.reason === 'stopped',
+                    preserved: normalized.partialCommit,
                 });
             }
             return normalized;
+        };
+        const maxLimit = typeof window !== 'undefined' && Number(window.__DEBUG_HEGE_LIKES_LIMIT) > 0
+            ? Number(window.__DEBUG_HEGE_LIKES_LIMIT)
+            : 1000;
+        const mergeUsers = (...collections) => {
+            const combinedUsers = [];
+            const seenUsers = new Set();
+            for (const collection of collections) {
+                for (const username of collection?.users || []) {
+                    const normalizedUsername = String(username || '').replace(/^@+/, '').toLowerCase();
+                    if (!normalizedUsername || seenUsers.has(normalizedUsername)) continue;
+                    seenUsers.add(normalizedUsername);
+                    combinedUsers.push(username);
+                }
+            }
+            return combinedUsers;
+        };
+        const settleStoppedPasses = (firstPass, secondPass = null) => {
+            const stoppedPass = secondPass || firstPass;
+            const combinedUsers = mergeUsers(firstPass, secondPass);
+            const firstPassCount = firstPass?.users?.length || 0;
+            const secondPassCount = secondPass?.users?.length || 0;
+            if (stoppedPass?.truncated || combinedUsers.length > maxLimit) {
+                return finish({
+                    ...stoppedPass,
+                    users: [],
+                    reason: 'limited',
+                    complete: false,
+                    partialCommit: false,
+                    truncated: true,
+                    counts: {
+                        ...stoppedPass?.counts,
+                        firstPassCount,
+                        secondPassCount,
+                        combinedCount: combinedUsers.length,
+                    },
+                });
+            }
+            return finish({
+                ...stoppedPass,
+                users: combinedUsers,
+                reason: 'stopped',
+                complete: false,
+                partialCommit: combinedUsers.length > 0,
+                counts: {
+                    ...stoppedPass?.counts,
+                    firstPassCount,
+                    secondPassCount,
+                    combinedCount: combinedUsers.length,
+                },
+            });
         };
         const passOptions = {
             ...options,
@@ -2425,6 +2494,7 @@ export const Core = {
             candidateCount: Number(firstPass.counts?.visibleRows || 0),
             operationId,
         });
+        if (firstPass.reason === 'stopped') return settleStoppedPasses(firstPass);
         if (!firstPass.complete || firstPass.verifiedLikesContext !== true) return finish(firstPass);
 
         const switchedSort = await Core.switchLikesSort(ctx);
@@ -2484,6 +2554,7 @@ export const Core = {
             candidateCount: Number(secondPass.counts?.visibleRows || 0),
             operationId,
         });
+        if (secondPass.reason === 'stopped') return settleStoppedPasses(firstPass, secondPass);
         if (!secondPass.complete) {
             return finish({
                 ...secondPass,
@@ -2498,17 +2569,7 @@ export const Core = {
             });
         }
 
-        const combinedUsers = [];
-        const seenUsers = new Set();
-        for (const username of [...firstPass.users, ...secondPass.users]) {
-            const normalizedUsername = String(username || '').replace(/^@+/, '').toLowerCase();
-            if (!normalizedUsername || seenUsers.has(normalizedUsername)) continue;
-            seenUsers.add(normalizedUsername);
-            combinedUsers.push(username);
-        }
-        const maxLimit = typeof window !== 'undefined' && Number(window.__DEBUG_HEGE_LIKES_LIMIT) > 0
-            ? Number(window.__DEBUG_HEGE_LIKES_LIMIT)
-            : 1000;
+        const combinedUsers = mergeUsers(firstPass, secondPass);
         if (combinedUsers.length > maxLimit) {
             return finish({
                 users: [],
@@ -3667,6 +3728,8 @@ export const Core = {
                     RuntimeDiagnostics.end(operationId, stage, { ...fields, complete: fields.complete !== false });
                 };
                 let fullUsers = null;
+                let collection = null;
+                let blockAdded = 0;
                 const stagedPending = new Set(Core.pendingUsers);
                 const stagedChecked = new Set(Array.from(document.querySelectorAll('.hege-checkbox-container[data-username]'))
                     .filter(box => box.querySelector('input')?.checked)
@@ -3685,7 +3748,7 @@ export const Core = {
                 };
                 if (actions.collect) {
                     const activeCtx = Core.getTopContext();
-                    const collection = normalizeDialogCollectionResult(await Core.collectCleanListDialogUsers(activeCtx, { operationId }));
+                    collection = normalizeDialogCollectionResult(await Core.collectCleanListDialogUsers(activeCtx, { operationId }));
                     fullUsers = collection.users;
                     if (!shouldCommitDialogCollection(collection)) {
                         const reason = collection.reason || 'rows_missing';
@@ -3704,16 +3767,35 @@ export const Core = {
                 }
 
                 if (actions.collect) {
-                    await handleBlockAll(null, fullUsers);
-                    RuntimeDiagnostics.record('clean_list', 'commit', { committed: true, complete: true, selectedCount: fullUsers.length, pendingCount: Core.pendingUsers.size, operationId });
+                    blockAdded = Number(await handleBlockAll(null, fullUsers)) || 0;
+                    RuntimeDiagnostics.record('clean_list', 'commit', {
+                        committed: true,
+                        complete: collection?.complete !== false,
+                        stopped: collection?.reason === 'stopped',
+                        preserved: collection?.partialCommit === true,
+                        selectedCount: fullUsers.length,
+                        pendingCount: Core.pendingUsers.size,
+                        operationId,
+                    });
                 }
                 if (actions.endless) {
                     handleEndlessSweep(null, { longTermLoop: actions.longTermLoop });
                 }
                 if (actions.collect) {
                     await handleReportOnly(null, fullUsers);
+                    if (collection?.partialCommit === true) {
+                        UI.showToast(`已停止掃描：保留目前抓到的 ${fullUsers.length} 人，封鎖清單新增 ${blockAdded} 人`);
+                    }
                 }
-                finishCleanOperation(actions.collect ? 'commit' : 'finish', { reason: actions.collect ? 'completed' : 'success', ok: true, atomic: !!actions.collect });
+                finishCleanOperation(actions.collect ? 'commit' : 'finish', {
+                    reason: actions.collect ? (collection?.reason || 'completed') : 'success',
+                    ok: true,
+                    complete: actions.collect ? collection?.complete !== false : true,
+                    stopped: collection?.reason === 'stopped',
+                    preserved: collection?.partialCommit === true,
+                    committed: !!actions.collect,
+                    atomic: !!actions.collect,
+                });
             });
         };
 

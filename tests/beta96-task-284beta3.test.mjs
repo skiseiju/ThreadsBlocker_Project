@@ -240,7 +240,7 @@ test('乙：requestedAt 缺漏、非數字、未來時間都回 attempt 1 並清
     const cases = [
         { label: 'missing', requestedAt: undefined },
         { label: 'non-number', requestedAt: '1700000000000' },
-        { label: 'future', requestedAt: Date.now() + 1 },
+        { label: 'future', requestedAt: Date.now() + 1000 },
     ];
     for (const item of cases) {
         resetFixture();

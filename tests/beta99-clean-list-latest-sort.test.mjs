@@ -191,6 +191,188 @@ test('beta10 discards the completed first pass when the second pass is incomplet
     assert.equal(output.result.counts.combinedCount, 0);
 });
 
+test('beta11 stop during the first pass settles the users already collected without switching sort', async () => {
+    const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+    await page.goto(`${moduleOrigin}/@owner/post/123`);
+    const output = await page.evaluate(async () => {
+        const { Core, shouldCommitDialogCollection } = await import('/core.js');
+        const renderRows = count => Array.from(
+            { length: count },
+            (_, index) => `<div style="height:22px"><a style="display:inline-block;width:120px;height:20px" href="/@stopped${index}">stopped${index}</a></div>`,
+        ).join('');
+        document.body.innerHTML = `
+          <div id="stop-dialog" role="dialog" style="width:700px;height:320px;overflow:auto">
+            <h1>Likes</h1>
+            <button role="tab" aria-selected="true">Likes</button>
+            <div id="stop-sort" role="button" aria-haspopup="menu" aria-expanded="false">排序</div>
+            <div>${renderRows(120)}</div>
+          </div>`;
+        const dialog = document.querySelector('#stop-dialog');
+        let sortClicks = 0;
+        document.querySelector('#stop-sort').onclick = () => { sortClicks += 1; };
+        dialog.scrollBy = ({ top }) => {
+            dialog.scrollTop = Math.min(dialog.scrollHeight - dialog.clientHeight, dialog.scrollTop + Math.min(Number(top) || 0, 240));
+        };
+
+        const collectionPromise = Core.collectCleanListDialogUsers(dialog, {
+            label: 'beta11 first-pass stop fixture',
+            initialRenderDeadlineMs: 300,
+            noProgressTimeoutMs: 1000,
+        });
+        let stopButton = null;
+        for (let attempt = 0; attempt < 40 && !stopButton; attempt += 1) {
+            stopButton = document.querySelector('[id^="hege-full-dialog-progress-"] button');
+            if (!stopButton) await new Promise(resolve => setTimeout(resolve, 25));
+        }
+        stopButton?.click();
+        const result = await collectionPromise;
+        return {
+            result,
+            committable: shouldCommitDialogCollection(result),
+            sortClicks,
+        };
+    });
+    await page.close();
+
+    assert.equal(output.result.reason, 'stopped');
+    assert.equal(output.result.complete, false);
+    assert.equal(output.result.partialCommit, true);
+    assert.equal(output.result.ok, true);
+    assert.ok(output.result.users.length > 0);
+    assert.equal(output.result.counts.firstPassCount, output.result.users.length);
+    assert.equal(output.result.counts.secondPassCount, 0);
+    assert.equal(output.result.counts.combinedCount, output.result.users.length);
+    assert.equal(output.committable, true);
+    assert.equal(output.sortClicks, 0);
+});
+
+test('beta11 stop during the second pass merges both passes for a partial commit', async () => {
+    const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+    await page.goto(`${moduleOrigin}/@owner/post/123`);
+    const output = await page.evaluate(async () => {
+        const { Core, shouldCommitDialogCollection } = await import('/core.js');
+        let pass = 0;
+        Core.collectFullDialogUsers = async () => {
+            pass += 1;
+            if (pass === 1) return {
+                users: ['FirstOnly', 'Shared'], reason: 'end', complete: true,
+                activity: true, verifiedLikesContext: true,
+                counts: { visibleRows: 2 },
+            };
+            return {
+                users: ['shared', 'SecondOnly'], reason: 'stopped', complete: false,
+                activity: true, verifiedLikesContext: true,
+                counts: { visibleRows: 2 },
+            };
+        };
+        Core.switchLikesSort = async ctx => ({
+            ok: true, available: true, switched: true, ctx,
+            menuItemCount: 2, switchAttempts: 1, targetLatest: true,
+        });
+        const dialog = document.createElement('div');
+        dialog.setAttribute('role', 'dialog');
+        document.body.appendChild(dialog);
+        const result = await Core.collectCleanListDialogUsers(dialog);
+        return {
+            result,
+            pass,
+            committable: shouldCommitDialogCollection(result),
+        };
+    });
+    await page.close();
+
+    assert.equal(output.pass, 2);
+    assert.equal(output.result.reason, 'stopped');
+    assert.equal(output.result.complete, false);
+    assert.equal(output.result.partialCommit, true);
+    assert.equal(output.result.ok, true);
+    assert.deepEqual(output.result.users, ['FirstOnly', 'Shared', 'SecondOnly']);
+    assert.equal(output.result.counts.firstPassCount, 2);
+    assert.equal(output.result.counts.secondPassCount, 2);
+    assert.equal(output.result.counts.combinedCount, 3);
+    assert.equal(output.committable, true);
+});
+
+test('beta11 stop before any account is collected remains non-committable', async () => {
+    const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+    await page.goto(`${moduleOrigin}/@owner/post/123`);
+    const output = await page.evaluate(async () => {
+        const { Core, shouldCommitDialogCollection } = await import('/core.js');
+        Core.collectFullDialogUsers = async () => ({
+            users: [], reason: 'stopped', complete: false,
+            activity: true, verifiedLikesContext: true,
+            counts: { visibleRows: 0 },
+        });
+        const dialog = document.createElement('div');
+        dialog.setAttribute('role', 'dialog');
+        document.body.appendChild(dialog);
+        const result = await Core.collectCleanListDialogUsers(dialog);
+        return { result, committable: shouldCommitDialogCollection(result) };
+    });
+    await page.close();
+
+    assert.equal(output.result.reason, 'stopped');
+    assert.equal(output.result.partialCommit, false);
+    assert.deepEqual(output.result.users, []);
+    assert.equal(output.committable, false);
+});
+
+test('beta11 clean-list handler adds a stopped partial settlement to the block and report lists', async () => {
+    const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+    await page.goto(`${moduleOrigin}/@owner/post/123`);
+    const output = await page.evaluate(async () => {
+        localStorage.clear();
+        sessionStorage.clear();
+        const [{ Core }, { UI }, { Storage }, { CONFIG }] = await Promise.all([
+            import('/core.js'),
+            import('/ui.js'),
+            import('/storage.js'),
+            import('/config.js'),
+        ]);
+        Core.pendingUsers = new Set();
+        document.body.innerHTML = `
+          <div id="handler-dialog" role="dialog" style="width:700px;height:320px;overflow:auto">
+            <div><div><h1>Likes</h1></div></div>
+            <div style="height:30px"><a style="display:inline-block;width:120px;height:24px" href="/@fixtureone">fixtureone</a></div>
+            <div style="height:30px"><a style="display:inline-block;width:120px;height:24px" href="/@fixturetwo">fixturetwo</a></div>
+          </div>`;
+        Core.collectCleanListDialogUsers = async () => ({
+            users: ['StoppedOne', 'StoppedTwo'],
+            reason: 'stopped',
+            complete: false,
+            partialCommit: true,
+            activity: true,
+            verifiedLikesContext: true,
+            counts: { visibleRows: 2 },
+        });
+        window.__beta11CleanListPromise = null;
+        UI.showCleanListPicker = callback => {
+            window.__beta11CleanListPromise = callback({
+                collect: true,
+                endless: false,
+                longTermLoop: false,
+            });
+        };
+
+        Core.injectDialogBlockAll();
+        document.querySelector('.hege-clean-list-btn')?.click();
+        for (let attempt = 0; attempt < 20 && !window.__beta11CleanListPromise; attempt += 1) {
+            await new Promise(resolve => setTimeout(resolve, 20));
+        }
+        await window.__beta11CleanListPromise;
+        return {
+            pending: [...Core.pendingUsers],
+            pendingStored: Storage.getSessionJSON(CONFIG.KEYS.PENDING, []),
+            reportQueue: Storage.getJSON(CONFIG.KEYS.REPORT_QUEUE, []),
+        };
+    });
+    await page.close();
+
+    assert.deepEqual(output.pending, ['StoppedOne', 'StoppedTwo']);
+    assert.deepEqual(output.pendingStored, ['StoppedOne', 'StoppedTwo']);
+    assert.deepEqual(output.reportQueue, ['StoppedOne', 'StoppedTwo']);
+});
+
 test('beta10 direct counted Likes dialog also completes both sort passes', async () => {
     const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
     await page.goto(`${moduleOrigin}/@owner/post/123`);
@@ -472,4 +654,4 @@ test('beta10 sort switch retries once, rebinds the trigger, and can toggle eithe
     assert.equal(output.menuOpen, false);
 });
 
-console.log('beta10 clean-list two-pass sort contract: current sort idle, verified switch, merged second pass, and retry are covered');
+console.log('beta11 clean-list two-pass contract: current sort idle, verified switch, stop settlement, merged second pass, and retry are covered');
