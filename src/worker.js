@@ -39,6 +39,27 @@ const formatBlockWindowReleaseAt = value => {
     return `${date.getMonth() + 1}/${date.getDate()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 };
 
+export const buildDailyBlockLimitWarning = (blockWindow = {}, limit = 0) => {
+    const done = normalizeLimitWarningNumber(blockWindow.count) ?? 0;
+    const normalizedLimit = normalizeLimitWarningNumber(limit) ?? 0;
+    const legacyCount = normalizeLimitWarningNumber(blockWindow.legacyCount) ?? 0;
+    const nextReleaseLabel = formatBlockWindowReleaseAt(blockWindow.nextReleaseAt);
+    const legacyLastReleaseLabel = formatBlockWindowReleaseAt(blockWindow.legacyLastReleaseAt);
+    const releaseText = nextReleaseLabel
+        ? `${nextReleaseLabel} 起逐筆釋放`
+        : '依時間逐筆釋放';
+    const legacyText = legacyCount > 0
+        ? (legacyLastReleaseLabel
+            ? `；舊版估計 ${legacyCount} 筆將於 ${legacyLastReleaseLabel} 前清完`
+            : `；舊版估計 ${legacyCount} 筆逐筆退出`)
+        : '';
+
+    return {
+        message: `⚠️ 近24h ${done}/${normalizedLimit}。${releaseText}${legacyText}。超限仍會繼續。`,
+        compactMessage: `⚠️ 24h ${done}/${normalizedLimit}${nextReleaseLabel ? `｜${nextReleaseLabel}釋放` : ''}${legacyCount > 0 ? `｜舊${legacyCount}` : ''}`,
+    };
+};
+
 const readWindowMetrics = () => {
     const outerWidth = Number(window.outerWidth) || 0;
     const outerHeight = Number(window.outerHeight) || 0;
@@ -1775,18 +1796,11 @@ export const Worker = {
         if (!Storage.isUnderLimit(blockWindow)) {
             const limit = Storage.getDailyBlockLimit();
             const done = blockWindow.count;
-            const nextReleaseLabel = formatBlockWindowReleaseAt(blockWindow.nextReleaseAt);
-            const legacyLastReleaseLabel = formatBlockWindowReleaseAt(blockWindow.legacyLastReleaseAt);
-            const releaseDetail = nextReleaseLabel
-                ? `最早一筆將於 ${nextReleaseLabel} 自動退出 24 小時計數，之後依各筆時間逐筆釋放。`
-                : '紀錄會依各筆成功時間逐筆退出 24 小時計數。';
-            const legacyDetail = blockWindow.legacyCount > 0
-                ? `其中 ${blockWindow.legacyCount} 筆是舊版估計紀錄，最晚將於 ${legacyLastReleaseLabel} 退出；新版本不再把失敗、已封鎖或解除封鎖算進來。`
-                : '';
+            const warning = buildDailyBlockLimitWarning(blockWindow, limit);
             Worker.setLimitWarning(
-                `⚠️ 近 24 小時封鎖計數 ${done} 筆，已達或超過你自訂上限 ${limit} 筆。${releaseDetail}${legacyDetail}這是自訂的安全估計值，超過可能被平台限制，但程式會繼續執行。`,
+                warning.message,
                 {
-                    compactMessage: `⚠️ 近24h ${done}/${limit}；${nextReleaseLabel} 起逐筆釋放${blockWindow.legacyCount > 0 ? `；含舊版估計 ${blockWindow.legacyCount}` : ''}`,
+                    compactMessage: warning.compactMessage,
                     done,
                     limit,
                 },
@@ -1795,6 +1809,7 @@ export const Worker = {
             hasStructuredDailyLimitWarning
             || Worker.limitWarningMessage.startsWith('⚠️ 已封鎖')
             || Worker.limitWarningMessage.startsWith('⚠️ 近 24 小時封鎖計數')
+            || Worker.limitWarningMessage.startsWith('⚠️ 近24h')
             || Worker.limitWarningMessage.startsWith('⚠️ Meta')
         ) {
             Worker.setLimitWarning('');

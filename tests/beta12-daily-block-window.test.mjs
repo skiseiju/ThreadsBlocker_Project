@@ -111,19 +111,53 @@ test('beta12 worker只在成功封鎖確定後計數，排除失敗、已封鎖�
     );
 });
 
-test('beta12 超限提醒說明rolling 24h、下一次釋放與舊版估計截止', () => {
+test('beta13 超限提醒以短句保留rolling 24h、下一次釋放與舊版估計截止', () => {
+    const normalizeMatch = workerSource.match(/const normalizeLimitWarningNumber = \(value\) => \{[\s\S]*?\n\};/);
+    const formatMatch = workerSource.match(/const formatBlockWindowReleaseAt = value => \{[\s\S]*?\n\};/);
+    const builderMatch = workerSource.match(/export const buildDailyBlockLimitWarning = \(blockWindow = \{\}, limit = 0\) => \{[\s\S]*?\n\};/);
+    assert.ok(normalizeMatch, '找不到提醒數字正規化 helper');
+    assert.ok(formatMatch, '找不到釋放時間格式 helper');
+    assert.ok(builderMatch, '找不到每日上限短文案 builder');
+
+    const buildDailyBlockLimitWarning = Function(
+        `${normalizeMatch[0]}\n${formatMatch[0]}\n${builderMatch[0].replace('export const ', 'const ')}\nreturn buildDailyBlockLimitWarning;`,
+    )();
+    const nextReleaseAt = new Date(2026, 7, 11, 19, 30).getTime();
+    const legacyLastReleaseAt = new Date(2026, 7, 11, 23, 8).getTime();
+    const withLegacy = buildDailyBlockLimitWarning({
+        count: 234,
+        legacyCount: 233,
+        nextReleaseAt,
+        legacyLastReleaseAt,
+    }, 200);
+    assert.equal(
+        withLegacy.message,
+        '⚠️ 近24h 234/200。8/11 19:30 起逐筆釋放；舊版估計 233 筆將於 8/11 23:08 前清完。超限仍會繼續。',
+    );
+    assert.equal(withLegacy.compactMessage, '⚠️ 24h 234/200｜8/11 19:30釋放｜舊233');
+    assert.ok(withLegacy.message.length <= 80, '完整提醒不可再膨脹成說明段落');
+
+    const withoutLegacy = buildDailyBlockLimitWarning({
+        count: 234,
+        legacyCount: 0,
+        nextReleaseAt,
+        legacyLastReleaseAt: 0,
+    }, 200);
+    assert.equal(
+        withoutLegacy.message,
+        '⚠️ 近24h 234/200。8/11 19:30 起逐筆釋放。超限仍會繼續。',
+    );
+
     const limitStart = workerSource.indexOf('if (!Storage.isUnderLimit(blockWindow))');
     const limitEnd = workerSource.indexOf('// Record initial total', limitStart);
     const limitSource = workerSource.slice(limitStart, limitEnd);
     const limitSetupSource = workerSource.slice(workerSource.lastIndexOf('const blockWindow', limitStart), limitEnd);
     assert.match(limitSetupSource, /Storage\.getBlockWindowStats\(\)/);
-    assert.match(limitSource, /nextReleaseAt/);
-    assert.match(limitSource, /legacyCount/);
-    assert.match(limitSource, /legacyLastReleaseAt/);
-    assert.match(limitSource, /近 24 小時封鎖計數/);
-    assert.match(limitSource, /最早一筆將於/);
-    assert.match(limitSource, /舊版估計/);
-    assert.match(limitSource, /逐筆/);
+    assert.match(limitSource, /buildDailyBlockLimitWarning\(blockWindow, limit\)/);
+    assert.doesNotMatch(workerSource, /已達或超過你自訂上限/);
+    assert.doesNotMatch(workerSource, /自動退出 24 小時計數/);
+    assert.doesNotMatch(workerSource, /新版本不再把失敗/);
+    assert.doesNotMatch(workerSource, /這是自訂的安全估計值/);
 
     const panelStart = coreSource.indexOf("const bgStatusLineEl = document.getElementById('hege-bg-status');");
     const panelEnd = coreSource.indexOf('let badgeText =', panelStart);

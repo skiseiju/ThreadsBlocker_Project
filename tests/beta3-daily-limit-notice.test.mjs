@@ -59,13 +59,16 @@ test('主面板背景狀態列顯示提醒，清空或停止後還原原本狀�
     assert.doesNotMatch(panelSource, /textContent\.includes\(['"]冷卻['"]\)/, '定點絕保護不可依賴狀態文字比對');
 });
 
-test('每日上限文案包含rolling窗口、自訂估計值與平台限制風險，且移除舊文案', () => {
-    assert.match(workerSource, /近 24 小時封鎖計數 \$\{done\} 筆，已達或超過你自訂上限 \$\{limit\} 筆/);
-    assert.match(workerSource, /最早一筆將於 \$\{nextReleaseLabel\} 自動退出 24 小時計數/);
+test('每日上限文案維持短版資訊，且移除舊說明段落', () => {
+    assert.match(workerSource, /buildDailyBlockLimitWarning/);
+    assert.match(workerSource, /⚠️ 近24h \$\{done\}\/\$\{normalizedLimit\}/);
+    assert.match(workerSource, /起逐筆釋放/);
     assert.match(workerSource, /舊版估計/);
-    assert.match(workerSource, /逐筆/);
-    assert.match(workerSource, /這是自訂的安全估計值，超過可能被平台限制，但程式會繼續執行/);
+    assert.match(workerSource, /超限仍會繼續/);
     assert.match(workerSource, /compactMessage/);
+    assert.doesNotMatch(workerSource, /已達或超過你自訂上限/);
+    assert.doesNotMatch(workerSource, /自動退出 24 小時計數/);
+    assert.doesNotMatch(workerSource, /這是自訂的安全估計值/);
     assert.doesNotMatch(workerSource, /⚠️ Meta 上限提醒/);
 });
 

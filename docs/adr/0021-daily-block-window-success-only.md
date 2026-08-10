@@ -1,7 +1,7 @@
 # ADR 0021：每日封鎖 rolling window 只記成功結果
 
 - 日期：2026-08-10
-- 狀態：已採納並實作（2.8.4-beta12；installed 實機驗收待執行）
+- 狀態：已採納並實作（行為 2.8.4-beta12；短文案 2.8.4-beta13；installed 實機驗收待執行）
 - 相關：[ADR 0001](0001-unify-daily-block-limit.md)（每日封鎖安全上限與 rolling 24h 領域）、[ADR 0012](0012-profile-identity-gate-relaxed-fallback.md)（worker 封鎖結果與身分閘門）、`docs/BLOCKING_ARCHITECTURE.md`、`src/storage.js`、`src/worker.js`、`src/core.js`、`src/config.js`、`tests/beta3-daily-limit-notice.test.mjs`、`tests/beta12-daily-block-window.test.mjs`
 
 ## 背景
@@ -20,6 +20,7 @@
 - 過去的 ring 只有 timestamp，無法可靠反推出 outcome。Beta12 不整批清除，以 `BLOCK_SUCCESS_COUNTER_STARTED_AT` 標記新規則開始時間：標記前仍在 24h 內的資料顯示為「舊版估計」，按原時間自然退出；標記後只接受 success-only 寫入。
 - 未來時間戳與超過 48 小時的資料會被移除，避免系統時間異常讓數字永久留在窗口。
 - 超限仍是提醒而不是強制停止。Worker 與主面板顯示最早一筆退出時間；存在舊版估計時另顯示筆數與最晚退出時間。
+- Beta13 將提醒收斂為單一短句，只保留 `近24h 已用/上限`、開始逐筆釋放時間、可選的舊版估計截止，以及「超限仍會繼續」；success-only 與 rolling window 行為不變。
 
 ## 否決方案
 
@@ -32,4 +33,4 @@
 - 固定時鐘 fixture 驗證 23 小時、2 小時與新成功資料會計入；25 小時資料不計但仍留在 48 小時 retention；49 小時與未來資料被清除。
 - 每筆到達 24 小時後退出，不依賴午夜或整批 reset；空窗口的 next／legacy release 均為 0。
 - Source contract 禁止 `autoBlock()` 後、outcome 分流前寫入，並鎖定一般成功、inline 驗證成功與 batch 驗證成功三個寫入點。
-- 超限提醒與主面板 contract 驗證 rolling 24h、下一次逐筆釋放及舊版估計截止資訊仍可見，且提醒不停止或清空 queue。
+- 超限提醒與主面板 contract 驗證 rolling 24h、下一次逐筆釋放及舊版估計截止資訊仍可見，完整短句不超過 80 字元，且提醒不停止或清空 queue。
