@@ -1733,41 +1733,103 @@ export const Core = {
             }
         };
 
-        const trigger = findTrigger(initialCtx);
-        if (!trigger) return { ok: true, available: false, switched: false, ctx: initialCtx, menuItemCount: 0 };
+        const resolveLiveTarget = async (fallbackCtx) => {
+            let liveCtx = fallbackCtx;
+            for (let attempt = 0; attempt < 20; attempt += 1) {
+                const topContext = Core.getTopContext?.();
+                if (topContext && topContext !== document.body) liveCtx = topContext;
+                const liveTrigger = findTrigger(liveCtx);
+                if (liveTrigger) return { ctx: liveCtx, trigger: liveTrigger };
+                if (liveCtx !== fallbackCtx) {
+                    const fallbackTrigger = findTrigger(fallbackCtx);
+                    if (fallbackTrigger) return { ctx: fallbackCtx, trigger: fallbackTrigger };
+                }
+                if (attempt < 19) await Utils.safeSleep(75);
+            }
+            return { ctx: liveCtx, trigger: null };
+        };
 
-        const initialMenu = await openLatestMenuItem(trigger);
-        if (!initialMenu) {
-            await closeMenu(trigger);
-            return { ok: false, reason: 'likes_sort_switch_failed', ctx: initialCtx, menuItemCount: 0 };
-        }
-        if (selectedItem(initialMenu.item)) {
-            await closeMenu(trigger);
-            return { ok: true, available: true, switched: false, ctx: initialCtx, menuItemCount: initialMenu.menuItemCount };
-        }
-
-        Utils.simClick(initialMenu.item);
-        await Utils.safeSleep(350);
         let liveCtx = initialCtx;
-        let liveTrigger = null;
-        for (let attempt = 0; attempt < 20; attempt += 1) {
-            const topContext = Core.getTopContext?.();
-            if (topContext && topContext !== document.body) liveCtx = topContext;
-            liveTrigger = findTrigger(liveCtx);
-            if (liveTrigger) break;
-            if (attempt < 19) await Utils.safeSleep(75);
-        }
-        if (!liveTrigger) return { ok: false, reason: 'likes_sort_switch_failed', ctx: liveCtx, menuItemCount: initialMenu.menuItemCount };
+        let liveTrigger = findTrigger(liveCtx);
+        if (!liveTrigger) return {
+            ok: true, available: false, switched: false, ctx: liveCtx,
+            menuItemCount: 0, switchAttempts: 0,
+        };
 
-        const verificationMenu = await openLatestMenuItem(liveTrigger);
-        if (!verificationMenu) {
-            await closeMenu(liveTrigger);
-            return { ok: false, reason: 'likes_sort_switch_failed', ctx: liveCtx, menuItemCount: initialMenu.menuItemCount };
+        const maxSwitchAttempts = 2;
+        let switchAttempts = 0;
+        let menuItemCount = 0;
+        let selectionMenu = null;
+
+        for (let cycle = 0; cycle < maxSwitchAttempts; cycle += 1) {
+            if (!selectionMenu) {
+                const liveTarget = await resolveLiveTarget(liveCtx);
+                liveCtx = liveTarget.ctx;
+                liveTrigger = liveTarget.trigger;
+                if (!liveTrigger) {
+                    if (cycle < maxSwitchAttempts - 1) {
+                        await Utils.safeSleep(150);
+                        continue;
+                    }
+                    return {
+                        ok: false, reason: 'likes_sort_switch_failed', ctx: liveCtx,
+                        menuItemCount, switchAttempts,
+                    };
+                }
+                selectionMenu = await openLatestMenuItem(liveTrigger);
+            }
+
+            if (!selectionMenu) {
+                await closeMenu(liveTrigger);
+                if (cycle < maxSwitchAttempts - 1) {
+                    await Utils.safeSleep(150);
+                    continue;
+                }
+                return {
+                    ok: false, reason: 'likes_sort_switch_failed', ctx: liveCtx,
+                    menuItemCount, switchAttempts,
+                };
+            }
+
+            menuItemCount = selectionMenu.menuItemCount || menuItemCount;
+            if (selectedItem(selectionMenu.item)) {
+                await closeMenu(liveTrigger);
+                return {
+                    ok: true, available: true, switched: switchAttempts > 0, ctx: liveCtx,
+                    menuItemCount, switchAttempts,
+                };
+            }
+
+            switchAttempts += 1;
+            Utils.simClick(selectionMenu.item);
+            selectionMenu = null;
+            await Utils.safeSleep(350);
+
+            const liveTarget = await resolveLiveTarget(liveCtx);
+            liveCtx = liveTarget.ctx;
+            liveTrigger = liveTarget.trigger;
+            if (liveTrigger) {
+                const verificationMenu = await openLatestMenuItem(liveTrigger);
+                if (verificationMenu) {
+                    menuItemCount = verificationMenu.menuItemCount || menuItemCount;
+                    const latestSelected = selectedItem(verificationMenu.item);
+                    await closeMenu(liveTrigger);
+                    if (latestSelected) return {
+                        ok: true, available: true, switched: true, ctx: liveCtx,
+                        menuItemCount, switchAttempts,
+                    };
+                } else {
+                    await closeMenu(liveTrigger);
+                }
+            }
+
+            if (cycle < maxSwitchAttempts - 1) await Utils.safeSleep(150);
         }
-        const latestSelected = selectedItem(verificationMenu.item);
-        await closeMenu(liveTrigger);
-        if (!latestSelected) return { ok: false, reason: 'likes_sort_switch_failed', ctx: liveCtx, menuItemCount: verificationMenu.menuItemCount };
-        return { ok: true, available: true, switched: true, ctx: liveCtx, menuItemCount: verificationMenu.menuItemCount };
+
+        return {
+            ok: false, reason: 'likes_sort_switch_failed', ctx: liveCtx,
+            menuItemCount, switchAttempts,
+        };
     },
 
     collectVisibleDialogUsers: (ctx) => {
@@ -1951,6 +2013,8 @@ export const Core = {
                     switchSucceeded: latestSort.ok === true,
                     found: latestSort.available === true,
                     menuItems: latestSort.menuItemCount || 0,
+                    attempt: latestSort.switchAttempts || 0,
+                    retry: Number(latestSort.switchAttempts || 0) > 1,
                     activeTab: true,
                     activeTabCategory: 'likes',
                 });

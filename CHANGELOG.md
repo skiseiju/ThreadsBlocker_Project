@@ -1,3 +1,10 @@
+## v2.8.4-beta9 — Likes「最新」切換失敗自動重試
+
+* **TL;DR：清理名單第一次點「最新」若被 Threads React 更新吃掉，會在同一次操作中重新取得目前可見的 Likes 視窗與排序按鈕，自動再試一次。**
+* **雙重驗證**：每次點擊後都重新開啟本次新出現的 scoped 排序選單，以選取標記確認「最新」真的生效；若第一次效果較晚落地，第二輪先確認狀態，不會盲目重複點擊。
+* **有界重試與回滾**：最多兩次選取；兩次都未通過才回傳 `likes_sort_switch_failed`，未確認成功前不開始收集，沿用既有 atomic rollback。
+* **回歸契約**：新增第一次 click no-op、第二次成功，以及兩次都 no-op 的 fixture；成功路徑 `switchAttempts=2`，失敗路徑同樣嚴格限制為兩次。
+
 ## v2.8.4-beta7 — 直接 Likes 視窗也會切到「最新」
 
 * **TL;DR：beta6 只在簡化 fixture 的 `Likes` 標題／tab 形狀通過；真實直接 Likes 視窗使用 `1,742個讚` 這類計數標題，沒有 selected Likes tab，導致排序步驟根本沒執行。beta7 補上這條實機入口。**

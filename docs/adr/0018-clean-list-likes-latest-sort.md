@@ -1,7 +1,7 @@
 # ADR 0018：清理名單先切 Likes「最新」排序
 
 - 日期：2026-08-10
-- 狀態：已採納並實作（2.8.4-beta8；installed 實機驗收通過）
+- 狀態：已採納並實作（2.8.4-beta9；自動重試 installed 驗收待執行）
 - 相關：[ADR 0003](0003-merge-dialog-buttons.md)（清理名單入口與合併）、[ADR 0004](0004-engagement-strategy-order.md)（Likes dialog 的開啟順序）、[ADR 0017](0017-likes-progress-idle-timeout.md)（名單依最後進度停止）、`src/core.js`、`src/config.js`、`tests/beta99-clean-list-latest-sort.test.mjs`
 
 ## 背景
@@ -26,6 +26,7 @@
 - 排序按鈕必須在目前已驗證的 Likes dialog 內精確匹配，不能全頁搜尋背景 dialog 的按鈕。
 - Threads 將選項 menu portal 到 dialog 外，因此點擊已限縮的排序按鈕後，只接受本次新出現、可見且文字精確匹配「最新」的 menu item。
 - 切換後重新開啟同一排序選單，利用選取標記確認「最新」已生效，再開始收集。
+- 若第一次選取未通過重新開啟選單的驗證，重新取得目前可見的 Likes dialog 與排序按鈕後自動再試一次；每次都以新出現的 scoped menu 驗證，最多兩次，確認成功前不得開始收集。
 - 舊版面若完全沒有排序控制，沿用既有收集以保持相容；若已找到排序控制但無法開啟、選取或驗證「最新」，回傳 `likes_sort_switch_failed`，由清理名單既有 atomic rollback 拒絕送出不完整結果。
 - 成功切換後仍保留 5 秒無進度期限、1000 人安全上限、800 次捲動上限與手動停止。
 
@@ -41,6 +42,12 @@ Beta7 只在 `handleCleanList` 傳入 `preferLatestLikesSort: true` 時，接受
 
 Beta8 只沿用目前可見標題所在局部 subtree 內的入口。若同一 dialog 的其他隱藏 subtree 留有舊入口，掃描器會移除它並在目前工具列建立、綁定新的唯一入口。原本「短暫 lazy render 時保留入口」的行為仍適用於同一局部 subtree；跨畫面入口不再沿用。
 
+## Beta8 installed 間歇失敗與 Beta9 修正
+
+Beta8 installed 驗收曾成功切到「最新」，但使用者後續實跑觀察到第一次執行沒有切換、第二次手動執行才成功。原流程已有 double-check：點擊後會重新開選單驗證；但驗證失敗只會回傳 `likes_sort_switch_failed`，沒有自動再選一次。因此第二次完整手動執行實際上才扮演 retry。
+
+Beta9 將這個人工 retry 收進單次清理操作：第一次驗證失敗後，重新取得 React 更新後仍可見的 dialog 與排序 trigger，再開啟新的 portal menu；若「最新」仍未選取才進行第二次點擊，之後再次重新開選單驗證。第一次效果只是較晚落地時，第二輪會先看見已選取而不重複點擊。兩輪都未通過才 fail closed，維持既有 atomic rollback。
+
 ## 影響與驗證邊界
 
 - 真實 Threads 已證明「預設」停在 82、「最新」可超過 150；這是來源排序的 live 證據，不是 beta6 installed 功能驗收。
@@ -49,3 +56,4 @@ Beta8 只沿用目前可見標題所在局部 subtree 內的入口。若同一 d
 - beta6 installed 已證明直接計數 Likes 標題未通過分類；beta7 已修正分類，但仍受下列 shared-dialog 入口生命週期問題阻擋。
 - beta7 installed 已證明 shared-dialog 轉場後入口停留在隱藏 Activity subtree。
 - beta8 installed 由內容腳本版本訊息確認載入；同一真實貼文的入口由 0×0 恢復為唯一且可見的 104×35，排序從「預設」切到帶選取標記的「最新」，收集數由 82 增至 83 後手動停止。Atomic rollback 後維持 0 選取、173 筆既有檢舉佇列，且貼文仍未按讚，installed 驗收通過。
+- beta9 red-first fixture 在舊流程只點一次並回傳失敗；修正後第一次 click no-op、第二次成功時會回報 `switchAttempts=2`，兩次都 no-op 時也只點兩次並回傳 `likes_sort_switch_failed`。仍需重載 installed beta9 進行真實 Threads 驗收。

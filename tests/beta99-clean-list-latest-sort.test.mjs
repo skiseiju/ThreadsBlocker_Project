@@ -260,4 +260,88 @@ test('beta8 moves the clean-list entry from hidden Activity content to the visib
     assert.equal(output.pickerOpened, true);
 });
 
-console.log('beta8 clean-list latest-sort contract: counted Likes headings and shared-dialog transitions are covered');
+test('beta9 retries Latest once when Threads ignores the first selection click', async () => {
+    const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+    await page.goto(`${moduleOrigin}/@owner/post/123`);
+    const output = await page.evaluate(async () => {
+        const { Core } = await import('/core.js');
+        document.body.innerHTML = `
+          <div id="retry-dialog" role="dialog" style="width:700px;height:320px;overflow:auto">
+            <h1>1,742個讚</h1>
+            <div id="retry-sort" role="button" aria-haspopup="menu" aria-expanded="false">排序</div>
+            <div><a href="/@retry1">retry1</a></div>
+            <div><a href="/@retry2">retry2</a></div>
+          </div>`;
+        const dialog = document.querySelector('#retry-dialog');
+        const sort = document.querySelector('#retry-sort');
+        let currentSort = 'default';
+        let latestSortClicks = 0;
+        let acceptSecondClick = true;
+        let triggerReplacements = 0;
+        const closeMenu = (trigger) => {
+            document.querySelector('#retry-sort-menu')?.remove();
+            trigger?.setAttribute('aria-expanded', 'false');
+        };
+        const selectedMark = () => '<svg role="img" viewBox="0 0 24 24"><path d="M1 1"></path></svg>';
+        const bindSort = (trigger) => {
+            trigger.onclick = () => {
+                if (document.querySelector('#retry-sort-menu')) {
+                    closeMenu(trigger);
+                    return;
+                }
+                trigger.setAttribute('aria-expanded', 'true');
+                const menu = document.createElement('div');
+                menu.id = 'retry-sort-menu';
+                menu.setAttribute('role', 'menu');
+                menu.innerHTML = `
+                  <div id="retry-default-sort" role="menuitem">預設${currentSort === 'default' ? selectedMark() : ''}</div>
+                  <div id="retry-latest-sort" role="menuitem">最新${currentSort === 'latest' ? selectedMark() : ''}</div>`;
+                document.body.appendChild(menu);
+                menu.querySelector('#retry-latest-sort').onclick = () => {
+                    latestSortClicks += 1;
+                    if (acceptSecondClick && latestSortClicks >= 2) currentSort = 'latest';
+                    closeMenu(trigger);
+                    if (latestSortClicks === 1) {
+                        const replacement = trigger.cloneNode(true);
+                        trigger.replaceWith(replacement);
+                        triggerReplacements += 1;
+                        bindSort(replacement);
+                    }
+                };
+            };
+        };
+        bindSort(sort);
+
+        const result = await Core.ensureLatestLikesSort(dialog);
+        const successfulClicks = latestSortClicks;
+        const successfulSort = currentSort;
+        acceptSecondClick = false;
+        currentSort = 'default';
+        latestSortClicks = 0;
+        const failedResult = await Core.ensureLatestLikesSort(dialog);
+        return {
+            result,
+            successfulClicks,
+            successfulSort,
+            failedResult,
+            failedClicks: latestSortClicks,
+            triggerReplacements,
+            menuOpen: !!document.querySelector('#retry-sort-menu'),
+        };
+    });
+    await page.close();
+
+    assert.equal(output.result.ok, true);
+    assert.equal(output.result.switched, true);
+    assert.equal(output.result.switchAttempts, 2);
+    assert.equal(output.successfulClicks, 2);
+    assert.equal(output.successfulSort, 'latest');
+    assert.equal(output.failedResult.ok, false);
+    assert.equal(output.failedResult.reason, 'likes_sort_switch_failed');
+    assert.equal(output.failedResult.switchAttempts, 2);
+    assert.equal(output.failedClicks, 2);
+    assert.equal(output.triggerReplacements, 2);
+    assert.equal(output.menuOpen, false);
+});
+
+console.log('beta9 clean-list latest-sort contract: counted headings, shared-dialog transitions, and verified retry are covered');
