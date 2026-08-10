@@ -77,7 +77,7 @@ export const isDiagnosticMeasurementField = key => {
 };
 
 export const CONFIG = {
-    VERSION: '2.8.4-beta6', // 清理名單先切 Likes「最新」排序再完整收集
+    VERSION: '2.8.4-beta7', // 直接 Likes 計數標題也會先切「最新」再完整收集
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。

@@ -1822,15 +1822,32 @@ export const Core = {
         };
         if (!ctx) return fail('missing_dialog');
 
-        const headerText = Array.from(ctx.querySelectorAll?.('span[dir="auto"], h1, h2, [role="heading"]') || [])
-            .map(el => (el.innerText || el.textContent || '').trim());
+        const headingElements = Array.from(ctx.querySelectorAll?.('h1, h2, [role="heading"]') || []);
+        const headerElements = Array.from(ctx.querySelectorAll?.('span[dir="auto"], h1, h2, [role="heading"]') || []);
+        const headerText = headerElements.map(el => (el.innerText || el.textContent || '').trim());
         const activityByHeader = headerText.some(text => CONFIG.ACTIVITY_TEXTS.some(t => text === t));
         const rawListByHeader = headerText.some(text => /followers|following|追蹤者|追蹤中|粉絲|關注|フォロワー|フォロー中/i.test(text));
         const rawDialogReason = String(options.dialogReason || '').toLowerCase();
         const knownRawList = rawListByHeader || rawDialogReason === 'followers' || rawDialogReason === 'following';
         const initialLikesTab = DialogCollector.findLikesTab(ctx, CONFIG.LIKES_TAB_TEXTS);
         const currentLikesEvidence = DialogCollector.hasCurrentLikesEvidence(ctx);
+        // Direct Likes views use a localized count heading such as
+        // "1,742個讚" instead of a selected Likes tab. Only clean-list opts in
+        // to this strong, visible heading signal so shared reservoir callers
+        // keep their existing classification behavior.
+        const visibleCountedLikesHeading = options.preferLatestLikesSort === true && headingElements.some((element) => {
+            const rect = element?.getBoundingClientRect?.();
+            const style = typeof window !== 'undefined' ? window.getComputedStyle?.(element) : null;
+            if (!rect || rect.width <= 0 || rect.height <= 0
+                || style?.display === 'none' || style?.visibility === 'hidden') return false;
+            const normalized = DialogCollector.normalizeText(element.innerText || element.textContent);
+            if (!normalized || normalized.length > 80 || !/\p{N}/u.test(normalized)) return false;
+            return (CONFIG.LIKES_TEXTS || CONFIG.LIKES_TAB_TEXTS || [])
+                .map(DialogCollector.normalizeText)
+                .some(label => label && normalized.includes(label));
+        });
         const isActivityDialog = activityByHeader || !!initialLikesTab || currentLikesEvidence
+            || visibleCountedLikesHeading
             || Array.from(ctx.querySelectorAll?.('[role="tab"], [role="button"], button') || [])
                 .some(el => /quotes|引用|repost|轉發/i.test(el.getAttribute?.('aria-label') || el.innerText || el.textContent || ''));
 
@@ -1840,7 +1857,7 @@ export const Core = {
         if (isActivityDialog) {
             const likesTab = initialLikesTab || Core.SweepDriver?.findLikesTab?.(ctx);
             if (!likesTab) {
-                if (!DialogCollector.hasCurrentLikesEvidence(ctx)
+                if (!visibleCountedLikesHeading && !DialogCollector.hasCurrentLikesEvidence(ctx)
                     && !DialogCollector.isLikesContextReady(ctx, CONFIG.LIKES_TAB_TEXTS)) return fail('likes_tab_not_identified');
             }
             const waitForLikesRender = async (initialCtx, requireSwitch = false) => {
@@ -1906,7 +1923,14 @@ export const Core = {
                     return fail('likes_tab_switch_failed');
                 }
             } else {
-                const readiness = await waitForLikesRender(ctx, false);
+                const readiness = visibleCountedLikesHeading
+                    ? {
+                        ctx,
+                        snapshot: DialogCollector.getLikesContextSnapshot(ctx, CONFIG.LIKES_TAB_TEXTS),
+                        verifiedLikesContext: true,
+                        classificationStrategy: 'verified_likes_context',
+                    }
+                    : await waitForLikesRender(ctx, false);
                 if (!readiness) return fail(likesTab ? 'likes_tab_switch_failed' : 'likes_tab_not_identified');
                 ctx = readiness.ctx;
                 verifiedLikesContext = readiness.verifiedLikesContext === true;

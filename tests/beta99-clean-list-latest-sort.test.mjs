@@ -135,4 +135,76 @@ test('beta6 clean-list switches the scoped Likes dialog from Default to Latest b
     assert.equal(output.result.users.length, 140);
 });
 
-console.log('beta6 clean-list latest-sort contract: scoped portal menu is selected before collection');
+test('beta7 direct counted Likes dialog switches to Latest before collecting', async () => {
+    const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+    await page.goto(`${moduleOrigin}/@owner/post/123`);
+    const output = await page.evaluate(async () => {
+        const { Core } = await import('/core.js');
+        const renderRows = count => Array.from(
+            { length: count },
+            (_, index) => `<div style="height:10px"><a href="/@counted${index}">counted${index}</a></div>`,
+        ).join('');
+        document.body.innerHTML = `
+          <div id="counted-dialog" role="dialog" style="width:700px;height:320px;overflow:auto">
+            <h1>1,742個讚</h1>
+            <div id="counted-sort" role="button" aria-haspopup="menu" aria-expanded="false">排序</div>
+            <div id="counted-rows">${renderRows(82)}</div>
+          </div>`;
+        const dialog = document.querySelector('#counted-dialog');
+        const sort = document.querySelector('#counted-sort');
+        const rows = document.querySelector('#counted-rows');
+        let currentSort = 'default';
+        let latestSortClicks = 0;
+        const closeMenu = () => {
+            document.querySelector('#counted-sort-menu')?.remove();
+            sort.setAttribute('aria-expanded', 'false');
+        };
+        const selectedMark = () => '<svg role="img" viewBox="0 0 24 24"><path d="M1 1"></path></svg>';
+        sort.onclick = () => {
+            if (document.querySelector('#counted-sort-menu')) {
+                closeMenu();
+                return;
+            }
+            sort.setAttribute('aria-expanded', 'true');
+            const menu = document.createElement('div');
+            menu.id = 'counted-sort-menu';
+            menu.setAttribute('role', 'menu');
+            menu.innerHTML = `
+              <div id="counted-default-sort" role="menuitem">預設${currentSort === 'default' ? selectedMark() : ''}</div>
+              <div id="counted-latest-sort" role="menuitem">最新${currentSort === 'latest' ? selectedMark() : ''}</div>`;
+            document.body.appendChild(menu);
+            menu.querySelector('#counted-default-sort').onclick = () => {
+                currentSort = 'default';
+                rows.innerHTML = renderRows(82);
+                closeMenu();
+            };
+            menu.querySelector('#counted-latest-sort').onclick = () => {
+                currentSort = 'latest';
+                latestSortClicks += 1;
+                rows.innerHTML = renderRows(140);
+                closeMenu();
+            };
+        };
+        dialog.scrollBy = ({ top }) => {
+            dialog.scrollTop = Math.min(dialog.scrollHeight - dialog.clientHeight, dialog.scrollTop + Math.min(Number(top) || 0, 300));
+        };
+
+        const result = await Core.collectFullDialogUsers(dialog, {
+            label: 'beta7 counted Likes heading fixture',
+            preferLatestLikesSort: true,
+            initialRenderDeadlineMs: 300,
+            noProgressTimeoutMs: 1000,
+        });
+        return { result, currentSort, latestSortClicks, menuOpen: !!document.querySelector('#counted-sort-menu') };
+    });
+    await page.close();
+
+    assert.equal(output.latestSortClicks, 1);
+    assert.equal(output.currentSort, 'latest');
+    assert.equal(output.menuOpen, false);
+    assert.equal(output.result.complete, true);
+    assert.equal(output.result.reason, 'end');
+    assert.equal(output.result.users.length, 140);
+});
+
+console.log('beta7 clean-list latest-sort contract: direct counted Likes headings reach the scoped portal menu');

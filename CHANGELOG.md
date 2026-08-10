@@ -1,3 +1,10 @@
+## v2.8.4-beta7 — 直接 Likes 視窗也會切到「最新」
+
+* **TL;DR：beta6 只在簡化 fixture 的 `Likes` 標題／tab 形狀通過；真實直接 Likes 視窗使用 `1,742個讚` 這類計數標題，沒有 selected Likes tab，導致排序步驟根本沒執行。beta7 補上這條實機入口。**
+* **實機根因**：Chrome 已確認載入 `v2.8.4-beta6`；真實 Likes 視窗的可見標題是 `1,742個讚`，排序選單仍是 `排序 → 預設／最新`，證明選單 locator 正確，失敗點在進入排序前的 Likes context 分類。
+* **限縮修正**：只有 `preferLatestLikesSort` 的清理名單 caller，才接受「可見 heading 同時含數字與已知 Likes 語系標籤」作為直接 Likes 證據；隱藏 heading、一般 row 文字與共享 reservoir caller 不會因此放寬。
+* **回歸契約**：beta99 新增真實 `1,742個讚` 形狀；修正前 `latestSortClicks=0`，修正後會先切最新並由 82 收到 140。
+
 ## v2.8.4-beta6 — 清理名單改抓 Likes「最新」排序
 
 * **TL;DR：Threads 的 Likes「預設」排序可能只提供約 82 個精選帳號；清理名單現在會先切到「最新」，再沿用 5 秒無進度自動續抓。**

@@ -1,7 +1,7 @@
 # ADR 0018：清理名單先切 Likes「最新」排序
 
 - 日期：2026-08-10
-- 狀態：已採納並實作（2.8.4-beta6；真實 Threads 排序行為已驗證，beta6 installed 驗收待執行）
+- 狀態：已採納並實作（2.8.4-beta7；beta6 installed 分類失敗已由真實 DOM 證據修正，beta7 installed 驗收待執行）
 - 相關：[ADR 0003](0003-merge-dialog-buttons.md)（清理名單入口與合併）、[ADR 0004](0004-engagement-strategy-order.md)（Likes dialog 的開啟順序）、[ADR 0017](0017-likes-progress-idle-timeout.md)（名單依最後進度停止）、`src/core.js`、`src/config.js`、`tests/beta99-clean-list-latest-sort.test.mjs`
 
 ## 背景
@@ -29,9 +29,15 @@
 - 舊版面若完全沒有排序控制，沿用既有收集以保持相容；若已找到排序控制但無法開啟、選取或驗證「最新」，回傳 `likes_sort_switch_failed`，由清理名單既有 atomic rollback 拒絕送出不完整結果。
 - 成功切換後仍保留 5 秒無進度期限、1000 人安全上限、800 次捲動上限與手動停止。
 
+## Beta6 installed 失敗與 Beta7 修正
+
+Beta6 的 fixture 使用可直接辨識的 `Likes` heading 與 selected Likes tab；真實直接 Likes 視窗則把可見標題 render 成 `1,742個讚`，且不提供 selected Likes tab。Chrome 已確認載入 beta6，但這個 context 沒通過 Likes 分類，所以流程沒有進到 `ensureLatestLikesSort()`；排序選單本身仍可精確辨識 `排序 → 預設／最新`。
+
+Beta7 只在 `handleCleanList` 傳入 `preferLatestLikesSort: true` 時，接受「目前 dialog 內可見的 heading 同時含數字與已知 Likes 語系標籤」作為直接 Likes context 證據。一般 row／顯示名稱文字、隱藏的背景 heading 與共享 reservoir caller 不採用此放寬；分類成功後仍必須完成本 ADR 原有的 scoped sort menu 選取與驗證，才開始收集。
+
 ## 影響與驗證邊界
 
 - 真實 Threads 已證明「預設」停在 82、「最新」可超過 150；這是來源排序的 live 證據，不是 beta6 installed 功能驗收。
 - red-first fixture 在修正前 0/2 通過：清理名單沒有提出排序需求，collector 也停在 fixture 的 82 人。
 - 修正後 fixture 2/2 通過：只從 scoped dialog 開啟 portal menu、選到「最新」、收集 140 人並關閉 menu。
-- beta6 仍需安裝／重載後在真實貼文重跑，才能宣稱 installed 功能通過。
+- beta6 installed 已證明未切換排序；beta7 仍需安裝／重載後在真實貼文重跑，才能宣稱 installed 功能通過。
