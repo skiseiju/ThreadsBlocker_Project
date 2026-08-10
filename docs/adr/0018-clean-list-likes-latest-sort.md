@@ -1,7 +1,7 @@
 # ADR 0018：清理名單先切 Likes「最新」排序
 
 - 日期：2026-08-10
-- 狀態：已採納並實作（2.8.4-beta9；自動重試 installed 驗收待執行）
+- 狀態：已被 [ADR 0019](0019-clean-list-two-pass-sort-scan.md) 取代執行順序（本 ADR 保留排序 locator、驗證與 retry 的歷史決策）
 - 相關：[ADR 0003](0003-merge-dialog-buttons.md)（清理名單入口與合併）、[ADR 0004](0004-engagement-strategy-order.md)（Likes dialog 的開啟順序）、[ADR 0017](0017-likes-progress-idle-timeout.md)（名單依最後進度停止）、`src/core.js`、`src/config.js`、`tests/beta99-clean-list-latest-sort.test.mjs`
 
 ## 背景

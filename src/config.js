@@ -1,5 +1,6 @@
 // 相關 ADR：docs/adr/0013-lightweight-diagnostics-by-default.md、
-// docs/adr/0018-clean-list-likes-latest-sort.md。
+// docs/adr/0018-clean-list-likes-latest-sort.md、
+// docs/adr/0019-clean-list-two-pass-sort-scan.md。
 // 診斷簽章只保留能描述目前狀態的欄位。所有去重呼叫點都使用這份清單，
 // 量測值仍保留在診斷 fields，但不參與簽章比較。
 export const DIAGNOSTIC_SIGNATURE_MEASUREMENT_FIELDS = Object.freeze([
@@ -77,7 +78,7 @@ export const isDiagnosticMeasurementField = key => {
 };
 
 export const CONFIG = {
-    VERSION: '2.8.4-beta9', // 「最新」第一次未生效時會重抓 live dialog 自動重試一次
+    VERSION: '2.8.4-beta10', // 先掃目前排序到 idle，再切換排序掃第二輪並去重合併
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。

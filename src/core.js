@@ -2,7 +2,8 @@
 // docs/adr/0004-engagement-strategy-order.md、
 // docs/adr/0013-lightweight-diagnostics-by-default.md、
 // docs/adr/0017-likes-progress-idle-timeout.md、
-// docs/adr/0018-clean-list-likes-latest-sort.md。
+// docs/adr/0018-clean-list-likes-latest-sort.md、
+// docs/adr/0019-clean-list-two-pass-sort-scan.md。
 import { CONFIG, buildDiagnosticStateSignature } from './config.js';
 import { Utils, isBackgroundWorkerRunning } from './utils.js';
 import { Storage } from './storage.js';
@@ -691,7 +692,16 @@ export const normalizeDialogCollectionResult = (raw = {}) => {
         && COMPLETE_DIALOG_REASONS.includes(reason)
         && !source.truncated && !source.partial
         && Number(counts.unknownRows || source.unknownRows || 0) === 0;
-    return { ok: complete, complete, users, reason, counts, truncated: !!source.truncated };
+    return {
+        ok: complete,
+        complete,
+        users,
+        reason,
+        counts,
+        truncated: !!source.truncated,
+        activity: source.activity === true,
+        verifiedLikesContext: source.verifiedLikesContext === true,
+    };
 };
 export const shouldCommitDialogCollection = (raw = {}) => normalizeDialogCollectionResult(raw).complete;
 const dialogCollectionFailureText = (reason) => ({
@@ -702,7 +712,7 @@ const dialogCollectionFailureText = (reason) => ({
     unknown_dialog_schema: '目前無法安全辨識名單，請先讓名單載入後再試。',
     likes_tab_not_identified: '找不到按讚分頁，請稍後重試。',
     likes_tab_switch_failed: '已開啟按讚名單，但沒有找到可勾選的帳號，請稍後重試。',
-    likes_sort_switch_failed: '無法把按讚名單切換成「最新」排序，這次沒有送出不完整名單。',
+    likes_sort_switch_failed: '無法切換按讚名單排序，這次沒有送出不完整名單。',
     scroll_stall: '名單暫時無法繼續載入，請往下捲動後再試。',
     limited: '名單尚未完整載入，請稍後重試。',
     timeout: '名單收集逾時，請稍後重試。',
@@ -1675,7 +1685,7 @@ export const Core = {
         Core.syncInlineFakeAccountBadge(container, scanResults);
     },
 
-    ensureLatestLikesSort: async (initialCtx) => {
+    switchLikesSort: async (initialCtx) => {
         const normalize = value => DialogCollector.normalizeText(value);
         const allowedSort = new Set((CONFIG.SORT_TEXTS || ['排序', 'Sort']).map(normalize));
         const allowedLatest = new Set((CONFIG.LATEST_SORT_TEXTS || ['最新', 'Latest']).map(normalize));
@@ -1703,7 +1713,8 @@ export const Core = {
             || /(?:^|[\s_-])(active|selected)(?:$|[\s_-])/.test(normalize(item?.className))
             || !!item?.querySelector?.('svg, [role="img"]');
         const visibleMenus = () => Array.from(document.querySelectorAll('[role="menu"], [role="listbox"]')).filter(isVisible);
-        const openLatestMenuItem = async (trigger) => {
+        const menuItemSelector = '[role="menuitem"], [role="menuitemradio"], [role="option"]';
+        const openSortMenu = async (trigger) => {
             if (normalize(trigger?.getAttribute?.('aria-expanded')) === 'true') {
                 Utils.simClick(trigger);
                 await Utils.safeSleep(80);
@@ -1711,16 +1722,26 @@ export const Core = {
             const priorMenus = new Set(visibleMenus());
             Utils.simClick(trigger);
             for (let attempt = 0; attempt < 20; attempt += 1) {
-                const candidates = Array.from(document.querySelectorAll(
-                    '[role="menuitem"], [role="menuitemradio"], [role="option"]'
-                )).filter(item => {
+                const latestCandidates = Array.from(document.querySelectorAll(menuItemSelector)).filter(item => {
                     if (!isVisible(item) || !exactLabel(item, allowedLatest)) return false;
                     const menu = item.closest?.('[role="menu"], [role="listbox"]');
                     return !!menu && isVisible(menu) && !priorMenus.has(menu);
                 });
-                if (candidates.length === 1) {
-                    const menu = candidates[0].closest?.('[role="menu"], [role="listbox"]');
-                    return { item: candidates[0], menuItemCount: menu?.querySelectorAll?.('[role="menuitem"], [role="menuitemradio"], [role="option"]')?.length || 0 };
+                if (latestCandidates.length === 1) {
+                    const latestItem = latestCandidates[0];
+                    const menu = latestItem.closest?.('[role="menu"], [role="listbox"]');
+                    const menuItems = Array.from(menu?.querySelectorAll?.(menuItemSelector) || []).filter(isVisible);
+                    const alternateItems = menuItems.filter(item => item !== latestItem);
+                    // Threads currently exposes exactly two sort choices. When
+                    // the first pass was already Latest, only this unique sibling
+                    // is safe to use as the second-pass ordering.
+                    if (alternateItems.length === 1) {
+                        return {
+                            latestItem,
+                            alternateItem: alternateItems[0],
+                            menuItemCount: menuItems.length,
+                        };
+                    }
                 }
                 if (attempt < 19) await Utils.safeSleep(60);
             }
@@ -1751,15 +1772,22 @@ export const Core = {
 
         let liveCtx = initialCtx;
         let liveTrigger = findTrigger(liveCtx);
+        if (!liveTrigger) {
+            const liveTarget = await resolveLiveTarget(liveCtx);
+            liveCtx = liveTarget.ctx;
+            liveTrigger = liveTarget.trigger;
+        }
         if (!liveTrigger) return {
             ok: true, available: false, switched: false, ctx: liveCtx,
-            menuItemCount: 0, switchAttempts: 0,
+            menuItemCount: 0, switchAttempts: 0, targetLatest: null,
         };
 
         const maxSwitchAttempts = 2;
         let switchAttempts = 0;
         let menuItemCount = 0;
         let selectionMenu = null;
+        let targetLatest = null;
+        let initialLatestSelected = null;
 
         for (let cycle = 0; cycle < maxSwitchAttempts; cycle += 1) {
             if (!selectionMenu) {
@@ -1773,10 +1801,10 @@ export const Core = {
                     }
                     return {
                         ok: false, reason: 'likes_sort_switch_failed', ctx: liveCtx,
-                        menuItemCount, switchAttempts,
+                        menuItemCount, switchAttempts, targetLatest, initialLatestSelected,
                     };
                 }
-                selectionMenu = await openLatestMenuItem(liveTrigger);
+                selectionMenu = await openSortMenu(liveTrigger);
             }
 
             if (!selectionMenu) {
@@ -1787,21 +1815,35 @@ export const Core = {
                 }
                 return {
                     ok: false, reason: 'likes_sort_switch_failed', ctx: liveCtx,
-                    menuItemCount, switchAttempts,
+                    menuItemCount, switchAttempts, targetLatest, initialLatestSelected,
                 };
             }
 
             menuItemCount = selectionMenu.menuItemCount || menuItemCount;
-            if (selectedItem(selectionMenu.item)) {
+            const latestSelected = selectedItem(selectionMenu.latestItem);
+            const alternateSelected = selectedItem(selectionMenu.alternateItem);
+            if (targetLatest === null) {
+                if (latestSelected && alternateSelected) {
+                    await closeMenu(liveTrigger);
+                    selectionMenu = null;
+                    if (cycle < maxSwitchAttempts - 1) await Utils.safeSleep(150);
+                    continue;
+                }
+                initialLatestSelected = latestSelected;
+                targetLatest = !latestSelected;
+            }
+            const targetItem = targetLatest ? selectionMenu.latestItem : selectionMenu.alternateItem;
+            const otherItem = targetLatest ? selectionMenu.alternateItem : selectionMenu.latestItem;
+            if (selectedItem(targetItem) && !selectedItem(otherItem)) {
                 await closeMenu(liveTrigger);
                 return {
                     ok: true, available: true, switched: switchAttempts > 0, ctx: liveCtx,
-                    menuItemCount, switchAttempts,
+                    menuItemCount, switchAttempts, targetLatest, initialLatestSelected,
                 };
             }
 
             switchAttempts += 1;
-            Utils.simClick(selectionMenu.item);
+            Utils.simClick(targetItem);
             selectionMenu = null;
             await Utils.safeSleep(350);
 
@@ -1809,14 +1851,16 @@ export const Core = {
             liveCtx = liveTarget.ctx;
             liveTrigger = liveTarget.trigger;
             if (liveTrigger) {
-                const verificationMenu = await openLatestMenuItem(liveTrigger);
+                const verificationMenu = await openSortMenu(liveTrigger);
                 if (verificationMenu) {
                     menuItemCount = verificationMenu.menuItemCount || menuItemCount;
-                    const latestSelected = selectedItem(verificationMenu.item);
+                    const verifiedTarget = targetLatest ? verificationMenu.latestItem : verificationMenu.alternateItem;
+                    const verifiedOther = targetLatest ? verificationMenu.alternateItem : verificationMenu.latestItem;
+                    const targetSelected = selectedItem(verifiedTarget) && !selectedItem(verifiedOther);
                     await closeMenu(liveTrigger);
-                    if (latestSelected) return {
+                    if (targetSelected) return {
                         ok: true, available: true, switched: true, ctx: liveCtx,
-                        menuItemCount, switchAttempts,
+                        menuItemCount, switchAttempts, targetLatest, initialLatestSelected,
                     };
                 } else {
                     await closeMenu(liveTrigger);
@@ -1828,7 +1872,7 @@ export const Core = {
 
         return {
             ok: false, reason: 'likes_sort_switch_failed', ctx: liveCtx,
-            menuItemCount, switchAttempts,
+            menuItemCount, switchAttempts, targetLatest, initialLatestSelected,
         };
     },
 
@@ -1897,7 +1941,7 @@ export const Core = {
         // "1,742個讚" instead of a selected Likes tab. Only clean-list opts in
         // to this strong, visible heading signal so shared reservoir callers
         // keep their existing classification behavior.
-        const visibleCountedLikesHeading = options.preferLatestLikesSort === true && headingElements.some((element) => {
+        const visibleCountedLikesHeading = options.cleanListLikesMode === true && headingElements.some((element) => {
             const rect = element?.getBoundingClientRect?.();
             const style = typeof window !== 'undefined' ? window.getComputedStyle?.(element) : null;
             if (!rect || rect.width <= 0 || rect.height <= 0
@@ -2005,21 +2049,6 @@ export const Core = {
                     rowCount: readiness.snapshot?.rowCount || 0,
                     uniqueVisibleRows: readiness.snapshot?.rowCount || 0,
                 });
-            }
-            if (options.preferLatestLikesSort === true && verifiedLikesContext) {
-                const latestSort = await Core.ensureLatestLikesSort(ctx);
-                recordCleanDiagnostic('menu', {
-                    switchAttempt: latestSort.available === true,
-                    switchSucceeded: latestSort.ok === true,
-                    found: latestSort.available === true,
-                    menuItems: latestSort.menuItemCount || 0,
-                    attempt: latestSort.switchAttempts || 0,
-                    retry: Number(latestSort.switchAttempts || 0) > 1,
-                    activeTab: true,
-                    activeTabCategory: 'likes',
-                });
-                if (!latestSort.ok) return fail(latestSort.reason || 'likes_sort_switch_failed');
-                ctx = latestSort.ctx || ctx;
             }
         }
 
@@ -2312,6 +2341,7 @@ export const Core = {
             complete: COMPLETE_DIALOG_REASONS.includes(reason) && Number(state.unknownRows || 0) === 0,
             truncated,
             activity: isActivityDialog,
+            verifiedLikesContext,
             batches: state.batches,
             visibleRows: state.visibleRows,
             activityVisibleCount: state.activityVisibleCount || state.validAccountRows || 0,
@@ -2330,8 +2360,12 @@ export const Core = {
             },
         });
         Core.lastDialogCollectionResult = result;
-        recordCleanDiagnostic(result.complete ? 'commit' : 'stop', {
+        const resultStage = result.complete
+            ? (options.deferAtomicCommit === true ? 'progress' : 'commit')
+            : 'stop';
+        recordCleanDiagnostic(resultStage, {
             complete: result.complete, ok: result.ok, stopReason: reason,
+            attempt: Number(options.collectionPass || 0),
             candidateCount: result.counts?.visibleRows || state.visibleRows || 0,
             validAccountRows: result.activityVisibleCount || state.validAccountRows || 0,
             eligibleCount: users.length, selectedCount: users.length,
@@ -2352,6 +2386,159 @@ export const Core = {
             RuntimeDiagnostics.end(operationId, 'terminal', { reason: 'exception', ok: false, complete: false });
             throw err;
         }
+    },
+
+    collectCleanListDialogUsers: async (ctx, options = {}) => {
+        const operationId = options.operationId || RuntimeDiagnostics.begin('clean_list', { strategy: 'dialog_context' });
+        const ownsOperation = !options.operationId;
+        const label = options.label || '掃描整串帳號名單';
+        const finish = (result) => {
+            const normalized = normalizeDialogCollectionResult(result);
+            Core.lastDialogCollectionResult = normalized;
+            if (ownsOperation) {
+                RuntimeDiagnostics.end(operationId, normalized.complete ? 'commit' : 'rollback', {
+                    reason: normalized.reason,
+                    ok: normalized.ok,
+                    complete: normalized.complete,
+                    atomic: true,
+                });
+            }
+            return normalized;
+        };
+        const passOptions = {
+            ...options,
+            operationId,
+            cleanListLikesMode: true,
+            deferAtomicCommit: true,
+        };
+
+        const firstPass = normalizeDialogCollectionResult(await Core.collectFullDialogUsers(ctx, {
+            ...passOptions,
+            label: `${label}（第 1 輪）`,
+            collectionPass: 1,
+        }));
+        RuntimeDiagnostics.record('clean_list', 'progress', {
+            attempt: 1,
+            complete: firstPass.complete,
+            ok: firstPass.ok,
+            selectedCount: firstPass.users.length,
+            candidateCount: Number(firstPass.counts?.visibleRows || 0),
+            operationId,
+        });
+        if (!firstPass.complete || firstPass.verifiedLikesContext !== true) return finish(firstPass);
+
+        const switchedSort = await Core.switchLikesSort(ctx);
+        RuntimeDiagnostics.record('clean_list', 'menu', {
+            switchAttempt: switchedSort.available === true,
+            switchSucceeded: switchedSort.ok === true,
+            found: switchedSort.available === true,
+            menuItems: switchedSort.menuItemCount || 0,
+            attempt: switchedSort.switchAttempts || 0,
+            retry: Number(switchedSort.switchAttempts || 0) > 1,
+            activeTab: true,
+            activeTabCategory: 'likes',
+            operationId,
+        });
+        if (!switchedSort.ok) {
+            return finish({
+                users: [],
+                reason: switchedSort.reason || 'likes_sort_switch_failed',
+                complete: false,
+                counts: {
+                    ...firstPass.counts,
+                    firstPassCount: firstPass.users.length,
+                    secondPassCount: 0,
+                    combinedCount: 0,
+                },
+                activity: true,
+                verifiedLikesContext: true,
+            });
+        }
+        // Preserve the legacy fallback for Threads layouts that expose no sort
+        // control at all. When the control exists, both passes are mandatory.
+        if (!switchedSort.available) {
+            return finish({
+                ...firstPass,
+                counts: {
+                    ...firstPass.counts,
+                    firstPassCount: firstPass.users.length,
+                    secondPassCount: 0,
+                    combinedCount: firstPass.users.length,
+                },
+            });
+        }
+
+        const secondPass = normalizeDialogCollectionResult(await Core.collectFullDialogUsers(
+            switchedSort.ctx || Core.getTopContext?.() || ctx,
+            {
+                ...passOptions,
+                label: `${label}（第 2 輪）`,
+                collectionPass: 2,
+            },
+        ));
+        RuntimeDiagnostics.record('clean_list', 'progress', {
+            attempt: 2,
+            complete: secondPass.complete,
+            ok: secondPass.ok,
+            selectedCount: secondPass.users.length,
+            candidateCount: Number(secondPass.counts?.visibleRows || 0),
+            operationId,
+        });
+        if (!secondPass.complete) {
+            return finish({
+                ...secondPass,
+                users: [],
+                complete: false,
+                counts: {
+                    ...secondPass.counts,
+                    firstPassCount: firstPass.users.length,
+                    secondPassCount: secondPass.users.length,
+                    combinedCount: 0,
+                },
+            });
+        }
+
+        const combinedUsers = [];
+        const seenUsers = new Set();
+        for (const username of [...firstPass.users, ...secondPass.users]) {
+            const normalizedUsername = String(username || '').replace(/^@+/, '').toLowerCase();
+            if (!normalizedUsername || seenUsers.has(normalizedUsername)) continue;
+            seenUsers.add(normalizedUsername);
+            combinedUsers.push(username);
+        }
+        const maxLimit = typeof window !== 'undefined' && Number(window.__DEBUG_HEGE_LIKES_LIMIT) > 0
+            ? Number(window.__DEBUG_HEGE_LIKES_LIMIT)
+            : 1000;
+        if (combinedUsers.length > maxLimit) {
+            return finish({
+                users: [],
+                reason: 'limited',
+                complete: false,
+                truncated: true,
+                counts: {
+                    ...secondPass.counts,
+                    firstPassCount: firstPass.users.length,
+                    secondPassCount: secondPass.users.length,
+                    combinedCount: combinedUsers.length,
+                },
+                activity: true,
+                verifiedLikesContext: true,
+            });
+        }
+
+        return finish({
+            ...secondPass,
+            users: combinedUsers,
+            complete: true,
+            counts: {
+                ...secondPass.counts,
+                firstPassCount: firstPass.users.length,
+                secondPassCount: secondPass.users.length,
+                combinedCount: combinedUsers.length,
+            },
+            activity: true,
+            verifiedLikesContext: true,
+        });
     },
 
     findProfileFollowersControl: (profileRoot) => {
@@ -3498,7 +3685,7 @@ export const Core = {
                 };
                 if (actions.collect) {
                     const activeCtx = Core.getTopContext();
-                    const collection = normalizeDialogCollectionResult(await Core.collectFullDialogUsers(activeCtx, { operationId, preferLatestLikesSort: true }));
+                    const collection = normalizeDialogCollectionResult(await Core.collectCleanListDialogUsers(activeCtx, { operationId }));
                     fullUsers = collection.users;
                     if (!shouldCommitDialogCollection(collection)) {
                         const reason = collection.reason || 'rows_missing';
