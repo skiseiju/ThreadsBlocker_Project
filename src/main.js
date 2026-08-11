@@ -951,6 +951,9 @@ import './features/three-no-watch.js';
                             onImportReportPack: () => Core.importEncryptedReportPack(),
                             onExportReportDebug: Utils.isBetaBuild() ? (() => Core.exportLastReportDebug()) : null,
                             onExportThreeNoDebug: Utils.isBetaBuild() ? (() => Core.exportThreeNoDebug()) : null,
+                            onExportThreeNoFollowerRoster: Core.RuntimeDiagnostics?.betaDebugUI?.() === true
+                                ? (() => Core.exportThreeNoFollowerRoster())
+                                : null,
                             onClearDB: confirmClearDB,
                             onCockroach: () => Core.openCockroachManager(() => openSettings()),
                             onReservoir: () => UI.showPostReservoir({

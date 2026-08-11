@@ -5908,6 +5908,51 @@ export const Core = {
         return true;
     },
 
+    buildThreeNoFollowerRosterExport: () => {
+        if (!RuntimeDiagnostics.betaDebugUI()) return null;
+        const roster = Storage.getThreeNoFollowerRoster();
+        return {
+            type: 'three_no_follower_roster_export',
+            schema: roster.schema,
+            exportedAt: Date.now(),
+            exportedAtISO: new Date().toISOString(),
+            version: CONFIG.VERSION,
+            scanId: roster.scanId,
+            scanTargetOwner: roster.scanTargetOwner,
+            scanDate: roster.scanDate,
+            limit: roster.limit,
+            observedCount: roster.observedCount,
+            truncated: roster.truncated === true,
+            status: roster.status,
+            rows: Array.isArray(roster.rows) ? roster.rows : [],
+        };
+    },
+
+    exportThreeNoFollowerRoster: () => {
+        if (!RuntimeDiagnostics.betaDebugUI()) {
+            UI.showToast('正式版已停用三無名冊匯出');
+            return false;
+        }
+        const payload = Core.buildThreeNoFollowerRosterExport();
+        if (!payload) return false;
+        const safeId = String(payload.scanId || `three-no-roster-${Date.now()}`)
+            .replace(/[^\w.-]+/g, '_')
+            .slice(0, 90);
+        const filename = `${safeId || 'three-no-follower-roster'}.json`;
+        const text = JSON.stringify(payload, null, 2);
+        const downloaded = Core.downloadTextFile(filename, text);
+        if (downloaded) {
+            UI.showToast(`已匯出三無追蹤者名冊：${filename}`);
+            return true;
+        }
+        navigator.clipboard.writeText(text).then(() => {
+            UI.showToast('三無追蹤者名冊 JSON 已複製到剪貼簿');
+        }).catch(() => {
+            prompt('無法直接下載，請手動複製三無追蹤者名冊 JSON：', text);
+        });
+        return true;
+    },
+
     exportHistory: () => {
         const db = Storage.getBlockDB();
         if (db.length === 0) { UI.showToast('歷史資料庫是空的'); return; }

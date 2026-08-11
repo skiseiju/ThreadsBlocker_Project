@@ -254,6 +254,7 @@ Desktop: click(handleGlobalClick, capture: true) + ontouchend(stopPropagation)
 | `hege_three_no_last_scan_date` | localStorage | 最近一次三無掃描的本地日期 key |
 | `hege_three_no_scan_state` | localStorage (JSON) | 三無掃描目前狀態與進度摘要，不包含三無名單明細 |
 | `hege_three_no_scan_results` | localStorage (JSON) | 本機三無管理清單；包含本機顯示用 username、三無標籤、加入時間與地區標籤，但不會上傳到平台 |
+| `hege_three_no_scan_follower_roster` | localStorage (JSON) | 僅 beta 追蹤者取證名冊；包含列上顯示名、序號、可見頭像、命名命中與三無結果，固定上限，絕不進入任何外送資料 |
 | `hege_three_no_scan_cursor` | localStorage (JSON) | 三無分批掃描 cursor；記錄本機已掃過的粉絲 username，用於下次手動掃描接續下一批，不會上傳到平台 |
 | `hege_three_no_scan_lock` | localStorage | 三無掃描鎖，避免多分頁同日重複啟動 |
 | `hege_three_no_unread_count` | localStorage | floating icon 紅色驚嘆號提醒數量 |
