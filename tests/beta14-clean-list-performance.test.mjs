@@ -148,3 +148,108 @@ test('beta14：單輪 collector 的所有離開路徑都會解除收集狀態', 
     assert.match(collectorSource, /Core\.beginDialogCollectionActivity\(\)/);
     assert.match(collectorSource, /finally\s*\{[\s\S]*Core\.endDialogCollectionActivity\(\)/);
 });
+
+test('beta16：清理名單達 200 人時顯示一次效能提醒並保留停止結算', async () => {
+    const source = await readFile(corePath, 'utf8');
+    const collectorStart = source.indexOf('collectFullDialogUsers: async');
+    const collectorEnd = source.indexOf('collectCleanListDialogUsers: async', collectorStart);
+    const collectorSource = source.slice(collectorStart, collectorEnd);
+    const orchestratorStart = collectorEnd;
+    const orchestratorEnd = source.indexOf('collectFollowersForProfile: async', orchestratorStart);
+    const orchestratorSource = source.slice(orchestratorStart, orchestratorEnd);
+
+    assert.match(source, /export const CLEAN_LIST_SLOWDOWN_NOTICE_THRESHOLD = 200;/);
+    assert.match(collectorSource, /id = 'hege-clean-list-slowdown-notice'/);
+    assert.match(collectorSource, /名單已達 \$\{CLEAN_LIST_SLOWDOWN_NOTICE_THRESHOLD\} 人，網頁可能開始變慢。若操作已明顯變慢，可先按「停止並結算」保留目前名單，之後再繼續掃描。/);
+    assert.match(collectorSource, /visibleUsers\.length >= CLEAN_LIST_SLOWDOWN_NOTICE_THRESHOLD/);
+    assert.match(collectorSource, /largeListNotice\.hidden = false/);
+    assert.match(collectorSource, /category: 'clean_list_large_list_notice'[\s\S]*selectedCount: visibleUsers\.length[\s\S]*visible: true/);
+    assert.match(orchestratorSource, /largeListNoticeState: \{ shown: false \}/, '兩輪掃描共用一次性提醒狀態');
+    assert.match(collectorSource, /stopBtn\.textContent = '停止並結算'/, '提醒不能取代停止結算入口');
+});
+
+test('beta16：200 人提醒在實際 collector 進度浮層出現且不阻斷結算', async () => {
+    const page = await browser.newPage({ viewport: { width: 1000, height: 800 } });
+    await page.goto(`${moduleOrigin}/@owner/post/123`);
+    const result = await page.evaluate(async () => {
+        const { Core, RuntimeDiagnostics } = await import('/core.js');
+        const { DialogCollector } = await import('/dialog-collector.js');
+        document.body.innerHTML = `
+          <div id="likes-dialog" role="dialog" style="display:block;width:720px;height:500px;overflow:auto">
+            <button role="tab" aria-selected="true" style="display:block;width:80px;height:30px">Likes</button>
+            <a href="/@fixture_0" style="display:block;width:120px;height:24px">fixture_0</a>
+          </div>`;
+        const dialog = document.querySelector('#likes-dialog');
+        const users = Array.from({ length: 200 }, (_, index) => `fixture_${index}`);
+        const originalCollectVisible = DialogCollector.collectVisible;
+        const originalUsersFromState = DialogCollector.usersFromState;
+        DialogCollector.collectVisible = (_ctx, state) => {
+            state.entries = new Map(users.map(username => [username, { username }]));
+            state.visibleRows = 200;
+            state.uniqueVisibleRows = 200;
+            state.activityVisibleCount = 200;
+            state.validAccountRows = 200;
+            state.unknownRows = 0;
+            state.batches = Number(state.batches || 0) + 1;
+            return {
+                visibleRows: 200,
+                uniqueVisibleRows: 200,
+                activityVisibleCount: 200,
+                validAccountRows: 200,
+                unknownRows: 0,
+            };
+        };
+        DialogCollector.usersFromState = () => users;
+        RuntimeDiagnostics._entries = [];
+
+        try {
+            const collectionPromise = Core.collectFullDialogUsers(dialog, {
+                label: '大型名單提醒 fixture',
+                cleanListLikesMode: true,
+                noProgressTimeoutMs: 1000,
+            });
+            const notice = await new Promise((resolve, reject) => {
+                const deadline = Date.now() + 2000;
+                const poll = () => {
+                    const element = document.querySelector('#hege-clean-list-slowdown-notice:not([hidden])');
+                    if (element) return resolve(element);
+                    if (Date.now() >= deadline) return reject(new Error('slowdown notice did not appear'));
+                    setTimeout(poll, 20);
+                };
+                poll();
+            });
+            const text = notice.textContent;
+            const stopButton = Array.from(document.querySelectorAll('button'))
+                .find(button => button.textContent === '停止並結算');
+            stopButton.click();
+            const collection = await collectionPromise;
+            const noticeDiagnostics = RuntimeDiagnostics._entries.filter(entry =>
+                entry.feature === 'clean_list'
+                && entry.stage === 'show'
+                && entry.fields?.category === 'clean_list_large_list_notice');
+            return {
+                text,
+                reason: collection.reason,
+                userCount: collection.users.length,
+                diagnosticCount: noticeDiagnostics.length,
+                diagnosticFields: noticeDiagnostics[0]?.fields || null,
+            };
+        } finally {
+            DialogCollector.collectVisible = originalCollectVisible;
+            DialogCollector.usersFromState = originalUsersFromState;
+        }
+    });
+
+    assert.match(result.text, /名單已達 200 人/);
+    assert.match(result.text, /網頁可能開始變慢/);
+    assert.match(result.text, /若操作已明顯變慢，可先按「停止並結算」保留目前名單，之後再繼續掃描/);
+    assert.equal(result.reason, 'stopped');
+    assert.equal(result.userCount, 200, '提醒出現後仍可停止並保留已收集名單');
+    assert.equal(result.diagnosticCount, 1, '一次操作只記一筆提醒顯示診斷');
+    assert.deepEqual(result.diagnosticFields, {
+        selectedCount: 200,
+        visible: true,
+        category: 'clean_list_large_list_notice',
+    });
+    await page.close();
+});

@@ -20,6 +20,10 @@
 **避坑指南**：
 - **提高掃描靈靈度**：對於這種動態載入，定時器（`setInterval`）建議設定在 500ms 左右，以降低按鈕長出來的延遲感。
 - **偵測寬鬆度**：即使排序按鈕是灰底不能點按，只要它是目標容器，就應該強行補上我們自己的按鈕。
+- **計數標題不一定有 heading 語意**：2026-08-11 實機 Likes 視窗的 `1,744個讚` 是一般可見元素，不是 `h1/h2/[role="heading"]`。清理名單辨識 Likes 時必須沿用 scoped dialog title resolver，不能只掃語意 heading。
+- **實機 loading 標記**：2026-08-11 Chrome DOM 可見標記為 `DIV role="status" aria-label="載入中……"`，內含 SVG；也應相容 `role="progressbar"`、`aria-busy="true"` 與相同 loading 語意的 SVG label。
+- **排序重載可能暫留舊列**：切換 Likes 排序後，React 可能先保留 1 列舊資料並同時顯示 loading。不能因為 `sawVisibleRows=true` 就略過 loading 保護；實機會在一般 5 秒 idle 期限之後才開始補入新列。
+- **必須限縮 dialog**：Threads 主頁／貼文頁本身可能同時保留其他可見 loading indicator。等待 Likes 名單時只能在目前 verified Likes dialog 內判斷，禁止全頁搜尋，否則背景 feed 的轉圈圈會讓流程永遠不停止。
 
 ## 3. 防複畫機制 (Anti-Rebuild Logic)
 

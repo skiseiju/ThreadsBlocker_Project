@@ -18,9 +18,15 @@ import { MoreLocator } from './more-locator.js';
 // 清理名單的版面落地等待預算。Threads 的按讚名單是 lazy render，可見性過濾要等
 // 到 anchor 真的有尺寸才算數；等不到就維持 rows_missing，但不再幾百毫秒就放棄。
 const CLEAN_LIST_LAYOUT_WAIT_MS = 8000;
+// 切換 Likes 排序等同重新載入名單。先用 dialog 內的可見 loading indicator
+// 判斷；抓不到 indicator 時至少等 15 秒，indicator 若持續存在則最多等 30 秒，
+// 避免 Threads 卡死造成無限等待。即使切換後暫留 1 列，也不能略過這層保護。
+const CLEAN_LIST_EMPTY_FIRST_PASS_LATEST_LAYOUT_WAIT_MS = 15000;
+const CLEAN_LIST_LOADING_INDICATOR_MAX_WAIT_MS = 30000;
 // Threads 的 Likes lazy-load 可能在批次間短暫沒有任何 DOM 變化。停止條件以
 // 「最後一次取得新帳號或捲動範圍推進」起算，避免把網路空窗誤判為名單結尾。
 export const CLEAN_LIST_NO_PROGRESS_TIMEOUT_MS = 5000;
+export const CLEAN_LIST_SLOWDOWN_NOTICE_THRESHOLD = 200;
 const BETA_DIAGNOSTIC_FEATURES = new Set(['blocking', 'report', 'selection', 'panel', 'three_no', 'followers', 'clean_list', 'reservoir', 'likes', 'message_route', 'runtime', 'unknown']);
 const BETA_DIAGNOSTIC_STAGES = new Set([
     'start', 'dequeue', 'finish', 'stop', 'route', 'navigation', 'tab', 'wait', 'dialog', 'rows', 'scroll', 'progress',
@@ -1963,6 +1969,13 @@ export const Core = {
         collectionActivityStarted = true;
 
         const headingElements = Array.from(ctx.querySelectorAll?.('h1, h2, [role="heading"]') || []);
+        const supportedTitle = typeof ctx?.getBoundingClientRect === 'function'
+            ? Core.getSupportedDialogTitle(ctx)
+            : null;
+        const likesLabelElements = [...new Set([
+            ...headingElements,
+            supportedTitle?.header,
+        ].filter(Boolean))];
         const headerElements = Array.from(ctx.querySelectorAll?.('span[dir="auto"], h1, h2, [role="heading"]') || []);
         const headerText = headerElements.map(el => (el.innerText || el.textContent || '').trim());
         const activityByHeader = headerText.some(text => CONFIG.ACTIVITY_TEXTS.some(t => text === t));
@@ -1971,11 +1984,12 @@ export const Core = {
         const knownRawList = rawListByHeader || rawDialogReason === 'followers' || rawDialogReason === 'following';
         const initialLikesTab = DialogCollector.findLikesTab(ctx, CONFIG.LIKES_TAB_TEXTS);
         const currentLikesEvidence = DialogCollector.hasCurrentLikesEvidence(ctx);
-        // Direct Likes views use a localized count heading such as
-        // "1,742個讚" instead of a selected Likes tab. Only clean-list opts in
-        // to this strong, visible heading signal so shared reservoir callers
-        // keep their existing classification behavior.
-        const visibleCountedLikesHeading = options.cleanListLikesMode === true && headingElements.some((element) => {
+        // Direct Likes views use a localized count label such as "1,742個讚"
+        // instead of a selected Likes tab. Threads may render that label as a
+        // generic span rather than a semantic heading, so reuse the same scoped
+        // title resolver that placed the clean-list entry in this dialog. Only
+        // clean-list opts in so shared reservoir callers keep their behavior.
+        const visibleCountedLikesHeading = options.cleanListLikesMode === true && likesLabelElements.some((element) => {
             const rect = element?.getBoundingClientRect?.();
             const style = typeof window !== 'undefined' ? window.getComputedStyle?.(element) : null;
             if (!rect || rect.width <= 0 || rect.height <= 0
@@ -2138,6 +2152,15 @@ export const Core = {
         const initialRenderDeadlineMs = Number.isFinite(options.initialRenderDeadlineMs)
             ? Math.max(300, Math.min(3000, Math.floor(options.initialRenderDeadlineMs)))
             : 1200;
+        const initialLayoutWaitMs = Number.isFinite(options.initialLayoutWaitMs)
+            ? Math.max(300, Math.min(30000, Math.floor(options.initialLayoutWaitMs)))
+            : CLEAN_LIST_LAYOUT_WAIT_MS;
+        const loadingIndicatorMaxWaitMs = options.waitForLoadingIndicator === true
+            ? Math.max(initialLayoutWaitMs, Math.min(
+                60000,
+                Math.floor(Number(options.loadingIndicatorMaxWaitMs) || initialLayoutWaitMs),
+            ))
+            : initialLayoutWaitMs;
         const noProgressTimeoutMs = Number.isFinite(options.noProgressTimeoutMs)
             ? Math.max(1000, Math.min(30000, Math.floor(options.noProgressTimeoutMs)))
             : CLEAN_LIST_NO_PROGRESS_TIMEOUT_MS;
@@ -2156,16 +2179,27 @@ export const Core = {
         let stalled = false;
         let truncated = false;
         const maxScrolls = 800;
+        const largeListNoticeState = options.largeListNoticeState || { shown: false };
         const progressUI = document.createElement('div');
         progressUI.id = 'hege-full-dialog-progress-' + Date.now();
-        progressUI.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.86);color:#fff;padding:10px 16px;border-radius:18px;z-index:99999;display:flex;align-items:center;gap:12px;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,0.3);';
+        progressUI.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.86);color:#fff;padding:10px 16px;border-radius:18px;z-index:99999;display:flex;align-items:center;gap:12px;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,0.3);max-width:min(520px,calc(100vw - 24px));';
+        const progressText = document.createElement('div');
+        progressText.style.cssText = 'display:flex;flex-direction:column;gap:4px;min-width:0;';
         const countSpan = document.createElement('span');
         countSpan.textContent = `${label}... 已收集: 0 人`;
+        const largeListNotice = document.createElement('span');
+        largeListNotice.id = 'hege-clean-list-slowdown-notice';
+        largeListNotice.setAttribute('role', 'note');
+        largeListNotice.setAttribute('aria-live', 'polite');
+        largeListNotice.hidden = true;
+        largeListNotice.style.cssText = 'color:#ffd166;line-height:1.45;font-size:12px;';
+        largeListNotice.textContent = `名單已達 ${CLEAN_LIST_SLOWDOWN_NOTICE_THRESHOLD} 人，網頁可能開始變慢。若操作已明顯變慢，可先按「停止並結算」保留目前名單，之後再繼續掃描。`;
         const stopBtn = document.createElement('button');
         stopBtn.textContent = '停止並結算';
         stopBtn.style.cssText = 'background:#ff3b30;color:white;border:none;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;font-weight:700;';
         stopBtn.onclick = () => { isAborted = true; };
-        progressUI.append(countSpan, stopBtn);
+        progressText.append(countSpan, largeListNotice);
+        progressUI.append(progressText, stopBtn);
         // Keep progress UI outside the scroll root: its own layout must not
         // change scrollHeight or be mistaken for list progress.
         progressUI.style.position = 'fixed';
@@ -2193,21 +2227,65 @@ export const Core = {
                 ? DialogCollector.usersFromState(state, collectionSkipUsers(), maxLimit)
                 : (batch?.users || []).slice(0, maxLimit);
             countSpan.textContent = `${label}... 已收集: ${visibleUsers.length} 人`;
+            if (!largeListNoticeState.shown && visibleUsers.length >= CLEAN_LIST_SLOWDOWN_NOTICE_THRESHOLD) {
+                largeListNoticeState.shown = true;
+                largeListNotice.hidden = false;
+                recordCleanDiagnostic('show', {
+                    category: 'clean_list_large_list_notice',
+                    selectedCount: visibleUsers.length,
+                    visible: true,
+                });
+            }
             return batch;
+        };
+        const hasVisibleLoadingIndicator = () => {
+            if (!ctx?.querySelectorAll) return false;
+            const selector = '[role="status"][aria-label], [role="progressbar"], [aria-busy="true"], svg[role="img"][aria-label]';
+            const candidates = [
+                ...(ctx.matches?.(selector) ? [ctx] : []),
+                ...Array.from(ctx.querySelectorAll(selector)),
+            ];
+            return candidates.some((element) => {
+                const rect = element.getBoundingClientRect?.();
+                const style = typeof window !== 'undefined' ? window.getComputedStyle?.(element) : null;
+                const visible = Number(rect?.width || 0) > 0 && Number(rect?.height || 0) > 0
+                    && style?.display !== 'none' && style?.visibility !== 'hidden';
+                if (!visible) return false;
+                if (String(element.getAttribute?.('aria-busy') || '').toLowerCase() === 'true') return true;
+                if (String(element.getAttribute?.('role') || '').toLowerCase() === 'progressbar') return true;
+                const label = String(element.getAttribute?.('aria-label') || '');
+                return /loading|載入|讀取|読み込み/i.test(label);
+            });
         };
         try {
             // 版面落地等待。waitForLikesContextReady 只要看到 likes 的證據就會回來，
             // 那時候常常只有兩三列真的排版完成，其餘 anchor 的 rect 還是 0x0，會被
             // 可見性過濾整批排除，最後以 rows_missing 收場（實測 23 個連結被排除 21
             // 個，整趟只花 2 秒）。這裡先等到真的看見一列，或等滿預算才往下走。
-            const layoutWaitUntil = Date.now() + CLEAN_LIST_LAYOUT_WAIT_MS;
-            while (!sawVisibleRows && !isAborted && Date.now() < layoutWaitUntil) {
+            const layoutWaitStartedAt = Date.now();
+            const layoutFallbackUntil = layoutWaitStartedAt + initialLayoutWaitMs;
+            const loadingIndicatorWaitUntil = layoutWaitStartedAt + loadingIndicatorMaxWaitMs;
+            let loadingIndicatorSeen = false;
+            let stableLoadingGoneObservations = 0;
+            while (!sawVisibleRows && !isAborted) {
                 collectRendered();
                 if (sawVisibleRows) break;
+                const loadingIndicatorVisible = options.waitForLoadingIndicator === true
+                    && hasVisibleLoadingIndicator();
+                if (loadingIndicatorVisible) {
+                    loadingIndicatorSeen = true;
+                    stableLoadingGoneObservations = 0;
+                } else if (loadingIndicatorSeen) {
+                    stableLoadingGoneObservations += 1;
+                }
+                const now = Date.now();
+                const loadingSettled = loadingIndicatorSeen && stableLoadingGoneObservations >= 3;
+                const fallbackExpired = !loadingIndicatorSeen && now >= layoutFallbackUntil;
+                if (loadingSettled || fallbackExpired || now >= loadingIndicatorWaitUntil) break;
                 await Utils.safeSleep(200);
             }
             recordCleanDiagnostic('wait', {
-                waitMs: Math.max(0, CLEAN_LIST_LAYOUT_WAIT_MS - Math.max(0, layoutWaitUntil - Date.now())),
+                waitMs: Math.max(0, Date.now() - layoutWaitStartedAt),
                 listFound: sawVisibleRows,
                 loading: !sawVisibleRows,
             });
@@ -2317,9 +2395,24 @@ export const Core = {
                     beforeScrollHeight: before.scrollHeight, afterScrollHeight: after.scrollHeight, scrollHeight: after.scrollHeight,
                     atBottom, progress, visibleProgress, rootAdvanced, waitMs: noProgressMs, strategy: 'scroll_ancestor',
                 });
+                // 排序切換後 React 可能先留下 1 列舊資料，再顯示 loading spinner。
+                // 這時 sawVisibleRows 已為 true，不能讓一般 5 秒 idle deadline 把仍在
+                // 重載的第二輪判成結束。Spinner 保護有 30 秒硬上限；超過後仍回到
+                // 原本的最後進度時間，避免平台卡死造成無限等待。
+                const loadingIndicatorVisible = options.waitForLoadingIndicator === true
+                    && hasVisibleLoadingIndicator();
+                if (loadingIndicatorVisible && Date.now() < loadingIndicatorWaitUntil) {
+                    loadingIndicatorSeen = true;
+                    stableLoadingGoneObservations = 0;
+                    lastProgressAt = Date.now();
+                    unchangedCount = 0;
+                    scrollCount += 1;
+                    await Utils.safeSleep(200);
+                    continue;
+                }
                 // 一列都還沒排版完成時，「沒有變化」代表還沒載好，不是已經到底。
                 // 在版面等待預算用完之前不要據此收工，否則會把還沒渲染的名單判成空的。
-                if (!sawVisibleRows && Date.now() < layoutWaitUntil) {
+                if (!sawVisibleRows && !loadingIndicatorSeen && Date.now() < layoutFallbackUntil) {
                     lastProgressAt = Date.now();
                     unchangedCount = 0;
                     await Utils.safeSleep(200);
@@ -2500,6 +2593,7 @@ export const Core = {
             operationId,
             cleanListLikesMode: true,
             deferAtomicCommit: true,
+            largeListNoticeState: { shown: false },
         };
 
         const firstPass = normalizeDialogCollectionResult(await Core.collectFullDialogUsers(ctx, {
@@ -2516,7 +2610,20 @@ export const Core = {
             operationId,
         });
         if (firstPass.reason === 'stopped') return settleStoppedPasses(firstPass);
-        if (!firstPass.complete || firstPass.verifiedLikesContext !== true) return finish(firstPass);
+        // A verified Likes ordering can legitimately render zero rows when all
+        // accounts in that ordering are already blocked. Treat that outcome as
+        // permission to probe the other ordering, not as permission to commit
+        // an empty list: no-sort and incomplete second-pass paths still return
+        // the original fail-closed result.
+        const canProbeSecondSortAfterEmptyFirstPass = firstPass.verifiedLikesContext === true
+            && !firstPass.complete
+            && ['rows_missing', 'empty_end'].includes(firstPass.reason)
+            && firstPass.users.length === 0
+            && Number(firstPass.counts?.visibleRows || 0) === 0
+            && Number(firstPass.counts?.unknownRows || 0) === 0
+            && !firstPass.truncated;
+        if ((!firstPass.complete && !canProbeSecondSortAfterEmptyFirstPass)
+            || firstPass.verifiedLikesContext !== true) return finish(firstPass);
 
         const switchedSort = await Core.switchLikesSort(ctx);
         RuntimeDiagnostics.record('clean_list', 'menu', {
@@ -2559,13 +2666,19 @@ export const Core = {
             });
         }
 
+        const secondPassOptions = {
+            ...passOptions,
+            label: `${label}（第 2 輪）`,
+            collectionPass: 2,
+        };
+        if (switchedSort.available === true && switchedSort.switched === true) {
+            secondPassOptions.initialLayoutWaitMs = CLEAN_LIST_EMPTY_FIRST_PASS_LATEST_LAYOUT_WAIT_MS;
+            secondPassOptions.waitForLoadingIndicator = true;
+            secondPassOptions.loadingIndicatorMaxWaitMs = CLEAN_LIST_LOADING_INDICATOR_MAX_WAIT_MS;
+        }
         const secondPass = normalizeDialogCollectionResult(await Core.collectFullDialogUsers(
             switchedSort.ctx || Core.getTopContext?.() || ctx,
-            {
-                ...passOptions,
-                label: `${label}（第 2 輪）`,
-                collectionPass: 2,
-            },
+            secondPassOptions,
         ));
         RuntimeDiagnostics.record('clean_list', 'progress', {
             attempt: 2,

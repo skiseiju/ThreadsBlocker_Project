@@ -151,6 +151,249 @@ test('beta10 scans the current Likes sort to idle, switches sort, then scans and
     assert.equal(output.result.counts.combinedCount, 141);
 });
 
+test('beta16 verified empty first sort still switches and collects the second sort', async () => {
+    const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+    await page.goto(`${moduleOrigin}/@owner/post/123`);
+    const output = await page.evaluate(async () => {
+        const [{ Core }, { Utils }] = await Promise.all([
+            import('/core.js'),
+            import('/utils.js'),
+        ]);
+        const originalSafeSleep = Utils.safeSleep;
+        const originalDateNow = Date.now;
+        let fakeNow = originalDateNow();
+        let delayedRows = null;
+        let latestRowsReadyAt = 0;
+        let latestRowsRenderedAt = 0;
+        const renderDelayedLatestRows = () => {
+            if (!delayedRows || !latestRowsReadyAt || fakeNow < latestRowsReadyAt || latestRowsRenderedAt) return;
+            latestRowsRenderedAt = fakeNow;
+            delayedRows.innerHTML = `
+              <div style="height:24px"><a style="display:inline-block;width:120px;height:20px" href="/@latest_new_1">latest_new_1</a></div>
+              <div style="height:24px"><a style="display:inline-block;width:120px;height:20px" href="/@latest_new_2">latest_new_2</a></div>`;
+        };
+        Utils.safeSleep = async (ms = 0) => {
+            fakeNow += Math.max(1, Number(ms) || 1);
+            renderDelayedLatestRows();
+        };
+        Date.now = () => fakeNow;
+        try {
+            document.body.innerHTML = `
+              <div id="empty-first-dialog" role="dialog" style="width:700px;height:320px;overflow:auto">
+                <h1>Likes</h1>
+                <button role="tab" aria-selected="true">Likes</button>
+                <div id="empty-first-sort" role="button" aria-haspopup="menu" aria-expanded="false">排序</div>
+                <div id="empty-first-rows"></div>
+              </div>`;
+            const dialog = document.querySelector('#empty-first-dialog');
+            const sort = document.querySelector('#empty-first-sort');
+            const rows = document.querySelector('#empty-first-rows');
+            delayedRows = rows;
+            let currentSort = 'default';
+            let latestSortClicks = 0;
+            let latestSwitchAt = 0;
+            const selectedMark = () => '<svg role="img" viewBox="0 0 24 24"><path d="M1 1"></path></svg>';
+            const closeMenu = () => {
+                document.querySelector('#empty-first-sort-menu')?.remove();
+                sort.setAttribute('aria-expanded', 'false');
+            };
+            sort.onclick = () => {
+                if (document.querySelector('#empty-first-sort-menu')) {
+                    closeMenu();
+                    return;
+                }
+                sort.setAttribute('aria-expanded', 'true');
+                const menu = document.createElement('div');
+                menu.id = 'empty-first-sort-menu';
+                menu.setAttribute('role', 'menu');
+                menu.innerHTML = `
+                  <div id="empty-first-default-sort" role="menuitem">預設${currentSort === 'default' ? selectedMark() : ''}</div>
+                  <div id="empty-first-latest-sort" role="menuitem">最新${currentSort === 'latest' ? selectedMark() : ''}</div>`;
+                document.body.appendChild(menu);
+                menu.querySelector('#empty-first-default-sort').onclick = () => {
+                    currentSort = 'default';
+                    rows.innerHTML = '';
+                    closeMenu();
+                };
+                menu.querySelector('#empty-first-latest-sort').onclick = () => {
+                    currentSort = 'latest';
+                    latestSortClicks += 1;
+                    latestSwitchAt = fakeNow;
+                    latestRowsReadyAt = fakeNow + 20000;
+                    rows.innerHTML = '<div role="status" aria-label="載入中……"><svg role="img" aria-label="載入中……"></svg></div>';
+                    closeMenu();
+                };
+            };
+
+            const result = await Core.collectCleanListDialogUsers(dialog, {
+                label: 'beta16 empty-first-sort fixture',
+                initialRenderDeadlineMs: 300,
+                noProgressTimeoutMs: 1000,
+            });
+            return {
+                result,
+                latestSortClicks,
+                currentSort,
+                latestRenderDelayMs: latestRowsRenderedAt - latestSwitchAt,
+            };
+        } finally {
+            Utils.safeSleep = originalSafeSleep;
+            Date.now = originalDateNow;
+        }
+    });
+    await page.close();
+
+    assert.equal(output.latestSortClicks, 1);
+    assert.equal(output.currentSort, 'latest');
+    assert.ok(output.latestRenderDelayMs >= 20000);
+    assert.equal(output.result.complete, true);
+    assert.equal(output.result.reason, 'end');
+    assert.deepEqual(output.result.users, ['latest_new_1', 'latest_new_2']);
+    assert.equal(output.result.counts.firstPassCount, 0);
+    assert.equal(output.result.counts.secondPassCount, 2);
+    assert.equal(output.result.counts.combinedCount, 2);
+});
+
+test('beta16 second sort waits for loading even when one stale row survives the switch', async () => {
+    const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+    await page.goto(`${moduleOrigin}/@owner/post/123`);
+    const output = await page.evaluate(async () => {
+        const [{ Core }, { Utils }] = await Promise.all([
+            import('/core.js'),
+            import('/utils.js'),
+        ]);
+        const originalSafeSleep = Utils.safeSleep;
+        const originalDateNow = Date.now;
+        let fakeNow = originalDateNow();
+        let rows = null;
+        let latestRowsReadyAt = 0;
+        let latestRowsRenderedAt = 0;
+        const renderDelayedLatestRows = () => {
+            if (!rows || !latestRowsReadyAt || fakeNow < latestRowsReadyAt || latestRowsRenderedAt) return;
+            latestRowsRenderedAt = fakeNow;
+            rows.innerHTML = `
+              <div style="height:24px"><a style="display:inline-block;width:120px;height:20px" href="/@latest_new_1">latest_new_1</a></div>
+              <div style="height:24px"><a style="display:inline-block;width:120px;height:20px" href="/@latest_new_2">latest_new_2</a></div>`;
+        };
+        Utils.safeSleep = async (ms = 0) => {
+            fakeNow += Math.max(1, Number(ms) || 1);
+            renderDelayedLatestRows();
+        };
+        Date.now = () => fakeNow;
+        try {
+            document.body.innerHTML = `
+              <div id="stale-row-dialog" role="dialog" style="width:700px;height:320px;overflow:auto">
+                <h1>Likes</h1>
+                <button role="tab" aria-selected="true">Likes</button>
+                <div id="stale-row-sort" role="button" aria-haspopup="menu" aria-expanded="false">排序</div>
+                <div id="stale-row-rows">
+                  <div style="height:24px"><a style="display:inline-block;width:120px;height:20px" href="/@default_only">default_only</a></div>
+                </div>
+              </div>`;
+            const dialog = document.querySelector('#stale-row-dialog');
+            const sort = document.querySelector('#stale-row-sort');
+            rows = document.querySelector('#stale-row-rows');
+            let currentSort = 'default';
+            let latestSwitchAt = 0;
+            const selectedMark = () => '<svg role="img" viewBox="0 0 24 24"><path d="M1 1"></path></svg>';
+            const closeMenu = () => {
+                document.querySelector('#stale-row-sort-menu')?.remove();
+                sort.setAttribute('aria-expanded', 'false');
+            };
+            sort.onclick = () => {
+                if (document.querySelector('#stale-row-sort-menu')) {
+                    closeMenu();
+                    return;
+                }
+                sort.setAttribute('aria-expanded', 'true');
+                const menu = document.createElement('div');
+                menu.id = 'stale-row-sort-menu';
+                menu.setAttribute('role', 'menu');
+                menu.innerHTML = `
+                  <div id="stale-row-default-sort" role="menuitem">預設${currentSort === 'default' ? selectedMark() : ''}</div>
+                  <div id="stale-row-latest-sort" role="menuitem">最新${currentSort === 'latest' ? selectedMark() : ''}</div>`;
+                document.body.appendChild(menu);
+                menu.querySelector('#stale-row-latest-sort').onclick = () => {
+                    currentSort = 'latest';
+                    latestSwitchAt = fakeNow;
+                    latestRowsReadyAt = fakeNow + 20000;
+                    rows.innerHTML = `
+                      <div style="height:24px"><a style="display:inline-block;width:120px;height:20px" href="/@default_only">default_only</a></div>
+                      <div role="status" aria-label="載入中……"><svg role="img" aria-label="載入中……"></svg></div>`;
+                    closeMenu();
+                };
+            };
+
+            const result = await Core.collectCleanListDialogUsers(dialog, {
+                label: 'beta16 stale-row loading fixture',
+                initialRenderDeadlineMs: 300,
+                noProgressTimeoutMs: 1000,
+            });
+            return {
+                result,
+                currentSort,
+                latestRenderDelayMs: latestRowsRenderedAt - latestSwitchAt,
+            };
+        } finally {
+            Utils.safeSleep = originalSafeSleep;
+            Date.now = originalDateNow;
+        }
+    });
+    await page.close();
+
+    assert.equal(output.currentSort, 'latest');
+    assert.ok(output.latestRenderDelayMs >= 20000);
+    assert.equal(output.result.complete, true);
+    assert.equal(output.result.reason, 'end');
+    assert.deepEqual(output.result.users, ['default_only', 'latest_new_1', 'latest_new_2']);
+    assert.equal(output.result.counts.firstPassCount, 1);
+    assert.equal(output.result.counts.secondPassCount, 3);
+    assert.equal(output.result.counts.combinedCount, 3);
+});
+
+test('beta16 empty first-sort probe stays non-committable when no alternate sort exists', async () => {
+    const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+    await page.goto(`${moduleOrigin}/@owner/post/123`);
+    const output = await page.evaluate(async () => {
+        const { Core, shouldCommitDialogCollection } = await import('/core.js');
+        let collectionPasses = 0;
+        let sortChecks = 0;
+        Core.collectFullDialogUsers = async () => {
+            collectionPasses += 1;
+            return {
+                users: [], reason: 'rows_missing', complete: false,
+                activity: true, verifiedLikesContext: true,
+                counts: { visibleRows: 0, unknownRows: 0 },
+            };
+        };
+        Core.switchLikesSort = async ctx => {
+            sortChecks += 1;
+            return {
+                ok: true, available: false, switched: false, ctx,
+                menuItemCount: 0, switchAttempts: 0, targetLatest: null,
+            };
+        };
+        const dialog = document.createElement('div');
+        dialog.setAttribute('role', 'dialog');
+        document.body.appendChild(dialog);
+        const result = await Core.collectCleanListDialogUsers(dialog);
+        return {
+            result,
+            collectionPasses,
+            sortChecks,
+            committable: shouldCommitDialogCollection(result),
+        };
+    });
+    await page.close();
+
+    assert.equal(output.collectionPasses, 1);
+    assert.equal(output.sortChecks, 1);
+    assert.equal(output.result.complete, false);
+    assert.equal(output.result.reason, 'rows_missing');
+    assert.deepEqual(output.result.users, []);
+    assert.equal(output.committable, false);
+});
+
 test('beta10 discards the completed first pass when the second pass is incomplete', async () => {
     const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
     await page.goto(`${moduleOrigin}/@owner/post/123`);
@@ -373,7 +616,7 @@ test('beta11 clean-list handler adds a stopped partial settlement to the block a
     assert.deepEqual(output.reportQueue, ['StoppedOne', 'StoppedTwo']);
 });
 
-test('beta10 direct counted Likes dialog also completes both sort passes', async () => {
+test('beta16 generic counted Likes label also completes both sort passes', async () => {
     const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
     await page.goto(`${moduleOrigin}/@owner/post/123`);
     const output = await page.evaluate(async () => {
@@ -384,7 +627,7 @@ test('beta10 direct counted Likes dialog also completes both sort passes', async
         ).join('');
         document.body.innerHTML = `
           <div id="counted-dialog" role="dialog" style="width:700px;height:320px;overflow:auto">
-            <h1>1,742個讚</h1>
+            <div style="height:40px"><span dir="auto">1,742個讚</span></div>
             <div id="counted-sort" role="button" aria-haspopup="menu" aria-expanded="false">排序</div>
             <div id="counted-rows">${renderRows(82)}</div>
           </div>`;
@@ -428,7 +671,7 @@ test('beta10 direct counted Likes dialog also completes both sort passes', async
         };
 
         const result = await Core.collectCleanListDialogUsers(dialog, {
-            label: 'beta10 counted Likes heading fixture',
+            label: 'beta16 generic counted Likes label fixture',
             initialRenderDeadlineMs: 300,
             noProgressTimeoutMs: 1000,
         });

@@ -1,7 +1,7 @@
 # ADR 0017：Likes 整串收集採「最後進度時間」停止
 
 - 日期：2026-08-10
-- 狀態：已採納並持續實作（停止判定 2.8.4-beta4；大型名單效能 2.8.4-beta14，待 installed 驗收）
+- 狀態：已採納並持續實作（停止判定 2.8.4-beta4；大型名單效能 2.8.4-beta14；200 人提醒補於 2.8.4-beta16，待 installed 驗收）
 - 相關：[ADR 0003](0003-merge-dialog-buttons.md)（清理名單入口與合併）、[ADR 0004](0004-engagement-strategy-order.md)（Likes dialog 的開啟順序）、`src/core.js`、`tests/beta98-likes-progress-timeout.test.mjs`、`tests/beta14-clean-list-performance.test.mjs`
 
 ## 背景
@@ -47,3 +47,7 @@ Beta14 採兩層限縮修正：
 活動狀態使用可巢狀 depth，而不是單一布林，避免未來 nested caller 提早解除閘門。這只改掃描排程與查詢成本，不改 5 秒無進度停止、兩種排序各掃一輪、1000 人上限、atomic rollback 或「停止並結算」的既有契約。
 
 修正後同一 fixture 的 100／200／400 列 steady pass 中位數約為 15.1／57.6／221.6ms，且整個 dialog 的 checkbox 查詢在 200 列由每輪 200 次降為 1 次。單次 pass 仍包含 Threads 列定位與 layout 成本，因此不宣稱整體已線性化；主要保護是 collector 活躍期間 scanner 呼叫為 0，避免這筆成本每 180ms 重複發生。
+
+## Beta16：大型名單提醒
+
+即使已暫停一般 scanner，Threads 本身在 dialog 累積大量帳號列後仍可能因 React DOM 與版面計算而變慢。清理名單單次操作收集達 200 人時，進度浮層會顯示一次非阻斷提醒：網頁可能開始變慢，使用者可視情況按「停止並結算」保留已收集名單，之後再掃。提醒不自動停止、不降低 1000 人安全上限，也不改變兩輪排序與部分結算契約；診斷只記錄提醒已顯示及當時收集數量，不含帳號或頁面內容。

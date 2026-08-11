@@ -21,17 +21,29 @@ test('有版面落地等待預算，且長於實測失敗的 2 秒', () => {
 });
 
 test('收集開始前會等到真的看見一列，或等滿預算', () => {
-    const gate = coreSource.slice(coreSource.indexOf('const layoutWaitUntil'), coreSource.indexOf('while (scrollCount < maxScrolls'));
-    assert.match(gate, /while \(!sawVisibleRows && !isAborted && Date\.now\(\) < layoutWaitUntil\)/);
+    const gate = coreSource.slice(coreSource.indexOf('const layoutWaitStartedAt'), coreSource.indexOf('while (scrollCount < maxScrolls'));
+    assert.match(gate, /while \(!sawVisibleRows && !isAborted\)/);
     assert.match(gate, /collectRendered\(\)/);
+    assert.match(gate, /fallbackExpired = !loadingIndicatorSeen && now >= layoutFallbackUntil/);
+    assert.match(gate, /now >= loadingIndicatorWaitUntil/);
 });
 
 test('一列都沒看到時，「沒有變化」不得被當成已到底而收工', () => {
     const loop = coreSource.slice(coreSource.indexOf('if (!progress) unchangedCount += 1;'));
     const guard = loop.slice(0, loop.indexOf('if (unchangedCount >= 4'));
-    assert.match(guard, /!sawVisibleRows && Date\.now\(\) < layoutWaitUntil/);
+    assert.match(guard, /!sawVisibleRows && !loadingIndicatorSeen && Date\.now\(\) < layoutFallbackUntil/);
     assert.match(guard, /unchangedCount = 0;/);
     assert.match(guard, /continue;/);
+});
+
+test('第二輪排序重載會依 dialog loading 延長等待，但有硬上限', () => {
+    const fallbackMs = Number(coreSource.match(/const CLEAN_LIST_EMPTY_FIRST_PASS_LATEST_LAYOUT_WAIT_MS = (\d+);/)?.[1]);
+    const maxMs = Number(coreSource.match(/const CLEAN_LIST_LOADING_INDICATOR_MAX_WAIT_MS = (\d+);/)?.[1]);
+    assert.equal(fallbackMs, 15000);
+    assert.equal(maxMs, 30000);
+    assert.match(coreSource, /\[role="status"\]\[aria-label\]/);
+    assert.match(coreSource, /secondPassOptions\.waitForLoadingIndicator = true/);
+    assert.match(coreSource, /loadingIndicatorVisible && Date\.now\(\) < loadingIndicatorWaitUntil/);
 });
 
 test('等不到仍然 fail-closed，維持 rows_missing 而不是假裝空名單', () => {
