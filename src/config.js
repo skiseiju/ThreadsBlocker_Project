@@ -81,7 +81,7 @@ export const isDiagnosticMeasurementField = key => {
 };
 
 export const CONFIG = {
-    VERSION: '2.8.4-beta15', // 三無停止會結算並保留目前待審清單
+    VERSION: '2.8.4', // 清理名單雙排序掃描並保留停止前已收集的帳號
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。
