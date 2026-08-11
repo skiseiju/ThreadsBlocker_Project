@@ -1,3 +1,5 @@
+// 本檔三無掃描入口／結果顯示受 docs/BLOCKING_ARCHITECTURE.md 與
+// docs/adr/0005-bot-profile-detection.md 管理。
 import { CONFIG } from './config.js';
 import { Storage } from './storage.js';
 import { Utils, isBackgroundWorkerRunning } from './utils.js';
@@ -168,10 +170,9 @@ import './features/three-no-watch.js';
         Storage.setJSON(CONFIG.KEYS.DB_TIMESTAMPS, {});
 
         if (Utils.isBetaBuild()) {
-            const completedThreeNoResults = Storage.getThreeNoScanResults();
-            const shouldKeepCompletedThreeNoReport = completedThreeNoResults.status === 'completed'
-                && completedThreeNoResults.completedAt > 0;
-            const betaResetKeys = shouldKeepCompletedThreeNoReport
+            const threeNoResults = Storage.getThreeNoScanResults();
+            const shouldKeepReviewableThreeNoReport = Core.ThreeNoWatch?.hasReviewableScanResults?.(threeNoResults) === true;
+            const betaResetKeys = shouldKeepReviewableThreeNoReport
                 ? [
                     CONFIG.KEYS.THREE_NO_LAST_SCAN_DATE,
                     CONFIG.KEYS.THREE_NO_SCAN_STATE,
@@ -183,15 +184,15 @@ import './features/three-no-watch.js';
                     CONFIG.KEYS.THREE_NO_LAST_SCAN_DATE,
                     CONFIG.KEYS.THREE_NO_SCAN_STATE,
                     CONFIG.KEYS.THREE_NO_SCAN_RESULTS,
-	                    CONFIG.KEYS.THREE_NO_SCAN_CURSOR,
-	                    CONFIG.KEYS.THREE_NO_SCAN_LOCK,
-	                    CONFIG.KEYS.THREE_NO_SCAN_COMMAND,
-	                    CONFIG.KEYS.THREE_NO_UNREAD_COUNT,
-	                    CONFIG.KEYS.THREE_NO_LAST_STATS_UPLOAD_SCAN_ID,
+                    CONFIG.KEYS.THREE_NO_SCAN_CURSOR,
+                    CONFIG.KEYS.THREE_NO_SCAN_LOCK,
+                    CONFIG.KEYS.THREE_NO_SCAN_COMMAND,
+                    CONFIG.KEYS.THREE_NO_UNREAD_COUNT,
+                    CONFIG.KEYS.THREE_NO_LAST_STATS_UPLOAD_SCAN_ID,
                 ];
             betaResetKeys.forEach(key => Storage.remove(key));
-            console.log(shouldKeepCompletedThreeNoReport
-                ? '[留友封] Three-no beta reset preserved completed report'
+            console.log(shouldKeepReviewableThreeNoReport
+                ? '[留友封] Three-no beta reset preserved reviewable report'
                 : '[留友封] Three-no scan state reset for beta build');
         }
 
@@ -756,7 +757,7 @@ import './features/three-no-watch.js';
 
             const maybeAutoShowThreeNoReport = () => {
                 const results = Storage.getThreeNoScanResults();
-                if (!results.completedAt || results.status !== 'completed') return;
+                if (Core.ThreeNoWatch?.hasReviewableScanResults?.(results) !== true) return;
                 const key = getThreeNoReportKey(results);
                 if (!key || sessionStorage.getItem('hege_three_no_auto_report_seen') === key) return;
                 const anchor = sessionStorage.getItem('hege_three_no_auto_report_anchor') || '';

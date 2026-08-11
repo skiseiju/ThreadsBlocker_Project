@@ -29,6 +29,7 @@ globalThis.window = windowMock;
 globalThis.location = windowMock.location;
 globalThis.localStorage = localStorageMock;
 globalThis.sessionStorage = sessionStorageMock;
+globalThis.chrome = { runtime: { id: 'three-no-stop-test' } };
 Object.defineProperty(globalThis, 'navigator', {
     configurable: true,
     value: { userAgent: 'Mozilla/5.0 Chrome/140.0.0.0 Safari/537.36', platform: 'MacIntel', maxTouchPoints: 0 },
@@ -97,15 +98,51 @@ try {
     globalThis.clearInterval = originalClearInterval;
 
     seed('stopping');
+    Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_COMMAND, {
+        command: 'stop', scanId: owner, ownerToken: token, requestedAt: Date.now(),
+    });
     let finishCalls = 0;
+    let finishPatch = null;
     const originalFinish = Core.ThreeNoWatch.finishScan;
-    Core.ThreeNoWatch.finishScan = async () => { finishCalls += 1; };
+    Core.ThreeNoWatch.finishScan = async (patch) => {
+        finishCalls += 1;
+        finishPatch = patch;
+    };
     await Core.ThreeNoWatch.runScanPage();
-    assert.equal(finishCalls, 0, 'loading a stopping scan must return without finishing again');
+    assert.equal(finishCalls, 1, 'loading a stopping scan must settle the recovered runtime exactly once');
+    assert.equal(finishPatch?.status, 'stopped', 'recovered stop must preserve partial findings instead of cancelling');
     Core.ThreeNoWatch.finishScan = originalFinish;
+
+    seed('scanning');
+    assert.equal(Core.ThreeNoWatch.setRuntime({
+        scanId: owner,
+        ownerToken: token,
+        owner: 'owner',
+        scanDate: '2026-08-11',
+        startedAt: Date.now() - 1000,
+        findings: [{ username: 'candidate', noAvatar: true, noBio: true, noPosts: true }],
+        usernames: ['candidate', 'not-checked-yet'],
+        triagedUsernames: ['candidate', 'not-checked-yet'],
+        index: 1,
+        hasMore: true,
+        batchSize: 2,
+    }), true, 'active runtime fixture must be persisted before stop');
+    assert.equal(Core.ThreeNoWatch.requestStop(), true);
+    await Core.ThreeNoWatch.runScanPage();
+    const stoppedResults = Storage.getThreeNoScanResults();
+    assert.equal(stoppedResults.status, 'stopped');
+    assert.deepEqual(stoppedResults.users.map(item => item.username), ['candidate'], 'stopping must persist findings already confirmed before the stop');
+    assert.equal(Core.ThreeNoWatch.getScanState().status, 'stopped');
+
+    assert.equal(Core.ThreeNoWatch.hasReviewableScanResults?.({
+        status: 'stopped', completedAt: Date.now(), users: [{ username: 'candidate' }],
+    }), true, 'a stopped scan with findings must remain reviewable and eligible for auto-open');
+    assert.equal(Core.ThreeNoWatch.hasReviewableScanResults?.({
+        status: 'stopped', completedAt: Date.now(), users: [],
+    }), false, 'an empty stopped scan must not create a blank report');
     Core.ThreeNoWatch.renderWorkerOverlay = originalRenderWorkerOverlay;
 
-    console.log('three-no beta50 stop contract: PASS scalar-owner-fence heartbeat-stopping-fence phase-revive-load-stopping');
+    console.log('three-no stop contract: PASS owner-fence heartbeat-fence recovered-stop-settlement reviewable-partial-report');
 } finally {
     // Test process owns isolated storage; no external state is mutated.
 }

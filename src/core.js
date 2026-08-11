@@ -1006,10 +1006,25 @@ export const Core = {
     _selectionDiagnosticOperationId: null,
     _checkboxStateSources: null,
     _accountRowSequence: 0,
+    _dialogCollectionActivityDepth: 0,
     lastDialogCollectionResult: null,
     lastClickedBtn: null, // Track for shift-click
     lastClickedUsername: null, // Fallback if DOM node is lost
     lastClickedState: null, // null, 'checked', or 'unchecked'
+
+    beginDialogCollectionActivity: () => {
+        Core._dialogCollectionActivityDepth += 1;
+        return Core._dialogCollectionActivityDepth;
+    },
+
+    endDialogCollectionActivity: () => {
+        const wasActive = Core._dialogCollectionActivityDepth > 0;
+        Core._dialogCollectionActivityDepth = Math.max(0, Core._dialogCollectionActivityDepth - 1);
+        if (wasActive && Core._dialogCollectionActivityDepth === 0 && Core.observer) Core.scheduleScannerPass();
+        return Core._dialogCollectionActivityDepth;
+    },
+
+    isDialogCollectionActive: () => Core._dialogCollectionActivityDepth > 0,
 
     // Running selection snapshot is independent from the mutable active queue.
     isSelectionLatched: (username = '') => Core._stopVisibilityLatch && Core._selectionSnapshot.has(username),
@@ -1918,6 +1933,7 @@ export const Core = {
     collectFullDialogUsers: async (ctx, options = {}) => {
         const operationId = options.operationId || RuntimeDiagnostics.begin('clean_list', { strategy: 'dialog_context' });
         const ownsOperation = !options.operationId;
+        let collectionActivityStarted = false;
         // Keep lifecycle call sites explicit for audit tooling:
         // record('clean_list', 'start'), record('clean_list', 'tab'), record('clean_list', 'wait'),
         // record('clean_list', 'dialog'), record('clean_list', 'rows'), record('clean_list', 'commit'),
@@ -1943,6 +1959,8 @@ export const Core = {
             return result;
         };
         if (!ctx) return fail('missing_dialog');
+        Core.beginDialogCollectionActivity();
+        collectionActivityStarted = true;
 
         const headingElements = Array.from(ctx.querySelectorAll?.('h1, h2, [role="heading"]') || []);
         const headerElements = Array.from(ctx.querySelectorAll?.('span[dir="auto"], h1, h2, [role="heading"]') || []);
@@ -2401,6 +2419,8 @@ export const Core = {
             recordCleanDiagnostic('error', { errorName: err?.name || 'Error', errorCode: 'collector_exception', reason: 'exception' });
             RuntimeDiagnostics.end(operationId, 'terminal', { reason: 'exception', ok: false, complete: false });
             throw err;
+        } finally {
+            if (collectionActivityStarted) Core.endDialogCollectionActivity();
         }
     },
 
@@ -3101,6 +3121,7 @@ export const Core = {
     _resizeHookInstalled: false,
     _panelRouteDiagnosticState: null,
     runScannerPass: (updateUI = true) => {
+        if (Core.isDialogCollectionActive()) return;
         const checkboxSources = Core.beginCheckboxStatePass();
         try {
             Core.scanAndInject(checkboxSources);
@@ -4158,6 +4179,7 @@ export const Core = {
     },
 
     injectDialogCheckboxes: (stateSources = null) => {
+        if (Core.isDialogCollectionActive()) return;
         const fallbackCtx = Core.getTopContext();
         const ctx = DialogCollector.pickBestAccountDialog(fallbackCtx);
         let didInject = false;
@@ -4200,6 +4222,22 @@ export const Core = {
         const usernameFrom = anchor => (String(anchor?.getAttribute?.('href') || '').match(/^\/@([^/?#]+)/) || [])[1] || '';
         const normalizeUsername = value => String(value || '').replace(/^@+/, '').toLowerCase();
         const allBoxesIn = node => Array.from(node?.querySelectorAll?.('.hege-checkbox-container[data-username]') || []);
+        const contextBoxesByUsername = new Map();
+        allBoxesIn(ctx).forEach(box => {
+            const username = String(box?.dataset?.username || '');
+            if (!username) return;
+            const boxes = contextBoxesByUsername.get(username) || [];
+            boxes.push(box);
+            contextBoxesByUsername.set(username, boxes);
+        });
+        const boxesInContextFor = username => (contextBoxesByUsername.get(String(username || '')) || [])
+            .filter(box => box?.parentElement && (typeof ctx.contains !== 'function' || ctx.contains(box)));
+        const rememberContextBox = (username, box) => {
+            if (!username || !box) return;
+            const boxes = contextBoxesByUsername.get(username) || [];
+            if (!boxes.includes(box)) boxes.push(box);
+            contextBoxesByUsername.set(username, boxes);
+        };
         const reconcilePreviewCard = (card, actorUsername, preferredBox = null) => {
             if (!card || !actorUsername) return null;
             const normalizedActor = normalizeUsername(actorUsername);
@@ -4368,7 +4406,7 @@ export const Core = {
                 const boxRowId = box.dataset.hegeDialogRowId || '';
                 return !boxRowId || boxRowId === rowId || row.contains(box);
             });
-            const boxesInContext = allBoxesIn(ctx).filter(box => box.dataset.username === username);
+            const boxesInContext = boxesInContextFor(username);
             const sameRowBoxes = boxesInContext.filter(box => box.dataset.hegeDialogRowId === rowId);
             const cardBoxes = previewCard && previewActorUsername
                 ? (cardActorBox ? [cardActorBox] : allBoxesIn(previewCard).filter(box => normalizeUsername(box.dataset.username) === normalizeUsername(previewActorUsername)))
@@ -4405,7 +4443,10 @@ export const Core = {
             if (isProfileList) container.classList.add('hege-profile-list-checkbox');
             else container.classList.remove('hege-profile-list-checkbox');
             const placed = placementFor(container, placement);
-            if (placed) Core.applyCheckboxState(container, Core.resolveCheckboxState(username, { db: dbRef, cdq: cdqRef, bgq: activeSet }));
+            if (placed) {
+                rememberContextBox(username, container);
+                Core.applyCheckboxState(container, Core.resolveCheckboxState(username, { db: dbRef, cdq: cdqRef, bgq: activeSet }));
+            }
         });
         recordObservation();
     },

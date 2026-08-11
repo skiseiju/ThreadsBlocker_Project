@@ -1,8 +1,8 @@
 # ADR 0017：Likes 整串收集採「最後進度時間」停止
 
 - 日期：2026-08-10
-- 狀態：已採納並實作（2.8.4-beta4，待 live 驗收）
-- 相關：[ADR 0003](0003-merge-dialog-buttons.md)（清理名單入口與合併）、[ADR 0004](0004-engagement-strategy-order.md)（Likes dialog 的開啟順序）、`src/core.js`、`tests/beta98-likes-progress-timeout.test.mjs`
+- 狀態：已採納並持續實作（停止判定 2.8.4-beta4；大型名單效能 2.8.4-beta14，待 installed 驗收）
+- 相關：[ADR 0003](0003-merge-dialog-buttons.md)（清理名單入口與合併）、[ADR 0004](0004-engagement-strategy-order.md)（Likes dialog 的開啟順序）、`src/core.js`、`tests/beta98-likes-progress-timeout.test.mjs`、`tests/beta14-clean-list-performance.test.mjs`
 
 ## 背景
 
@@ -34,3 +34,16 @@
 - 真正到達結尾後，結算最多增加約 5 秒等待。
 - 若 Threads 超過 5 秒完全不提供資料或捲動變化，收集仍會有界停止；不保證突破平台未提供或不可見的帳號。
 - 3816 個讚仍受 1000 人安全上限約束，本決策只修正 71 人等過早結算，不取消上限。
+
+## Beta14：大型名單收集期間暫停一般掃描
+
+實測 `injectDialogCheckboxes()` 在每個帳號列內都重新查詢整個 dialog 的 checkbox。100／200／400 列的 steady pass 約為 17.6／68.9／275.5ms，列數加倍時耗時約四倍；而 collector 每 180ms 捲動一次，scroll listener、MutationObserver 與 1500ms backup scanner 會反覆觸發這條 O(n²) 路徑，因此約 200 人後主頁明顯變慢。
+
+Beta14 採兩層限縮修正：
+
+- 每次 `injectDialogCheckboxes()` 只對目前 dialog 建立一次 username → checkbox 索引；每列只查自己的小型 row／host，移除整個 dialog 的逐列重掃。
+- `collectFullDialogUsers()` 活躍期間，scroll、MutationObserver 與 backup interval 觸發的一般 scanner pass 直接略過；最外層 collector 在任何成功、失敗、停止或例外路徑離開後，只排一次補掃，讓最後畫面恢復 checkbox 狀態。
+
+活動狀態使用可巢狀 depth，而不是單一布林，避免未來 nested caller 提早解除閘門。這只改掃描排程與查詢成本，不改 5 秒無進度停止、兩種排序各掃一輪、1000 人上限、atomic rollback 或「停止並結算」的既有契約。
+
+修正後同一 fixture 的 100／200／400 列 steady pass 中位數約為 15.1／57.6／221.6ms，且整個 dialog 的 checkbox 查詢在 200 列由每輪 200 次降為 1 次。單次 pass 仍包含 Threads 列定位與 layout 成本，因此不宣稱整體已線性化；主要保護是 collector 活躍期間 scanner 呼叫為 0，避免這筆成本每 180ms 重複發生。

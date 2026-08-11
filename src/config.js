@@ -1,4 +1,5 @@
 // 相關 ADR：docs/adr/0013-lightweight-diagnostics-by-default.md、
+// docs/adr/0017-likes-progress-idle-timeout.md、
 // docs/adr/0018-clean-list-likes-latest-sort.md、
 // docs/adr/0019-clean-list-two-pass-sort-scan.md、
 // docs/adr/0020-clean-list-stop-settles-collected-users.md、
@@ -80,7 +81,7 @@ export const isDiagnosticMeasurementField = key => {
 };
 
 export const CONFIG = {
-    VERSION: '2.8.4-beta13', // 壓縮每日封鎖上限提醒，保留rolling 24h釋放資訊
+    VERSION: '2.8.4-beta15', // 三無停止會結算並保留目前待審清單
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。

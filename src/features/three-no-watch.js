@@ -1,3 +1,5 @@
+// 三無掃描生命週期：docs/BLOCKING_ARCHITECTURE.md。
+// 相關 ADR：docs/adr/0005-bot-profile-detection.md。
 import { CONFIG } from '../config.js';
 import { Storage } from '../storage.js';
 import { Utils, isBackgroundWorkerBusy } from '../utils.js';
@@ -97,6 +99,14 @@ Object.assign(Core, {
                 debug: { step, stopObservedAt: Date.now() },
             });
             return true;
+        },
+
+        hasReviewableScanResults: (results = {}) => {
+            const status = String(results?.status || '');
+            const completedAt = parseInt(results?.completedAt || '0', 10) || 0;
+            if (completedAt <= 0) return false;
+            if (status === 'completed') return true;
+            return status === 'stopped' && Array.isArray(results?.users) && results.users.length > 0;
         },
 
         runningStatuses: ['starting', 'ready', 'running', 'scanning', 'collecting_followers', 'followers_collected', 'checking_profiles', 'stopping'],
@@ -1055,9 +1065,18 @@ Object.assign(Core, {
             const scanId = String(params.get('hege_three_no_run') || '').trim();
             const currentState = Core.ThreeNoWatch.getScanState();
             if (!scanId || String(currentState.scanId || '') !== scanId) return;
-            if (!Core.ThreeNoWatch.isRunningStatus(currentState.status) || currentState.status === 'stopping') return;
+            if (!Core.ThreeNoWatch.isRunningStatus(currentState.status)) return;
             if (currentState.ownerToken && !Core.ThreeNoWatch.ownsScan(scanId, currentState.ownerToken)) return;
             window.__hegeThreeNoWorkerOwnerToken = currentState.ownerToken || '';
+            if (currentState.status === 'stopping') {
+                await Core.ThreeNoWatch.finishScan({
+                    scanId,
+                    ownerToken: currentState.ownerToken || '',
+                    status: 'stopped',
+                    debug: { step: 'stop_recovered_at_load', stopObservedAt: Date.now() },
+                });
+                return;
+            }
             if (await Core.ThreeNoWatch.observeStop('stop_observed_at_load')) return;
             if (Core.ThreeNoWatch.isWorkerBlockedPage()) {
                 Core.ThreeNoWatch.markWorkerSignal(scanId, 'worker_blocked');
