@@ -2651,6 +2651,9 @@ Object.assign(Core, {
                 'turtle', 'unicorn', 'zebra', 'puppy', 'bird', 'fish', 'bunny', 'wolf', 'fox',
                 'cow', 'pig', 'monkey', 'mouse', 'rat', 'koala', 'shark', 'whale', 'eagle',
                 'frog', 'snake', 'swan', 'bee', 'ant', 'seal',
+                // beta21：實機名冊比對補齊的 11 個缺字
+                'gecko', 'yak', 'raccoon', 'cricket', 'crow', 'lizard', 'pony',
+                'puma', 'robin', 'squid', 'starfish',
             ];
             const animalPrefix = animals.find(animal => compact.startsWith(animal));
             if (!animalPrefix) return false;
