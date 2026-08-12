@@ -49,6 +49,25 @@ const THREE_NO_SCAN_SCROLL_DEBUG_FIELDS = Object.freeze([
     'stagnant',
 ]);
 
+// Profile probe 只讀目前已開啟的個人頁，不另外導覽或發出請求。樣式先採
+// 寬鬆的數字加標籤比對，實際命中的原文會留在 beta 名冊供後續回收。
+const THREE_NO_PROFILE_COUNT_TOKEN = '[\\d,.\\s]+(?:萬|万|[KMB])?';
+const THREE_NO_PROFILE_COUNT_PATTERNS = Object.freeze({
+    follower: Object.freeze([
+        { strategy: 'number_before_zh_follower', pattern: new RegExp(`(${THREE_NO_PROFILE_COUNT_TOKEN})\\s*位?\\s*(?:粉絲|粉丝)`, 'i') },
+        { strategy: 'label_before_zh_follower', pattern: new RegExp(`(?:粉絲|粉丝)\\s*(${THREE_NO_PROFILE_COUNT_TOKEN})`, 'i') },
+        { strategy: 'number_before_en_follower', pattern: new RegExp(`(${THREE_NO_PROFILE_COUNT_TOKEN})\\s*followers?`, 'i') },
+        { strategy: 'label_before_en_follower', pattern: new RegExp(`followers?\\s*(${THREE_NO_PROFILE_COUNT_TOKEN})`, 'i') },
+    ]),
+    following: Object.freeze([
+        { strategy: 'number_before_zh_following', pattern: new RegExp(`(${THREE_NO_PROFILE_COUNT_TOKEN})\\s*位?\\s*(?:追蹤中|正在追蹤|追蹤|关注中|正在关注|关注)`, 'i') },
+        { strategy: 'label_before_zh_following', pattern: new RegExp(`(?:追蹤中|正在追蹤|追蹤|关注中|正在关注|关注)\\s*(${THREE_NO_PROFILE_COUNT_TOKEN})`, 'i') },
+        { strategy: 'number_before_en_following', pattern: new RegExp(`(${THREE_NO_PROFILE_COUNT_TOKEN})\\s*following`, 'i') },
+        { strategy: 'label_before_en_following', pattern: new RegExp(`following\\s*(${THREE_NO_PROFILE_COUNT_TOKEN})`, 'i') },
+    ]),
+});
+const THREE_NO_PROFILE_COUNT_NOT_OPENED_REASON = 'profile_not_opened';
+
 // 捲動迴圈可能產生數百筆紀錄。保留重要節點與固定抽樣，讓其他步驟
 // 不會被捲動噪音擠掉；第一筆、最後一筆與狀態轉換列永遠列入優先保留。
 const compactThreeNoScanDebugRows = (rows = [], limit = THREE_NO_SCAN_DEBUG_LOG_LIMIT) => {
@@ -455,6 +474,19 @@ Object.assign(Core, {
                 .forEach(node => addText(node.innerText || node.textContent || ''));
             const chinese = candidates.find(value => /[\u3400-\u9fff]/.test(value) && value.length <= 80);
             return String(chinese || candidates[0] || '').slice(0, 160);
+        },
+
+        getFollowerRosterNameSignals: (username = '', displayName = '') => {
+            const display = String(displayName || '').replace(/\s+/g, ' ').trim();
+            const chineseCharacters = display.match(/[\u3400-\u9fff]/g) || [];
+            const displayNameEndsWithRepeatedSurname = chineseCharacters.length >= 3
+                && chineseCharacters[0] === chineseCharacters[chineseCharacters.length - 1];
+            const arabicOrPersianPattern = /[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufb50-\ufdff\ufe70-\ufeff]/u;
+            const hasArabicPersianText = arabicOrPersianPattern.test(`${String(username || '')} ${display}`);
+            return {
+                displayNameEndsWithRepeatedSurname,
+                hasArabicPersianText,
+            };
         },
 
         isFreshRunningState: (state = {}, now = Date.now()) => {
@@ -1343,6 +1375,7 @@ Object.assign(Core, {
                 usernames: [],
                 index: 0,
                 findings: [],
+                profileRosterResults: {},
             });
             Core.ThreeNoWatch.setScanState({
                 scanId,
@@ -1511,6 +1544,7 @@ Object.assign(Core, {
                 usernames,
                 index: 0,
                 findings: [],
+                profileRosterResults: {},
                 limited: hasMore,
             });
             Core.ThreeNoWatch.setScanState({
@@ -1712,6 +1746,14 @@ Object.assign(Core, {
 
             const result = Core.ThreeNoWatch.buildProfileResultFromProbes(username, nextProbeResults);
             const findings = Array.isArray(runtime.findings) ? runtime.findings : [];
+            const profileRosterResults = isFollowerRosterCaptureActive()
+                ? {
+                    ...(runtime.profileRosterResults && typeof runtime.profileRosterResults === 'object'
+                        ? runtime.profileRosterResults
+                        : {}),
+                    [Core.ThreeNoWatch.normalizeUsername(result.username).toLowerCase()]: Core.ThreeNoWatch.buildFollowerRosterProfileEvidence(result),
+                }
+                : {};
             if (result.isThreeNo && !Storage.isThreeNoUserIgnored(result.username)) {
                 findings.push({
                     username: result.username,
@@ -1806,6 +1848,7 @@ Object.assign(Core, {
             const nextRuntime = {
                 ...runtime,
                 findings,
+                profileRosterResults,
                 index: index + 1,
                 profileProbeKind: 'base',
                 profileProbeResults: {},
@@ -2247,6 +2290,8 @@ Object.assign(Core, {
                 const normalizedProcessingStatus = THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES.includes(processingStatus)
                     ? processingStatus
                     : 'triage_incomplete';
+                const displayName = Core.ThreeNoWatch.followerListDisplayName(link, username);
+                const nameSignals = Core.ThreeNoWatch.getFollowerRosterNameSignals(username, displayName);
                 rosterObservedCount += 1;
                 rosterProcessingStatusCounts[normalizedProcessingStatus] += 1;
                 if (rosterRows.length >= THREE_NO_FOLLOWER_ROSTER_LIMIT) {
@@ -2255,14 +2300,29 @@ Object.assign(Core, {
                 }
                 rosterRows.push({
                     username,
-                    displayName: Core.ThreeNoWatch.followerListDisplayName(link, username),
+                    displayName,
                     sequence: rosterRows.length + 1,
                     hasVisibleAvatar: hasVisibleAvatar === true,
                     suspiciousUsername: suspiciousUsername === true,
+                    displayNameEndsWithRepeatedSurname: nameSignals.displayNameEndsWithRepeatedSurname === true,
+                    hasArabicPersianText: nameSignals.hasArabicPersianText === true,
                     isTriaged: isTriaged === true,
                     isThreeNo: false,
                     finalized: false,
                     processingStatus: normalizedProcessingStatus,
+                    profileOpened: false,
+                    followerCount: 0,
+                    followerCountKnown: false,
+                    followerCountMatchedText: '',
+                    followerCountMatchedStrategy: '',
+                    followerCountProbeReason: THREE_NO_PROFILE_COUNT_NOT_OPENED_REASON,
+                    followerCountProbeStrategies: [],
+                    followingCount: 0,
+                    followingCountKnown: false,
+                    followingCountMatchedText: '',
+                    followingCountMatchedStrategy: '',
+                    followingCountProbeReason: THREE_NO_PROFILE_COUNT_NOT_OPENED_REASON,
+                    followingCountProbeStrategies: [],
                 });
                 rosterKeys.add(key);
             };
@@ -2777,7 +2837,28 @@ Object.assign(Core, {
             const profileTopText = Core.ThreeNoWatch.getProfileTopText(main, u);
             const privateSignal = Core.ThreeNoWatch.readProfilePrivateSignal(main);
             const accountPrivate = privateSignal.private === true;
-            const followerCount = accountPrivate ? null : Core.ThreeNoWatch.parseProfileFollowerCount(main);
+            const profileCountSignals = accountPrivate
+                ? {
+                    follower: {
+                        count: 0,
+                        known: false,
+                        matchedText: '',
+                        matchedStrategy: '',
+                        reason: 'private_profile',
+                        attemptedStrategies: [],
+                    },
+                    following: {
+                        count: 0,
+                        known: false,
+                        matchedText: '',
+                        matchedStrategy: '',
+                        reason: 'private_profile',
+                        attemptedStrategies: [],
+                    },
+                }
+                : Core.ThreeNoWatch.readProfileCountSignals(main);
+            const followerCountSignal = profileCountSignals.follower;
+            const followingCountSignal = profileCountSignals.following;
             const postsSignal = accountPrivate
                 ? { known: false, hasContent: false, reason: 'private_profile' }
                 : (firstVisibleSignal.known
@@ -2802,9 +2883,20 @@ Object.assign(Core, {
                 privateSignalReason: privateSignal.reason || '',
                 privateSignalMatchedText: privateSignal.matchedText || '',
                 postsSignal,
-                followerCount: Number.isFinite(followerCount) ? followerCount : 0,
-                followerCountKnown: accountPrivate ? false : Number.isFinite(followerCount),
+                followerCount: followerCountSignal.count,
+                followerCountKnown: followerCountSignal.known === true,
+                followerCountMatchedText: followerCountSignal.matchedText || '',
+                followerCountMatchedStrategy: followerCountSignal.matchedStrategy || '',
+                followerCountProbeReason: followerCountSignal.reason || 'not_found',
+                followerCountProbeStrategies: followerCountSignal.attemptedStrategies || [],
                 followerCountSkippedReason: accountPrivate ? 'private_profile' : '',
+                followingCount: followingCountSignal.count,
+                followingCountKnown: followingCountSignal.known === true,
+                followingCountMatchedText: followingCountSignal.matchedText || '',
+                followingCountMatchedStrategy: followingCountSignal.matchedStrategy || '',
+                followingCountProbeReason: followingCountSignal.reason || 'not_found',
+                followingCountProbeStrategies: followingCountSignal.attemptedStrategies || [],
+                followingCountSkippedReason: accountPrivate ? 'private_profile' : '',
                 suspiciousUsername: Core.ThreeNoWatch.usernameMatchesSuspiciousThreeNoCandidate(u),
                 metadata,
                 metadataSourcePage: 'base_profile',
@@ -2812,6 +2904,26 @@ Object.assign(Core, {
                 elapsedMs: Date.now() - startedAt,
             };
         },
+
+        buildFollowerRosterProfileEvidence: (result = {}) => ({
+            profileOpened: true,
+            followerCount: parseInt(result.followerCount || '0', 10) || 0,
+            followerCountKnown: result.followerCountKnown === true,
+            followerCountMatchedText: String(result.followerCountMatchedText || ''),
+            followerCountMatchedStrategy: String(result.followerCountMatchedStrategy || ''),
+            followerCountProbeReason: String(result.followerCountProbeReason || (result.followerCountKnown === true ? 'matched' : 'not_found')),
+            followerCountProbeStrategies: Array.isArray(result.followerCountProbeStrategies)
+                ? result.followerCountProbeStrategies.slice(0, 8)
+                : [],
+            followingCount: parseInt(result.followingCount || '0', 10) || 0,
+            followingCountKnown: result.followingCountKnown === true,
+            followingCountMatchedText: String(result.followingCountMatchedText || ''),
+            followingCountMatchedStrategy: String(result.followingCountMatchedStrategy || ''),
+            followingCountProbeReason: String(result.followingCountProbeReason || (result.followingCountKnown === true ? 'matched' : 'not_found')),
+            followingCountProbeStrategies: Array.isArray(result.followingCountProbeStrategies)
+                ? result.followingCountProbeStrategies.slice(0, 8)
+                : [],
+        }),
 
         buildProfileResultFromProbes: (username, probes = {}) => {
             const u = Core.ThreeNoWatch.normalizeUsername(username);
@@ -2846,12 +2958,23 @@ Object.assign(Core, {
                 noRepostsKnown: repostsKnown,
                 followerCount: isPrivate ? 0 : (parseInt(base.followerCount || '0', 10) || 0),
                 followerCountKnown: isPrivate ? false : base.followerCountKnown === true,
+                followerCountMatchedText: isPrivate ? '' : String(base.followerCountMatchedText || ''),
+                followerCountMatchedStrategy: isPrivate ? '' : String(base.followerCountMatchedStrategy || ''),
+                followerCountProbeReason: isPrivate ? 'private_profile' : String(base.followerCountProbeReason || (base.followerCountKnown === true ? 'matched' : 'not_found')),
+                followerCountProbeStrategies: isPrivate ? [] : (Array.isArray(base.followerCountProbeStrategies) ? base.followerCountProbeStrategies.slice(0, 8) : []),
                 bioSignalReason: base.bioSignalReason || '',
                 contentProbeSkippedReason: isPrivate ? 'private_profile' : '',
                 privateDetectedAt: isPrivate ? 'base_profile' : '',
                 privateSignalReason: isPrivate ? (base.privateSignalReason || 'profile_private_phrase') : '',
                 privateSignalMatchedText: isPrivate ? (base.privateSignalMatchedText || '') : '',
                 followerCountSkippedReason: isPrivate ? 'private_profile' : '',
+                followingCount: isPrivate ? 0 : (parseInt(base.followingCount || '0', 10) || 0),
+                followingCountKnown: isPrivate ? false : base.followingCountKnown === true,
+                followingCountMatchedText: isPrivate ? '' : String(base.followingCountMatchedText || ''),
+                followingCountMatchedStrategy: isPrivate ? '' : String(base.followingCountMatchedStrategy || ''),
+                followingCountProbeReason: isPrivate ? 'private_profile' : String(base.followingCountProbeReason || (base.followingCountKnown === true ? 'matched' : 'not_found')),
+                followingCountProbeStrategies: isPrivate ? [] : (Array.isArray(base.followingCountProbeStrategies) ? base.followingCountProbeStrategies.slice(0, 8) : []),
+                followingCountSkippedReason: isPrivate ? 'private_profile' : '',
                 joinedAt: metadata.joinedAt || 0,
                 accountAgeDays: metadata.accountAgeDays || 0,
                 accountAgeBucket: metadata.accountAgeBucket || '',
@@ -3039,40 +3162,70 @@ Object.assign(Core, {
             return candidates.slice(0, 4);
         },
 
-        parseProfileFollowerCount: (root) => {
-            const parseMatchedCount = (text = '') => {
-                const compact = String(text || '').replace(/\s+/g, ' ').trim();
-                const patterns = [
-                    /([\d,.\s]+(?:萬|万)?)\s*位粉絲/,
-                    /([\d,.\s]+(?:萬|万)?)\s*粉絲/,
-                    /([\d,.\s]+[KMB]?)\s*followers/i,
-                    /粉絲\s*([\d,.\s]+(?:萬|万)?)/,
-                    /Followers\s*([\d,.\s]+[KMB]?)/i,
-                ];
-                for (const pattern of patterns) {
-                    const match = compact.match(pattern);
-                    if (match) return Core.ThreeNoWatch.parseHumanCount(match[1]);
-                }
-                return null;
+        readProfileCountSignals: (root) => {
+            const makeEmptySignal = () => ({
+                count: 0,
+                known: false,
+                matchedText: '',
+                matchedStrategy: '',
+                reason: 'not_found',
+                attemptedStrategies: [],
+            });
+            const signals = {
+                follower: makeEmptySignal(),
+                following: makeEmptySignal(),
             };
-            const nodes = Array.from((root || document.body).querySelectorAll('span[title], span[dir="auto"], div[dir="auto"], a, div[role="button"]'))
-                .filter(el => !el.closest('[role="dialog"]'))
+            const source = root || document.body;
+            const nodes = Array.from(source?.querySelectorAll?.('span[title], span[dir="auto"], div[dir="auto"], a, div[role="button"]') || [])
+                .filter(el => !el.closest?.('[role="dialog"]'))
                 .filter(el => {
-                    const rect = el.getBoundingClientRect();
+                    const rect = el.getBoundingClientRect?.() || {};
                     return rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.top < 620;
                 });
+            for (const type of ['follower', 'following']) {
+                signals[type].attemptedStrategies = THREE_NO_PROFILE_COUNT_PATTERNS[type].map(item => item.strategy);
+            }
             for (const el of nodes) {
                 const values = [
                     el.getAttribute?.('title') || '',
                     el.innerText || '',
                     el.textContent || '',
-                ].map(v => String(v || '').trim()).filter(Boolean);
+                ].map(value => String(value || '').trim()).filter(Boolean);
                 for (const value of values) {
-                    const parsed = parseMatchedCount(value);
-                    if (Number.isFinite(parsed)) return parsed;
+                    const normalizedText = value.replace(/\s+/g, ' ').trim();
+                    if (!normalizedText) continue;
+                    for (const type of ['follower', 'following']) {
+                        if (signals[type].known) continue;
+                        for (const candidate of THREE_NO_PROFILE_COUNT_PATTERNS[type]) {
+                            const match = normalizedText.match(candidate.pattern);
+                            if (!match) continue;
+                            const parsed = Core.ThreeNoWatch.parseHumanCount(match[1]);
+                            if (!Number.isFinite(parsed)) continue;
+                            signals[type] = {
+                                count: parsed,
+                                known: true,
+                                matchedText: normalizedText.slice(0, 160),
+                                matchedStrategy: candidate.strategy,
+                                reason: 'matched',
+                                attemptedStrategies: signals[type].attemptedStrategies,
+                            };
+                            break;
+                        }
+                    }
+                    if (signals.follower.known && signals.following.known) return signals;
                 }
             }
-            return null;
+            return signals;
+        },
+
+        parseProfileFollowerCount: (root) => {
+            const signal = Core.ThreeNoWatch.readProfileCountSignals(root).follower;
+            return signal.known ? signal.count : null;
+        },
+
+        parseProfileFollowingCount: (root) => {
+            const signal = Core.ThreeNoWatch.readProfileCountSignals(root).following;
+            return signal.known ? signal.count : null;
         },
 
         getProfileTabPath: (username = '', kind = '') => {
@@ -3962,6 +4115,7 @@ Object.assign(Core, {
                         completedAt,
                         findings,
                         finalizedUsernames,
+                        profileEvidence: runtime.profileRosterResults,
                     });
                     noteStorageWrite(roster, 1);
                 } catch (_) {

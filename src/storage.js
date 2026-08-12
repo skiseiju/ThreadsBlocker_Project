@@ -13,6 +13,12 @@ const normalizeBlockTimestamp = value => {
 const threeNoFollowerRosterLimit = () => Math.max(1, parseInt(CONFIG.THREE_NO_SCAN_FOLLOWER_ROSTER_LIMIT || '2000', 10) || 2000);
 const normalizeRosterUsername = value => String(value || '').trim().replace(/^@+/, '').split(/[/?#\s]/)[0].slice(0, 120);
 const rosterUsernameKey = value => normalizeRosterUsername(value).toLowerCase();
+const normalizeRosterCount = value => Math.max(0, parseInt(value || '0', 10) || 0);
+const normalizeRosterText = value => String(value || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+const normalizeRosterProbeStrategies = value => (Array.isArray(value) ? value : [])
+    .map(item => String(item || '').trim())
+    .filter(Boolean)
+    .slice(0, 8);
 const isThreeNoFollowerRosterStorageActive = () => globalThis.__hegeRuntimeDiagnostics?.betaDebugUI?.() === true;
 const emptyRosterProcessingCounts = () => Object.fromEntries(
     THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES.map(status => [status, 0]),
@@ -35,12 +41,16 @@ const normalizeThreeNoFollowerRosterRow = (row = {}, sequence = 0) => {
     const suspiciousUsername = source.suspiciousUsername === true;
     const isTriaged = source.isTriaged === true;
     const finalized = source.finalized === true;
+    const followerCountKnown = source.followerCountKnown === true;
+    const followingCountKnown = source.followingCountKnown === true;
     return {
         username,
         displayName: String(source.displayName || '').replace(/\s+/g, ' ').trim().slice(0, 160),
         sequence: Math.max(1, parseInt(source.sequence || sequence || '1', 10) || 1),
         hasVisibleAvatar,
         suspiciousUsername,
+        displayNameEndsWithRepeatedSurname: source.displayNameEndsWithRepeatedSurname === true,
+        hasArabicPersianText: source.hasArabicPersianText === true,
         isTriaged,
         isThreeNo: source.isThreeNo === true,
         finalized,
@@ -50,6 +60,19 @@ const normalizeThreeNoFollowerRosterRow = (row = {}, sequence = 0) => {
             hasVisibleAvatar,
             suspiciousUsername,
         }),
+        profileOpened: source.profileOpened === true || followerCountKnown || followingCountKnown,
+        followerCount: followerCountKnown ? normalizeRosterCount(source.followerCount) : 0,
+        followerCountKnown,
+        followerCountMatchedText: normalizeRosterText(source.followerCountMatchedText),
+        followerCountMatchedStrategy: normalizeRosterText(source.followerCountMatchedStrategy),
+        followerCountProbeReason: normalizeRosterText(source.followerCountProbeReason || (followerCountKnown ? 'matched' : 'profile_not_opened')),
+        followerCountProbeStrategies: normalizeRosterProbeStrategies(source.followerCountProbeStrategies),
+        followingCount: followingCountKnown ? normalizeRosterCount(source.followingCount) : 0,
+        followingCountKnown,
+        followingCountMatchedText: normalizeRosterText(source.followingCountMatchedText),
+        followingCountMatchedStrategy: normalizeRosterText(source.followingCountMatchedStrategy),
+        followingCountProbeReason: normalizeRosterText(source.followingCountProbeReason || (followingCountKnown ? 'matched' : 'profile_not_opened')),
+        followingCountProbeStrategies: normalizeRosterProbeStrategies(source.followingCountProbeStrategies),
     };
 };
 const normalizeRosterProcessingCounts = (value, rows = []) => {
@@ -364,6 +387,10 @@ export const Storage = {
         const finalizedUsers = new Set((Array.isArray(payload.finalizedUsernames) ? payload.finalizedUsernames : [])
             .map(rosterUsernameKey)
             .filter(Boolean));
+        const profileEvidence = payload.profileEvidence && typeof payload.profileEvidence === 'object'
+            && !Array.isArray(payload.profileEvidence)
+            ? payload.profileEvidence
+            : {};
         const complete = payload.status === 'completed';
         const processingStatusCounts = normalizeRosterProcessingCounts(current.processingStatusCounts, current.rows);
         const storedKeys = new Set(current.rows.map(row => rosterUsernameKey(row.username)).filter(Boolean));
@@ -374,6 +401,11 @@ export const Storage = {
         const rows = current.rows.map(row => {
             const key = rosterUsernameKey(row.username);
             const shouldFinalize = complete || finalizedUsers.has(key);
+            const evidence = profileEvidence[key] && typeof profileEvidence[key] === 'object'
+                ? profileEvidence[key]
+                : null;
+            const canApplyProfileEvidence = !!evidence && evidence.profileOpened === true
+                && (complete || finalizedUsers.has(key));
             const previousProcessingStatus = normalizeRosterProcessingStatus(row.processingStatus, row);
             const isCollectorSkip = previousProcessingStatus === 'skipped_known'
                 || previousProcessingStatus === 'skipped_visible_avatar';
@@ -386,6 +418,21 @@ export const Storage = {
             }
             return {
                 ...row,
+                ...(canApplyProfileEvidence ? {
+                    profileOpened: true,
+                    followerCount: evidence.followerCountKnown === true ? normalizeRosterCount(evidence.followerCount) : 0,
+                    followerCountKnown: evidence.followerCountKnown === true,
+                    followerCountMatchedText: normalizeRosterText(evidence.followerCountMatchedText),
+                    followerCountMatchedStrategy: normalizeRosterText(evidence.followerCountMatchedStrategy),
+                    followerCountProbeReason: normalizeRosterText(evidence.followerCountProbeReason || (evidence.followerCountKnown === true ? 'matched' : 'not_found')),
+                    followerCountProbeStrategies: normalizeRosterProbeStrategies(evidence.followerCountProbeStrategies),
+                    followingCount: evidence.followingCountKnown === true ? normalizeRosterCount(evidence.followingCount) : 0,
+                    followingCountKnown: evidence.followingCountKnown === true,
+                    followingCountMatchedText: normalizeRosterText(evidence.followingCountMatchedText),
+                    followingCountMatchedStrategy: normalizeRosterText(evidence.followingCountMatchedStrategy),
+                    followingCountProbeReason: normalizeRosterText(evidence.followingCountProbeReason || (evidence.followingCountKnown === true ? 'matched' : 'not_found')),
+                    followingCountProbeStrategies: normalizeRosterProbeStrategies(evidence.followingCountProbeStrategies),
+                } : {}),
                 processingStatus: nextProcessingStatus,
                 isThreeNo: findingUsers.has(key) ? true : (shouldFinalize ? false : row.isThreeNo === true),
                 finalized: row.finalized === true || shouldFinalize,

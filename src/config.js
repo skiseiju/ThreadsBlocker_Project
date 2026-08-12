@@ -91,7 +91,7 @@ export const THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES = Object.freeze([
 ]);
 
 export const CONFIG = {
-    VERSION: '2.8.4-beta18', // 三無 beta 取證補上名冊處理狀態與捲動 log 欄位，僅存本機
+    VERSION: '2.8.4-beta19', // 三無 beta 取證補上追蹤中數量與兩個命名訊號，僅存本機
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。
