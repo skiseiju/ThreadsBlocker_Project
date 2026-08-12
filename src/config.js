@@ -81,7 +81,7 @@ export const isDiagnosticMeasurementField = key => {
 };
 
 export const CONFIG = {
-    VERSION: '2.8.4-beta17', // 三無 beta 取證補上完整追蹤者名冊，僅存本機
+    VERSION: '2.8.4-beta18', // 三無 beta 取證補上名冊處理狀態與捲動 log 欄位，僅存本機
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。
@@ -129,9 +129,10 @@ export const CONFIG = {
     THREE_NO_SCAN_STATS_UPLOAD_TIMEOUT_MS: 1500,
     THREE_NO_SCAN_PREFILTER_AVATAR: true,
     THREE_NO_SCAN_PROFILE_DELAY_MS: 1400,
-    // 僅 beta 三無追蹤者取證。上限與既有 PERSIST_LIMIT 分開，避免名冊
-    // 隨追蹤者人數無界成長；超過上限只記錄 observedCount/truncated。
-    THREE_NO_SCAN_FOLLOWER_ROSTER_LIMIT: 400,
+    // 僅 beta 三無追蹤者取證。上限與既有 PERSIST_LIMIT 分開，保留單一目標
+    // 實測一千五百人以上的名單，同時避免兩千人卡死讓記憶體或 storage 無界成長；
+    // 超過上限只記錄 observedCount/truncated 與各處理狀態計數。
+    THREE_NO_SCAN_FOLLOWER_ROSTER_LIMIT: 2000,
 
     // 貼文水庫 SPA polling 時序（毫秒；單位 ms = millisec）
     SWEEP_POLL_INTERVAL_MS: 500,        // 每次 polling 等待間隔

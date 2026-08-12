@@ -6,27 +6,74 @@ import { CONFIG } from './config.js';
 const BLOCK_WINDOW_MS = 24 * 60 * 60 * 1000;
 const BLOCK_RING_RETENTION_MS = 48 * 60 * 60 * 1000;
 const THREE_NO_FOLLOWER_ROSTER_SCHEMA = 'threadsblocker.three_no_follower_roster.v1';
+const THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES = Object.freeze([
+    'skipped_known',
+    'skipped_visible_avatar',
+    'triage_completed',
+    'triage_incomplete',
+]);
 const normalizeBlockTimestamp = value => {
     const number = Number(value);
     return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
 };
-const threeNoFollowerRosterLimit = () => Math.max(1, parseInt(CONFIG.THREE_NO_SCAN_FOLLOWER_ROSTER_LIMIT || '400', 10) || 400);
+const threeNoFollowerRosterLimit = () => Math.max(1, parseInt(CONFIG.THREE_NO_SCAN_FOLLOWER_ROSTER_LIMIT || '2000', 10) || 2000);
 const normalizeRosterUsername = value => String(value || '').trim().replace(/^@+/, '').split(/[/?#\s]/)[0].slice(0, 120);
 const rosterUsernameKey = value => normalizeRosterUsername(value).toLowerCase();
 const isThreeNoFollowerRosterStorageActive = () => globalThis.__hegeRuntimeDiagnostics?.betaDebugUI?.() === true;
+const emptyRosterProcessingCounts = () => Object.fromEntries(
+    THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES.map(status => [status, 0]),
+);
+const normalizeRosterProcessingStatus = (value, source = {}) => {
+    const explicit = String(value || '').trim();
+    if (THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES.includes(explicit)) return explicit;
+    if (source.isTriaged !== true) return 'skipped_known';
+    if (source.isTriaged === true && source.hasVisibleAvatar === true && source.suspiciousUsername !== true) {
+        return 'skipped_visible_avatar';
+    }
+    if (source.finalized === true) return 'triage_completed';
+    if (source.isTriaged === true) return 'triage_incomplete';
+    return 'skipped_known';
+};
 const normalizeThreeNoFollowerRosterRow = (row = {}, sequence = 0) => {
     const source = row && typeof row === 'object' ? row : {};
     const username = normalizeRosterUsername(source.username);
+    const hasVisibleAvatar = source.hasVisibleAvatar === true;
+    const suspiciousUsername = source.suspiciousUsername === true;
+    const isTriaged = source.isTriaged === true;
+    const finalized = source.finalized === true;
     return {
         username,
         displayName: String(source.displayName || '').replace(/\s+/g, ' ').trim().slice(0, 160),
         sequence: Math.max(1, parseInt(source.sequence || sequence || '1', 10) || 1),
-        hasVisibleAvatar: source.hasVisibleAvatar === true,
-        suspiciousUsername: source.suspiciousUsername === true,
-        isTriaged: source.isTriaged === true,
+        hasVisibleAvatar,
+        suspiciousUsername,
+        isTriaged,
         isThreeNo: source.isThreeNo === true,
-        finalized: source.finalized === true,
+        finalized,
+        processingStatus: normalizeRosterProcessingStatus(source.processingStatus, {
+            finalized,
+            isTriaged,
+            hasVisibleAvatar,
+            suspiciousUsername,
+        }),
     };
+};
+const normalizeRosterProcessingCounts = (value, rows = []) => {
+    const counts = emptyRosterProcessingCounts();
+    const source = value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+    const hasProvidedCounts = source
+        && THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES.some(status => Object.prototype.hasOwnProperty.call(source, status));
+    if (hasProvidedCounts) {
+        THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES.forEach(status => {
+            counts[status] = Math.max(0, parseInt(source[status] || '0', 10) || 0);
+        });
+        return counts;
+    }
+    (Array.isArray(rows) ? rows : []).forEach(row => {
+        const status = normalizeRosterProcessingStatus(row?.processingStatus, row || {});
+        if (Object.prototype.hasOwnProperty.call(counts, status)) counts[status] += 1;
+    });
+    return counts;
 };
 const emptyThreeNoFollowerRoster = () => ({
     schema: THREE_NO_FOLLOWER_ROSTER_SCHEMA,
@@ -41,6 +88,7 @@ const emptyThreeNoFollowerRoster = () => ({
     observedCount: 0,
     truncated: false,
     status: '',
+    processingStatusCounts: emptyRosterProcessingCounts(),
     rows: [],
 });
 
@@ -252,6 +300,7 @@ export const Storage = {
             observedCount,
             truncated: data.truncated === true || observedCount > rows.length,
             status: String(data.status || ''),
+            processingStatusCounts: normalizeRosterProcessingCounts(data.processingStatusCounts, rows),
             rows,
         };
     },
@@ -285,6 +334,7 @@ export const Storage = {
             observedCount,
             truncated: source.truncated === true || observedCount > rows.length,
             status: String(source.status || ''),
+            processingStatusCounts: normalizeRosterProcessingCounts(source.processingStatusCounts, rows),
             rows,
         };
         Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_FOLLOWER_ROSTER, normalized);
@@ -305,6 +355,7 @@ export const Storage = {
             observedCount: 0,
             truncated: false,
             status: 'scanning',
+            processingStatusCounts: emptyRosterProcessingCounts(),
             rows: [],
         });
     },
@@ -320,14 +371,37 @@ export const Storage = {
             .map(rosterUsernameKey)
             .filter(Boolean));
         const complete = payload.status === 'completed';
+        const processingStatusCounts = normalizeRosterProcessingCounts(current.processingStatusCounts, current.rows);
+        const storedKeys = new Set(current.rows.map(row => rosterUsernameKey(row.username)).filter(Boolean));
+        const adjustProcessingCount = (status, delta) => {
+            if (!Object.prototype.hasOwnProperty.call(processingStatusCounts, status)) return;
+            processingStatusCounts[status] = Math.max(0, processingStatusCounts[status] + delta);
+        };
         const rows = current.rows.map(row => {
             const key = rosterUsernameKey(row.username);
             const shouldFinalize = complete || finalizedUsers.has(key);
+            const previousProcessingStatus = normalizeRosterProcessingStatus(row.processingStatus, row);
+            const isCollectorSkip = previousProcessingStatus === 'skipped_known'
+                || previousProcessingStatus === 'skipped_visible_avatar';
+            const nextProcessingStatus = shouldFinalize && !isCollectorSkip
+                ? 'triage_completed'
+                : previousProcessingStatus;
+            if (nextProcessingStatus !== previousProcessingStatus) {
+                adjustProcessingCount(previousProcessingStatus, -1);
+                adjustProcessingCount(nextProcessingStatus, 1);
+            }
             return {
                 ...row,
+                processingStatus: nextProcessingStatus,
                 isThreeNo: findingUsers.has(key) ? true : (shouldFinalize ? false : row.isThreeNo === true),
                 finalized: row.finalized === true || shouldFinalize,
             };
+        });
+        finalizedUsers.forEach(key => {
+            if (!key || storedKeys.has(key)) return;
+            // 有界名冊之外的列仍要反映在狀態計數，完成結算前視為 triage 未完成。
+            adjustProcessingCount('triage_incomplete', -1);
+            adjustProcessingCount('triage_completed', 1);
         });
         return Storage.setThreeNoFollowerRoster({
             ...current,
@@ -336,6 +410,7 @@ export const Storage = {
             scanDate: String(payload.scanDate || current.scanDate || ''),
             status: String(payload.status || current.status || ''),
             completedAt: parseInt(payload.completedAt || Date.now(), 10) || Date.now(),
+            processingStatusCounts,
             rows,
         });
     },

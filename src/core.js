@@ -618,7 +618,8 @@ export const projectScanDebugLogForExport = (rows = [], limit = 300) => {
     const projected = rows
         .map((row) => {
             const source = row && typeof row === 'object' ? row : {};
-            return {
+            const debug = source.debug && typeof source.debug === 'object' ? source.debug : {};
+            const result = {
                 seq: toNonNegativeInt(source.seq),
                 ts: toNonNegativeInt(source.ts),
                 scanElapsedMs: toNonNegativeInt(source.scanElapsedMs),
@@ -626,10 +627,62 @@ export const projectScanDebugLogForExport = (rows = [], limit = 300) => {
                 status: typeof source.status === 'string' && statusPattern.test(source.status) ? source.status : '',
                 step: typeof source.step === 'string' && stepPattern.test(source.step) ? source.step : '',
             };
+            if (result.step === 'collect_followers_scroll') {
+                const numericFields = [
+                    'iteration', 'maxIterations', 'seenCount', 'linkCount', 'skippedKnown',
+                    'scrollerTop', 'scrollerHeight', 'scrollerClientHeight', 'stagnant',
+                ];
+                numericFields.forEach(field => {
+                    const value = Object.prototype.hasOwnProperty.call(source, field) ? source[field] : debug[field];
+                    if (value !== undefined) result[field] = toNonNegativeInt(value);
+                });
+                ['nearBottom', 'changedSeen'].forEach(field => {
+                    const value = Object.prototype.hasOwnProperty.call(source, field) ? source[field] : debug[field];
+                    if (typeof value === 'boolean') result[field] = value;
+                });
+            }
+            return result;
         })
         .filter(row => row.step !== '')
         .sort((a, b) => a.ts - b.ts);
-    return maxRows > 0 ? projected.slice(-maxRows) : [];
+    if (maxRows <= 0 || projected.length <= maxRows) return maxRows > 0 ? projected : [];
+    const essential = new Set();
+    const preferred = new Set();
+    const scrollIndexes = projected
+        .map((row, index) => row.step === 'collect_followers_scroll' ? index : -1)
+        .filter(index => index >= 0);
+    if (scrollIndexes.length > 0) {
+        essential.add(scrollIndexes[0]);
+        essential.add(scrollIndexes[scrollIndexes.length - 1]);
+        scrollIndexes.forEach((index, offset) => {
+            if (offset % 4 === 0) preferred.add(index);
+        });
+    }
+    projected.forEach((row, index) => {
+        const previous = projected[index - 1];
+        if ((scrollIndexes.length > 0 && index === 0) || (previous && row.status && row.status !== previous.status)) {
+            essential.add(index);
+            if (previous) essential.add(index - 1);
+        }
+        if (row.step !== 'collect_followers_scroll') preferred.add(index);
+    });
+    const selected = new Set([...essential, ...preferred]);
+    if (selected.size > maxRows) {
+        const removable = [...selected]
+            .filter(index => !essential.has(index))
+            .sort((a, b) => a - b);
+        while (selected.size > maxRows && removable.length > 0) selected.delete(removable.shift());
+    }
+    if (selected.size > maxRows) {
+        const essentialInOrder = [...selected].sort((a, b) => a - b);
+        while (selected.size > maxRows) selected.delete(essentialInOrder.shift());
+    }
+    if (selected.size < maxRows) {
+        for (let index = projected.length - 1; index >= 0 && selected.size < maxRows; index -= 1) {
+            selected.add(index);
+        }
+    }
+    return projected.filter((_, index) => selected.has(index));
 };
 
 export const countDialogCheckboxes = () => {
@@ -5924,6 +5977,7 @@ export const Core = {
             observedCount: roster.observedCount,
             truncated: roster.truncated === true,
             status: roster.status,
+            processingStatusCounts: roster.processingStatusCounts || {},
             rows: Array.isArray(roster.rows) ? roster.rows : [],
         };
     },

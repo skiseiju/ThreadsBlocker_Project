@@ -1,3 +1,9 @@
+## v2.8.4-beta18 — 三無名冊補上處理狀態與捲動取證欄位
+
+* **TL;DR：**三無 beta 名冊現在涵蓋已知跳過與頭像預過濾列，並保留本輪處理狀態、狀態計數與完整名單順序；捲動 log 會保留既有計算欄位，超長迴圈採固定抽樣且保留首尾與狀態轉換。
+* **名冊狀態：**新增 `processingStatus`，可分辨已知跳過、可見頭像略過、triage 已完成與 triage 未完成；名冊上限提高至 2,000 筆，超出仍累計 `observedCount`、截斷標記與四種狀態計數。
+* **掃描 log：**捲動紀錄保留 iteration、maxIterations、seenCount、linkCount、skippedKnown、scroller 尺寸、nearBottom、changedSeen 與 stagnant；正式版仍不寫入 beta verbose log。
+
 ## v2.8.4-beta17 — 三無掃描補上完整追蹤者名冊取證
 
 * **TL;DR：**三無掃描在 beta 版會把追蹤者列上已呈現的帳號名、顯示名、序號、可見頭像、命名命中與最終三無結果批次留在本機，正式版不收集。

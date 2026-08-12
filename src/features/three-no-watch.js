@@ -31,8 +31,83 @@ const serializedByteLength = (value) => {
 const isFollowerRosterCaptureActive = () => Core.RuntimeDiagnostics?.betaDebugUI?.() === true;
 const THREE_NO_FOLLOWER_ROSTER_LIMIT = Math.max(
     1,
-    parseInt(CONFIG.THREE_NO_SCAN_FOLLOWER_ROSTER_LIMIT || '400', 10) || 400,
+    parseInt(CONFIG.THREE_NO_SCAN_FOLLOWER_ROSTER_LIMIT || '2000', 10) || 2000,
 );
+const THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES = Object.freeze([
+    'skipped_known',
+    'skipped_visible_avatar',
+    'triage_completed',
+    'triage_incomplete',
+]);
+const THREE_NO_SCAN_DEBUG_LOG_LIMIT = 600;
+const THREE_NO_SCAN_SCROLL_LOG_SAMPLE_STRIDE = 4;
+const THREE_NO_SCAN_SCROLL_DEBUG_FIELDS = Object.freeze([
+    'iteration',
+    'maxIterations',
+    'seenCount',
+    'linkCount',
+    'skippedKnown',
+    'scrollerTop',
+    'scrollerHeight',
+    'scrollerClientHeight',
+    'nearBottom',
+    'changedSeen',
+    'stagnant',
+]);
+
+// 捲動迴圈可能產生數百筆紀錄。保留重要節點與固定抽樣，讓其他步驟
+// 不會被捲動噪音擠掉；第一筆、最後一筆與狀態轉換列永遠列入優先保留。
+const compactThreeNoScanDebugRows = (rows = [], limit = THREE_NO_SCAN_DEBUG_LOG_LIMIT) => {
+    if (!Array.isArray(rows)) return [];
+    const maxRows = Math.max(1, parseInt(limit || THREE_NO_SCAN_DEBUG_LOG_LIMIT, 10) || THREE_NO_SCAN_DEBUG_LOG_LIMIT);
+    if (rows.length <= maxRows) return rows;
+    const groups = new Map();
+    rows.forEach((row, index) => {
+        const scanId = String(row?.scanId || '');
+        if (!groups.has(scanId)) groups.set(scanId, []);
+        groups.get(scanId).push({ row, index });
+    });
+    const essential = new Set();
+    const preferred = new Set();
+    groups.forEach(group => {
+        const scrollRows = group.filter(item => item.row?.step === 'collect_followers_scroll');
+        const hasScrollRows = scrollRows.length > 0;
+        if (scrollRows.length > 0) {
+            essential.add(scrollRows[0].index);
+            essential.add(scrollRows[scrollRows.length - 1].index);
+            scrollRows.forEach((item, index) => {
+                if (index % THREE_NO_SCAN_SCROLL_LOG_SAMPLE_STRIDE === 0) preferred.add(item.index);
+            });
+        }
+        group.forEach((item, index) => {
+            const previous = group[index - 1]?.row;
+            const currentStatus = String(item.row?.status || '');
+            const previousStatus = String(previous?.status || '');
+            if ((hasScrollRows && index === 0) || (previous && currentStatus && currentStatus !== previousStatus)) {
+                essential.add(item.index);
+                if (previous) essential.add(group[index - 1].index);
+            }
+            if (item.row?.step !== 'collect_followers_scroll') preferred.add(item.index);
+        });
+    });
+    const selected = new Set([...essential, ...preferred]);
+    if (selected.size > maxRows) {
+        const removable = [...selected]
+            .filter(index => !essential.has(index))
+            .sort((a, b) => a - b);
+        while (selected.size > maxRows && removable.length > 0) selected.delete(removable.shift());
+    }
+    if (selected.size > maxRows) {
+        const essentialInOrder = [...selected].sort((a, b) => a - b);
+        while (selected.size > maxRows) selected.delete(essentialInOrder.shift());
+    }
+    if (selected.size < maxRows) {
+        for (let index = rows.length - 1; index >= 0 && selected.size < maxRows; index -= 1) {
+            selected.add(index);
+        }
+    }
+    return rows.filter((_, index) => selected.has(index));
+};
 
 Object.assign(Core, {
     ThreeNoWatch: {
@@ -429,7 +504,7 @@ Object.assign(Core, {
             }
             const rows = Core.ThreeNoWatch.getScanDebugLog()
                 .filter(row => row?.scanId !== target);
-            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, rows.slice(-600));
+            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, compactThreeNoScanDebugRows(rows));
         },
 
         appendScanDebugLog: (state = {}) => {
@@ -458,10 +533,15 @@ Object.assign(Core, {
                     : 0,
                 step: String(debug.step || ''),
                 url: String(debug.url || window.location.href || '').slice(0, 500),
+                ...(debug.step === 'collect_followers_scroll'
+                    ? Object.fromEntries(THREE_NO_SCAN_SCROLL_DEBUG_FIELDS
+                        .filter(field => Object.prototype.hasOwnProperty.call(debug, field))
+                        .map(field => [field, debug[field]]))
+                    : {}),
                 debug: Core.ThreeNoWatch.sanitizeDebugValue(debug),
             };
             rows.push(entry);
-            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, rows.slice(-600));
+            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, compactThreeNoScanDebugRows(rows));
         },
 
         // 2.8：擷取 request token 的 page bridge 與 installNetworkDiscoveryListener 已移除，
@@ -499,7 +579,7 @@ Object.assign(Core, {
                     ...detail,
                 }),
             });
-            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, rows.slice(-600));
+            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, compactThreeNoScanDebugRows(rows));
         },
 
         networkHrefKindToProbeKind: (hrefKind = '') => {
@@ -574,7 +654,7 @@ Object.assign(Core, {
                     ...detail,
                 }),
             });
-            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, rows.slice(-600));
+            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, compactThreeNoScanDebugRows(rows));
         },
 
         clearStaleScanIfNeeded: (reason = 'stale_scan_worker_missing') => {
@@ -2159,11 +2239,22 @@ Object.assign(Core, {
                 ? Math.max(rosterRows.length, parseInt(rosterBase.observedCount || '0', 10) || 0)
                 : 0;
             let rosterTruncated = rosterEnabled && rosterBase?.scanId === rosterScanId && rosterBase.truncated === true;
-            const noteRosterRow = (username, link, suspiciousUsername, isTriaged, hasVisibleAvatar) => {
+            const rosterProcessingStatusCounts = rosterEnabled && rosterBase?.scanId === rosterScanId
+                && rosterBase.processingStatusCounts && typeof rosterBase.processingStatusCounts === 'object'
+                ? Object.fromEntries(THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES.map(status => [
+                    status,
+                    Math.max(0, parseInt(rosterBase.processingStatusCounts[status] || '0', 10) || 0),
+                ]))
+                : Object.fromEntries(THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES.map(status => [status, 0]));
+            const noteRosterRow = (username, link, suspiciousUsername, isTriaged, hasVisibleAvatar, processingStatus) => {
                 if (!rosterEnabled) return;
                 const key = String(username || '').toLowerCase();
                 if (!key || rosterKeys.has(key)) return;
+                const normalizedProcessingStatus = THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES.includes(processingStatus)
+                    ? processingStatus
+                    : 'triage_incomplete';
                 rosterObservedCount += 1;
+                rosterProcessingStatusCounts[normalizedProcessingStatus] += 1;
                 if (rosterRows.length >= THREE_NO_FOLLOWER_ROSTER_LIMIT) {
                     rosterTruncated = true;
                     return;
@@ -2177,6 +2268,7 @@ Object.assign(Core, {
                     isTriaged: isTriaged === true,
                     isThreeNo: false,
                     finalized: false,
+                    processingStatus: normalizedProcessingStatus,
                 });
                 rosterKeys.add(key);
             };
@@ -2207,11 +2299,14 @@ Object.assign(Core, {
                         try {
                             hasVisibleAvatar = Core.ThreeNoWatch.followerListRowHasVisibleAvatar(a);
                         } catch (_) {}
-                        try {
-                            noteRosterRow(u, a, suspiciousUsername, !skipUsers.has(u), hasVisibleAvatar);
-                        } catch (_) {}
                     }
-                    if (skipUsers.has(u) || triaged.has(u)) return;
+                    if (skipUsers.has(u)) {
+                        try {
+                            noteRosterRow(u, a, suspiciousUsername, false, hasVisibleAvatar, 'skipped_known');
+                        } catch (_) {}
+                        return;
+                    }
+                    if (triaged.has(u)) return;
                     if (!rosterEnabled) {
                         suspiciousUsername = Core.ThreeNoWatch.usernameMatchesSuspiciousThreeNoCandidate(u);
                         // 正式版沿用既有頭像預過濾語義，beta 名冊重用同一次讀取結果。
@@ -2221,6 +2316,20 @@ Object.assign(Core, {
                     }
                     const prefilterHasVisibleAvatar = CONFIG.THREE_NO_SCAN_PREFILTER_AVATAR === true
                         && hasVisibleAvatar;
+                    if (rosterEnabled) {
+                        try {
+                            noteRosterRow(
+                                u,
+                                a,
+                                suspiciousUsername,
+                                true,
+                                hasVisibleAvatar,
+                                prefilterHasVisibleAvatar && !suspiciousUsername
+                                    ? 'skipped_visible_avatar'
+                                    : 'triage_incomplete',
+                            );
+                        } catch (_) {}
+                    }
                     triaged.add(u);
                     if (suspiciousUsername) suspiciousUsernameUsers.add(u);
                     if (prefilterHasVisibleAvatar && !suspiciousUsername) {
@@ -2330,6 +2439,7 @@ Object.assign(Core, {
                         capturedAt: rosterBase?.capturedAt || Date.now(),
                         observedCount: rosterObservedCount,
                         truncated: rosterTruncated,
+                        processingStatusCounts: rosterProcessingStatusCounts,
                         status: 'scanning',
                         rows: rosterRows,
                     });
@@ -2418,6 +2528,7 @@ Object.assign(Core, {
                 followerRosterCount: rosterEnabled ? rosterRows.length : 0,
                 followerRosterObservedCount: rosterEnabled ? rosterObservedCount : 0,
                 followerRosterTruncated: rosterEnabled ? rosterTruncated : false,
+                followerRosterProcessingStatusCounts: rosterEnabled ? { ...rosterProcessingStatusCounts } : {},
             };
         },
 

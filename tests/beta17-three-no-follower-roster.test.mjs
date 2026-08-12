@@ -211,22 +211,22 @@ test('beta17 200 列名冊完整保留欄位、序號與三無結果，且名冊
     }
 });
 
-test('beta17 名冊超過 400 筆時只保留有界資料並標記截斷', () => {
+test('beta17 名冊超過 beta18 上限時只保留有界資料並標記截斷', () => {
     resetState();
     CONFIG.VERSION = '2.8.4-beta17';
-    const rows = Array.from({ length: 450 }, (_, index) => ({
+    const rows = Array.from({ length: 2050 }, (_, index) => ({
         username: `overflow${index}`,
         displayName: `超量姓名${index}`,
         sequence: index + 1,
         hasVisibleAvatar: true,
     }));
-    Storage.setThreeNoFollowerRoster({ scanId: 'three-no:bounded', observedCount: 450, rows });
+    Storage.setThreeNoFollowerRoster({ scanId: 'three-no:bounded', observedCount: 2050, rows });
     const roster = Storage.getThreeNoFollowerRoster();
-    assert.equal(roster.limit, 400);
-    assert.equal(roster.rows.length, 400);
-    assert.equal(roster.observedCount, 450);
+    assert.equal(roster.limit, 2000);
+    assert.equal(roster.rows.length, 2000);
+    assert.equal(roster.observedCount, 2050);
     assert.equal(roster.truncated, true);
-    assert.deepEqual(roster.rows.map(row => row.sequence), Array.from({ length: 400 }, (_, index) => index + 1));
+    assert.deepEqual(roster.rows.map(row => row.sequence), Array.from({ length: 2000 }, (_, index) => index + 1));
 });
 
 test('beta17 正式版號完全不收集、不寫入、不提供名冊匯出', async () => {
