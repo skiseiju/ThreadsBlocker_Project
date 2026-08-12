@@ -2356,12 +2356,6 @@ export const UI = {
         const reportDebugExportLabel = Utils.isBetaBuild() ? ['匯出', '檢舉', '診斷'].join('') : '';
         const threeNoDebugExportId = Utils.isBetaBuild() ? ['hege', 's', 'export', 'three', 'no', 'debug'].join('-') : '';
         const threeNoDebugExportLabel = Utils.isBetaBuild() ? ['匯出', '三無', '診斷'].join('') : '';
-        const threeNoFollowerRosterExportEnabled = callbacks.onExportThreeNoFollowerRoster
-            && globalThis.__hegeRuntimeDiagnostics?.betaDebugUI?.() === true;
-        const threeNoFollowerRosterExportId = threeNoFollowerRosterExportEnabled
-            ? ['hege', 's', 'export', 'three', 'no', 'follower', 'roster'].join('-')
-            : '';
-        const threeNoFollowerRosterExportLabel = threeNoFollowerRosterExportEnabled ? '匯出三無名冊' : '';
         const devReloadId = callbacks.onDevReloadExtension ? ['hege', 's', 'dev', 'reload'].join('-') : '';
         const devReloadSectionLabel = callbacks.onDevReloadExtension ? ['開', '發', '版'].join('') : '';
         const devReloadButtonLabel = callbacks.onDevReloadExtension ? ['重新', '載入', '開發', '版'].join('') : '';
@@ -2437,13 +2431,12 @@ export const UI = {
                                 來源分析報告
                             </span>
                         </div>
-                        ${(callbacks.onExportReportDebug || callbacks.onExportThreeNoDebug || threeNoFollowerRosterExportEnabled || (callbacks.onDevReloadExtension && devReloadId)) ? `
+                        ${(callbacks.onExportReportDebug || callbacks.onExportThreeNoDebug || (callbacks.onDevReloadExtension && devReloadId)) ? `
                         <div style="${settingsSectionTitleStyle}">${devReloadSectionLabel || '開發版'}</div>
                         ${callbacks.onDevReloadExtension && devReloadId ? `<div class="hege-menu-item" id="${devReloadId}" style="color:#8ab4f8;"><span>${devReloadButtonLabel}</span><span class="status">${devReloadStatusLabel}</span></div>` : ''}
-                        ${(callbacks.onExportReportDebug || callbacks.onExportThreeNoDebug || threeNoFollowerRosterExportEnabled) ? `
-                        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;">
+                        ${(callbacks.onExportReportDebug || callbacks.onExportThreeNoDebug) ? `
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
                         ${callbacks.onExportThreeNoDebug && threeNoDebugExportId ? `<div class="hege-menu-item" id="${threeNoDebugExportId}" style="border-bottom:none;justify-content:center;"><span>${threeNoDebugExportLabel}</span></div>` : ''}
-                        ${threeNoFollowerRosterExportEnabled && threeNoFollowerRosterExportId ? `<div class="hege-menu-item" id="${threeNoFollowerRosterExportId}" style="border-bottom:none;justify-content:center;"><span>${threeNoFollowerRosterExportLabel}</span></div>` : ''}
                         ${callbacks.onExportReportDebug && reportDebugExportId ? `<div class="hege-menu-item" id="${reportDebugExportId}" style="border-bottom:none;justify-content:center;"><span>${reportDebugExportLabel}</span></div>` : ''}
                         </div>
                         ` : ''}
@@ -2582,7 +2575,6 @@ export const UI = {
         bind('hege-s-reportpack-import', callbacks.onImportReportPack);
         bind(reportDebugExportId, callbacks.onExportReportDebug);
         bind(threeNoDebugExportId, callbacks.onExportThreeNoDebug);
-        bind(threeNoFollowerRosterExportId, threeNoFollowerRosterExportEnabled ? callbacks.onExportThreeNoFollowerRoster : null);
         bind(devReloadId, callbacks.onDevReloadExtension);
         bind('hege-s-clear-db', callbacks.onClearDB);
         bind('hege-s-report', callbacks.onReport);
