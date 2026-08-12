@@ -65,6 +65,7 @@ echo "    console.log('[HegeBlock] Content Script Injected, Version: $APP_VERSIO
 FILES=(
     "config.js"
     "three-no-reset-backup.js"
+    "three-no-name-pattern.js"
     "announcements.js"
     "release-notes.js"
     "utils.js"

@@ -1,7 +1,8 @@
-import { CONFIG, buildDiagnosticStateSignature } from './config.js';
+import { CONFIG, THREE_NO_DENSITY_ALERT_MIN_RUN, buildDiagnosticStateSignature } from './config.js';
 import { Utils } from './utils.js';
 import { Storage } from './storage.js';
 import { BUNDLED_RELEASE_NOTES } from './release-notes.js';
+import { computeMaxConsecutiveNamePattern } from './three-no-name-pattern.js';
 
 const panelDiagnostics = (panel, stage, fields = {}) => {
     try {
@@ -1904,6 +1905,19 @@ export const UI = {
         const users = (results.users || [])
             .filter(item => !Storage.isThreeNoUserIgnored(item.username))
             .filter(item => !Storage.isThreeNoUserSafe(item.username));
+        const roster = Storage.getThreeNoFollowerRoster?.() || {};
+        const density = roster.scanId && results.scanId && roster.scanId === results.scanId
+            ? computeMaxConsecutiveNamePattern(roster.rows)
+            : { maxRun: 0, runUsernames: [], totalHits: 0 };
+        const densityAlert = density.maxRun >= THREE_NO_DENSITY_ALERT_MIN_RUN
+            ? `
+                <div data-hege-three-no-density-alert style="margin:0 20px;padding:11px 13px;border:1px solid rgba(90,200,250,0.38);border-radius:9px;background:rgba(90,200,250,0.08);color:#cfe8ff;font-size:12px;line-height:1.5;">
+                    <div style="font-weight:800;color:#d9efff;margin-bottom:3px;">命名結構密度提示</div>
+                    <div>偵測到連續 ${density.maxRun} 個相同命名結構的帳號，疑似批次註冊，建議人工檢視。</div>
+                    <div style="margin-top:3px;color:#9fc9e8;">區段帳號：${density.runUsernames.slice(0, 10).map(username => `@${Utils.escapeHTML(username)}`).join('、')}${density.runUsernames.length > 10 ? '、…' : ''}</div>
+                </div>
+            `
+            : '';
         const scanTargetOwner = String(results.scanTargetOwner || '').trim();
         const overlay = document.createElement('div');
         overlay.id = 'hege-three-no-overlay';
@@ -2053,6 +2067,7 @@ export const UI = {
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
                     </span>
                 </div>
+                ${densityAlert}
                 <div style="padding:14px 20px;border-bottom:1px solid #2a2a2a;color:#aaa;font-size:12px;line-height:1.45;">
                     <div style="color:#f5f5f5;font-weight:700;margin-bottom:4px;">${users.length} 位待審帳號</div>
                     <div>${statusText}${limitedText} · ${checkedAtText}</div>

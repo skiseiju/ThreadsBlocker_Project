@@ -4,6 +4,7 @@
 // docs/adr/0019-clean-list-two-pass-sort-scan.md、
 // docs/adr/0020-clean-list-stop-settles-collected-users.md、
 // docs/adr/0021-daily-block-window-success-only.md。
+// docs/adr/0022-three-no-formula-requires-confirmed-empty-content.md、
 // docs/adr/0023-three-no-storage-quota-resilience.md。
 // 診斷簽章只保留能描述目前狀態的欄位。所有去重呼叫點都使用這份清單，
 // 量測值仍保留在診斷 fields，但不參與簽章比較。
@@ -98,8 +99,20 @@ export const THREE_NO_RESET_BACKUP_RETENTION_DAYS = 7;
 export const THREE_NO_RESET_BACKUP_RETENTION_MS = THREE_NO_RESET_BACKUP_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 export const THREE_NO_RESET_BACKUP_MAX_COUNT = 1;
 
+// 三無名冊的連續同結構命名提示只提供人工檢視訊號，不參與三無判定或封鎖。
+export const THREE_NO_DENSITY_ALERT_MIN_RUN = 5;
+export const PINYIN_SURNAMES = Object.freeze([
+    'li', 'wang', 'zhang', 'liu', 'chen', 'yang', 'huang', 'zhao', 'wu', 'zhou',
+    'xu', 'sun', 'ma', 'zhu', 'hu', 'guo', 'he', 'lin', 'gao', 'luo', 'zheng',
+    'liang', 'xie', 'song', 'tang', 'han', 'feng', 'deng', 'cao', 'peng', 'zeng',
+    'ceng', 'xiao', 'tian', 'dong', 'yuan', 'pan', 'yu', 'jiang', 'cai', 'jia',
+    'ding', 'wei', 'xue', 'ye', 'yan', 'du', 'dai', 'su', 'fan', 'fang', 'shi',
+    'yao', 'cui', 'zhong', 'tan', 'jin', 'qiu', 'shao', 'lai', 'xiong', 'hong',
+    'pang', 'qi', 'qin', 'gu', 'shen', 'bai', 'mao', 'hou',
+]);
+
 export const CONFIG = {
-    VERSION: '2.8.4-beta22', // 三無公式改須確認無內容（ADR 0022）＋配額防爆（ADR 0023）
+    VERSION: '2.8.4-beta23', // 三無公式改須確認無內容（ADR 0022）＋配額防爆（ADR 0023）
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。
