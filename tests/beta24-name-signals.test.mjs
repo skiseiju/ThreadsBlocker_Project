@@ -96,18 +96,18 @@ const pinyinCases = [
 ];
 
 test('beta24 narrows pinyin matches to mainland-distinctive initials', () => {
-    assert.equal(CONFIG.VERSION, '2.8.4-beta24');
+    assert.equal(CONFIG.VERSION, '2.8.4-beta25');
     for (const [username, expected] of pinyinCases) {
         assert.equal(analyze(username) !== null, expected, `${username} analyze mismatch`);
         assert.equal(matchesPinyinName(username), expected, `${username} matchesPinyinName mismatch`);
     }
 });
 
-test('beta24 tightens animal-number candidates to six digits', () => {
+test('beta24 tightens animal-number candidates to five digits', () => {
     const matchesSuspiciousCandidate = Core.ThreeNoWatch.usernameMatchesSuspiciousThreeNoCandidate;
     assert.equal(matchesSuspiciousCandidate('dolphin986363'), true, 'six-digit animal default should match');
-    assert.equal(matchesSuspiciousCandidate('shark20819'), false, 'five-digit animal suffix should not match');
+    assert.equal(matchesSuspiciousCandidate('shark20819'), true, 'five-digit animal suffix should match');
     assert.equal(matchesSuspiciousCandidate('shark2081'), false, 'four-digit animal suffix should not match');
 });
 
-console.log('beta24 name signals: PASS mainland pinyin narrowing, informational matcher, six-digit animal threshold');
+console.log('beta24 name signals: PASS mainland pinyin narrowing, informational matcher, five-digit animal threshold');
