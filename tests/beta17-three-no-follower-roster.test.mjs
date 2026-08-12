@@ -78,7 +78,7 @@ const makeFixture = (count = 200, threeNoCount = 30) => {
     const rows = [];
     for (let index = 0; index < count; index += 1) {
         const isThreeNo = index < threeNoCount;
-        const username = isThreeNo ? `panda${10000 + index}` : `friend${String(index).padStart(4, '0')}`;
+        const username = isThreeNo ? `panda${100000 + index}` : `friend${String(index).padStart(4, '0')}`;
         const displayName = isThreeNo ? `可疑姓名${index}` : `一般姓名${index}`;
         const row = {
             isConnected: true,
@@ -270,10 +270,10 @@ test('beta17 平台 payload、診斷 ring、bug report 附件都不含名冊欄�
     Storage.setThreeNoFollowerRoster({
         scanId: 'three-no:privacy',
         scanTargetOwner: 'owner',
-        rows: [{ username: 'panda10000', displayName: '第三方中文姓名', sequence: 1, hasVisibleAvatar: false, suspiciousUsername: true, isTriaged: true, isThreeNo: true, finalized: true }],
+        rows: [{ username: 'panda100000', displayName: '第三方中文姓名', sequence: 1, hasVisibleAvatar: false, suspiciousUsername: true, isTriaged: true, isThreeNo: true, finalized: true }],
     });
     RuntimeDiagnostics.record('three_no', 'rows', {
-        username: 'panda10000',
+        username: 'panda100000',
         displayName: '第三方中文姓名',
         followerRoster: 'hege_three_no_scan_follower_roster',
         rowCount: 1,
@@ -282,8 +282,8 @@ test('beta17 平台 payload、診斷 ring、bug report 附件都不含名冊欄�
     const diagnostics = RuntimeDiagnostics.export();
     const bugReportAttachment = Core.buildBugReportDiagnosticsBundle();
     assert.doesNotMatch(JSON.stringify(platformPayload), /第三方中文姓名|followerRoster|hege_three_no_scan_follower_roster/);
-    assert.doesNotMatch(JSON.stringify(diagnostics), /第三方中文姓名|panda10000|followerRoster|hege_three_no_scan_follower_roster/);
-    assert.doesNotMatch(JSON.stringify(bugReportAttachment), /第三方中文姓名|panda10000|followerRoster|hege_three_no_scan_follower_roster/);
+    assert.doesNotMatch(JSON.stringify(diagnostics), /第三方中文姓名|panda100000|followerRoster|hege_three_no_scan_follower_roster/);
+    assert.doesNotMatch(JSON.stringify(bugReportAttachment), /第三方中文姓名|panda100000|followerRoster|hege_three_no_scan_follower_roster/);
     assert.match(JSON.stringify(Core.buildThreeNoFollowerRosterExport()), /第三方中文姓名/);
 });
 

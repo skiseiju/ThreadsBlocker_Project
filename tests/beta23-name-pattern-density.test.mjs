@@ -4,22 +4,25 @@ import assert from 'node:assert/strict';
 const { THREE_NO_DENSITY_ALERT_MIN_RUN } = await import('../src/config.js');
 const { analyze, computeMaxConsecutiveNamePattern } = await import('../src/three-no-name-pattern.js');
 
-test('beta23 analyze mirrors the pinyin-name structure rule', () => {
-    for (const username of ['chenyuxin8661', 'linpeiyan496', 'qiuyayan50']) {
+test('beta24 analyze requires a mainland-distinctive pinyin initial', () => {
+    for (const username of ['zhengkexin128', 'qiuyayan50', 'xiesiyi368', 'chenyuxin8661']) {
         assert.ok(analyze(username), `${username} should match`);
+    }
+    for (const username of ['linpeiyan496', 'hongsihan877']) {
+        assert.equal(analyze(username), null, `${username} should be ambiguous and not match`);
     }
     assert.equal(analyze('love0822tw'), null, 'love0822tw is not a pinyin surname structure');
     assert.equal(analyze('abcdefgh123'), null, 'pure English username should not match');
 });
 
-test('beta23 computes the longest consecutive hit run by sequence', () => {
+test('beta24 computes the longest consecutive hit run by sequence', () => {
     const matchingUsernames = [
-        'chenyuxin8661',
-        'linpeiyan496',
+        'zhengkexin128',
         'qiuyayan50',
+        'xiesiyi368',
+        'chenyuxin8661',
         'zhangyiming123',
-        'wangyuexin8',
-        'liujiawei77',
+        'caoyang12',
     ];
     const rows = matchingUsernames.map((username, index) => ({
         sequence: 10 + index,
@@ -44,15 +47,15 @@ test('beta23 computes the longest consecutive hit run by sequence', () => {
     assert.equal(interrupted.totalHits, 5);
 });
 
-test('beta23 density threshold uses the shared constant', () => {
+test('beta24 density threshold uses the shared constant', () => {
     const rows = Array.from({ length: THREE_NO_DENSITY_ALERT_MIN_RUN - 1 }, (_, index) => ({
         sequence: index + 1,
-        username: ['chenyuxin8661', 'linpeiyan496', 'qiuyayan50', 'zhangyiming123'][index % 4],
+        username: ['zhengkexin128', 'qiuyayan50', 'xiesiyi368', 'chenyuxin8661'][index % 4],
     }));
     assert.ok(computeMaxConsecutiveNamePattern(rows).maxRun < THREE_NO_DENSITY_ALERT_MIN_RUN);
 
-    rows.push({ sequence: THREE_NO_DENSITY_ALERT_MIN_RUN, username: 'wangyuexin8' });
+    rows.push({ sequence: THREE_NO_DENSITY_ALERT_MIN_RUN, username: 'zhangyiming123' });
     assert.ok(computeMaxConsecutiveNamePattern(rows).maxRun >= THREE_NO_DENSITY_ALERT_MIN_RUN);
 });
 
-console.log('beta23 name-pattern density: PASS analyze, consecutive runs, threshold semantics');
+console.log('beta24 name-pattern density: PASS analyze, consecutive runs, threshold semantics');

@@ -112,7 +112,7 @@ export const PINYIN_SURNAMES = Object.freeze([
 ]);
 
 export const CONFIG = {
-    VERSION: '2.8.4-beta23', // 三無公式改須確認無內容（ADR 0022）＋配額防爆（ADR 0023）
+    VERSION: '2.8.4-beta24', // 三無公式改須確認無內容（ADR 0022）＋配額防爆（ADR 0023）
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。

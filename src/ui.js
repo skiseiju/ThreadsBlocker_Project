@@ -2,7 +2,7 @@ import { CONFIG, THREE_NO_DENSITY_ALERT_MIN_RUN, buildDiagnosticStateSignature }
 import { Utils } from './utils.js';
 import { Storage } from './storage.js';
 import { BUNDLED_RELEASE_NOTES } from './release-notes.js';
-import { computeMaxConsecutiveNamePattern } from './three-no-name-pattern.js';
+import { computeMaxConsecutiveNamePattern, matchesPinyinName } from './three-no-name-pattern.js';
 
 const panelDiagnostics = (panel, stage, fields = {}) => {
     try {
@@ -1982,6 +1982,7 @@ export const UI = {
             const noPostsValue = item.noPosts === true || hasExplicitEmptyReason('postsSignalReason');
             const noRepliesValue = item.noReplies === true || hasExplicitEmptyReason('repliesSignalReason');
             const noRepostsValue = item.noReposts === true || hasExplicitEmptyReason('repostsSignalReason');
+            const pinyinName = matchesPinyinName(item.username);
             const followerCountKnown = !isPrivate && item.followerCountKnown === true;
             const followerCount = parseInt(item.followerCount || '0', 10) || 0;
             const regionMissing = isMissingRegion(item);
@@ -2034,6 +2035,7 @@ export const UI = {
                 noRepostsValue,
                 followerCountKnown,
                 followerCount,
+                pinyinName,
                 regionMissing,
                 isPrivate,
             };
@@ -2167,6 +2169,7 @@ export const UI = {
                             zeroFollowers ? ['粉絲 0', 'gold'] : null,
                             (!zeroFollowers && followersUnder30) ? [`粉絲 ${followerCount}`, 'gold'] : null,
                             item.suspiciousUsername ? ['命名可疑', 'gold'] : null,
+                            review.pinyinName ? ['疑似簡體拼音', 'gray'] : null,
                             item.isNewAccount ? ['新帳號', 'blue'] : null,
                             item.accountAgeBucket ? [item.accountAgeBucket, 'blue'] : null,
                             countryTag ? [countryTag, regionMissing ? 'gray' : 'green'] : null,

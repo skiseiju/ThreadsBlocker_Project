@@ -1,4 +1,4 @@
-// 三無名冊連續同結構命名密度提示（beta23）；只提供人工檢視資訊，不改判定或封鎖流程。
+// 三無名冊連續同結構命名密度提示（beta24）；只提供人工檢視資訊，不改判定或封鎖流程。
 // 相關：[ADR 0022](../docs/adr/0022-three-no-formula-requires-confirmed-empty-content.md)（維持三無判定公式）、`src/ui.js`、`src/storage.js`
 // 判定規則移植自 `.ai/pattern-research/syl.py`；產品 runtime 不會執行或載入外部 Python 檔案。
 import { PINYIN_SURNAMES } from './config.js';
@@ -51,6 +51,17 @@ export const seg = (value) => {
     return walk(source);
 };
 
+// 台灣 Wade-Giles 拼法不會使用漢語拼音的 x/q/z/c（非 ch）音節開頭；
+// zh 由 z 規則涵蓋，ch/sh 則是兩岸共用，不能單獨作為對岸訊號。
+export const hasMainlandDistinctiveInitial = (syllables) => (Array.isArray(syllables) ? syllables : [])
+    .some(syllable => {
+        const value = String(syllable || '').toLowerCase();
+        return value.startsWith('x')
+            || value.startsWith('q')
+            || value.startsWith('z')
+            || (value.startsWith('c') && !value.startsWith('ch'));
+    });
+
 export const analyze = (username) => {
     const source = String(username || '').toLowerCase();
     const match = /^([a-z]+)(\d{1,4})([a-z]{0,3})$/.exec(source);
@@ -60,6 +71,7 @@ export const analyze = (username) => {
     const parts = seg(letters);
     if (!parts || parts.length < 2 || parts.length > 4) return null;
     if (!THREE_NO_PATTERN_SURNAME_SET.has(parts[0])) return null;
+    if (!hasMainlandDistinctiveInitial(parts)) return null;
     return {
         letters,
         parts,
@@ -67,6 +79,8 @@ export const analyze = (username) => {
         tail,
     };
 };
+
+export const matchesPinyinName = (username) => analyze(username) !== null;
 
 export const computeMaxConsecutiveNamePattern = (rows) => {
     const orderedRows = (Array.isArray(rows) ? rows : [])

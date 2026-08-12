@@ -2684,7 +2684,8 @@ Object.assign(Core, {
             const animalPrefix = animals.find(animal => compact.startsWith(animal));
             if (!animalPrefix) return false;
             const tail = compact.slice(animalPrefix.length);
-            return /^\d{4,}$/.test(tail) || /^[a-z]{0,4}\d{4,}[a-z0-9]{0,6}$/.test(tail);
+            // Threads 預設帳號名數字通常 6 位以上，收緊減少真人 4 位數字自取名誤判（使用者核准）。
+            return /^\d{6,}$/.test(tail) || /^[a-z]{0,4}\d{6,}[a-z0-9]{0,6}$/.test(tail);
         },
 
         isAnonymousProfileAvatarSrc: (src = '') => {
