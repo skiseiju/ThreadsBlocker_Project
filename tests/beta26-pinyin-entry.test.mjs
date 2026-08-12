@@ -32,7 +32,7 @@ const windowMock = {
     open: () => null,
     close: () => {},
     scrollTo: () => {},
-    fetch: () => { throw new Error('beta20 formula fixture 不得發出請求'); },
+    fetch: () => { throw new Error('beta26 pinyin-entry fixture 不得發出請求'); },
 };
 
 globalThis.window = windowMock;
@@ -96,21 +96,32 @@ const profileResult = (username, base = {}, replies = {}, reposts = {}) => Core.
     reposts,
 });
 
-test('beta20 版本與三無公式回歸案例', () => {
+test('beta26 拼音＋確認無內容可繞過頭像門檻', () => {
     assert.equal(CONFIG.VERSION, '2.8.4-beta26');
 
-    const noBioOnly = profileResult('ordinary-user', {
-        noAvatar: true,
-        noBio: true,
+    const pinyinEmpty = profileResult('chenyuxin8661', {
+        noAvatar: false,
+        postsSignal: { known: true, hasContent: false },
     });
-    assert.equal(noBioOnly.noBio, true, 'noBio 顯示訊號仍保留');
-    assert.equal(noBioOnly.noPosts, false);
-    assert.equal(noBioOnly.noReplies, false);
-    assert.equal(noBioOnly.noReposts, false);
-    assert.equal(noBioOnly.isThreeNo, false, '只有無頭像＋無簡介不得判三無');
+    assert.equal(pinyinEmpty.pinyinNameMatch, true);
+    assert.equal(pinyinEmpty.noPosts, true);
+    assert.equal(pinyinEmpty.isThreeNo, true, '拼音命中＋確認無發文即使有頭像也應進名單');
 
-    const privateAccount = profileResult('private-user', {
-        noAvatar: true,
+    const pinyinActive = profileResult('chenyuxin8661', {
+        noAvatar: false,
+        postsSignal: { known: true, hasContent: true },
+    }, {
+        known: true,
+        hasContent: true,
+    }, {
+        known: true,
+        hasContent: true,
+    });
+    assert.equal(pinyinActive.pinyinNameMatch, true);
+    assert.equal(pinyinActive.isThreeNo, false, '拼音命中＋三項有內容不得判三無');
+
+    const pinyinPrivate = profileResult('chenyuxin8661', {
+        noAvatar: false,
         accountPrivate: true,
         postsSignal: { known: true, hasContent: false },
     }, {
@@ -120,26 +131,29 @@ test('beta20 版本與三無公式回歸案例', () => {
         known: true,
         hasContent: false,
     });
-    assert.equal(privateAccount.accountPrivate, true, '私密訊號仍保留');
-    assert.equal(privateAccount.noPosts, false, '私密帳號內容旗標必須被強制為 false');
-    assert.equal(privateAccount.noReplies, false, '私密帳號內容旗標必須被強制為 false');
-    assert.equal(privateAccount.noReposts, false, '私密帳號內容旗標必須被強制為 false');
-    assert.equal(privateAccount.isThreeNo, false, '私密帳號不得僅因 isPrivate 判三無');
+    assert.equal(pinyinPrivate.pinyinNameMatch, true);
+    assert.equal(pinyinPrivate.noPosts, false, '私密帳號內容旗標必須強制為 false');
+    assert.equal(pinyinPrivate.isThreeNo, false, '私密帳號不得經拼音路徑進名單');
 
-    const confirmedNoPosts = profileResult('empty-posts-user', {
-        noAvatar: true,
-        postsSignal: { known: true, hasContent: false },
-    });
-    assert.equal(confirmedNoPosts.noPosts, true);
-    assert.equal(confirmedNoPosts.noPostsKnown, true);
-    assert.equal(confirmedNoPosts.isThreeNo, true, '無頭像＋已確認無發文應判三無');
-
-    const avatarWithNoPosts = profileResult('avatar-user', {
+    const nonPinyin = profileResult('love0822tw', {
         noAvatar: false,
         postsSignal: { known: true, hasContent: false },
     });
-    assert.equal(avatarWithNoPosts.noPosts, true);
-    assert.equal(avatarWithNoPosts.isThreeNo, false, '有頭像時即使確認無發文也不得判三無');
+    assert.equal(nonPinyin.pinyinNameMatch, false);
+    assert.equal(nonPinyin.isThreeNo, false, '非拼音帳號仍受有頭像門檻限制');
+
+    const narrowedPinyin = profileResult('linpeiyan496', {
+        noAvatar: false,
+        postsSignal: { known: true, hasContent: false },
+    });
+    assert.equal(narrowedPinyin.pinyinNameMatch, false);
+    assert.equal(narrowedPinyin.isThreeNo, false, 'beta24 收窄後的拼音語意不得回退');
+
+    const noAvatarRegression = profileResult('ordinary-user', {
+        noAvatar: true,
+        postsSignal: { known: true, hasContent: false },
+    });
+    assert.equal(noAvatarRegression.isThreeNo, true, '既有無頭像＋確認無發文路徑仍應成立');
 });
 
-console.log('beta20 three-no formula regression: PASS noBio/private-only=false confirmed-noPosts=true avatar-guard=true');
+console.log('beta26 pinyin entry: PASS avatar bypass, active/private guards, narrowed matcher, no-avatar regression');

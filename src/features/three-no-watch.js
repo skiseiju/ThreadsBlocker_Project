@@ -1,6 +1,8 @@
 // 三無掃描生命週期：docs/BLOCKING_ARCHITECTURE.md。
 // 相關 ADR：docs/adr/0005-bot-profile-detection.md、
-// docs/adr/0023-three-no-storage-quota-resilience.md。
+// docs/adr/0022-three-no-formula-requires-confirmed-empty-content.md、
+// docs/adr/0023-three-no-storage-quota-resilience.md、
+// docs/adr/0024-pinyin-name-entry-path-bypasses-avatar-gate.md。
 import { CONFIG, THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES } from '../config.js';
 import { Storage } from '../storage.js';
 import { Utils, isBackgroundWorkerBusy } from '../utils.js';
@@ -8,6 +10,7 @@ import { Reporter } from '../reporter.js';
 import { UI } from '../ui.js';
 import { Core } from '../core.js';
 import { ReportDebugContext } from '../report-debug-context.js';
+import { matchesPinyinName } from '../three-no-name-pattern.js';
 
 // Persistent three-no debug material follows the diagnostics lifecycle gate.
 // UI copy remains separately beta-visible through Utils.isBetaBuild() below.
@@ -63,6 +66,7 @@ const shrinkThreeNoResultMetadata = (users = []) => (Array.isArray(users) ? user
         : {};
     return {
         ...user,
+        pinyinNameMatch: user.pinyinNameMatch === true,
         metadataDebug: Object.fromEntries(THREE_NO_METADATA_DEBUG_REASON_FIELDS.map(field => [
             field,
             String(metadataDebug[field] ?? ''),
@@ -1795,6 +1799,7 @@ Object.assign(Core, {
                     noReposts: result.noReposts,
                     accountPrivate: result.accountPrivate,
                     suspiciousUsername: result.suspiciousUsername,
+                    pinyinNameMatch: result.pinyinNameMatch,
                     profileSignalsVersion: result.profileSignalsVersion,
                     noPostsKnown: result.noPostsKnown,
                     noRepliesKnown: result.noRepliesKnown,
@@ -2404,7 +2409,7 @@ Object.assign(Core, {
                                 suspiciousUsername,
                                 true,
                                 hasVisibleAvatar,
-                                prefilterHasVisibleAvatar && !suspiciousUsername
+                                prefilterHasVisibleAvatar && !suspiciousUsername && !matchesPinyinName(u)
                                     ? 'skipped_visible_avatar'
                                     : 'triage_incomplete',
                             );
@@ -2412,7 +2417,7 @@ Object.assign(Core, {
                     }
                     triaged.add(u);
                     if (suspiciousUsername) suspiciousUsernameUsers.add(u);
-                    if (prefilterHasVisibleAvatar && !suspiciousUsername) {
+                    if (prefilterHasVisibleAvatar && !suspiciousUsername && !matchesPinyinName(u)) {
                         avatarSkippedUsers.add(u);
                         normalUsernameSkippedUsers.add(u);
                         return;
@@ -2971,6 +2976,7 @@ Object.assign(Core, {
             const noAvatar = base.noAvatar === true;
             const noBio = base.noBio === true;
             const suspiciousUsername = base.suspiciousUsername === true;
+            const pinyinNameMatch = matchesPinyinName(username) === true;
             return {
                 username: u,
                 profileUrl: `https://www.threads.com/@${u}`,
@@ -2982,6 +2988,7 @@ Object.assign(Core, {
                 noReposts,
                 accountPrivate: isPrivate,
                 suspiciousUsername,
+                pinyinNameMatch,
                 profileSignalsVersion: Core.ThreeNoWatch.getProfileSignalsVersion(),
                 noPostsKnown: postsKnown,
                 noRepliesKnown: repliesKnown,
@@ -3027,8 +3034,9 @@ Object.assign(Core, {
                     privateSignalMatchedText: base.privateSignalMatchedText || '',
                     probesCompleted: Object.keys(probes).join(','),
                 },
-                // ADR 0022：noBio 與 isPrivate 僅為顯示訊號，不參與判定
-                isThreeNo: noAvatar && (noPosts || noReplies || noReposts || suspiciousUsername),
+                // ADR 0024：拼音路徑不含 suspiciousUsername；私密帳號內容旗標沿用 ADR 0022 強制 false
+                isThreeNo: (noAvatar && (noPosts || noReplies || noReposts || suspiciousUsername))
+                    || (pinyinNameMatch && (noPosts || noReplies || noReposts)),
             };
         },
 
@@ -4059,6 +4067,7 @@ Object.assign(Core, {
                         : (hasNoContentEvidence(existing, 'noRepostsKnown', 'noReposts', 'repostsSignalReason') || hasNoContentEvidence(item, 'noRepostsKnown', 'noReposts', 'repostsSignalReason'))),
                     accountPrivate,
                     suspiciousUsername: mergeBooleanSignal('suspiciousUsername'),
+                    pinyinNameMatch: mergeBooleanSignal('pinyinNameMatch'),
                     profileSignalsVersion: Math.max(
                         parseInt(existing?.profileSignalsVersion || '0', 10) || 0,
                         parseInt(item.profileSignalsVersion || '0', 10) || 0
