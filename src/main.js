@@ -1,6 +1,8 @@
 // 本檔三無掃描入口／結果顯示受 docs/BLOCKING_ARCHITECTURE.md 與
-// docs/adr/0005-bot-profile-detection.md 管理。
-import { CONFIG } from './config.js';
+// docs/adr/0005-bot-profile-detection.md、
+// docs/adr/0023-three-no-storage-quota-resilience.md 管理。
+import { CONFIG, THREE_NO_RESET_BACKUP_PREFIX } from './config.js';
+import { pruneThreeNoResetBackups } from './three-no-reset-backup.js';
 import { Storage } from './storage.js';
 import { Utils, isBackgroundWorkerRunning } from './utils.js';
 import { UI } from './ui.js';
@@ -20,6 +22,9 @@ import './features/three-no-watch.js';
 
     // (Early-boot interceptor removed to prevent Safari Userscripts crash)
     Utils.initConsoleInterceptor();
+    try {
+        pruneThreeNoResetBackups();
+    } catch (_) {}
     Storage.migratePlatformSyncConsent();
     // 2.8 credentials-removal migration: remove legacy acceleration/bridge state
     // on every boot. The literal list is intentionally idempotent and does not
@@ -286,6 +291,9 @@ import './features/three-no-watch.js';
 
     const forceThreeNoReset = new URLSearchParams(window.location.search).get('hege_three_no_reset');
     if (forceThreeNoReset === 'true' && Utils.isBetaBuild()) {
+        try {
+            pruneThreeNoResetBackups();
+        } catch (_) {}
         const localKeys = [
             CONFIG.KEYS.THREE_NO_LAST_SCAN_DATE,
             CONFIG.KEYS.THREE_NO_SCAN_STATE,
@@ -311,10 +319,11 @@ import './features/three-no-watch.js';
 	            CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG,
 	            CONFIG.KEYS.THREE_NO_SCAN_DEBUG_SCHEMA,
         ].includes(key));
-        const backupKey = `hege_three_no_reset_backup_${Date.now()}`;
+        const backupCreatedAt = Date.now();
+        const backupKey = `${THREE_NO_RESET_BACKUP_PREFIX}${backupCreatedAt}`;
         const backup = {
             schema: 'hege_three_no_reset_backup.v1',
-            createdAt: Date.now(),
+            createdAt: backupCreatedAt,
             version: CONFIG.VERSION,
             url: window.location.href,
             localStorage: Object.fromEntries(backupLocalKeys.map(key => [key, localStorage.getItem(key)])),
@@ -340,6 +349,9 @@ import './features/three-no-watch.js';
             };
             localStorage.setItem(backupKey, JSON.stringify(minimalBackup));
         }
+        try {
+            pruneThreeNoResetBackups();
+        } catch (_) {}
         localKeys.forEach(key => localStorage.removeItem(key));
         sessionKeys.forEach(key => sessionStorage.removeItem(key));
         if (String(window.name || '').startsWith('HegeThreeNoReportAnchor:')) window.name = '';

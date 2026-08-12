@@ -1,5 +1,6 @@
 // 三無掃描生命週期：docs/BLOCKING_ARCHITECTURE.md。
-// 相關 ADR：docs/adr/0005-bot-profile-detection.md。
+// 相關 ADR：docs/adr/0005-bot-profile-detection.md、
+// docs/adr/0023-three-no-storage-quota-resilience.md。
 import { CONFIG, THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES } from '../config.js';
 import { Storage } from '../storage.js';
 import { Utils, isBackgroundWorkerBusy } from '../utils.js';
@@ -48,6 +49,26 @@ const THREE_NO_SCAN_SCROLL_DEBUG_FIELDS = Object.freeze([
     'changedSeen',
     'stagnant',
 ]);
+
+const THREE_NO_METADATA_DEBUG_REASON_FIELDS = Object.freeze([
+    'postsSignalReason',
+    'repliesSignalReason',
+    'repostsSignalReason',
+]);
+
+// 配額臨界時保留三無判定所需的輕量取證理由，捨棄其他 metadataDebug 細節。
+const shrinkThreeNoResultMetadata = (users = []) => (Array.isArray(users) ? users : []).map(user => {
+    const metadataDebug = user?.metadataDebug && typeof user.metadataDebug === 'object'
+        ? user.metadataDebug
+        : {};
+    return {
+        ...user,
+        metadataDebug: Object.fromEntries(THREE_NO_METADATA_DEBUG_REASON_FIELDS.map(field => [
+            field,
+            String(metadataDebug[field] ?? ''),
+        ])),
+    };
+});
 
 // Profile probe 只讀目前已開啟的個人頁，不另外導覽或發出請求。樣式先採
 // 寬鬆的數字加標籤比對，實際命中的原文會留在 beta 名冊供後續回收。
@@ -535,39 +556,44 @@ Object.assign(Core, {
 
         appendScanDebugLog: (state = {}) => {
             if (!isThreeNoDebugLogActive()) return;
-            const debug = state.debug && typeof state.debug === 'object' ? state.debug : null;
-            if (!debug || !debug.step) return;
-            const scanId = String(state.scanId || debug.scanId || '').trim();
-            const rows = Core.ThreeNoWatch.getScanDebugLog();
-            const now = Date.now();
-            const scanRows = scanId ? rows.filter(row => row?.scanId === scanId) : rows;
-            const previousSeq = scanRows.reduce((max, row) => {
-                const seq = parseInt(row?.seq || '0', 10) || 0;
-                return seq > max ? seq : max;
-            }, 0);
-            const startedAt = parseInt(state.startedAt || debug.startedAt || '0', 10) || 0;
-            const entry = {
-                seq: previousSeq + 1,
-                ts: now,
-                iso: new Date(now).toISOString(),
-                scanElapsedMs: startedAt > 0 ? Math.max(0, now - startedAt) : 0,
-                scanId,
-                status: String(state.status || ''),
-                current: String(state.current || debug.username || ''),
-                index: Number.isFinite(parseInt(debug.index || state.checkedFollowersCount || '0', 10))
-                    ? (parseInt(debug.index || state.checkedFollowersCount || '0', 10) || 0)
-                    : 0,
-                step: String(debug.step || ''),
-                url: String(debug.url || window.location.href || '').slice(0, 500),
-                ...(debug.step === 'collect_followers_scroll'
-                    ? Object.fromEntries(THREE_NO_SCAN_SCROLL_DEBUG_FIELDS
-                        .filter(field => Object.prototype.hasOwnProperty.call(debug, field))
-                        .map(field => [field, debug[field]]))
-                    : {}),
-                debug: Core.ThreeNoWatch.sanitizeDebugValue(debug),
-            };
-            rows.push(entry);
-            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, compactThreeNoScanDebugRows(rows));
+            try {
+                const debug = state.debug && typeof state.debug === 'object' ? state.debug : null;
+                if (!debug || !debug.step) return;
+                const scanId = String(state.scanId || debug.scanId || '').trim();
+                const rows = Core.ThreeNoWatch.getScanDebugLog();
+                const now = Date.now();
+                const scanRows = scanId ? rows.filter(row => row?.scanId === scanId) : rows;
+                const previousSeq = scanRows.reduce((max, row) => {
+                    const seq = parseInt(row?.seq || '0', 10) || 0;
+                    return seq > max ? seq : max;
+                }, 0);
+                const startedAt = parseInt(state.startedAt || debug.startedAt || '0', 10) || 0;
+                const entry = {
+                    seq: previousSeq + 1,
+                    ts: now,
+                    iso: new Date(now).toISOString(),
+                    scanElapsedMs: startedAt > 0 ? Math.max(0, now - startedAt) : 0,
+                    scanId,
+                    status: String(state.status || ''),
+                    current: String(state.current || debug.username || ''),
+                    index: Number.isFinite(parseInt(debug.index || state.checkedFollowersCount || '0', 10))
+                        ? (parseInt(debug.index || state.checkedFollowersCount || '0', 10) || 0)
+                        : 0,
+                    step: String(debug.step || ''),
+                    url: String(debug.url || window.location.href || '').slice(0, 500),
+                    ...(debug.step === 'collect_followers_scroll'
+                        ? Object.fromEntries(THREE_NO_SCAN_SCROLL_DEBUG_FIELDS
+                            .filter(field => Object.prototype.hasOwnProperty.call(debug, field))
+                            .map(field => [field, debug[field]]))
+                        : {}),
+                    debug: Core.ThreeNoWatch.sanitizeDebugValue(debug),
+                };
+                rows.push(entry);
+                Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, compactThreeNoScanDebugRows(rows));
+            } catch (_) {
+                // Debug material is best-effort; a full localStorage must never
+                // interrupt scan settlement or terminal-state persistence.
+            }
         },
 
         // 2.8：擷取 request token 的 page bridge 與 installNetworkDiscoveryListener 已移除，
@@ -3876,12 +3902,12 @@ Object.assign(Core, {
             const activeState = Core.ThreeNoWatch.getScanState();
             const runtimeScanId = String(runtime.scanId || patch.scanId || activeState.scanId || '');
             const runtimeOwnerToken = String(runtime.ownerToken || patch.ownerToken || activeState.ownerToken || '');
-            const appendFinishDebug = (step = '', statusValue = '', scanIdValue = runtimeScanId) => {
+            const appendFinishDebug = (step = '', statusValue = '', scanIdValue = runtimeScanId, fields = {}) => {
                 try {
                     Core.ThreeNoWatch.appendScanDebugLog({
                         scanId: String(scanIdValue || ''),
                         status: String(statusValue || ''),
-                        debug: { step },
+                        debug: { step, ...fields },
                     });
                 } catch (_) {}
             };
@@ -4152,7 +4178,21 @@ Object.assign(Core, {
                     storageWriteCount: storageMetrics.writeCount,
                     storageWriteBytes: storageMetrics.writeBytes,
                 });
-                Storage.setThreeNoScanCursor(cursorPayload);
+                try {
+                    Storage.setThreeNoScanCursor(cursorPayload);
+                } catch (error) {
+                    // Cursor persistence is useful for resume, but it must not
+                    // prevent terminal result/state settlement when storage is full.
+                    recordFinishDiagnostic('storage', {
+                        active: true,
+                        failure: true,
+                        errorName: String(error?.name || 'storage_write_failed'),
+                        errorCode: 'cursor_write_failed',
+                    });
+                    appendFinishDebug('finish_cursor_write_failed', status, scanId, {
+                        errorName: String(error?.name || 'storage_write_failed'),
+                    });
+                }
             }
             const debugLog = Core.ThreeNoWatch.getScanDebugLog(scanId);
             const resultInput = {
@@ -4184,51 +4224,147 @@ Object.assign(Core, {
                 checkedCount: checkedCandidateCount,
                 queuedCount: mergedFindings.length,
             });
-            const payload = Storage.setThreeNoScanResults(resultInput);
-            noteStorageWrite(payload, 1);
+            const tryPersistResults = (candidate) => {
+                try {
+                    const stored = Storage.setThreeNoScanResults(candidate);
+                    return {
+                        ok: true,
+                        payload: stored && typeof stored === 'object' ? stored : candidate,
+                    };
+                } catch (error) {
+                    return { ok: false, error };
+                }
+            };
+            let resultWritePayload = resultInput;
+            let persistedDebugLog = debugLog;
+            let resultAttempt = tryPersistResults(resultWritePayload);
+            if (!resultAttempt.ok) {
+                appendFinishDebug('finish_storage_quota_degraded', status, scanId, {
+                    level: 1,
+                    errorName: String(resultAttempt.error?.name || 'storage_write_failed'),
+                });
+                persistedDebugLog = [];
+                resultWritePayload = {
+                    ...resultInput,
+                    debugLog: [],
+                };
+                resultAttempt = tryPersistResults(resultWritePayload);
+            }
+            if (!resultAttempt.ok) {
+                appendFinishDebug('finish_storage_quota_degraded', status, scanId, {
+                    level: 2,
+                    errorName: String(resultAttempt.error?.name || 'storage_write_failed'),
+                });
+                resultWritePayload = {
+                    ...resultInput,
+                    debugLog: [],
+                    users: shrinkThreeNoResultMetadata(resultInput.users),
+                };
+                resultAttempt = tryPersistResults(resultWritePayload);
+            }
+            const resultStorageFailed = !resultAttempt.ok;
+            if (resultStorageFailed) {
+                appendFinishDebug('finish_storage_quota_failed', status, scanId, {
+                    level: 3,
+                    errorName: String(resultAttempt.error?.name || 'storage_write_failed'),
+                });
+            }
+            const payload = resultAttempt.ok
+                ? resultAttempt.payload
+                : {
+                    ...resultWritePayload,
+                    debugLog: [],
+                    users: [],
+                };
+            if (resultAttempt.ok) noteStorageWrite(payload, 1);
             recordFinishDiagnostic('render', {
                 active: false,
-                complete: true,
-                renderTriggered: true,
-                resultPersisted: true,
+                complete: !resultStorageFailed,
+                renderTriggered: !resultStorageFailed,
+                resultPersisted: !resultStorageFailed,
+                ...(resultStorageFailed ? {
+                    failure: true,
+                    errorCode: 'storage_quota',
+                } : {}),
                 resultSizeBytes: serializedByteLength(payload),
                 elapsedMs: Date.now() - finishStartedAt,
                 candidateCount: batchUsernames.length,
                 checkedCount: checkedCandidateCount,
                 queuedCount: payload.threeNoFollowersCount,
             });
+            const terminalStatus = resultStorageFailed && completed ? 'failed' : status;
             const terminalStatePayload = {
                 ...payload,
+                status: terminalStatus,
+                error: resultStorageFailed ? 'storage_quota' : (payload.error || patch.error || ''),
                 ownerToken: runtimeOwnerToken || undefined,
+                // The terminal state is only a compact status snapshot. The
+                // full users/debugLog payload belongs in THREE_NO_SCAN_RESULTS.
                 users: undefined,
+                debugLog: undefined,
                 cancelled: true,
                 terminalAt: completedAt,
                 debug: {
                     ...(patch.debug || {}),
-                    debugLogCount: debugLog.length,
+                    debugLogCount: persistedDebugLog.length,
                     autoBlockRemoved: true,
                 },
             };
-            const finalStateWritten = Core.ThreeNoWatch.setScanState(terminalStatePayload);
+            const writeTerminalState = (statePayload) => {
+                try {
+                    return Core.ThreeNoWatch.setScanState(statePayload);
+                } catch (_) {
+                    // A terminal write may fail because appendScanDebugLog hits
+                    // the same full storage. Drop the raw log and retry once.
+                    try {
+                        Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG);
+                    } catch (_) {}
+                    try {
+                        return Core.ThreeNoWatch.setScanState(statePayload);
+                    } catch (_) {
+                        return false;
+                    }
+                }
+            };
+            const finalStateWritten = writeTerminalState(terminalStatePayload);
             if (finalStateWritten === false) return false;
             const terminalDebugLogWriteCount = isThreeNoDebugLogActive() && terminalStatePayload.debug?.step ? 1 : 0;
             const terminalStateWriteCount = 1 + terminalDebugLogWriteCount + 2;
             noteStorageWrite(terminalStatePayload, terminalStateWriteCount);
-            Storage.set(CONFIG.KEYS.THREE_NO_LAST_SCAN_DATE, scanDate);
+            const safeFinishWrite = (operation, failureStep) => {
+                try {
+                    return operation();
+                } catch (error) {
+                    appendFinishDebug(failureStep, terminalStatus, scanId, {
+                        errorName: String(error?.name || 'storage_write_failed'),
+                    });
+                    return undefined;
+                }
+            };
+            safeFinishWrite(() => Storage.set(CONFIG.KEYS.THREE_NO_LAST_SCAN_DATE, scanDate), 'finish_last_scan_date_write_failed');
             noteStorageWrite(scanDate, 1);
-            if (runtimeOwnerToken && runtimeScanId) Core.ThreeNoWatch.clearOwnedScan(runtimeScanId, runtimeOwnerToken);
-            else {
-                Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_LOCK);
-                Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_COMMAND);
+            if (runtimeOwnerToken && runtimeScanId) {
+                safeFinishWrite(() => Core.ThreeNoWatch.clearOwnedScan(runtimeScanId, runtimeOwnerToken), 'finish_owner_cleanup_failed');
+            } else {
+                safeFinishWrite(() => Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_LOCK), 'finish_lock_cleanup_failed');
+                safeFinishWrite(() => Storage.remove(CONFIG.KEYS.THREE_NO_SCAN_COMMAND), 'finish_command_cleanup_failed');
             }
-            const unreadCount = Math.max(Storage.getThreeNoUnreadCount(), newUnignoredFindings.length || payload.threeNoFollowersCount);
-            Storage.setThreeNoUnreadCount(unreadCount);
+            let unreadCount = 0;
+            safeFinishWrite(() => {
+                unreadCount = Math.max(
+                    Storage.getThreeNoUnreadCount(),
+                    newUnignoredFindings.length || payload.threeNoFollowersCount,
+                );
+                Storage.setThreeNoUnreadCount(unreadCount);
+                return unreadCount;
+            }, 'finish_unread_count_write_failed');
             noteStorageWrite(String(unreadCount), 1);
-            sessionStorage.removeItem(Core.ThreeNoWatch.stateKey);
-            localStorage.removeItem(Core.ThreeNoWatch.runtimeBackupKey);
+            safeFinishWrite(() => sessionStorage.removeItem(Core.ThreeNoWatch.stateKey), 'finish_session_runtime_cleanup_failed');
+            safeFinishWrite(() => localStorage.removeItem(Core.ThreeNoWatch.runtimeBackupKey), 'finish_runtime_backup_cleanup_failed');
             recordFinishDiagnostic('storage', {
                 active: false,
-                complete: true,
+                complete: !resultStorageFailed,
+                failure: resultStorageFailed,
                 elapsedMs: Date.now() - storageStartedAt,
                 storageWriteCount: storageMetrics.writeCount,
                 storageWriteBytes: storageMetrics.writeBytes,
@@ -4239,7 +4375,7 @@ Object.assign(Core, {
                 remainingCount: unprocessedCandidates.size,
                 queuedCount: payload.threeNoFollowersCount,
             });
-            if (completed) {
+            if (completed && !resultStorageFailed) {
                 let statsUploadTimeoutId;
                 let statsUploadTimedOut = false;
                 const statsUploadStartedAt = Date.now();

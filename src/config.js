@@ -4,6 +4,7 @@
 // docs/adr/0019-clean-list-two-pass-sort-scan.md、
 // docs/adr/0020-clean-list-stop-settles-collected-users.md、
 // docs/adr/0021-daily-block-window-success-only.md。
+// docs/adr/0023-three-no-storage-quota-resilience.md。
 // 診斷簽章只保留能描述目前狀態的欄位。所有去重呼叫點都使用這份清單，
 // 量測值仍保留在診斷 fields，但不參與簽章比較。
 export const DIAGNOSTIC_SIGNATURE_MEASUREMENT_FIELDS = Object.freeze([
@@ -90,8 +91,15 @@ export const THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES = Object.freeze([
     'triage_incomplete',
 ]);
 
+// 三無重置備份保留政策（ADR 0023）。這些常數在 main.js 與測試共用，
+// 避免各檔案各自宣告相同的 top-level const 造成 bundle 語法衝突。
+export const THREE_NO_RESET_BACKUP_PREFIX = 'hege_three_no_reset_backup_';
+export const THREE_NO_RESET_BACKUP_RETENTION_DAYS = 7;
+export const THREE_NO_RESET_BACKUP_RETENTION_MS = THREE_NO_RESET_BACKUP_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+export const THREE_NO_RESET_BACKUP_MAX_COUNT = 1;
+
 export const CONFIG = {
-    VERSION: '2.8.4-beta21', // 三無公式改須確認無內容（ADR 0022）＋可疑命名動物字典補 11 字
+    VERSION: '2.8.4-beta22', // 三無公式改須確認無內容（ADR 0022）＋配額防爆（ADR 0023）
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。

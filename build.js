@@ -13,6 +13,7 @@ execFileSync(process.execPath, [path.join(__dirname, 'scripts', 'generate-releas
 
 const ORDER = [
     'config.js',
+    'three-no-reset-backup.js',
     'announcements.js',
     'release-notes.js',
     'utils.js',
