@@ -1,5 +1,6 @@
 // 相關 ADR：docs/adr/0001-unify-daily-block-limit.md、
-// docs/adr/0021-daily-block-window-success-only.md。
+// docs/adr/0021-daily-block-window-success-only.md、
+// docs/adr/0025-pinyin-active-accounts-enter-review-list-with-badge.md。
 // Simple Adapter for LocalStorage / SessionStorage with Memory Cache
 import { CONFIG, THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES } from './config.js';
 
@@ -15,6 +16,13 @@ const normalizeRosterUsername = value => String(value || '').trim().replace(/^@+
 const rosterUsernameKey = value => normalizeRosterUsername(value).toLowerCase();
 const normalizeRosterCount = value => Math.max(0, parseInt(value || '0', 10) || 0);
 const normalizeRosterText = value => String(value || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+const countConfirmedThreeNoUsers = (users = []) => (Array.isArray(users) ? users : [])
+    .filter(item => item?.isThreeNo === true)
+    .length;
+const hasStoredThreeNoCount = payload => Object.prototype.hasOwnProperty.call(payload || {}, 'threeNoFollowersCount');
+const normalizedThreeNoCount = (payload, users) => hasStoredThreeNoCount(payload)
+    ? Math.max(0, parseInt(payload.threeNoFollowersCount || '0', 10) || 0)
+    : countConfirmedThreeNoUsers(users);
 const normalizeRosterProbeStrategies = value => (Array.isArray(value) ? value : [])
     .map(item => String(item || '').trim())
     .filter(Boolean)
@@ -477,7 +485,7 @@ export const Storage = {
             candidateFollowersCount: parseInt(data.candidateFollowersCount || '0', 10) || 0,
             triagedFollowersCount: parseInt(data.triagedFollowersCount || data.batchCheckedFollowersCount || '0', 10) || 0,
             previousScannedCount: parseInt(data.previousScannedCount || '0', 10) || 0,
-            threeNoFollowersCount: parseInt(data.threeNoFollowersCount || users.length || '0', 10) || 0,
+            threeNoFollowersCount: normalizedThreeNoCount(data, users),
             limited: hasMore,
             hasMore,
             batchSize: parseInt(data.batchSize || CONFIG.THREE_NO_SCAN_BATCH_SIZE || '200', 10) || 200,
@@ -513,7 +521,12 @@ export const Storage = {
                         noReplies: accountPrivate ? false : item.noReplies === true,
                         noReposts: accountPrivate ? false : item.noReposts === true,
                         accountPrivate,
+                        // beta27 makes the signal explicit; missing legacy rows
+                        // were all confirmed three-no findings before pinyin
+                        // active accounts entered this queue.
+                        isThreeNo: item.isThreeNo === true || !Object.prototype.hasOwnProperty.call(item, 'isThreeNo'),
                         suspiciousUsername: item.suspiciousUsername === true && !legacyTaiwanMobileSuspicious,
+                        pinyinNameMatch: item.pinyinNameMatch === true,
                         profileSignalsVersion: parseInt(item.profileSignalsVersion || '0', 10) || 0,
                         noPostsKnown: accountPrivate ? false : item.noPostsKnown === true,
                         noRepliesKnown: accountPrivate ? false : item.noRepliesKnown === true,
@@ -555,7 +568,7 @@ export const Storage = {
             candidateFollowersCount: parseInt(payload.candidateFollowersCount || '0', 10) || 0,
             triagedFollowersCount: parseInt(payload.triagedFollowersCount || payload.batchCheckedFollowersCount || '0', 10) || 0,
             previousScannedCount: parseInt(payload.previousScannedCount || '0', 10) || 0,
-            threeNoFollowersCount: parseInt(payload.threeNoFollowersCount || users.length || '0', 10) || 0,
+            threeNoFollowersCount: normalizedThreeNoCount(payload, users),
             limited: payload.limited === true,
             hasMore: payload.hasMore === true || payload.limited === true,
             batchSize: parseInt(payload.batchSize || CONFIG.THREE_NO_SCAN_BATCH_SIZE || '200', 10) || 200,
@@ -591,7 +604,9 @@ export const Storage = {
                         noReplies: accountPrivate ? false : item.noReplies === true,
                         noReposts: accountPrivate ? false : item.noReposts === true,
                         accountPrivate,
+                        isThreeNo: item.isThreeNo === true || !Object.prototype.hasOwnProperty.call(item, 'isThreeNo'),
                         suspiciousUsername: item.suspiciousUsername === true && !legacyTaiwanMobileSuspicious,
+                        pinyinNameMatch: item.pinyinNameMatch === true,
                         profileSignalsVersion: parseInt(item.profileSignalsVersion || '0', 10) || 0,
                         noPostsKnown: accountPrivate ? false : item.noPostsKnown === true,
                         noRepliesKnown: accountPrivate ? false : item.noRepliesKnown === true,
@@ -706,7 +721,7 @@ export const Storage = {
         Storage.setThreeNoScanResults({
             ...results,
             users: after,
-            threeNoFollowersCount: after.length,
+            threeNoFollowersCount: countConfirmedThreeNoUsers(after),
         });
         Storage.setThreeNoUnreadCount(Math.max(0, Storage.getThreeNoUnreadCount() - removed));
         return removed;

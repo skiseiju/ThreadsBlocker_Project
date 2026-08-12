@@ -97,7 +97,7 @@ const profileResult = (username, base = {}, replies = {}, reposts = {}) => Core.
 });
 
 test('beta26 拼音＋確認無內容可繞過頭像門檻', () => {
-    assert.equal(CONFIG.VERSION, '2.8.4-beta26');
+    assert.equal(CONFIG.VERSION, '2.8.4-beta27');
 
     const pinyinEmpty = profileResult('chenyuxin8661', {
         noAvatar: false,

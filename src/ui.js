@@ -1,3 +1,5 @@
+// 相關 ADR：docs/adr/0025-pinyin-active-accounts-enter-review-list-with-badge.md、
+// docs/BLOCKING_ARCHITECTURE.md。
 import { CONFIG, THREE_NO_DENSITY_ALERT_MIN_RUN, buildDiagnosticStateSignature } from './config.js';
 import { Utils } from './utils.js';
 import { Storage } from './storage.js';
@@ -1947,9 +1949,10 @@ export const UI = {
                 green: ['#a8e6b0', 'rgba(48,209,88,0.35)'],
                 gray: ['#bbb', 'rgba(255,255,255,0.20)'],
                 gold: ['#f6df92', 'rgba(236,195,81,0.35)'],
+                amber: ['#ffd27a', 'rgba(255,190,80,0.50)', 'rgba(255,190,80,0.12)'],
             };
-            const [color, border] = colors[tone] || colors.gray;
-            return `font-size:10px;color:${color};border:1px solid ${border};border-radius:999px;padding:2px 6px;`;
+            const [color, border, background = 'transparent'] = colors[tone] || colors.gray;
+            return `font-size:10px;color:${color};border:1px solid ${border};background:${background};border-radius:999px;padding:2px 6px;`;
         };
         const suspicionToneStyle = (level = 'low') => {
             const colors = {
@@ -1982,7 +1985,7 @@ export const UI = {
             const noPostsValue = item.noPosts === true || hasExplicitEmptyReason('postsSignalReason');
             const noRepliesValue = item.noReplies === true || hasExplicitEmptyReason('repliesSignalReason');
             const noRepostsValue = item.noReposts === true || hasExplicitEmptyReason('repostsSignalReason');
-            const pinyinName = matchesPinyinName(item.username);
+            const pinyinName = item.pinyinNameMatch === true || matchesPinyinName(item.username);
             const followerCountKnown = !isPrivate && item.followerCountKnown === true;
             const followerCount = parseInt(item.followerCount || '0', 10) || 0;
             const regionMissing = isMissingRegion(item);
@@ -2043,11 +2046,12 @@ export const UI = {
         const checkedAtText = results.completedAt > 0
             ? new Date(results.completedAt).toLocaleString('zh-TW')
             : '尚未完成';
+        const confirmedThreeNoCount = users.filter(item => item.isThreeNo === true).length;
         const statusText = results.status === 'completed'
-            ? `累計已檢查 ${scanTargetOwner ? `@${Utils.escapeHTML(scanTargetOwner)} 的 ` : ''}${results.checkedFollowersCount} 位粉絲，本批 ${results.batchCheckedFollowersCount} 位；結果需人工確認後才加入封鎖清單`
+            ? `累計已檢查 ${scanTargetOwner ? `@${Utils.escapeHTML(scanTargetOwner)} 的 ` : ''}${results.checkedFollowersCount} 位粉絲，本批 ${results.batchCheckedFollowersCount} 位；目前待審 ${users.length} 筆，其中三無 ${confirmedThreeNoCount} 筆；結果需人工確認後才加入封鎖清單`
             : (results.status ? `狀態：${Utils.escapeHTML(results.status)}` : '尚未掃描');
         const limitedText = results.hasMore ? ' · 可續掃下一批' : ' · 已掃到底';
-        const titleText = '三無待審清單';
+        const titleText = '待審清單';
         const emptyText = results.completedAt > 0
             ? '目前沒有未處理的待審帳號。'
             : '目前沒有未處理的待審帳號。';
@@ -2162,14 +2166,19 @@ export const UI = {
                             item.noAvatar ? ['無大頭照', 'red'] : null,
                             item.noBio ? ['無自介', 'red'] : null,
                             (!isPrivate && noPostsKnown && review.noPostsValue) ? ['無發文', 'red'] : (!isPrivate && !noPostsKnown ? ['發文待重掃', 'gray'] : null),
+                            (!isPrivate && noPostsKnown && !review.noPostsValue) ? ['有發文', 'green'] : null,
                             (!isPrivate && noRepliesKnown && review.noRepliesValue) ? ['無回文', 'red'] : (!isPrivate && !noRepliesKnown ? ['回文待重掃', 'gray'] : null),
+                            (!isPrivate && noRepliesKnown && !review.noRepliesValue) ? ['有回文', 'green'] : null,
                             (!isPrivate && noRepostsKnown && review.noRepostsValue) ? ['無轉貼', 'red'] : (!isPrivate && !noRepostsKnown ? ['轉貼待重掃', 'gray'] : null),
+                            (!isPrivate && noRepostsKnown && !review.noRepostsValue) ? ['有轉貼', 'green'] : null,
                             isPrivate ? ['帳號不公開', 'gray'] : null,
                             isPrivate && item.contentProbeSkippedReason === 'private_profile' ? ['已跳過內容檢查', 'gray'] : null,
                             zeroFollowers ? ['粉絲 0', 'gold'] : null,
                             (!zeroFollowers && followersUnder30) ? [`粉絲 ${followerCount}`, 'gold'] : null,
                             item.suspiciousUsername ? ['命名可疑', 'gold'] : null,
-                            review.pinyinName ? ['疑似簡體拼音', 'gray'] : null,
+                            item.pinyinNameMatch === true && item.isThreeNo !== true
+                                ? ['拼音命名・有活動', 'amber']
+                                : (review.pinyinName ? ['疑似簡體拼音', 'gray'] : null),
                             item.isNewAccount ? ['新帳號', 'blue'] : null,
                             item.accountAgeBucket ? [item.accountAgeBucket, 'blue'] : null,
                             countryTag ? [countryTag, regionMissing ? 'gray' : 'green'] : null,

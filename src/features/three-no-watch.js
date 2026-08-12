@@ -2,7 +2,8 @@
 // 相關 ADR：docs/adr/0005-bot-profile-detection.md、
 // docs/adr/0022-three-no-formula-requires-confirmed-empty-content.md、
 // docs/adr/0023-three-no-storage-quota-resilience.md、
-// docs/adr/0024-pinyin-name-entry-path-bypasses-avatar-gate.md。
+// docs/adr/0024-pinyin-name-entry-path-bypasses-avatar-gate.md、
+// docs/adr/0025-pinyin-active-accounts-enter-review-list-with-badge.md。
 import { CONFIG, THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES } from '../config.js';
 import { Storage } from '../storage.js';
 import { Utils, isBackgroundWorkerBusy } from '../utils.js';
@@ -59,6 +60,13 @@ const THREE_NO_METADATA_DEBUG_REASON_FIELDS = Object.freeze([
     'repostsSignalReason',
 ]);
 
+// Findings now include both confirmed three-no accounts and informational
+// pinyin-name matches. Keep the aggregate three-no count tied to the explicit
+// boolean signal rather than the review queue length.
+export const countConfirmedThreeNoFindings = (findings = []) => (Array.isArray(findings) ? findings : [])
+    .filter(item => item?.isThreeNo === true)
+    .length;
+
 // 配額臨界時保留三無判定所需的輕量取證理由，捨棄其他 metadataDebug 細節。
 const shrinkThreeNoResultMetadata = (users = []) => (Array.isArray(users) ? users : []).map(user => {
     const metadataDebug = user?.metadataDebug && typeof user.metadataDebug === 'object'
@@ -66,6 +74,7 @@ const shrinkThreeNoResultMetadata = (users = []) => (Array.isArray(users) ? user
         : {};
     return {
         ...user,
+        isThreeNo: user.isThreeNo === true,
         pinyinNameMatch: user.pinyinNameMatch === true,
         metadataDebug: Object.fromEntries(THREE_NO_METADATA_DEBUG_REASON_FIELDS.map(field => [
             field,
@@ -1371,7 +1380,7 @@ Object.assign(Core, {
                     phase: 'profile_recovery',
                     checkedFollowersCount: parseInt(recoveredRuntime.index || '0', 10) || 0,
                     candidateFollowersCount: recoveredRuntime.usernames.length,
-                    threeNoFollowersCount: Array.isArray(recoveredRuntime.findings) ? recoveredRuntime.findings.length : 0,
+                    threeNoFollowersCount: countConfirmedThreeNoFindings(recoveredRuntime.findings),
                 });
                 await Core.ThreeNoWatch.navigateToProfile(parseInt(recoveredRuntime.index || '0', 10) || 0);
                 return;
@@ -1700,7 +1709,7 @@ Object.assign(Core, {
                 status: 'checking_profiles',
                 startedAt: runtime.startedAt || 0,
                 checkedFollowersCount: index,
-                threeNoFollowersCount: Array.isArray(runtime.findings) ? runtime.findings.length : 0,
+                threeNoFollowersCount: countConfirmedThreeNoFindings(runtime.findings),
                 current: username,
                 candidateFollowersCount: usernames.length,
                 batchSize: runtime.batchSize || Core.ThreeNoWatch.getBatchSize(),
@@ -1750,7 +1759,7 @@ Object.assign(Core, {
                     status: 'checking_profiles',
                     startedAt: runtime.startedAt || 0,
                     checkedFollowersCount: index,
-                    threeNoFollowersCount: Array.isArray(runtime.findings) ? runtime.findings.length : 0,
+                    threeNoFollowersCount: countConfirmedThreeNoFindings(runtime.findings),
                     current: username,
                     candidateFollowersCount: usernames.length,
                     batchSize: runtime.batchSize || Core.ThreeNoWatch.getBatchSize(),
@@ -1784,7 +1793,7 @@ Object.assign(Core, {
                     [Core.ThreeNoWatch.normalizeUsername(result.username).toLowerCase()]: Core.ThreeNoWatch.buildFollowerRosterProfileEvidence(result),
                 }
                 : {};
-            if (result.isThreeNo && !Storage.isThreeNoUserIgnored(result.username)) {
+            if ((result.isThreeNo || result.pinyinNameMatch) && !Storage.isThreeNoUserIgnored(result.username)) {
                 findings.push({
                     username: result.username,
                     profileUrl: result.profileUrl,
@@ -1799,6 +1808,7 @@ Object.assign(Core, {
                     noReposts: result.noReposts,
                     accountPrivate: result.accountPrivate,
                     suspiciousUsername: result.suspiciousUsername,
+                    isThreeNo: result.isThreeNo,
                     pinyinNameMatch: result.pinyinNameMatch,
                     profileSignalsVersion: result.profileSignalsVersion,
                     noPostsKnown: result.noPostsKnown,
@@ -1830,7 +1840,7 @@ Object.assign(Core, {
                 status: 'checking_profiles',
                 startedAt: runtime.startedAt || 0,
                 checkedFollowersCount: index + 1,
-                threeNoFollowersCount: findings.length,
+                threeNoFollowersCount: countConfirmedThreeNoFindings(findings),
                 current: username,
                 candidateFollowersCount: usernames.length,
                 batchSize: runtime.batchSize || Core.ThreeNoWatch.getBatchSize(),
@@ -2794,7 +2804,7 @@ Object.assign(Core, {
                 status: 'checking_profiles',
                 startedAt: runtime.startedAt || 0,
                 checkedFollowersCount: index,
-                threeNoFollowersCount: Array.isArray(runtime.findings) ? runtime.findings.length : 0,
+                threeNoFollowersCount: countConfirmedThreeNoFindings(runtime.findings),
                 current: username,
                 candidateFollowersCount: Array.isArray(runtime.usernames) ? runtime.usernames.length : 0,
                 batchSize: runtime.batchSize || Core.ThreeNoWatch.getBatchSize(),
@@ -4067,6 +4077,7 @@ Object.assign(Core, {
                         : (hasNoContentEvidence(existing, 'noRepostsKnown', 'noReposts', 'repostsSignalReason') || hasNoContentEvidence(item, 'noRepostsKnown', 'noReposts', 'repostsSignalReason'))),
                     accountPrivate,
                     suspiciousUsername: mergeBooleanSignal('suspiciousUsername'),
+                    isThreeNo: mergeBooleanSignal('isThreeNo'),
                     pinyinNameMatch: mergeBooleanSignal('pinyinNameMatch'),
                     profileSignalsVersion: Math.max(
                         parseInt(existing?.profileSignalsVersion || '0', 10) || 0,
@@ -4217,7 +4228,9 @@ Object.assign(Core, {
                 candidateFollowersCount: batchUsernames.length,
                 triagedFollowersCount: triagedUsernames.length,
                 previousScannedCount: baseScannedUsers.length,
-                threeNoFollowersCount: shouldPersistFindings ? mergedFindings.length : findings.length,
+                threeNoFollowersCount: shouldPersistFindings
+                    ? countConfirmedThreeNoFindings(mergedFindings)
+                    : countConfirmedThreeNoFindings(findings),
                 limited: hasMore,
                 hasMore,
                 batchSize,
