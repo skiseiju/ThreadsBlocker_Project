@@ -80,8 +80,18 @@ export const isDiagnosticMeasurementField = key => {
     return diagnosticMeasurementFieldSet.has(normalized) || /Count$/i.test(normalized);
 };
 
+// 三無追蹤者名冊的處理狀態列舉。唯一定義在這裡，storage.js 與 three-no-watch.js
+// 都從這裡引用。2.8.4-beta17／beta18 曾在兩個檔案各宣告一份，逐檔載入時合法，
+// 打包成同一支之後就是重複宣告，整支腳本不執行。
+export const THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES = Object.freeze([
+    'skipped_known',
+    'skipped_visible_avatar',
+    'triage_completed',
+    'triage_incomplete',
+]);
+
 export const CONFIG = {
-    VERSION: '2.8.4-beta16', // 第一輪空白仍會切換排序，繼續掃第二輪
+    VERSION: '2.8.4-beta18', // 三無 beta 取證補上名冊處理狀態與捲動 log 欄位，僅存本機
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。
@@ -129,6 +139,10 @@ export const CONFIG = {
     THREE_NO_SCAN_STATS_UPLOAD_TIMEOUT_MS: 1500,
     THREE_NO_SCAN_PREFILTER_AVATAR: true,
     THREE_NO_SCAN_PROFILE_DELAY_MS: 1400,
+    // 僅 beta 三無追蹤者取證。上限與既有 PERSIST_LIMIT 分開，保留單一目標
+    // 實測一千五百人以上的名單，同時避免兩千人卡死讓記憶體或 storage 無界成長；
+    // 超過上限只記錄 observedCount/truncated 與各處理狀態計數。
+    THREE_NO_SCAN_FOLLOWER_ROSTER_LIMIT: 2000,
 
     // 貼文水庫 SPA polling 時序（毫秒；單位 ms = millisec）
     SWEEP_POLL_INTERVAL_MS: 500,        // 每次 polling 等待間隔
@@ -164,6 +178,7 @@ export const CONFIG = {
         THREE_NO_SCAN_RESULTS: 'hege_three_no_scan_results',
         THREE_NO_SCAN_DEBUG_LOG: 'hege_three_no_scan_debug_log',
         THREE_NO_SCAN_DEBUG_SCHEMA: 'hege_three_no_scan_debug_schema',
+        THREE_NO_SCAN_FOLLOWER_ROSTER: 'hege_three_no_scan_follower_roster',
         THREE_NO_SCAN_CURSOR: 'hege_three_no_scan_cursor',
         THREE_NO_SCAN_COMMAND: 'hege_three_no_scan_command',
         THREE_NO_SCAN_LOCK: 'hege_three_no_scan_lock',

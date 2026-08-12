@@ -1,14 +1,90 @@
 // 相關 ADR：docs/adr/0001-unify-daily-block-limit.md、
 // docs/adr/0021-daily-block-window-success-only.md。
 // Simple Adapter for LocalStorage / SessionStorage with Memory Cache
-import { CONFIG } from './config.js';
+import { CONFIG, THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES } from './config.js';
 
 const BLOCK_WINDOW_MS = 24 * 60 * 60 * 1000;
 const BLOCK_RING_RETENTION_MS = 48 * 60 * 60 * 1000;
+const THREE_NO_FOLLOWER_ROSTER_SCHEMA = 'threadsblocker.three_no_follower_roster.v1';
 const normalizeBlockTimestamp = value => {
     const number = Number(value);
     return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
 };
+const threeNoFollowerRosterLimit = () => Math.max(1, parseInt(CONFIG.THREE_NO_SCAN_FOLLOWER_ROSTER_LIMIT || '2000', 10) || 2000);
+const normalizeRosterUsername = value => String(value || '').trim().replace(/^@+/, '').split(/[/?#\s]/)[0].slice(0, 120);
+const rosterUsernameKey = value => normalizeRosterUsername(value).toLowerCase();
+const isThreeNoFollowerRosterStorageActive = () => globalThis.__hegeRuntimeDiagnostics?.betaDebugUI?.() === true;
+const emptyRosterProcessingCounts = () => Object.fromEntries(
+    THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES.map(status => [status, 0]),
+);
+const normalizeRosterProcessingStatus = (value, source = {}) => {
+    const explicit = String(value || '').trim();
+    if (THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES.includes(explicit)) return explicit;
+    if (source.isTriaged !== true) return 'skipped_known';
+    if (source.isTriaged === true && source.hasVisibleAvatar === true && source.suspiciousUsername !== true) {
+        return 'skipped_visible_avatar';
+    }
+    if (source.finalized === true) return 'triage_completed';
+    if (source.isTriaged === true) return 'triage_incomplete';
+    return 'skipped_known';
+};
+const normalizeThreeNoFollowerRosterRow = (row = {}, sequence = 0) => {
+    const source = row && typeof row === 'object' ? row : {};
+    const username = normalizeRosterUsername(source.username);
+    const hasVisibleAvatar = source.hasVisibleAvatar === true;
+    const suspiciousUsername = source.suspiciousUsername === true;
+    const isTriaged = source.isTriaged === true;
+    const finalized = source.finalized === true;
+    return {
+        username,
+        displayName: String(source.displayName || '').replace(/\s+/g, ' ').trim().slice(0, 160),
+        sequence: Math.max(1, parseInt(source.sequence || sequence || '1', 10) || 1),
+        hasVisibleAvatar,
+        suspiciousUsername,
+        isTriaged,
+        isThreeNo: source.isThreeNo === true,
+        finalized,
+        processingStatus: normalizeRosterProcessingStatus(source.processingStatus, {
+            finalized,
+            isTriaged,
+            hasVisibleAvatar,
+            suspiciousUsername,
+        }),
+    };
+};
+const normalizeRosterProcessingCounts = (value, rows = []) => {
+    const counts = emptyRosterProcessingCounts();
+    const source = value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+    const hasProvidedCounts = source
+        && THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES.some(status => Object.prototype.hasOwnProperty.call(source, status));
+    if (hasProvidedCounts) {
+        THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES.forEach(status => {
+            counts[status] = Math.max(0, parseInt(source[status] || '0', 10) || 0);
+        });
+        return counts;
+    }
+    (Array.isArray(rows) ? rows : []).forEach(row => {
+        const status = normalizeRosterProcessingStatus(row?.processingStatus, row || {});
+        if (Object.prototype.hasOwnProperty.call(counts, status)) counts[status] += 1;
+    });
+    return counts;
+};
+const emptyThreeNoFollowerRoster = () => ({
+    schema: THREE_NO_FOLLOWER_ROSTER_SCHEMA,
+    scanId: '',
+    scanTargetOwner: '',
+    scanDate: '',
+    startedAt: 0,
+    capturedAt: 0,
+    updatedAt: 0,
+    completedAt: 0,
+    limit: threeNoFollowerRosterLimit(),
+    observedCount: 0,
+    truncated: false,
+    status: '',
+    processingStatusCounts: emptyRosterProcessingCounts(),
+    rows: [],
+});
 
 export const Storage = {
     cache: {},
@@ -187,6 +263,151 @@ export const Storage = {
         };
     },
 
+    getThreeNoFollowerRoster: () => {
+        if (!isThreeNoFollowerRosterStorageActive()) return emptyThreeNoFollowerRoster();
+        const raw = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_FOLLOWER_ROSTER, {});
+        const data = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+        const limit = threeNoFollowerRosterLimit();
+        const seen = new Set();
+        const rows = (Array.isArray(data.rows) ? data.rows : [])
+            .map((row, index) => normalizeThreeNoFollowerRosterRow(row, index + 1))
+            .filter(row => {
+                const key = rosterUsernameKey(row.username);
+                if (!key || seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            })
+            .sort((a, b) => a.sequence - b.sequence)
+            .slice(0, limit)
+            .map((row, index) => ({ ...row, sequence: index + 1 }));
+        const observedCount = Math.max(rows.length, parseInt(data.observedCount || '0', 10) || 0);
+        return {
+            schema: THREE_NO_FOLLOWER_ROSTER_SCHEMA,
+            scanId: String(data.scanId || ''),
+            scanTargetOwner: String(data.scanTargetOwner || ''),
+            scanDate: String(data.scanDate || ''),
+            startedAt: parseInt(data.startedAt || '0', 10) || 0,
+            capturedAt: parseInt(data.capturedAt || '0', 10) || 0,
+            updatedAt: parseInt(data.updatedAt || '0', 10) || 0,
+            completedAt: parseInt(data.completedAt || '0', 10) || 0,
+            limit,
+            observedCount,
+            truncated: data.truncated === true || observedCount > rows.length,
+            status: String(data.status || ''),
+            processingStatusCounts: normalizeRosterProcessingCounts(data.processingStatusCounts, rows),
+            rows,
+        };
+    },
+    setThreeNoFollowerRoster: (payload = {}) => {
+        if (!isThreeNoFollowerRosterStorageActive()) return emptyThreeNoFollowerRoster();
+        const source = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+        const limit = threeNoFollowerRosterLimit();
+        const seen = new Set();
+        const rows = (Array.isArray(source.rows) ? source.rows : [])
+            .map((row, index) => normalizeThreeNoFollowerRosterRow(row, index + 1))
+            .filter(row => {
+                const key = rosterUsernameKey(row.username);
+                if (!key || seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            })
+            .sort((a, b) => a.sequence - b.sequence)
+            .slice(0, limit)
+            .map((row, index) => ({ ...row, sequence: index + 1 }));
+        const observedCount = Math.max(rows.length, parseInt(source.observedCount || '0', 10) || 0);
+        const normalized = {
+            schema: THREE_NO_FOLLOWER_ROSTER_SCHEMA,
+            scanId: String(source.scanId || ''),
+            scanTargetOwner: String(source.scanTargetOwner || ''),
+            scanDate: String(source.scanDate || ''),
+            startedAt: parseInt(source.startedAt || '0', 10) || 0,
+            capturedAt: parseInt(source.capturedAt || Date.now(), 10) || Date.now(),
+            updatedAt: Date.now(),
+            completedAt: parseInt(source.completedAt || '0', 10) || 0,
+            limit,
+            observedCount,
+            truncated: source.truncated === true || observedCount > rows.length,
+            status: String(source.status || ''),
+            processingStatusCounts: normalizeRosterProcessingCounts(source.processingStatusCounts, rows),
+            rows,
+        };
+        Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_FOLLOWER_ROSTER, normalized);
+        return normalized;
+    },
+    beginThreeNoFollowerRoster: (payload = {}) => {
+        if (!isThreeNoFollowerRosterStorageActive()) return emptyThreeNoFollowerRoster();
+        const scanId = String(payload.scanId || '').trim();
+        if (!scanId) return Storage.getThreeNoFollowerRoster();
+        const current = Storage.getThreeNoFollowerRoster();
+        if (current.scanId === scanId) return current;
+        return Storage.setThreeNoFollowerRoster({
+            scanId,
+            scanTargetOwner: String(payload.scanTargetOwner || payload.owner || ''),
+            scanDate: String(payload.scanDate || ''),
+            startedAt: parseInt(payload.startedAt || Date.now(), 10) || Date.now(),
+            capturedAt: Date.now(),
+            observedCount: 0,
+            truncated: false,
+            status: 'scanning',
+            processingStatusCounts: emptyRosterProcessingCounts(),
+            rows: [],
+        });
+    },
+    finalizeThreeNoFollowerRoster: (payload = {}) => {
+        if (!isThreeNoFollowerRosterStorageActive()) return emptyThreeNoFollowerRoster();
+        const current = Storage.getThreeNoFollowerRoster();
+        const scanId = String(payload.scanId || '').trim();
+        if (!scanId || (current.scanId && current.scanId !== scanId)) return current;
+        const findingUsers = new Set((Array.isArray(payload.findings) ? payload.findings : [])
+            .map(item => rosterUsernameKey(item?.username || item))
+            .filter(Boolean));
+        const finalizedUsers = new Set((Array.isArray(payload.finalizedUsernames) ? payload.finalizedUsernames : [])
+            .map(rosterUsernameKey)
+            .filter(Boolean));
+        const complete = payload.status === 'completed';
+        const processingStatusCounts = normalizeRosterProcessingCounts(current.processingStatusCounts, current.rows);
+        const storedKeys = new Set(current.rows.map(row => rosterUsernameKey(row.username)).filter(Boolean));
+        const adjustProcessingCount = (status, delta) => {
+            if (!Object.prototype.hasOwnProperty.call(processingStatusCounts, status)) return;
+            processingStatusCounts[status] = Math.max(0, processingStatusCounts[status] + delta);
+        };
+        const rows = current.rows.map(row => {
+            const key = rosterUsernameKey(row.username);
+            const shouldFinalize = complete || finalizedUsers.has(key);
+            const previousProcessingStatus = normalizeRosterProcessingStatus(row.processingStatus, row);
+            const isCollectorSkip = previousProcessingStatus === 'skipped_known'
+                || previousProcessingStatus === 'skipped_visible_avatar';
+            const nextProcessingStatus = shouldFinalize && !isCollectorSkip
+                ? 'triage_completed'
+                : previousProcessingStatus;
+            if (nextProcessingStatus !== previousProcessingStatus) {
+                adjustProcessingCount(previousProcessingStatus, -1);
+                adjustProcessingCount(nextProcessingStatus, 1);
+            }
+            return {
+                ...row,
+                processingStatus: nextProcessingStatus,
+                isThreeNo: findingUsers.has(key) ? true : (shouldFinalize ? false : row.isThreeNo === true),
+                finalized: row.finalized === true || shouldFinalize,
+            };
+        });
+        finalizedUsers.forEach(key => {
+            if (!key || storedKeys.has(key)) return;
+            // 有界名冊之外的列仍要反映在狀態計數，完成結算前視為 triage 未完成。
+            adjustProcessingCount('triage_incomplete', -1);
+            adjustProcessingCount('triage_completed', 1);
+        });
+        return Storage.setThreeNoFollowerRoster({
+            ...current,
+            scanId: scanId || current.scanId,
+            scanTargetOwner: String(payload.scanTargetOwner || current.scanTargetOwner || ''),
+            scanDate: String(payload.scanDate || current.scanDate || ''),
+            status: String(payload.status || current.status || ''),
+            completedAt: parseInt(payload.completedAt || Date.now(), 10) || Date.now(),
+            processingStatusCounts,
+            rows,
+        });
+    },
     getThreeNoScanResults: () => {
         const raw = Storage.getJSON(CONFIG.KEYS.THREE_NO_SCAN_RESULTS, {});
         const data = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};

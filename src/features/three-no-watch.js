@@ -1,6 +1,6 @@
 // 三無掃描生命週期：docs/BLOCKING_ARCHITECTURE.md。
 // 相關 ADR：docs/adr/0005-bot-profile-detection.md。
-import { CONFIG } from '../config.js';
+import { CONFIG, THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES } from '../config.js';
 import { Storage } from '../storage.js';
 import { Utils, isBackgroundWorkerBusy } from '../utils.js';
 import { Reporter } from '../reporter.js';
@@ -24,6 +24,83 @@ const serializedByteLength = (value) => {
     } catch (_) {
         return serialized.length;
     }
+};
+
+// 追蹤者名冊是 beta 取證資料，不得跟隨正式版掃描流程收集。名冊另存
+// 本機儲存，且不放進執行狀態，避免被診斷或上傳建構器碰到。
+const isFollowerRosterCaptureActive = () => Core.RuntimeDiagnostics?.betaDebugUI?.() === true;
+const THREE_NO_FOLLOWER_ROSTER_LIMIT = Math.max(
+    1,
+    parseInt(CONFIG.THREE_NO_SCAN_FOLLOWER_ROSTER_LIMIT || '2000', 10) || 2000,
+);
+const THREE_NO_SCAN_DEBUG_LOG_LIMIT = 600;
+const THREE_NO_SCAN_SCROLL_LOG_SAMPLE_STRIDE = 4;
+const THREE_NO_SCAN_SCROLL_DEBUG_FIELDS = Object.freeze([
+    'iteration',
+    'maxIterations',
+    'seenCount',
+    'linkCount',
+    'skippedKnown',
+    'scrollerTop',
+    'scrollerHeight',
+    'scrollerClientHeight',
+    'nearBottom',
+    'changedSeen',
+    'stagnant',
+]);
+
+// 捲動迴圈可能產生數百筆紀錄。保留重要節點與固定抽樣，讓其他步驟
+// 不會被捲動噪音擠掉；第一筆、最後一筆與狀態轉換列永遠列入優先保留。
+const compactThreeNoScanDebugRows = (rows = [], limit = THREE_NO_SCAN_DEBUG_LOG_LIMIT) => {
+    if (!Array.isArray(rows)) return [];
+    const maxRows = Math.max(1, parseInt(limit || THREE_NO_SCAN_DEBUG_LOG_LIMIT, 10) || THREE_NO_SCAN_DEBUG_LOG_LIMIT);
+    if (rows.length <= maxRows) return rows;
+    const groups = new Map();
+    rows.forEach((row, index) => {
+        const scanId = String(row?.scanId || '');
+        if (!groups.has(scanId)) groups.set(scanId, []);
+        groups.get(scanId).push({ row, index });
+    });
+    const essential = new Set();
+    const preferred = new Set();
+    groups.forEach(group => {
+        const scrollRows = group.filter(item => item.row?.step === 'collect_followers_scroll');
+        const hasScrollRows = scrollRows.length > 0;
+        if (scrollRows.length > 0) {
+            essential.add(scrollRows[0].index);
+            essential.add(scrollRows[scrollRows.length - 1].index);
+            scrollRows.forEach((item, index) => {
+                if (index % THREE_NO_SCAN_SCROLL_LOG_SAMPLE_STRIDE === 0) preferred.add(item.index);
+            });
+        }
+        group.forEach((item, index) => {
+            const previous = group[index - 1]?.row;
+            const currentStatus = String(item.row?.status || '');
+            const previousStatus = String(previous?.status || '');
+            if ((hasScrollRows && index === 0) || (previous && currentStatus && currentStatus !== previousStatus)) {
+                essential.add(item.index);
+                if (previous) essential.add(group[index - 1].index);
+            }
+            if (item.row?.step !== 'collect_followers_scroll') preferred.add(item.index);
+        });
+    });
+    const selected = new Set([...essential, ...preferred]);
+    if (selected.size > maxRows) {
+        const removable = [...selected]
+            .filter(index => !essential.has(index))
+            .sort((a, b) => a - b);
+        while (selected.size > maxRows && removable.length > 0) selected.delete(removable.shift());
+    }
+    if (selected.size > maxRows) {
+        const essentialInOrder = [...selected].sort((a, b) => a - b);
+        while (selected.size > maxRows) selected.delete(essentialInOrder.shift());
+    }
+    if (selected.size < maxRows) {
+        for (let index = rows.length - 1; index >= 0 && selected.size < maxRows; index -= 1) {
+            selected.add(index);
+        }
+    }
+    return rows.filter((_, index) => selected.has(index));
 };
 
 Object.assign(Core, {
@@ -325,6 +402,61 @@ Object.assign(Core, {
 
         getBatchSize: () => Math.max(1, parseInt(CONFIG.THREE_NO_SCAN_BATCH_SIZE || '200', 10) || 200),
 
+        followerRosterLimit: THREE_NO_FOLLOWER_ROSTER_LIMIT,
+
+        findFollowerListEvidenceRow: (link, username = '') => {
+            const normalized = Core.ThreeNoWatch.normalizeUsername(username).toLowerCase();
+            let node = link || null;
+            let fallback = link || null;
+            for (let depth = 0; node && depth < 14; depth++) {
+                const links = Array.from(node.querySelectorAll?.('a[href^="/@"], a[href*="threads.com/@"], a[href*="threads.net/@"]') || [])
+                    .filter(candidate => {
+                        const href = candidate.getAttribute?.('href') || '';
+                        const match = href.match(/\/@([^/?#]+)/);
+                        return Core.ThreeNoWatch.normalizeUsername(match?.[1] || '').toLowerCase() === normalized;
+                    });
+                if (links.length > 0) {
+                    const text = String(node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
+                    const rect = node.getBoundingClientRect?.();
+                    const looksLikeRow = text.length > 0
+                        && (!rect || (rect.width >= 180 && rect.height >= 30 && rect.height <= 180));
+                    if (looksLikeRow) return node;
+                    fallback = node;
+                }
+                node = node.parentElement || node.parentNode || null;
+            }
+            return fallback;
+        },
+
+        followerListDisplayName: (link, username = '') => {
+            const row = Core.ThreeNoWatch.findFollowerListEvidenceRow(link, username) || link;
+            const normalized = Core.ThreeNoWatch.normalizeUsername(username);
+            const usernamePattern = normalized
+                ? new RegExp(`@?${normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'ig')
+                : null;
+            const excluded = /^(?:追蹤|正在追蹤|追蹤中|Follow|Following|已追蹤|取消追蹤|訊息|Message)$/i;
+            const candidates = [];
+            const addText = (value) => {
+                const lines = String(value || '')
+                    .split(/[\n\r·|]+/)
+                    .map(item => item.replace(/\s+/g, ' ').trim())
+                    .filter(Boolean);
+                lines.forEach(line => {
+                    let cleaned = usernamePattern ? line.replace(usernamePattern, ' ') : line;
+                    cleaned = cleaned.replace(/追蹤中|正在追蹤|已追蹤|取消追蹤|Follow(?:ing)?|訊息|Message/ig, ' ')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+                    if (!cleaned || excluded.test(cleaned) || /^https?:\/\//i.test(cleaned)) return;
+                    if (!candidates.includes(cleaned)) candidates.push(cleaned);
+                });
+            };
+            addText(row?.innerText || row?.textContent || '');
+            Array.from(row?.querySelectorAll?.('span,div,p,strong') || []).slice(0, 40)
+                .forEach(node => addText(node.innerText || node.textContent || ''));
+            const chinese = candidates.find(value => /[\u3400-\u9fff]/.test(value) && value.length <= 80);
+            return String(chinese || candidates[0] || '').slice(0, 160);
+        },
+
         isFreshRunningState: (state = {}, now = Date.now()) => {
             const status = String(state.status || '');
             if (!Core.ThreeNoWatch.isRunningStatus(status)) return false;
@@ -366,7 +498,7 @@ Object.assign(Core, {
             }
             const rows = Core.ThreeNoWatch.getScanDebugLog()
                 .filter(row => row?.scanId !== target);
-            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, rows.slice(-600));
+            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, compactThreeNoScanDebugRows(rows));
         },
 
         appendScanDebugLog: (state = {}) => {
@@ -395,10 +527,15 @@ Object.assign(Core, {
                     : 0,
                 step: String(debug.step || ''),
                 url: String(debug.url || window.location.href || '').slice(0, 500),
+                ...(debug.step === 'collect_followers_scroll'
+                    ? Object.fromEntries(THREE_NO_SCAN_SCROLL_DEBUG_FIELDS
+                        .filter(field => Object.prototype.hasOwnProperty.call(debug, field))
+                        .map(field => [field, debug[field]]))
+                    : {}),
                 debug: Core.ThreeNoWatch.sanitizeDebugValue(debug),
             };
             rows.push(entry);
-            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, rows.slice(-600));
+            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, compactThreeNoScanDebugRows(rows));
         },
 
         // 2.8：擷取 request token 的 page bridge 與 installNetworkDiscoveryListener 已移除，
@@ -436,7 +573,7 @@ Object.assign(Core, {
                     ...detail,
                 }),
             });
-            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, rows.slice(-600));
+            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, compactThreeNoScanDebugRows(rows));
         },
 
         networkHrefKindToProbeKind: (hrefKind = '') => {
@@ -511,7 +648,7 @@ Object.assign(Core, {
                     ...detail,
                 }),
             });
-            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, rows.slice(-600));
+            Storage.setJSON(CONFIG.KEYS.THREE_NO_SCAN_DEBUG_LOG, compactThreeNoScanDebugRows(rows));
         },
 
         clearStaleScanIfNeeded: (reason = 'stale_scan_worker_missing') => {
@@ -1219,6 +1356,18 @@ Object.assign(Core, {
                 batchSize,
                 previousScannedCount: scannedSet.size,
             });
+            if (isFollowerRosterCaptureActive()) {
+                try {
+                    Storage.beginThreeNoFollowerRoster({
+                        scanId,
+                        scanTargetOwner: owner,
+                        scanDate,
+                        startedAt,
+                    });
+                } catch (_) {
+                    // 名冊取證失敗不得影響既有三無掃描。
+                }
+            }
 
             await Utils.safeSleep(2500);
             if (await Core.ThreeNoWatch.observeStop('stopped_before_followers_dialog')) return;
@@ -1258,6 +1407,10 @@ Object.assign(Core, {
                 collection = await Core.ThreeNoWatch.collectFollowerUsernames(dialog, owner, {
                     skipUsers: workingScannedSet,
                     batchSize,
+                    scanId,
+                    scanTargetOwner: owner,
+                    scanDate,
+                    startedAt,
                 });
                 autoRounds++;
                 if (await Core.ThreeNoWatch.observeStop('stopped_after_followers_collection')) return;
@@ -2068,6 +2221,51 @@ Object.assign(Core, {
             const normalUsernameSkippedUsers = new Set();
             const suspiciousUsernameUsers = new Set();
             const seen = new Set();
+            const rosterEnabled = isFollowerRosterCaptureActive();
+            const scanId = String(options.scanId || Core.ThreeNoWatch.getScanState()?.scanId || '').trim();
+            const rosterScanId = scanId || 'three-no:local-roster';
+            const rosterBase = rosterEnabled ? Storage.getThreeNoFollowerRoster() : null;
+            const rosterRows = rosterEnabled && rosterBase?.scanId === rosterScanId
+                ? (Array.isArray(rosterBase.rows) ? rosterBase.rows.map(row => ({ ...row })) : [])
+                : [];
+            const rosterKeys = new Set(rosterRows.map(row => String(row.username || '').toLowerCase()).filter(Boolean));
+            let rosterObservedCount = rosterEnabled && rosterBase?.scanId === rosterScanId
+                ? Math.max(rosterRows.length, parseInt(rosterBase.observedCount || '0', 10) || 0)
+                : 0;
+            let rosterTruncated = rosterEnabled && rosterBase?.scanId === rosterScanId && rosterBase.truncated === true;
+            const rosterProcessingStatusCounts = rosterEnabled && rosterBase?.scanId === rosterScanId
+                && rosterBase.processingStatusCounts && typeof rosterBase.processingStatusCounts === 'object'
+                ? Object.fromEntries(THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES.map(status => [
+                    status,
+                    Math.max(0, parseInt(rosterBase.processingStatusCounts[status] || '0', 10) || 0),
+                ]))
+                : Object.fromEntries(THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES.map(status => [status, 0]));
+            const noteRosterRow = (username, link, suspiciousUsername, isTriaged, hasVisibleAvatar, processingStatus) => {
+                if (!rosterEnabled) return;
+                const key = String(username || '').toLowerCase();
+                if (!key || rosterKeys.has(key)) return;
+                const normalizedProcessingStatus = THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES.includes(processingStatus)
+                    ? processingStatus
+                    : 'triage_incomplete';
+                rosterObservedCount += 1;
+                rosterProcessingStatusCounts[normalizedProcessingStatus] += 1;
+                if (rosterRows.length >= THREE_NO_FOLLOWER_ROSTER_LIMIT) {
+                    rosterTruncated = true;
+                    return;
+                }
+                rosterRows.push({
+                    username,
+                    displayName: Core.ThreeNoWatch.followerListDisplayName(link, username),
+                    sequence: rosterRows.length + 1,
+                    hasVisibleAvatar: hasVisibleAvatar === true,
+                    suspiciousUsername: suspiciousUsername === true,
+                    isTriaged: isTriaged === true,
+                    isThreeNo: false,
+                    finalized: false,
+                    processingStatus: normalizedProcessingStatus,
+                });
+                rosterKeys.add(key);
+            };
             let stagnant = 0;
             await Core.ThreeNoWatch.waitForFollowersListMedia(dialog);
             const extract = () => {
@@ -2084,19 +2282,56 @@ Object.assign(Core, {
                     const match = href.match(/\/@([^/?#]+)/);
                     const u = match ? Core.ThreeNoWatch.normalizeUsername(match[1]) : '';
                     if (!u || u === owner || u.includes('/post')) return;
+                    if (seen.has(u)) return;
                     seen.add(u);
-                    if (skipUsers.has(u) || triaged.has(u)) return;
-                    const suspiciousUsername = Core.ThreeNoWatch.usernameMatchesSuspiciousThreeNoCandidate(u);
-                    const hasVisibleAvatar = CONFIG.THREE_NO_SCAN_PREFILTER_AVATAR === true
-                        && Core.ThreeNoWatch.followerListRowHasVisibleAvatar(a);
+                    let suspiciousUsername = false;
+                    let hasVisibleAvatar = false;
+                    if (rosterEnabled) {
+                        try {
+                            suspiciousUsername = Core.ThreeNoWatch.usernameMatchesSuspiciousThreeNoCandidate(u);
+                        } catch (_) {}
+                        try {
+                            hasVisibleAvatar = Core.ThreeNoWatch.followerListRowHasVisibleAvatar(a);
+                        } catch (_) {}
+                    }
+                    if (skipUsers.has(u)) {
+                        try {
+                            noteRosterRow(u, a, suspiciousUsername, false, hasVisibleAvatar, 'skipped_known');
+                        } catch (_) {}
+                        return;
+                    }
+                    if (triaged.has(u)) return;
+                    if (!rosterEnabled) {
+                        suspiciousUsername = Core.ThreeNoWatch.usernameMatchesSuspiciousThreeNoCandidate(u);
+                        // 正式版沿用既有頭像預過濾語義，beta 名冊重用同一次讀取結果。
+                        hasVisibleAvatar = CONFIG.THREE_NO_SCAN_PREFILTER_AVATAR === true
+                            ? Core.ThreeNoWatch.followerListRowHasVisibleAvatar(a)
+                            : false;
+                    }
+                    const prefilterHasVisibleAvatar = CONFIG.THREE_NO_SCAN_PREFILTER_AVATAR === true
+                        && hasVisibleAvatar;
+                    if (rosterEnabled) {
+                        try {
+                            noteRosterRow(
+                                u,
+                                a,
+                                suspiciousUsername,
+                                true,
+                                hasVisibleAvatar,
+                                prefilterHasVisibleAvatar && !suspiciousUsername
+                                    ? 'skipped_visible_avatar'
+                                    : 'triage_incomplete',
+                            );
+                        } catch (_) {}
+                    }
                     triaged.add(u);
                     if (suspiciousUsername) suspiciousUsernameUsers.add(u);
-                    if (hasVisibleAvatar && !suspiciousUsername) {
+                    if (prefilterHasVisibleAvatar && !suspiciousUsername) {
                         avatarSkippedUsers.add(u);
                         normalUsernameSkippedUsers.add(u);
                         return;
                     }
-                    if (!hasVisibleAvatar) noAvatarCandidateUsers.add(u);
+                    if (!prefilterHasVisibleAvatar) noAvatarCandidateUsers.add(u);
                     users.add(u);
                 });
                 return {
@@ -2188,6 +2423,24 @@ Object.assign(Core, {
             }
             if (Core.ThreeNoWatch.isStopRequested()) stopped = true;
             extract();
+            if (rosterEnabled) {
+                try {
+                    Storage.setThreeNoFollowerRoster({
+                        scanId: rosterScanId,
+                        scanTargetOwner: String(options.scanTargetOwner || owner || ''),
+                        scanDate: String(options.scanDate || ''),
+                        startedAt: parseInt(options.startedAt || '0', 10) || 0,
+                        capturedAt: rosterBase?.capturedAt || Date.now(),
+                        observedCount: rosterObservedCount,
+                        truncated: rosterTruncated,
+                        processingStatusCounts: rosterProcessingStatusCounts,
+                        status: 'scanning',
+                        rows: rosterRows,
+                    });
+                } catch (_) {
+                    // 名冊取證失敗不得影響既有三無結果。
+                }
+            }
             const skippedKnown = Array.from(seen).filter(u => skipUsers.has(u)).length;
             const usernames = Array.from(users).slice(0, max);
             const triagedUsernames = Array.from(triaged);
@@ -2266,6 +2519,10 @@ Object.assign(Core, {
                 stopped,
                 batchSize: max,
                 totalFollowersCount,
+                followerRosterCount: rosterEnabled ? rosterRows.length : 0,
+                followerRosterObservedCount: rosterEnabled ? rosterObservedCount : 0,
+                followerRosterTruncated: rosterEnabled ? rosterTruncated : false,
+                followerRosterProcessingStatusCounts: rosterEnabled ? { ...rosterProcessingStatusCounts } : {},
             };
         },
 
@@ -3487,6 +3744,7 @@ Object.assign(Core, {
             const owner = Core.ThreeNoWatch.normalizeUsername(runtime.owner || '');
             const scanDate = runtime.scanDate || Core.ThreeNoWatch.getLocalDayKey();
             const completedAt = Date.now();
+            const scanId = runtime.scanId || patch.scanId || `three-no:${scanDate}:${completedAt}`;
             const status = patch.status || 'completed';
             const completed = status === 'completed';
             const stopped = status === 'stopped';
@@ -3691,6 +3949,25 @@ Object.assign(Core, {
                 appendFinishDebug('finish_rejected_late_not_owned', beforePersist.status);
                 return false;
             }
+            if (isFollowerRosterCaptureActive()) {
+                const finalizedUsernames = completed
+                    ? batchUsernames
+                    : batchUsernames.slice(0, checkedCandidateCount);
+                try {
+                    const roster = Storage.finalizeThreeNoFollowerRoster({
+                        scanId,
+                        scanTargetOwner: runtime.scanTargetOwner || owner,
+                        scanDate,
+                        status,
+                        completedAt,
+                        findings,
+                        finalizedUsernames,
+                    });
+                    noteStorageWrite(roster, 1);
+                } catch (_) {
+                    // 名冊取證失敗不得影響既有三無結果與結算流程。
+                }
+            }
             const storageStartedAt = Date.now();
             recordFinishDiagnostic('storage', {
                 active: true,
@@ -3719,7 +3996,6 @@ Object.assign(Core, {
                 });
                 Storage.setThreeNoScanCursor(cursorPayload);
             }
-            const scanId = runtime.scanId || patch.scanId || `three-no:${scanDate}:${completedAt}`;
             const debugLog = Core.ThreeNoWatch.getScanDebugLog(scanId);
             const resultInput = {
                 scanId,
