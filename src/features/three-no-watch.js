@@ -2997,7 +2997,8 @@ Object.assign(Core, {
                     privateSignalMatchedText: base.privateSignalMatchedText || '',
                     probesCompleted: Object.keys(probes).join(','),
                 },
-                isThreeNo: noAvatar && (noBio || noPosts || noReplies || noReposts || suspiciousUsername || isPrivate),
+                // ADR 0022：noBio 與 isPrivate 僅為顯示訊號，不參與判定
+                isThreeNo: noAvatar && (noPosts || noReplies || noReposts || suspiciousUsername),
             };
         },
 
