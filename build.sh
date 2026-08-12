@@ -90,6 +90,19 @@ done
 
 echo "})();" >> "$TEMP_BUNDLE"
 
+# 打包產物語法檢查。各檔案獨立載入時合法的寫法，串成同一個範圍後可能違法，
+# 最典型的是兩個檔案宣告同名的 top-level const。單元測試逐檔 import，永遠
+# 測不到這種錯誤，但使用者拿到的就是這支串好的檔案，語法一錯整支不執行，
+# 畫面上連面板都不會出現。2.8.4-beta17／beta18 就是這樣壞的。
+if ! node --check "$TEMP_BUNDLE" 2>/tmp/hege_bundle_syntax.txt; then
+    echo "BUILD FAILED: 打包產物語法檢查未通過" >&2
+    cat /tmp/hege_bundle_syntax.txt >&2
+    rm -f /tmp/hege_bundle_syntax.txt
+    exit 1
+fi
+rm -f /tmp/hege_bundle_syntax.txt
+echo "打包產物語法檢查通過"
+
 
 # 1. UserScript Build
 cat <<EOF > "$OUT_FILE"
