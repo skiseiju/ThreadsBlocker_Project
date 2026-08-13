@@ -85,6 +85,10 @@ export const isDiagnosticMeasurementField = key => {
     return diagnosticMeasurementFieldSet.has(normalized) || /Count$/i.test(normalized);
 };
 
+// Block/report timestamp rings share one raw-retention contract. The debug
+// context has its own independent TTL in report-debug-context.js.
+export const BLOCK_RING_RETENTION_MS = 48 * 60 * 60 * 1000;
+
 // 三無追蹤者名冊的處理狀態列舉。唯一定義在這裡，storage.js 與 three-no-watch.js
 // 都從這裡引用。2.8.4-beta17／beta18 曾在兩個檔案各宣告一份，逐檔載入時合法，
 // 打包成同一支之後就是重複宣告，整支腳本不執行。
@@ -115,7 +119,8 @@ export const PINYIN_SURNAMES = Object.freeze([
 ]);
 
 export const CONFIG = {
-    VERSION: '2.8.4-beta29', // 確認 dialog 元素追蹤與 MutationObserver 關閉偵測（ADR 0027）
+    VERSION: '2.8.4-beta30', // 診斷簽章去重與 ring 保留窗 SSOT
+    BLOCK_RING_RETENTION_MS,
     // Confirmation dialog close detection is event-driven and deliberately not speed-scaled.
     CONFIRM_DIALOG_CLOSE_TIMEOUT_MS: 15000,
     // VERSION: '2.7.4-beta57' was the prior release baseline.

@@ -2,10 +2,9 @@
 // docs/adr/0021-daily-block-window-success-only.md、
 // docs/adr/0025-pinyin-active-accounts-enter-review-list-with-badge.md。
 // Simple Adapter for LocalStorage / SessionStorage with Memory Cache
-import { CONFIG, THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES } from './config.js';
+import { BLOCK_RING_RETENTION_MS, CONFIG, THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES } from './config.js';
 
 const BLOCK_WINDOW_MS = 24 * 60 * 60 * 1000;
-const BLOCK_RING_RETENTION_MS = 48 * 60 * 60 * 1000;
 const THREE_NO_FOLLOWER_ROSTER_SCHEMA = 'threadsblocker.three_no_follower_roster.v1';
 const normalizeBlockTimestamp = value => {
     const number = Number(value);
@@ -876,7 +875,7 @@ export const Storage = {
 
     recordReport: () => {
         const now = Date.now();
-        const cutoff = now - 48 * 60 * 60 * 1000;
+        const cutoff = now - BLOCK_RING_RETENTION_MS;
         const ring = Storage.getJSON(CONFIG.KEYS.REPORT_TIMESTAMPS_RING, [])
             .filter(t => typeof t === 'number' && t >= cutoff);
         ring.push(now);
@@ -885,7 +884,7 @@ export const Storage = {
 
     getReportsLast24h: () => {
         const now = Date.now();
-        const cutoff48h = now - 48 * 60 * 60 * 1000;
+        const cutoff48h = now - BLOCK_RING_RETENTION_MS;
         const cutoff24h = now - 24 * 60 * 60 * 1000;
         const ring = Storage.getJSON(CONFIG.KEYS.REPORT_TIMESTAMPS_RING, [])
             .filter(t => typeof t === 'number' && t >= cutoff48h);
