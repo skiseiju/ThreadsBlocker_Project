@@ -64,6 +64,7 @@ const { Worker, BATCH_VERIFY_ROUTE_RETRY_TTL_MS } = await import('../src/worker.
 
 const original = {
     pollUntil: Utils.pollUntil,
+    waitForElementRemoval: Utils.waitForElementRemoval,
     safeSleep: Utils.safeSleep,
     speedSleep: Utils.speedSleep,
     simClick: Utils.simClick,
@@ -93,6 +94,7 @@ const resetFixture = () => {
     Worker._diagnosticOperationId = null;
     Worker._diagnosticOperationFeature = 'blocking';
     Worker.stats = { success: 0, skipped: 0, failed: 0, vanished: 0, startTime: 0 };
+    Utils.waitForElementRemoval = original.waitForElementRemoval;
     Worker.resolveProfileRootWithRetry = original.resolveProfileRootWithRetry;
     Worker.findMoreButton = original.findMoreButton;
     Worker.blockVisualStep = original.blockVisualStep;
@@ -105,6 +107,7 @@ const resetFixture = () => {
 
 test.after(() => {
     Utils.pollUntil = original.pollUntil;
+    Utils.waitForElementRemoval = original.waitForElementRemoval;
     Utils.safeSleep = original.safeSleep;
     Utils.speedSleep = original.speedSleep;
     Utils.simClick = original.simClick;
@@ -122,6 +125,7 @@ test.after(() => {
 
 test('beta28 A：確認 dialog 延遲關閉時，固定 safeSleep 複驗改判成功', async () => {
     resetFixture();
+    assert.equal(CONFIG.VERSION, '2.8.4-beta29');
     let dialogOpen = true;
     const safeSleepCalls = [];
     const diagnostics = [];
@@ -169,8 +173,11 @@ test('beta28 A：確認 dialog 延遲關閉時，固定 safeSleep 複驗改判�
         pollCount += 1;
         if (pollCount === 1) return { action: 'found', btn: blockButton };
         if (pollCount === 2) return confirmButton;
-        return null; // confirmation dialog remains during the original 5s close poll
+        return null;
     };
+    // beta28 regression fixture intentionally exercises the unchanged timeout
+    // fallback; the beta29 observer helper has its own dedicated tests.
+    Utils.waitForElementRemoval = async () => null;
     document.querySelectorAll = selector => {
         if (selector === 'div[role="dialog"]') return dialogOpen ? [{}] : [];
         return [];

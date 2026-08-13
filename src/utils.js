@@ -1,6 +1,9 @@
 import { CONFIG } from './config.js';
 import { Storage } from './storage.js';
 
+// 相關 ADR：docs/adr/0027-dialog-close-detection-observer.md（確認 dialog 元素移除等待）、
+// docs/adr/0026-failure-verdict-recheck-and-failed-list-reverify.md（超時後的 fallback 由 worker 維持）。
+
 export const BACKGROUND_WORKER_RUNNING_WINDOW_MS = 10000;
 export const BACKGROUND_WORKER_BUSY_WINDOW_MS = 30000;
 
@@ -190,6 +193,82 @@ export const Utils = {
         }
         return conditionFn(); // 最後一次嘗試
     },
+
+    // 等待指定元素被移除或變得不可見。確認 dialog 使用 MutationObserver，
+    // 以避免背景分頁的 setTimeout 節流；getBoundingClientRect() 是刻意選用的
+    // 可見性判斷，因為 offsetParent 對 position:fixed 等合法 dialog 可能是 null。
+    // 初次同步檢查與 observer 掛上後再檢查各做一次，縮小點擊後立即卸載的競態窗。
+    // 所有結束路徑都透過 finish() 清理 observer 與 timeout。
+    waitForElementRemoval: (element, checkForError, timeoutMs = CONFIG.CONFIRM_DIALOG_CLOSE_TIMEOUT_MS) => new Promise(resolve => {
+        let observer = null;
+        let timeoutId = null;
+        let settled = false;
+
+        const cleanup = () => {
+            if (timeoutId !== null) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+            }
+            if (observer) {
+                try { observer.disconnect(); } catch (e) {}
+                observer = null;
+            }
+        };
+        const finish = result => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            resolve(result);
+        };
+        const isGoneOrHidden = () => {
+            if (!element) return false;
+            // Real DOM elements expose a boolean isConnected property. Do not
+            // treat test doubles/legacy hosts without that property as removed.
+            if (typeof element.isConnected === 'boolean' && !element.isConnected) return true;
+            if (typeof element.getBoundingClientRect === 'function') {
+                const rect = element.getBoundingClientRect();
+                if (Number(rect?.width) === 0 || Number(rect?.height) === 0) return true;
+            }
+            return false;
+        };
+        const check = () => {
+            try {
+                if (isGoneOrHidden()) {
+                    finish('success');
+                    return true;
+                }
+                if (typeof checkForError === 'function' && checkForError()) {
+                    finish('cooldown');
+                    return true;
+                }
+                return false;
+            } catch (e) {
+                // MutationObserver callbacks run after the setup try/catch;
+                // keep their exception path bounded and disconnect the observer.
+                finish(null);
+                return true;
+            }
+        };
+
+        try {
+            // The dialog may have closed between the click and observer setup.
+            if (check()) return;
+
+            const body = typeof document !== 'undefined' ? document.body : null;
+            if (typeof MutationObserver !== 'function' || !body) {
+                timeoutId = setTimeout(() => finish(null), timeoutMs);
+                return;
+            }
+
+            observer = new MutationObserver(check);
+            observer.observe(body, { childList: true, subtree: true });
+            timeoutId = setTimeout(() => finish(null), timeoutMs);
+            // Close the small gap between the initial check and observe().
+            check();
+        } catch (e) {
+            finish(null);
+        }
+    }),
 
     log: (msg) => {
         if (!CONFIG.DEBUG_MODE) return;

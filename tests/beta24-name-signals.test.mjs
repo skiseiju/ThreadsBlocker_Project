@@ -96,7 +96,7 @@ const pinyinCases = [
 ];
 
 test('beta24 narrows pinyin matches to mainland-distinctive initials', () => {
-    assert.equal(CONFIG.VERSION, '2.8.4-beta28');
+    assert.equal(CONFIG.VERSION, '2.8.4-beta29');
     for (const [username, expected] of pinyinCases) {
         assert.equal(analyze(username) !== null, expected, `${username} analyze mismatch`);
         assert.equal(matchesPinyinName(username), expected, `${username} matchesPinyinName mismatch`);

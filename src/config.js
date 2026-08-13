@@ -8,6 +8,7 @@
 // docs/adr/0023-three-no-storage-quota-resilience.md、
 // docs/adr/0025-pinyin-active-accounts-enter-review-list-with-badge.md。
 // docs/adr/0026-failure-verdict-recheck-and-failed-list-reverify.md。
+// docs/adr/0027-dialog-close-detection-observer.md。
 // 診斷簽章只保留能描述目前狀態的欄位。所有去重呼叫點都使用這份清單，
 // 量測值仍保留在診斷 fields，但不參與簽章比較。
 export const DIAGNOSTIC_SIGNATURE_MEASUREMENT_FIELDS = Object.freeze([
@@ -114,7 +115,9 @@ export const PINYIN_SURNAMES = Object.freeze([
 ]);
 
 export const CONFIG = {
-    VERSION: '2.8.4-beta28', // 失敗定案前複驗與失敗名單重新驗證（ADR 0026）
+    VERSION: '2.8.4-beta29', // 確認 dialog 元素追蹤與 MutationObserver 關閉偵測（ADR 0027）
+    // Confirmation dialog close detection is event-driven and deliberately not speed-scaled.
+    CONFIRM_DIALOG_CLOSE_TIMEOUT_MS: 15000,
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。

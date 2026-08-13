@@ -1,7 +1,8 @@
 // 相關 ADR：docs/adr/0012-profile-identity-gate-relaxed-fallback.md、
 // docs/adr/0013-lightweight-diagnostics-by-default.md、
 // docs/adr/0021-daily-block-window-success-only.md、
-// docs/adr/0026-failure-verdict-recheck-and-failed-list-reverify.md。
+// docs/adr/0026-failure-verdict-recheck-and-failed-list-reverify.md、
+// docs/adr/0027-dialog-close-detection-observer.md。
 import { CONFIG } from './config.js';
 import { Utils } from './utils.js';
 import { Storage } from './storage.js';
@@ -2894,6 +2895,7 @@ export const Worker = {
             Utils.simClick(blockBtn);
 
             // 3. Wait for Confirmation Dialog (智慧等待)
+            let confirmDialog = null;
             let confirmBtn = await Utils.pollUntil(() => {
                 const dialogs = document.querySelectorAll('div[role="dialog"]');
                 for (let dialog of dialogs) {
@@ -2908,9 +2910,15 @@ export const Worker = {
                         if (isCancelBtn) continue;
 
                         if (isUnblock) {
-                            if (Utils.isUnblockText(t)) return btn;
+                            if (Utils.isUnblockText(t)) {
+                                confirmDialog = dialog;
+                                return btn;
+                            }
                         } else {
-                            if (Utils.isBlockText(t)) return btn;
+                            if (Utils.isBlockText(t)) {
+                                confirmDialog = dialog;
+                                return btn;
+                            }
                         }
                     }
                 }
@@ -2967,16 +2975,20 @@ export const Worker = {
             Utils.simClick(confirmBtn);
 
             // 4. Wait for confirmation dialog to close (智慧等待)
-            const closeResult = await Utils.pollUntil(() => {
-                const dialogs = document.querySelectorAll('div[role="dialog"]');
-                if (dialogs.length === 0) return 'success';
-                if (checkForError()) return 'cooldown';
-                return null;
-            }, 5000, 150);
+            const closeResult = await Utils.waitForElementRemoval(
+                confirmDialog,
+                checkForError,
+                CONFIG.CONFIRM_DIALOG_CLOSE_TIMEOUT_MS,
+            );
 
             if (closeResult === 'success') {
                 confirmationCompletedAt = Date.now();
-                recordDiagnostic('confirm_resolve', 'success');
+                recordDiagnostic('confirm_resolve', 'success', {}, {
+                    // mutationTrigger is already part of the privacy-safe diagnostic
+                    // whitelist and records that the new observer path completed.
+                    mutationTrigger: true,
+                    observer: true,
+                });
                 setStep(isUnblock ? '✅ 已解除封鎖' : '✅ 已封鎖');
                 Core.ThreeNoWatch?.appendNetworkActionMarker?.(isUnblock ? 'unblock_success' : 'block_success', {
                     user,
