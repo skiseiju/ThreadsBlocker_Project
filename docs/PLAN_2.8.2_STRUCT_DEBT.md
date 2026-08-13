@@ -594,3 +594,4 @@ const adjustedMax = Math.max(2000, Math.round(maxMs * profile.multiplier));
 3. bump `src/config.js` → `./build.sh --no-bump`
 4. 使用者實機測（照該項驗收）
 5. 過了才 commit，訊息寫「為什麼」；BUGLIST／本表同步更新狀態
+6. **回掃全表**：這次改動有沒有順手解掉或影響其他編號？有就一併更新該行狀態，不留「程式已修、表還掛未動工」的殭屍列（教訓：#25 被簽章重構順手修掉後在表上多掛了一週）
