@@ -7,20 +7,25 @@
  * ── 安裝步驟 ──────────────────────────────────────────────
  * 1. 開啟目標試算表 → 擴充功能 → Apps Script，把本檔內容整份貼上。
  * 2. 在 setupProperties() 頂端填入 TOKEN 與 NOTIFY_EMAIL，手動執行一次。
- *    ENDPOINT、SHEET_NAME、CURSOR_ID 會自動使用安全預設值。
+ *    若 GitHub repo 是 private，可另外暫時填入 GITHUB_TOKEN；公開 repo 會先匿名抓取。
+ *    ENDPOINT、SHEET_NAME、CURSOR_ID、GITHUB_TOKEN 會自動使用安全預設值。
  *    執行成功後，把 TOKEN 變數清回空字串；token 最終只留在指令碼屬性。
  *
  * 3. 先手動執行一次 syncBugReports()，確認授權與寫入正常。
  * 4. 觸發條件 → 新增觸發條件 → syncBugReports / 時間driven / 每日 / 上午 9-10 點。
- * 5. （建議）再加一個觸發條件跑 healthCheck，每日 18-19 點，
+ * 5. （建議）再加一個觸發條件跑 syncWorkItems，每日 / 每 6 小時一次，
+ *    讓「工作項」分頁跟著 PLAN markdown 更新。
+ * 6. （可選）若要更頻繁更新 H，可另外掛 refreshBackendStatuses 觸發器。
+ * 7. （建議）再加一個觸發條件跑 healthCheck，每日 18-19 點，
  *    用來抓「同步靜默失敗」——沒同步成功時會寄告警信。
  *
  * ── 設計約束 ──────────────────────────────────────────────
  * - 單向：D1 → 試算表。試算表的處理狀態不回寫後端。
- * - 腳本只 append 新列，永遠不修改既有列的任何欄位。
- * - I、J 欄是人工地盤，腳本不讀也不寫。H 欄是 D1 狀態在匯入當下的快照，
- *   之後不會被更新，因此不會與人工維護的 I 欄打架。
+ * - 腳本只 append 新列；既有「回報」列只允許 H 欄依 D1 狀態更新，A-G、I、J 永不回頭修改。
+ * - I、J 欄是人工地盤，腳本不讀也不寫。H 欄是腳本維護的 D1 狀態活鏡像，
+ *   與人工維護的 I 欄分工不變：H 看後端，I 看人工處理判斷。
  * - 去重靠 A 欄的回報 ID，因此重複執行不會產生重複列。
+ * - 「工作項」分頁完全由腳本擁有，來源是 PLAN markdown；每次同步先清空再全量寫入。
  */
 
 const COLUMNS = [
@@ -31,14 +36,26 @@ const COLUMNS = [
   '問題描述',     // E  message 全文
   '錯誤訊息',     // F  error_name / error_message
   '持續性 ID',    // G  hwid，刪除要求時用來比對
-  '後端狀態',     // H  D1 status 匯入當下的快照（ACK/PENDING/IGNORED/FIXED）
+  '後端狀態',     // H  腳本維護的 D1 status 活鏡像（ACK/PENDING/IGNORED/FIXED）
   '處理狀態',     // I  ← 人工
   '備註',         // J  ← 人工
+];
+
+const WORK_ITEM_COLUMNS = [
+  '編號',
+  '版本',
+  '來源',
+  '一句話',
+  '規模',
+  '狀態',
+  '同步時間',
 ];
 
 const SCRIPT_WRITTEN_COLUMNS = 8; // A–H。I、J 不由腳本填寫。
 const FETCH_LIMIT = 200;          // 後端 clampInt 上限即為 200
 const TZ = 'Asia/Taipei';
+const WORK_ITEMS_PLAN_URL = 'https://raw.githubusercontent.com/skiseiju/ThreadsBlocker_Project/main/docs/PLAN_2.8.2_STRUCT_DEBT.md';
+const WORK_ITEM_HEADERS = ['編號', '版本', '來源', '一句話', '規模', '狀態'];
 
 function props_() {
   return PropertiesService.getScriptProperties();
@@ -51,6 +68,7 @@ function props_() {
 function setupProperties() {
   const TOKEN = '';
   const NOTIFY_EMAIL = '';
+  const GITHUB_TOKEN = '';
 
   const token = TOKEN.trim();
   const notifyEmail = NOTIFY_EMAIL.trim();
@@ -58,15 +76,18 @@ function setupProperties() {
   if (!notifyEmail) throw new Error('請先在 setupProperties() 頂端填入 NOTIFY_EMAIL。');
 
   const properties = props_();
+  const githubToken = GITHUB_TOKEN.trim() || (properties.getProperty('GITHUB_TOKEN') || '').trim();
   properties.setProperties({
     ENDPOINT: 'https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/admin/bugs',
     TOKEN: token,
     SHEET_NAME: '回報',
     NOTIFY_EMAIL: notifyEmail,
     CURSOR_ID: properties.getProperty('CURSOR_ID') || '0',
+    GITHUB_TOKEN: githubToken,
+    WORK_ITEMS_SHEET_NAME: properties.getProperty('WORK_ITEMS_SHEET_NAME') || '工作項',
   }, false);
 
-  console.log('已設定指令碼屬性：ENDPOINT、TOKEN、SHEET_NAME、NOTIFY_EMAIL、CURSOR_ID（未輸出任何屬性值）。');
+  console.log('已設定指令碼屬性：ENDPOINT、TOKEN、SHEET_NAME、NOTIFY_EMAIL、CURSOR_ID、GITHUB_TOKEN（未輸出任何屬性值）。');
 }
 
 function requireProp_(key) {
@@ -78,19 +99,19 @@ function requireProp_(key) {
 }
 
 /**
- * 取得（必要時建立）工作表，並確保標題列存在。
+ * 取得（必要時建立）由腳本管理的工作表，並確保標題列存在。
  *
  * 以 gid 為主要依據：分頁一旦建立就把 gid 存進屬性，之後永遠認同一個分頁。
  * 只靠名稱查找不夠可靠——名稱被改、前後有空白、或 getSheetByName 沒對上，
  * 都會讓每次執行又插一個新分頁。
  */
-function getSheet_() {
+function getManagedSheet_(nameKey, defaultName, gidKey, columns, configure) {
   const properties = props_();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const name = (properties.getProperty('SHEET_NAME') || '回報').trim();
+  const name = (properties.getProperty(nameKey) || defaultName).trim();
   let sheet = null;
 
-  const gid = properties.getProperty('SHEET_GID');
+  const gid = properties.getProperty(gidKey);
   if (gid) {
     sheet = ss.getSheets().filter(s => String(s.getSheetId()) === String(gid))[0] || null;
   }
@@ -106,15 +127,27 @@ function getSheet_() {
       if (!sheet) throw err;
     }
   }
-  properties.setProperty('SHEET_GID', String(sheet.getSheetId()));
+  properties.setProperty(gidKey, String(sheet.getSheetId()));
 
   if (sheet.getLastRow() === 0) {
-    sheet.getRange(1, 1, 1, COLUMNS.length).setValues([COLUMNS]);
+    sheet.getRange(1, 1, 1, columns.length).setValues([columns]);
     sheet.setFrozenRows(1);
-    sheet.getRange(1, 1, 1, COLUMNS.length).setFontWeight('bold');
-    sheet.setColumnWidth(5, 420); // 問題描述給寬一點
+    sheet.getRange(1, 1, 1, columns.length).setFontWeight('bold');
+    if (configure) configure(sheet);
   }
   return sheet;
+}
+
+function getSheet_() {
+  return getManagedSheet_('SHEET_NAME', '回報', 'SHEET_GID', COLUMNS, sheet => {
+    sheet.setColumnWidth(5, 420); // 問題描述給寬一點
+  });
+}
+
+function getWorkItemsSheet_() {
+  return getManagedSheet_('WORK_ITEMS_SHEET_NAME', '工作項', 'WORK_ITEMS_SHEET_GID', WORK_ITEM_COLUMNS, sheet => {
+    sheet.setColumnWidth(4, 420); // 一句話給寬一點
+  });
 }
 
 /** 讀出 A 欄既有的回報 ID，用於去重。 */
@@ -198,6 +231,7 @@ function syncBugReports() {
     .sort((a, b) => Number(a.id) - Number(b.id));
 
   if (fresh.length === 0) {
+    refreshBackendStatuses();
     props_().setProperty('LAST_SYNC_AT', new Date().toISOString());
     console.log('沒有新回報，不寄信。');
     return;
@@ -207,13 +241,202 @@ function syncBugReports() {
   const startRow = sheet.getLastRow() + 1;
   sheet.getRange(startRow, 1, rows.length, SCRIPT_WRITTEN_COLUMNS).setValues(rows);
 
-  // 全部寫入成功後才推進 cursor 與 last-sync。
+  // 全部新列寫入成功後才推進 cursor；後端狀態鏡像成功後才記 last-sync。
   const maxId = Math.max(...fresh.map(r => Number(r.id)));
   props_().setProperty('CURSOR_ID', String(maxId));
+  refreshBackendStatuses();
   props_().setProperty('LAST_SYNC_AT', new Date().toISOString());
-
   sendDigest_(fresh);
   console.log(`新增 ${fresh.length} 筆，cursor=${maxId}`);
+}
+
+/**
+ * 將 D1 的最新狀態同步回「回報」分頁 H 欄。
+ * 只讀 A、H 兩欄；I、J 以及其他欄位完全不碰。
+ */
+function refreshBackendStatuses() {
+  const reports = fetchReports_();
+  const sheet = getSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    console.log('沒有既有回報列，略過後端狀態更新。');
+    return;
+  }
+
+  const idValues = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  const statusValues = sheet.getRange(2, 8, lastRow - 1, 1).getValues();
+  const statusById = new Map();
+  for (const report of reports) {
+    if (!report || report.id === undefined || report.id === null) continue;
+    statusById.set(String(report.id), report.status == null ? '' : String(report.status));
+  }
+
+  let changed = 0;
+  let runStart = -1;
+  let runValues = [];
+  const flush = () => {
+    if (runStart < 0) return;
+    sheet.getRange(runStart + 2, 8, runValues.length, 1).setValues(runValues);
+    runStart = -1;
+    runValues = [];
+  };
+
+  for (let index = 0; index < idValues.length; index += 1) {
+    const rawId = idValues[index][0];
+    if (rawId === '' || rawId === null || rawId === undefined) {
+      flush();
+      continue;
+    }
+
+    const id = String(rawId);
+    if (!statusById.has(id)) {
+      flush();
+      continue;
+    }
+
+    const nextStatus = statusById.get(id);
+    const currentStatus = statusValues[index][0] == null ? '' : String(statusValues[index][0]);
+    if (currentStatus === nextStatus) {
+      flush();
+      continue;
+    }
+
+    if (runStart < 0) runStart = index;
+    runValues.push([nextStatus]);
+    changed += 1;
+  }
+  flush();
+
+  console.log(`後端狀態鏡像完成：${changed} 列更新。`);
+}
+
+function fetchWorkItemsPlan_() {
+  const token = (props_().getProperty('GITHUB_TOKEN') || '').trim();
+  const options = {
+    method: 'get',
+    muteHttpExceptions: true,
+  };
+  if (token) options.headers = { Authorization: `Bearer ${token}` };
+
+  const response = UrlFetchApp.fetch(WORK_ITEMS_PLAN_URL, options);
+  const status = response.getResponseCode();
+  if (status === 401 || status === 404) {
+    throw new Error(`GitHub PLAN 抓取失敗（HTTP ${status}）。若 repo 為 private，請在 Script Properties 設定 GITHUB_TOKEN。`);
+  }
+  if (status !== 200) {
+    throw new Error(`GitHub PLAN 抓取失敗（HTTP ${status}）：${response.getContentText().slice(0, 300)}`);
+  }
+  return response.getContentText();
+}
+
+function splitMarkdownRow_(line) {
+  const trimmed = String(line || '').trim();
+  if (!trimmed.startsWith('|') || !trimmed.endsWith('|')) return null;
+  return trimmed.slice(1, -1).split('|').map(cell => cell.trim());
+}
+
+function isMarkdownSeparator_(cells) {
+  return cells.length === WORK_ITEM_HEADERS.length
+    && cells.every(cell => /^:?-{3,}:?$/.test(cell));
+}
+
+function parseWorkItems_(markdown) {
+  const lines = String(markdown || '').split(/\r?\n/);
+  let headerIndex = -1;
+  for (let index = 0; index < lines.length; index += 1) {
+    const cells = splitMarkdownRow_(lines[index]);
+    if (cells && cells.length === WORK_ITEM_HEADERS.length
+      && cells.every((cell, cellIndex) => cell === WORK_ITEM_HEADERS[cellIndex])) {
+      headerIndex = index;
+      break;
+    }
+  }
+  if (headerIndex < 0) throw new Error('PLAN markdown 找不到第一個工作項總表。');
+
+  const items = [];
+  let foundSeparator = false;
+  for (let index = headerIndex + 1; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim();
+    if (!trimmed) {
+      if (items.length > 0) break;
+      continue;
+    }
+
+    const cells = splitMarkdownRow_(lines[index]);
+    if (!cells) {
+      if (items.length > 0) {
+        if (trimmed.startsWith('|') || trimmed.endsWith('|')) {
+          throw new Error(`PLAN 總表第 ${index + 1} 行不是完整 markdown 表格列。`);
+        }
+        break;
+      }
+      throw new Error(`PLAN 總表第 ${index + 1} 行不是 markdown 表格列。`);
+    }
+    if (isMarkdownSeparator_(cells)) {
+      foundSeparator = true;
+      continue;
+    }
+    if (!foundSeparator) throw new Error('PLAN 總表缺少分隔列。');
+    if (cells.length !== WORK_ITEM_HEADERS.length) {
+      throw new Error(`PLAN 總表第 ${index + 1} 行欄數錯誤：預期 ${WORK_ITEM_HEADERS.length} 欄，實際 ${cells.length} 欄。`);
+    }
+
+    items.push({
+      id: cells[0],
+      version: cells[1],
+      source: cells[2],
+      summary: cells[3],
+      size: cells[4],
+      status: cells[5].replace(/\*\*/g, '').trim(),
+    });
+  }
+
+  if (!foundSeparator || items.length === 0) {
+    throw new Error('PLAN 總表沒有可同步的工作項資料列。');
+  }
+  return items;
+}
+
+function applyWorkItemColors_(sheet, items) {
+  items.forEach((item, index) => {
+    const color = item.status.includes('Fixed')
+      ? '#d9ead3'
+      : item.status.includes('未動工')
+        ? '#f4cccc'
+        : '';
+    if (color) sheet.getRange(index + 2, 1, 1, WORK_ITEM_COLUMNS.length).setBackground(color);
+  });
+}
+
+/** 將 PLAN markdown 的第一個總表完整鏡像到「工作項」分頁。 */
+function syncWorkItems() {
+  try {
+    const items = parseWorkItems_(fetchWorkItemsPlan_());
+    const syncedAt = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm:ss');
+    const values = [WORK_ITEM_COLUMNS].concat(items.map(item => [
+      item.id,
+      item.version,
+      item.source,
+      item.summary,
+      item.size,
+      item.status,
+      syncedAt,
+    ]));
+
+    const sheet = getWorkItemsSheet_();
+    sheet.clear();
+    sheet.getRange(1, 1, values.length, WORK_ITEM_COLUMNS.length).setValues(values);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, WORK_ITEM_COLUMNS.length).setFontWeight('bold');
+    sheet.setColumnWidth(4, 420);
+    applyWorkItemColors_(sheet, items);
+
+    props_().setProperty('WORK_ITEMS_SYNC_AT', new Date().toISOString());
+    console.log(`工作項同步完成：${items.length} 筆。`);
+  } catch (err) {
+    notifyFailure_('工作項同步失敗', err && err.message ? err.message : String(err));
+    throw err;
+  }
 }
 
 function sendDigest_(reports) {
@@ -250,21 +473,36 @@ function notifyFailure_(reason, detail) {
   });
 }
 
+function syncAgeHours_(value) {
+  const timestamp = new Date(value).getTime();
+  if (isNaN(timestamp)) return Infinity;
+  return (Date.now() - timestamp) / 36e5;
+}
+
 /**
  * 每日傍晚跑一次，抓「同步靜默失敗」。
  * 沒有同步 = 收不到信 = 容易誤以為今天沒回報，這比沒有同步更危險。
  */
 function healthCheck() {
   const last = props_().getProperty('LAST_SYNC_AT');
+  const workItemsLast = props_().getProperty('WORK_ITEMS_SYNC_AT');
+  const failures = [];
+
   if (!last) {
-    notifyFailure_('同步從未成功執行過', '請手動執行 syncBugReports() 檢查設定。');
-    return;
+    failures.push('回報同步從未成功執行過；請手動執行 syncBugReports() 檢查設定。');
+  } else {
+    const hours = syncAgeHours_(last);
+    if (hours > 26) failures.push(`回報同步已 ${Math.floor(hours)} 小時未成功；最後一次：${last}`);
   }
-  const hours = (Date.now() - new Date(last).getTime()) / 36e5;
-  if (hours > 26) {
-    notifyFailure_(
-      `同步已 ${Math.floor(hours)} 小時未成功`,
-      `最後一次成功時間：${last}`
-    );
+
+  if (!workItemsLast) {
+    failures.push('工作項同步從未成功執行過；請手動執行 syncWorkItems() 檢查 GITHUB_TOKEN 與 PLAN URL。');
+  } else {
+    const workItemsHours = syncAgeHours_(workItemsLast);
+    if (workItemsHours > 26) {
+      failures.push(`工作項同步已 ${Math.floor(workItemsHours)} 小時未成功；最後一次：${workItemsLast}`);
+    }
   }
+
+  if (failures.length > 0) notifyFailure_('同步靜默失敗', failures.join('\n'));
 }

@@ -1,8 +1,8 @@
 # SDD：問題回報每日同步至 Google 試算表
 
-**文件狀態：** Draft（未實作）
+**文件狀態：** 已部署（2026-08 更新；文件開頭原「Draft（未實作）」標記已過時）
 **建立：** 2026-07-22
-**適用範圍：** `cf_bug_admin` Worker 新增唯讀 export endpoint、獨立 Apps Script 專案、既有回報試算表
+**適用範圍：** `scripts/gas/bug-report-sync.gs`、既有回報試算表、PLAN 工作項鏡像分頁
 **決策紀錄：** `docs/adr/0011-bug-report-sheet-sync.md`
 **相關：** `docs/BUG_ADMIN_PLATFORM.md`、`docs/BUG_REPORT_DELETION_RUNBOOK.md`
 
@@ -21,22 +21,28 @@
 ```
 D1 bug_reports  ← 回報內容唯一來源（SSOT）
       │
-      │ ① Apps Script 每日觸發器（台北時間 09:00）
-      │   GET /api/v1/reports/export?since=<cursor>&limit=<n>
-      │   Header: X-Export-Token: <REPORT_EXPORT_TOKEN>
-      ▼
-cf_bug_admin Worker
-      │ ② 回傳 cursor 之後的新回報 JSON
+      │ ① syncBugReports（台北時間每日觸發）
+      │   GET /api/v1/admin/bugs?limit=200
+      │   Header: Authorization: Bearer <TOKEN>
       ▼
 Apps Script
-      ├─ ③ append 新列到試算表（只 append）
-      ├─ ④ 更新 Script Properties 的 cursor
+      ├─ ② 新回報 append 到「回報」A–H
+      ├─ ③ refreshBackendStatuses 只更新既有列 H
+      ├─ ④ 更新 CURSOR_ID／LAST_SYNC_AT
       └─ ⑤ 有新回報才寄 email 摘要
+
+GitHub PLAN markdown  ← 工作項唯一來源（SSOT）
+      │ ⑥ syncWorkItems（建議每日或每 6 小時）
+      │   raw.githubusercontent.com（private repo 可帶 GITHUB_TOKEN）
+      ▼
+「工作項」分頁（整頁清空後重寫）
 ```
 
-資料流為單向：D1 → 試算表。試算表的處理狀態不回寫 D1。
+資料流為單向：D1 →「回報」、GitHub PLAN →「工作項」。試算表是唯讀鏡像；「回報」I／J 仍是人工處理欄，任何內容都不回寫 D1 或 GitHub。
 
-## 3. Worker：唯讀 export endpoint
+## 3. 歷史設計：Worker 唯讀 export endpoint（ADR 0011；非本次 GAS 鏡像路徑）
+
+> **2026-08 現況註：** 本節保留 ADR 0011 的原始 export endpoint 設計。已部署的 `scripts/gas/bug-report-sync.gs` 實際呼叫與欄位契約以第 5.2、5.5 節為準：`ENDPOINT?limit=200`、`Authorization: Bearer <TOKEN>`；本次更新沒有改動 Worker 或 D1 schema。
 
 ### 3.1 認證
 
@@ -99,13 +105,15 @@ Apps Script
 | E | 問題描述 | 腳本 | `message` 全文 |
 | F | 錯誤訊息 | 腳本 | `error_name` / `error_message` |
 | G | 持續性 ID | 腳本 | `hwid`，刪除要求時用來比對 |
-| H | 後端狀態 | 腳本 | D1 `status` 在**匯入當下**的快照 |
+| H | 後端狀態 | 腳本 | 腳本維護的 D1 `status` 活鏡像 |
 | I | 處理狀態 | **人工** | 待處理／處理中／已回覆／不處理 |
 | J | 備註 | **人工** | 自由填寫 |
 
-**腳本只寫 A–H，且只在 append 新列時寫入。腳本永遠不修改既有列的任何欄位。** I、J 由人工維護，腳本不得讀取或覆蓋。
+**腳本新增列時寫 A–H；既有「回報」列只允許更新 H。** A–G、I、J 永不回頭修改；I、J 由人工維護，腳本不得讀取或覆蓋。
 
-H 欄的定位要講清楚：它是 **D1 狀態在匯入那一刻的快照**，之後不會再更新。用途是讓歷史回報進來時就帶著既有的 `ACK` / `PENDING` / `IGNORED` / `FIXED`，不必從零重新分流。真正的處理狀態以人工維護的 I 欄為準——兩者刻意分開，H 不會覆蓋你在 I 的判斷。
+H 欄的定位要講清楚：它是 **腳本維護的 D1 狀態活鏡像**，每次 `syncBugReports()` 結尾會抓最近 200 筆並只更新有變的 H 儲存格。真正的人工處理狀態仍以 I 欄為準；H 不會覆蓋你在 I 的判斷。
+
+工作項分頁名稱為 `工作項`，欄位依序為：編號／版本／來源／一句話／規模／狀態／同步時間。它完全由腳本擁有，每次同步都先 `clear()` 再全量寫入；PLAN markdown 的第一個總表是 SSOT，試算表不接受人工修改作為來源。狀態含 `Fixed` 的資料列淺綠、含 `未動工` 的資料列淺紅，其餘不設背景色。
 
 （2026-07-22 現況：D1 共 37 筆回報，全部早於 2.8.0，狀態分布 ACK 18／PENDING 14／IGNORED 4／FIXED 1。這些狀態未反映 2.8.0 實際修掉的問題，需要人工在 I 欄逐筆判斷，不做批次標記。）
 
@@ -117,23 +125,23 @@ Script Properties：
 
 | Key | 說明 |
 |---|---|
-| `EXPORT_ENDPOINT` | Worker export endpoint URL |
-| `EXPORT_TOKEN` | `REPORT_EXPORT_TOKEN` |
-| `SHEET_ID` | 試算表 ID |
-| `NOTIFY_EMAIL` | `skiseiju@gmail.com` |
-| `CURSOR` | 上次同步到的 `created_at`，由腳本維護 |
+| `ENDPOINT` | Worker bug admin endpoint URL |
+| `TOKEN` | Worker admin read token |
+| `SHEET_NAME`／`SHEET_GID` | 「回報」分頁名稱／gid，由腳本維護 gid |
+| `NOTIFY_EMAIL` | 同步失敗與新回報摘要的收件者 |
+| `CURSOR_ID` | 已匯入的最大回報 ID，由腳本維護 |
+| `GITHUB_TOKEN` | private PLAN repo 的 GitHub Bearer token；空值時先匿名抓取 |
+| `WORK_ITEMS_SHEET_NAME`／`WORK_ITEMS_SHEET_GID` | 「工作項」分頁名稱／gid，由腳本維護 gid |
+| `LAST_SYNC_AT`／`WORK_ITEMS_SYNC_AT` | 最近一次成功同步時間，由腳本維護 |
 
 Token 只存在 Script Properties，不得寫進程式碼或 commit 進 repo。
 
 ### 5.2 同步流程
 
-1. 讀 `CURSOR`。首次執行時為空，此時只取最近 200 筆，避免一次灌入全部歷史。
-2. 呼叫 export endpoint，`has_more` 為 true 時繼續取下一批，單次執行最多 10 批（2000 筆）作為 runaway 保護。
-3. 讀取試算表 A 欄全部既有 ID 建成 Set。
-4. 過濾掉 Set 中已存在的 `report_id`。
-5. 用 `appendRow` 逐列寫入，或以單次 `setValues` 批次寫入新列區塊。
-6. 全部寫入成功後才更新 `CURSOR`。**寫入失敗不得更新 cursor**，確保下次重跑會補上。
-7. 新列數 > 0 時寄 email。
+1. 呼叫 `ENDPOINT?limit=200`，讀取 D1 最近回報。
+2. 讀取「回報」A 欄既有 ID 建成 Set，過濾重複後以批次 `setValues` append A–H 新列。
+3. 新列寫入成功後更新 `CURSOR_ID`；同一次執行結尾呼叫 `refreshBackendStatuses()`，只讀 A、H 並只批次更新有變的 H；I、J 與其他欄位不讀不寫。
+4. 後端狀態鏡像成功後才更新 `LAST_SYNC_AT`；新列數 > 0 時寄 email。
 
 ### 5.3 冪等性
 
@@ -149,12 +157,40 @@ Token 只存在 Script Properties，不得寫進程式碼或 commit 進 repo。
 - 主旨：`留友封 問題回報 N 筆（yyyy-MM-dd）`
 - 內容：每筆一行（ID／類型／描述前 60 字），結尾附試算表連結。
 
+### 5.5 2026-08 已部署功能：後端狀態活鏡像
+
+`refreshBackendStatuses()` 與 `fetchReports_()` 使用同一個 `ENDPOINT?limit=200`。它先建立回報 ID → D1 status 對照，再只讀「回報」A、H 欄；狀態有變時以連續區段批次寫回 H。找不到的 ID 不清空、不新增；A–G、I、J 永不修改。`syncBugReports()` 即使本次沒有新回報，也會在結尾執行這次鏡像更新。
+
+H 是腳本維護的 D1 鏡像，I 仍是人工處理狀態；兩者分工不變，也沒有任何回寫 D1 的路徑。
+
+### 5.6 2026-08 已部署功能：工作項分頁
+
+`syncWorkItems()` 從
+`https://raw.githubusercontent.com/skiseiju/ThreadsBlocker_Project/main/docs/PLAN_2.8.2_STRUCT_DEBT.md`
+抓取檔案，解析第一個 `編號／版本／來源／一句話／規模／狀態` markdown 總表。狀態欄的 `**` 標記會移除；編號以文字保留，因此 `4.5` 不會被截斷。解析成功後「工作項」分頁整頁清空並一次寫入表頭、資料與台北時間同步欄；解析失敗或欄數錯誤會寄告警，且不清空原頁。
+
+公開 repo 先匿名抓取；GitHub 回 401／404 時錯誤訊息會提示在 Script Properties 設定 `GITHUB_TOKEN`，有 token 時以 `Authorization: Bearer` 抓取。PLAN markdown 是工作項 SSOT，「工作項」分頁只是唯讀鏡像，不應人工編輯。`Fixed` 列淺綠、`未動工` 列淺紅，其餘不設色。
+
+### 5.7 安裝與觸發器（2026-08 更新）
+
+1. 把本 repo 的 `scripts/gas/bug-report-sync.gs` **整份重新貼上** Apps Script 專案。
+2. 在 `setupProperties()` 頂端填入 `TOKEN`、`NOTIFY_EMAIL`；private repo 再暫時填入 `GITHUB_TOKEN`。手動執行 `setupProperties()` 後，清回程式碼內的 token 變數；實際值只留在 Script Properties。
+3. 手動執行 `syncBugReports()` 與 `syncWorkItems()` 各一次，確認授權、兩個分頁與告警設定正常。
+4. 建議觸發器：
+   - `syncBugReports`：每日台北時間 09:00–10:00。
+   - `syncWorkItems`：每日一次或每 6 小時一次。
+   - `refreshBackendStatuses`：可選；若需要比回報匯入更頻繁地刷新 H，再另外掛時間觸發器。
+   - `healthCheck`：每日台北時間 18:00–19:00。
+5. `healthCheck()` 同時檢查 `LAST_SYNC_AT` 與 `WORK_ITEMS_SYNC_AT`；任一缺少或超過 26 小時未更新就寄靜默失敗告警。
+
 ## 6. 錯誤處理
 
 | 情況 | 行為 |
 |---|---|
 | Worker 無回應或 5xx | 不更新 cursor，不寄信，記錄到 Apps Script 執行紀錄。下次觸發自然重試。 |
 | 401 認證失敗 | 同上，並在 email 主旨標示 `[同步失敗]` 寄出一封告警信，避免靜默停擺。 |
+| GitHub PLAN 回 401／404 | 不清空「工作項」分頁，告警提示設定 `GITHUB_TOKEN`。 |
+| PLAN 表格找不到或欄數錯誤 | 不清空「工作項」分頁，寄告警並保留上一次完整鏡像。 |
 | 試算表寫入部分失敗 | 不更新 cursor。因為去重靠 ID，下次重跑會補齊未寫入的列。 |
 | 單次回報筆數超過 2000 | 寫入前 2000 筆並更新 cursor 到該批最後一筆，下次觸發繼續。 |
 
@@ -188,7 +224,7 @@ Token 只存在 Script Properties，不得寫進程式碼或 commit 進 repo。
 - [ ] 測試：`limit` 上限 500 生效
 - [ ] Apps Script 實作完成並設定每日 09:00 觸發器
 - [ ] 實跑驗證：連續執行兩次不產生重複列
-- [ ] 實跑驗證：手動改 G/H 欄後再同步，該列 G/H 不被覆蓋
+- [ ] 實跑驗證：手動改 G 欄後再同步，G 不被覆蓋；H 依 D1 最新狀態更新
 - [ ] 實跑驗證：零筆新回報時不寄信
 - [x] 刪除 runbook 與 CWS practices 已更新（commit 7a2ea0a）
 - [ ] **上線閘門**：隱私頁 §4 試算表揭露加回並 deploy 上線 —— 必須在第一次 `syncBugReports()` 成功執行之前完成
