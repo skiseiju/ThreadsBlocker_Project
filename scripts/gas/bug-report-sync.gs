@@ -20,10 +20,13 @@
  *    用來抓「同步靜默失敗」——沒同步成功時會寄告警信。
  *
  * ── 設計約束 ──────────────────────────────────────────────
- * - 單向：D1 → 試算表。試算表的處理狀態不回寫後端。
- * - 腳本只 append 新列；既有「回報」列只允許 H 欄依 D1 狀態更新，A-G、I、J 永不回頭修改。
+ * - 單向鏡像：D1 →「回報」、PLAN →「工作項」與「回報」K 欄；試算表的處理狀態不回寫後端。
+ * - 回報內容只 append 新列；既有列只允許 H 欄依 D1 狀態更新，A-G、I、J 永不回頭修改；
+ *   K 另由 syncWorkItems() 依 PLAN 對照重寫。
  * - I、J 欄是人工地盤，腳本不讀也不寫。H 欄是腳本維護的 D1 狀態活鏡像，
  *   與人工維護的 I 欄分工不變：H 看後端，I 看人工處理判斷。
+ * - K 欄是腳本維護的 PLAN 對應工作項；syncWorkItems() 可整欄重寫 K，
+ *   只讀「回報」A 欄做回報 ID 對照，找不到對應列就略過，不改 A-H、I、J。
  * - 去重靠 A 欄的回報 ID，因此重複執行不會產生重複列。
  * - 「工作項」分頁完全由腳本擁有，來源是 PLAN markdown；每次同步先清空再全量寫入。
  */
@@ -39,6 +42,7 @@ const COLUMNS = [
   '後端狀態',     // H  腳本維護的 D1 status 活鏡像（ACK/PENDING/IGNORED/FIXED）
   '處理狀態',     // I  ← 人工
   '備註',         // J  ← 人工
+  '對應工作項',   // K  ← 腳本維護的 PLAN 對應工作項
 ];
 
 const WORK_ITEM_COLUMNS = [
@@ -51,11 +55,13 @@ const WORK_ITEM_COLUMNS = [
   '同步時間',
 ];
 
-const SCRIPT_WRITTEN_COLUMNS = 8; // A–H。I、J 不由腳本填寫。
+const SCRIPT_WRITTEN_COLUMNS = 8; // syncBugReports 新列只寫 A–H；K 由 syncWorkItems() 維護。
 const FETCH_LIMIT = 200;          // 後端 clampInt 上限即為 200
 const TZ = 'Asia/Taipei';
 const WORK_ITEMS_PLAN_URL = 'https://raw.githubusercontent.com/skiseiju/ThreadsBlocker_Project/main/docs/PLAN_2.8.2_STRUCT_DEBT.md';
 const WORK_ITEM_HEADERS = ['編號', '版本', '來源', '一句話', '規模', '狀態'];
+const REPORT_WORK_ITEM_COLUMN = 11; // K
+const REPORT_WORK_ITEM_HEADER = '對應工作項';
 
 function props_() {
   return PropertiesService.getScriptProperties();
@@ -139,9 +145,16 @@ function getManagedSheet_(nameKey, defaultName, gidKey, columns, configure) {
 }
 
 function getSheet_() {
-  return getManagedSheet_('SHEET_NAME', '回報', 'SHEET_GID', COLUMNS, sheet => {
+  const sheet = getManagedSheet_('SHEET_NAME', '回報', 'SHEET_GID', COLUMNS, sheet => {
     sheet.setColumnWidth(5, 420); // 問題描述給寬一點
   });
+  // 舊版分頁只有 A–J；K 是新增的腳本欄，只補自己的表頭，不碰 A–J。
+  const header = sheet.getRange(1, REPORT_WORK_ITEM_COLUMN).getValue();
+  if (String(header == null ? '' : header).trim() !== REPORT_WORK_ITEM_HEADER) {
+    sheet.getRange(1, REPORT_WORK_ITEM_COLUMN).setValue(REPORT_WORK_ITEM_HEADER);
+    sheet.getRange(1, REPORT_WORK_ITEM_COLUMN).setFontWeight('bold');
+  }
+  return sheet;
 }
 
 function getWorkItemsSheet_() {
@@ -397,6 +410,58 @@ function parseWorkItems_(markdown) {
   return items;
 }
 
+/**
+ * 從 PLAN 每列的「來源」欄建立回報 ID → 工作項編號清單。
+ * 同一工作項若重複提到同一回報，只保留一份，並維持 PLAN 總表順序。
+ */
+function buildReportWorkItemMap_(items) {
+  const workItemsByReportId = new Map();
+  for (const item of items) {
+    const workItemId = String(item && item.id != null ? item.id : '').trim();
+    if (!workItemId) continue;
+
+    const source = String(item && item.source != null ? item.source : '');
+    // 只有明確提到「回報」的來源才是回報對照；SSOT／診斷盤點編號不是回報 ID。
+    if (!source.includes('回報')) continue;
+    const reportIdPattern = /#(\d+)/g;
+    let match;
+    while ((match = reportIdPattern.exec(source)) !== null) {
+      const reportId = match[1];
+      if (!workItemsByReportId.has(reportId)) workItemsByReportId.set(reportId, []);
+      const workItemIds = workItemsByReportId.get(reportId);
+      if (!workItemIds.includes(workItemId)) workItemIds.push(workItemId);
+    }
+  }
+  return workItemsByReportId;
+}
+
+/**
+ * 以 PLAN 對照整欄重寫「回報」K；只讀 A 欄，絕不讀寫 I、J 或改動 A–H。
+ * 回報列不存在時不報錯，只留下空白 K。
+ */
+function rewriteReportWorkItemLinks_(workItemsByReportId) {
+  const sheet = getSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    console.log('沒有既有回報列，略過對應工作項更新。');
+    return 0;
+  }
+
+  const idValues = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  const linkValues = idValues.map(row => {
+    const rawId = row[0];
+    if (rawId === '' || rawId === null || rawId === undefined) return [''];
+    const workItemIds = workItemsByReportId.get(String(rawId).trim());
+    return [workItemIds ? workItemIds.join(', ') : ''];
+  });
+
+  // K 完全由腳本擁有：一次覆寫所有既有資料列，沒有對應的列也明確清空。
+  sheet.getRange(2, REPORT_WORK_ITEM_COLUMN, linkValues.length, 1).setValues(linkValues);
+  const linkedRows = linkValues.reduce((count, row) => count + (row[0] ? 1 : 0), 0);
+  console.log(`回報對應工作項更新完成：${linkedRows} 列有對應。`);
+  return linkedRows;
+}
+
 function applyWorkItemColors_(sheet, items) {
   items.forEach((item, index) => {
     const color = item.status.includes('Fixed')
@@ -412,6 +477,7 @@ function applyWorkItemColors_(sheet, items) {
 function syncWorkItems() {
   try {
     const items = parseWorkItems_(fetchWorkItemsPlan_());
+    const workItemsByReportId = buildReportWorkItemMap_(items);
     const syncedAt = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm:ss');
     const values = [WORK_ITEM_COLUMNS].concat(items.map(item => [
       item.id,
@@ -430,6 +496,7 @@ function syncWorkItems() {
     sheet.getRange(1, 1, 1, WORK_ITEM_COLUMNS.length).setFontWeight('bold');
     sheet.setColumnWidth(4, 420);
     applyWorkItemColors_(sheet, items);
+    rewriteReportWorkItemLinks_(workItemsByReportId);
 
     props_().setProperty('WORK_ITEMS_SYNC_AT', new Date().toISOString());
     console.log(`工作項同步完成：${items.length} 筆。`);
