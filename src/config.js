@@ -7,6 +7,7 @@
 // docs/adr/0022-three-no-formula-requires-confirmed-empty-content.md、
 // docs/adr/0023-three-no-storage-quota-resilience.md、
 // docs/adr/0025-pinyin-active-accounts-enter-review-list-with-badge.md。
+// docs/adr/0026-failure-verdict-recheck-and-failed-list-reverify.md。
 // 診斷簽章只保留能描述目前狀態的欄位。所有去重呼叫點都使用這份清單，
 // 量測值仍保留在診斷 fields，但不參與簽章比較。
 export const DIAGNOSTIC_SIGNATURE_MEASUREMENT_FIELDS = Object.freeze([
@@ -31,7 +32,7 @@ export const DIAGNOSTIC_SIGNATURE_STATUS_FIELDS = Object.freeze([
     'routeMatch', 'routeUnchanged', 'messageRoute', 'profileRoute', 'postRoute', 'searchRoute', 'tagRoute', 'conversationList', 'activeConversation', 'composer',
     'actionArea', 'strongSignature', 'dialogFound', 'listFound', 'scrollRootFound', 'scrollRootSelected', 'visible', 'mutation', 'progress', 'atBottom', 'loading',
     'contextChanged', 'rootChanged', 'evidence',
-    'selectedTab', 'activeTab', 'switchAttempt', 'switchSucceeded', 'clamped', 'hidden', 'stopped', 'timedOut', 'aborted', 'complete', 'ok', 'rollback',
+    'selectedTab', 'activeTab', 'switchAttempt', 'switchSucceeded', 'clamped', 'hidden', 'stopped', 'timedOut', 'aborted', 'complete', 'ok', 'rollback', 'recheck',
     'committed', 'sameRoot', 'cohesive', 'rootAdvanced', 'historyTrigger', 'mutationTrigger', 'resizeTrigger', 'bounce', 'repositioned', 'found', 'clicked',
     'created', 'attached', 'closed', 'disappeared', 'foreground', 'background', 'fallback', 'diagnosticsAttached', 'diagnosticsFallback', 'retry', 'breakerOpen',
     'cooldownActive', 'stopRequested', 'stopAcknowledged', 'flickerLatch', 'idle', 'active', 'visibleStop', 'manualFollowUp', 'atomic', 'protected', 'private',
@@ -113,7 +114,7 @@ export const PINYIN_SURNAMES = Object.freeze([
 ]);
 
 export const CONFIG = {
-    VERSION: '2.8.4-beta27', // 拼音命名帳號進待審清單，活躍者以標籤區分（ADR 0025）
+    VERSION: '2.8.4-beta28', // 失敗定案前複驗與失敗名單重新驗證（ADR 0026）
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。
@@ -224,6 +225,7 @@ export const CONFIG = {
         DIAG_LOG: 'hege_diag_log',
         TURBO_WARNED: 'hege_turbo_warned',
         BATCH_VERIFY: 'hege_batch_verify',
+        BATCH_VERIFY_INDEX: 'hege_batch_verify_idx',
         
         // Task 1: 延時封鎖
         DELAYED_QUEUE: 'hege_delayed_queue',
@@ -304,6 +306,9 @@ export const CONFIG = {
         ENDLESS_WORKER_STANDBY: 'hege_endless_worker_standby',
 
     },
+
+    // 失敗名單重新驗證沿用 BATCH_VERIFY／verifyBlock 導航，和一般封鎖批次分開辨識。
+    FAILURE_REVERIFY_MODE: 'failure_reverify',
 
     // 跨分頁同步 & 輪詢 invalidate 用的 queue/status key 群組
     SYNC_KEYS: [

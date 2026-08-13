@@ -5,9 +5,10 @@
 // docs/adr/0018-clean-list-likes-latest-sort.md、
 // docs/adr/0019-clean-list-two-pass-sort-scan.md、
 // docs/adr/0020-clean-list-stop-settles-collected-users.md、
-// docs/adr/0021-daily-block-window-success-only.md。
+// docs/adr/0021-daily-block-window-success-only.md、
+// docs/adr/0026-failure-verdict-recheck-and-failed-list-reverify.md。
 import { CONFIG, buildDiagnosticStateSignature } from './config.js';
-import { Utils, isBackgroundWorkerRunning } from './utils.js';
+import { Utils, isBackgroundWorkerBusy, isBackgroundWorkerRunning } from './utils.js';
 import { Storage } from './storage.js';
 import { UI } from './ui.js';
 import { Reporter } from './reporter.js';
@@ -261,7 +262,7 @@ export const RuntimeDiagnostics = {
             // 以及選單裡有沒有出現封鎖字樣。記錄的是布林，不是文字。
             'ownAriaLabel', 'nestedAriaLabel', 'blockTextPresent',
             // 個人頁 root 是靠嚴格判定命中，還是靠放寬路徑救回來的。布林，不含文字。
-            'relaxedRoot', 'relaxedRootAttempted', 'strictRootMatched', 'rootSeenThenMissing', 'sameMenuElement',
+            'relaxedRoot', 'relaxedRootAttempted', 'strictRootMatched', 'rootSeenThenMissing', 'sameMenuElement', 'recheck',
             'followButtonPresent', 'profileRouteMatch', 'privateProfile', 'invalidProfilePage', 'restrictionSignal', 'waitingForStep', 'waitingForConfirm',
             'renderTriggered', 'reloadRequested', 'reloadResumed', 'resultPersisted', 'externalWait', 'waitingForExternal',
         ];
@@ -1289,6 +1290,60 @@ export const Core = {
         const started = Core.startFailureRetry(normalized.type);
         if (!started) UI.showToast('目前已有背景任務在執行，失敗紀錄保留，稍後再重試', 3000, { severity: 'warning' });
         Core.updateControllerUI();
+        return true;
+    },
+
+    reverifyFailedBlocks: () => {
+        Storage.invalidateMulti?.([
+            CONFIG.KEYS.FAILED_QUEUE,
+            CONFIG.KEYS.BATCH_VERIFY,
+            CONFIG.KEYS.BATCH_VERIFY_INDEX,
+            CONFIG.KEYS.BG_STATUS,
+        ]);
+        const entries = normalizeFailedQueue(Storage.getJSON(CONFIG.KEYS.FAILED_QUEUE, []), 'block');
+        const users = [...new Set(entries.map(entry => entry.username).filter(Boolean))];
+        if (users.length === 0) {
+            UI.showToast('沒有封鎖失敗紀錄可重新驗證');
+            Core.updateControllerUI();
+            return false;
+        }
+
+        const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
+        const existingBatch = Storage.getJSON(CONFIG.KEYS.BATCH_VERIFY, []);
+        const existingIndex = Storage.get(CONFIG.KEYS.BATCH_VERIFY_INDEX);
+        if (isBackgroundWorkerBusy(status) || existingBatch.length > 0 || existingIndex !== null) {
+            UI.showToast('目前已有背景任務或驗證正在執行，請先停止後再重新驗證', 3000, { severity: 'warning' });
+            return false;
+        }
+
+        Storage.setJSON(CONFIG.KEYS.BATCH_VERIFY, users);
+        Storage.set(CONFIG.KEYS.BATCH_VERIFY_INDEX, '0');
+        Storage.remove(CONFIG.KEYS.BG_CMD);
+        Storage.set(CONFIG.KEYS.WORKER_MODE, CONFIG.FAILURE_REVERIFY_MODE);
+        Storage.remove(CONFIG.KEYS.WORKER_STATS);
+
+        const saveReturnUrl = () => {
+            const cleanUrl = new URL(window.location.href);
+            cleanUrl.searchParams.delete('hege_bg');
+            cleanUrl.searchParams.delete('hege_popup');
+            Storage.set('hege_return_url', cleanUrl.toString());
+        };
+        const launchSameTab = () => {
+            saveReturnUrl();
+            history.replaceState(null, '', '/?hege_bg=true');
+            location.reload();
+        };
+
+        if (Utils.isMobile()) {
+            launchSameTab();
+            return true;
+        }
+
+        const workerWindow = Utils.openWorkerWindow();
+        if (!workerWindow || workerWindow.closed) {
+            UI.showToast('彈出視窗被阻擋，改用目前視窗執行。', 3000, { severity: 'warning' });
+            launchSameTab();
+        }
         return true;
     },
 
@@ -6251,6 +6306,7 @@ export const Core = {
             onRetryOne: (entry) => Core.retryFailedEntry(entry),
             onClearOne: (entry) => Core.clearFailedEntry(entry),
             onOpenProfile: (username) => Core.openFailureProfile(username),
+            onReverifyBlocks: () => Core.reverifyFailedBlocks(),
             onRetryAll: () => {
                 const current = Core.getFailedQueueEntries();
                 const blockUsers = current.filter(item => item.type === 'block').map(item => item.username);

@@ -1,4 +1,5 @@
 // 相關 ADR：docs/adr/0025-pinyin-active-accounts-enter-review-list-with-badge.md、
+// docs/adr/0026-failure-verdict-recheck-and-failed-list-reverify.md、
 // docs/BLOCKING_ARCHITECTURE.md。
 import { CONFIG, THREE_NO_DENSITY_ALERT_MIN_RUN, buildDiagnosticStateSignature } from './config.js';
 import { Utils } from './utils.js';
@@ -1153,10 +1154,11 @@ export const UI = {
                 <button class="hege-manager-btn secondary" data-action="clear-one" data-index="${index}" style="font-size:11px;padding:6px 8px;">單筆清除</button>
             </div>`;
         }).join('');
+        const hasBlockFailures = safeEntries.some(entry => entry.type === 'block');
         Utils.setHTML(overlay, `<div class="hege-manager-box" style="width:min(760px,calc(100vw - 24px));max-height:calc(100dvh - 24px);display:flex;flex-direction:column;overflow:hidden;">
             <div class="hege-manager-header"><span class="hege-manager-title">逐筆失敗清單（${safeEntries.length}）</span><button class="hege-manager-btn secondary" data-action="close" style="padding:4px 8px;">關閉</button></div>
             <div style="padding:8px 16px;overflow:auto;min-height:0;">${rows || '<div style="padding:20px;color:#999;">沒有失敗紀錄</div>'}</div>
-            <div class="hege-manager-footer" style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;"><button class="hege-manager-btn secondary" data-action="clear-all">只清除全部</button><button class="hege-manager-btn primary" data-action="retry-all">全部重試</button></div>
+            <div class="hege-manager-footer" style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">${hasBlockFailures ? '<button class="hege-manager-btn secondary" data-action="reverify-blocks">重新驗證</button>' : ''}<button class="hege-manager-btn secondary" data-action="clear-all">只清除全部</button><button class="hege-manager-btn primary" data-action="retry-all">全部重試</button></div>
         </div>`);
         document.body.appendChild(overlay);
         const once = (button, action) => {
@@ -1179,6 +1181,8 @@ export const UI = {
             callbacks.onClearOne?.(entry);
             button.closest('.hege-failed-row')?.remove();
         }));
+        const reverifyButton = overlay.querySelector('[data-action="reverify-blocks"]');
+        if (reverifyButton) once(reverifyButton, () => { overlay.remove(); callbacks.onReverifyBlocks?.(); });
         once(overlay.querySelector('[data-action="retry-all"]'), () => { overlay.remove(); callbacks.onRetryAll?.(); });
         once(overlay.querySelector('[data-action="clear-all"]'), () => { overlay.remove(); callbacks.onClearAll?.(); });
         once(overlay.querySelector('[data-action="close"]'), () => overlay.remove());

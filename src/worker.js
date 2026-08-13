@@ -1,6 +1,7 @@
 // 相關 ADR：docs/adr/0012-profile-identity-gate-relaxed-fallback.md、
 // docs/adr/0013-lightweight-diagnostics-by-default.md、
-// docs/adr/0021-daily-block-window-success-only.md。
+// docs/adr/0021-daily-block-window-success-only.md、
+// docs/adr/0026-failure-verdict-recheck-and-failed-list-reverify.md。
 import { CONFIG } from './config.js';
 import { Utils } from './utils.js';
 import { Storage } from './storage.js';
@@ -16,6 +17,10 @@ export const PROFILE_ROOT_WAIT_MS = 12000;
 // 重試標記必須涵蓋頁面重載與第二輪 12000ms 等待。30 秒提供第二輪等待
 // 加上 18 秒的重載與初始化緩衝，過期後會回到第一次等待，避免殘留標記永久跳過重試。
 export const PROFILE_ROOT_RETRY_TTL_MS = 30000;
+
+// 批次驗證的導頁重試也要有界；同一筆帳號在短時間內只允許一次導頁重載。
+export const BATCH_VERIFY_ROUTE_RETRY_TTL_MS = 30000;
+const BATCH_VERIFY_ROUTE_RETRY_KEY = 'hege_batch_verify_route_retry';
 
 // Worker 視窗只有內容區（viewport）下界，沒有外框尺寸規則：外框在不同電腦被
 // 工具列／邊框／縮放吃掉的量不同，拿外框當標準就是 2.8.1 #47 卡死的病因。
@@ -231,6 +236,60 @@ export const Worker = {
         }
     },
 
+    getBatchVerifyRouteRetryAttempt: (rawTarget, index, mode = 'batch_verify') => {
+        try {
+            const storageArea = globalThis.sessionStorage;
+            if (!storageArea || typeof storageArea.getItem !== 'function') return 1;
+            const raw = storageArea.getItem(BATCH_VERIFY_ROUTE_RETRY_KEY);
+            const state = raw ? JSON.parse(raw) : null;
+            if (!state || typeof state !== 'object' || Array.isArray(state)) return 1;
+
+            const requestedAt = state.requestedAt;
+            const now = Date.now();
+            if (typeof requestedAt !== 'number'
+                || !Number.isFinite(requestedAt)
+                || requestedAt > now
+                || now - requestedAt > BATCH_VERIFY_ROUTE_RETRY_TTL_MS) {
+                Worker.clearBatchVerifyRouteRetry();
+                return 1;
+            }
+            if (String(state.rawTarget || '') !== String(rawTarget || '')
+                || String(state.index ?? '') !== String(index ?? '')
+                || String(state.mode || '') !== String(mode || '')) return 1;
+            return Number(state.attempt) === 1 ? 2 : 1;
+        } catch (_) {
+            return 1;
+        }
+    },
+
+    markBatchVerifyRouteRetry: (rawTarget, index, mode = 'batch_verify') => {
+        try {
+            const storageArea = globalThis.sessionStorage;
+            if (!storageArea || typeof storageArea.setItem !== 'function') return false;
+            storageArea.setItem(BATCH_VERIFY_ROUTE_RETRY_KEY, JSON.stringify({
+                rawTarget: String(rawTarget || ''),
+                index: Number.isFinite(Number(index)) ? Number(index) : String(index ?? ''),
+                mode: String(mode || 'batch_verify'),
+                attempt: 1,
+                requestedAt: Date.now(),
+            }));
+            return true;
+        } catch (_) {
+            return false;
+        }
+    },
+
+    clearBatchVerifyRouteRetry: () => {
+        try {
+            const storageArea = globalThis.sessionStorage;
+            if (!storageArea || typeof storageArea.removeItem !== 'function') return false;
+            storageArea.removeItem(BATCH_VERIFY_ROUTE_RETRY_KEY);
+            return true;
+        } catch (_) {
+            return false;
+        }
+    },
+
     canReloadCurrentPage: () => {
         try {
             return typeof globalThis.history?.replaceState === 'function'
@@ -365,6 +424,7 @@ export const Worker = {
         if (Worker._stopHandled) return true;
         Worker._stopHandled = true;
         Worker.clearProfileRootRetry();
+        Worker.clearBatchVerifyRouteRetry();
         Worker.recordSafetyDiagnostic('queue_advance', 'stopped', MoreLocator.routeType());
         Worker.endDiagnostic(Worker._diagnosticOperationId, 'stop', { reason: 'user_stop', ok: false });
         Worker.endExecution();
@@ -374,7 +434,7 @@ export const Worker = {
         Storage.remove(CONFIG.KEYS.WORKER_MODE);
         Storage.remove(CONFIG.KEYS.VERIFY_PENDING);
         Storage.remove('hege_sweep_worker_standby');
-        Storage.remove('hege_batch_verify_idx');
+        Storage.remove(CONFIG.KEYS.BATCH_VERIFY_INDEX);
         Storage.setJSON(CONFIG.KEYS.BATCH_VERIFY, []);
         sessionStorage.removeItem('hege_sweep_state');
         sessionStorage.removeItem('hege_sweep_target');
@@ -1443,15 +1503,19 @@ export const Worker = {
 
     // 批次驗證：reload 後繼續的入口
     resumeBatchVerify: async () => {
-        const idxStr = Storage.get('hege_batch_verify_idx');
-        if (idxStr === null) return false;
+        const idxStr = Storage.get(CONFIG.KEYS.BATCH_VERIFY_INDEX);
+        if (idxStr === null) {
+            Worker.clearBatchVerifyRouteRetry();
+            return false;
+        }
 
         const batchQueue = Storage.getJSON(CONFIG.KEYS.BATCH_VERIFY, []);
         const idx = parseInt(idxStr);
         if (idx >= batchQueue.length) {
             // 全部完成
             Storage.setJSON(CONFIG.KEYS.BATCH_VERIFY, []);
-            Storage.remove('hege_batch_verify_idx');
+            Storage.remove(CONFIG.KEYS.BATCH_VERIFY_INDEX);
+            Worker.clearBatchVerifyRouteRetry();
             return false;
         }
 
@@ -1459,16 +1523,24 @@ export const Worker = {
         const isUnblock = rawTarget.startsWith(CONFIG.UNBLOCK_PREFIX);
         const user = isUnblock ? rawTarget.replace(CONFIG.UNBLOCK_PREFIX, '') : rawTarget;
         const total = batchQueue.length;
+        const isFailureReverify = Storage.get(CONFIG.KEYS.WORKER_MODE) === CONFIG.FAILURE_REVERIFY_MODE;
+        const routeRetryMode = isFailureReverify ? CONFIG.FAILURE_REVERIFY_MODE : 'batch_verify';
 
-        Worker.updateStatus('running', `驗證中: @${user} (${idx + 1}/${total})`, 0, total - idx);
+        Worker.updateStatus('running', `${isFailureReverify ? '重新驗證中' : '驗證中'}: @${user} (${idx + 1}/${total})`, 0, total - idx);
         if (window.hegeLog) window.hegeLog(`[批次驗證] @${user} (${idx + 1}/${total})`);
 
         // 確認是否在正確頁面
         const onPage = location.pathname.includes(`/@${user}`);
         if (onPage) {
+            Worker.clearBatchVerifyRouteRetry();
             const result = await Worker.verifyBlock(user, isUnblock);
             if (result) {
-                if (!isUnblock) Storage.recordSuccessfulBlock();
+                if (isFailureReverify && !isUnblock) {
+                    Storage.addToBlockDBFromContext(user);
+                    Core.removeFailure(user, 'block');
+                } else if (!isUnblock) {
+                    Storage.recordSuccessfulBlock();
+                }
                 if (window.hegeLog) window.hegeLog(`[批次驗證] @${user} ✅ 確認成功`);
             } else {
                 if (window.hegeLog) window.hegeLog(`[批次驗證] @${user} ❌ 驗證失敗`);
@@ -1480,6 +1552,18 @@ export const Worker = {
                 }
             }
         } else {
+            const retryAttempt = Worker.getBatchVerifyRouteRetryAttempt(rawTarget, idx, routeRetryMode);
+            if (retryAttempt === 1 && Worker.markBatchVerifyRouteRetry(rawTarget, idx, routeRetryMode)) {
+                if (window.hegeLog) window.hegeLog(`[批次驗證] @${user} 尚未在目標頁，導頁後再驗證`);
+                const nextPath = `/@${user}/replies`;
+                history.replaceState(null, '', `${nextPath}?hege_bg=true`);
+                location.reload();
+                return true;
+            }
+
+            // 第二次仍不符（例如帳號已刪除或改名後被 Threads 導走）時，
+            // 清掉本筆標記並沿用原本的跳過／前進流程，避免無限重載。
+            Worker.clearBatchVerifyRouteRetry();
             if (window.hegeLog) window.hegeLog(`[批次驗證] @${user} 頁面不符，跳過`);
         }
 
@@ -1489,8 +1573,9 @@ export const Worker = {
             // 全部完成
             if (window.hegeLog) window.hegeLog(`[批次驗證] 全部完成`);
             Storage.setJSON(CONFIG.KEYS.BATCH_VERIFY, []);
-            Storage.remove('hege_batch_verify_idx');
-            Worker.updateStatus('idle', '✅ 全部完成（含驗證）！', 0, 0);
+            Storage.remove(CONFIG.KEYS.BATCH_VERIFY_INDEX);
+            Worker.clearBatchVerifyRouteRetry();
+            Worker.updateStatus('idle', isFailureReverify ? '✅ 失敗名單重新驗證完成！' : '✅ 全部完成（含驗證）！', 0, 0);
             Worker.clearStats();
             Storage.remove(CONFIG.KEYS.WORKER_MODE);
             const stopBtn = document.getElementById('hege-worker-stop');
@@ -1500,7 +1585,7 @@ export const Worker = {
         }
 
         // 導航到下一筆
-        Storage.set('hege_batch_verify_idx', nextIdx.toString());
+        Storage.set(CONFIG.KEYS.BATCH_VERIFY_INDEX, nextIdx.toString());
         const nextRaw = batchQueue[nextIdx];
         const nextUser = nextRaw.startsWith(CONFIG.UNBLOCK_PREFIX) ? nextRaw.replace(CONFIG.UNBLOCK_PREFIX, '') : nextRaw;
         const nextPath = `/@${nextUser}/replies`;
@@ -1768,7 +1853,7 @@ export const Worker = {
             const batchQueue = Storage.getJSON(CONFIG.KEYS.BATCH_VERIFY, []);
             if (batchQueue.length > 0) {
                 if (window.hegeLog) window.hegeLog(`[批次驗證] 封鎖完成，開始驗證 ${batchQueue.length} 筆`);
-                Storage.set('hege_batch_verify_idx', '0');
+                Storage.set(CONFIG.KEYS.BATCH_VERIFY_INDEX, '0');
                 // 導航到第一筆
                 const firstRaw = batchQueue[0];
                 const firstUser = firstRaw.startsWith(CONFIG.UNBLOCK_PREFIX) ? firstRaw.replace(CONFIG.UNBLOCK_PREFIX, '') : firstRaw;
@@ -2929,10 +3014,36 @@ export const Worker = {
                 return 'success';
             }
 
-            const timeoutResult = privateState.private ? 'private_manual_required' : 'failed';
-            setStep(privateState.private ? '需要手動處理：私人帳號' : '超時未確認');
-            recordDiagnostic('confirm_resolve', timeoutResult);
-            return timeoutResult;
+            // 私人帳號仍維持原本的手動處理分支；只有即將定案為 failed 的
+            // confirm 超時才做一次固定 3 秒複驗，避免把 Threads 尚未完成的
+            // 封鎖請求誤列入失敗名單。safeSleep 不受 turbo／速度模式縮放。
+            if (privateState.private) {
+                setStep('需要手動處理：私人帳號');
+                recordDiagnostic('confirm_resolve', 'private_manual_required');
+                return 'private_manual_required';
+            }
+
+            await Utils.safeSleep(3000);
+            const recheckDialogs = document.querySelectorAll('div[role="dialog"]');
+            const recheckPageText = document.body.innerText || '';
+            const recheckBlocked = recheckDialogs.length === 0
+                || (isUnblock ? Utils.isBlockText(recheckPageText) : Utils.isUnblockText(recheckPageText));
+            if (recheckBlocked) {
+                confirmationCompletedAt = Date.now();
+                recordDiagnostic('confirm_resolve', 'success', {}, {
+                    recheck: true,
+                    dialogCount: recheckDialogs.length,
+                });
+                setStep(isUnblock ? '✅ 已解除封鎖 (複驗)' : '✅ 已封鎖 (複驗)');
+                return 'success';
+            }
+
+            setStep('超時未確認');
+            recordDiagnostic('confirm_resolve', 'failed', {}, {
+                recheck: true,
+                dialogCount: recheckDialogs.length,
+            });
+            return 'failed';
         } catch (e) {
             console.error('autoBlock error:', e);
             recordDiagnostic('action_resolve', 'failed');
