@@ -44,7 +44,7 @@ export const DIAGNOSTIC_SIGNATURE_STATUS_FIELDS = Object.freeze([
     'rectTop', 'rectLeft', 'rectWidth', 'rectHeight', 'viewportWidth', 'viewportHeight', 'outerWidth', 'outerHeight', 'innerWidth', 'innerHeight',
     'rowRule', 'rowConfidence', 'rowKindCode', 'statusCode', 'attempt', 'stopReason', 'activeTabCategory', 'pathnameCategory', 'path', 'strategy', 'classificationStrategy',
     'detector', 'errorName', 'errorCode', 'errorStack', 'errorFunction', 'tag', 'role', 'hrefCategory', 'category', 'httpBucket', 'reason', 'failureType',
-    'dialogPresent', 'layoutSignature',
+    'dialogPresent', 'layoutSignature', 'confirmDialogDetached',
 ]);
 
 const diagnosticMeasurementFieldSet = new Set(DIAGNOSTIC_SIGNATURE_MEASUREMENT_FIELDS);
@@ -119,7 +119,7 @@ export const PINYIN_SURNAMES = Object.freeze([
 ]);
 
 export const CONFIG = {
-    VERSION: '2.8.4-beta30', // 診斷簽章去重與 ring 保留窗 SSOT
+    VERSION: '2.8.4-beta31', // #34/#35a：封鎖假成功家族與複驗殘留鍵解鎖
     BLOCK_RING_RETENTION_MS,
     // Confirmation dialog close detection is event-driven and deliberately not speed-scaled.
     CONFIRM_DIALOG_CLOSE_TIMEOUT_MS: 15000,

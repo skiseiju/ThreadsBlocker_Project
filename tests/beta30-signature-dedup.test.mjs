@@ -109,6 +109,7 @@ const resetDiagnostics = () => {
 test.beforeEach(resetDiagnostics);
 
 test('beta30 量測欄位只留在 fields，漂移不會進簽章', () => {
+    assert.equal(CONFIG.VERSION, '2.8.4-beta31');
     for (const key of ['menuItems', 'candidateCount', 'accountRowCount', 'dialogCount']) {
         assert.ok(DIAGNOSTIC_SIGNATURE_MEASUREMENT_FIELDS.includes(key), `缺少量測欄位 ${key}`);
         assert.equal(isDiagnosticMeasurementField(key), true);

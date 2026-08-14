@@ -233,12 +233,12 @@ export const Utils = {
         };
         const check = () => {
             try {
-                if (isGoneOrHidden()) {
-                    finish('success');
-                    return true;
-                }
                 if (typeof checkForError === 'function' && checkForError()) {
                     finish('cooldown');
+                    return true;
+                }
+                if (isGoneOrHidden()) {
+                    finish('success');
                     return true;
                 }
                 return false;

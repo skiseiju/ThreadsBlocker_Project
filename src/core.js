@@ -264,7 +264,7 @@ export const RuntimeDiagnostics = {
             // 個人頁 root 是靠嚴格判定命中，還是靠放寬路徑救回來的。布林，不含文字。
             'relaxedRoot', 'relaxedRootAttempted', 'strictRootMatched', 'rootSeenThenMissing', 'sameMenuElement', 'recheck',
             'followButtonPresent', 'profileRouteMatch', 'privateProfile', 'invalidProfilePage', 'restrictionSignal', 'waitingForStep', 'waitingForConfirm',
-            'renderTriggered', 'reloadRequested', 'reloadResumed', 'resultPersisted', 'externalWait', 'waitingForExternal',
+            'renderTriggered', 'reloadRequested', 'reloadResumed', 'resultPersisted', 'externalWait', 'waitingForExternal', 'confirmDialogDetached',
         ];
         for (const key of boolKeys) {
             if (Object.prototype.hasOwnProperty.call(source, key)) out[key] = diagnosticBoolean(source[key]);
@@ -1311,9 +1311,25 @@ export const Core = {
         const status = Storage.getJSON(CONFIG.KEYS.BG_STATUS, {});
         const existingBatch = Storage.getJSON(CONFIG.KEYS.BATCH_VERIFY, []);
         const existingIndex = Storage.get(CONFIG.KEYS.BATCH_VERIFY_INDEX);
-        if (isBackgroundWorkerBusy(status) || existingBatch.length > 0 || existingIndex !== null) {
+        if (isBackgroundWorkerBusy(status)) {
             UI.showToast('目前已有背景任務或驗證正在執行，請先停止後再重新驗證', 3000, { severity: 'warning' });
             return false;
+        }
+
+        const hasBatchResidue = Array.isArray(existingBatch)
+            ? existingBatch.length > 0
+            : !!existingBatch && typeof existingBatch === 'object' && Object.keys(existingBatch).length > 0;
+        const hasIndexResidue = existingIndex !== null;
+        if (hasBatchResidue || hasIndexResidue) {
+            const workerMode = Storage.get(CONFIG.KEYS.WORKER_MODE, '');
+            Storage.setJSON(CONFIG.KEYS.BATCH_VERIFY, []);
+            Storage.remove(CONFIG.KEYS.BATCH_VERIFY_INDEX);
+            if (workerMode === CONFIG.FAILURE_REVERIFY_MODE) {
+                Storage.remove(CONFIG.KEYS.WORKER_MODE);
+            }
+            if (typeof window !== 'undefined' && typeof window.hegeLog === 'function') {
+                window.hegeLog(`[DIAG] 清除未執行中的批次驗證殘留（batch=${hasBatchResidue ? '1' : '0'} index=${hasIndexResidue ? '1' : '0'}）`);
+            }
         }
 
         Storage.setJSON(CONFIG.KEYS.BATCH_VERIFY, users);

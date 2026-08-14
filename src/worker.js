@@ -3036,15 +3036,27 @@ export const Worker = {
             }
 
             await Utils.safeSleep(3000);
+            // 複驗前再查一次限流；確認框可能在同一段等待中被限流視窗換裝，
+            // 這時即使頁面暫時沒有 dialog 也不能把本筆寫成成功。
+            if (checkForError()) {
+                if (window.hegeLog) window.hegeLog(`[DIAG] @${user} 複驗後偵測到限流`);
+                recordDiagnostic('confirm_resolve', 'cooldown', {}, { recheck: true });
+                return 'cooldown';
+            }
             const recheckDialogs = document.querySelectorAll('div[role="dialog"]');
             const recheckPageText = document.body.innerText || '';
-            const recheckBlocked = recheckDialogs.length === 0
-                || (isUnblock ? Utils.isBlockText(recheckPageText) : Utils.isUnblockText(recheckPageText));
+            const confirmDialogDetached = Boolean(confirmDialog && confirmDialog.isConnected === false);
+            const recheckDialogClosed = recheckDialogs.length === 0 && confirmDialogDetached;
+            const recheckTextBlocked = isUnblock
+                ? Utils.isBlockText(recheckPageText)
+                : Utils.isUnblockText(recheckPageText);
+            const recheckBlocked = recheckDialogClosed || recheckTextBlocked;
             if (recheckBlocked) {
                 confirmationCompletedAt = Date.now();
                 recordDiagnostic('confirm_resolve', 'success', {}, {
                     recheck: true,
                     dialogCount: recheckDialogs.length,
+                    confirmDialogDetached,
                 });
                 setStep(isUnblock ? '✅ 已解除封鎖 (複驗)' : '✅ 已封鎖 (複驗)');
                 return 'success';
@@ -3054,6 +3066,7 @@ export const Worker = {
             recordDiagnostic('confirm_resolve', 'failed', {}, {
                 recheck: true,
                 dialogCount: recheckDialogs.length,
+                confirmDialogDetached,
             });
             return 'failed';
         } catch (e) {

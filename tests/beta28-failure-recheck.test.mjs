@@ -125,7 +125,7 @@ test.after(() => {
 
 test('beta28 A：確認 dialog 延遲關閉時，固定 safeSleep 複驗改判成功', async () => {
     resetFixture();
-    assert.equal(CONFIG.VERSION, '2.8.4-beta30');
+    assert.equal(CONFIG.VERSION, '2.8.4-beta31');
     let dialogOpen = true;
     const safeSleepCalls = [];
     const diagnostics = [];
@@ -146,7 +146,13 @@ test('beta28 A：確認 dialog 延遲關閉時，固定 safeSleep 複驗改判�
         scrollIntoView() {},
     };
     const blockButton = {};
-    const confirmButton = {};
+    const confirmButton = { innerText: '封鎖', textContent: '封鎖' };
+    const confirmDialog = {
+        isConnected: true,
+        querySelectorAll: () => [confirmButton],
+        innerText: '',
+        textContent: '',
+    };
     let pollCount = 0;
 
     Core.findProfileRoot = () => profileRoot;
@@ -167,19 +173,22 @@ test('beta28 A：確認 dialog 延遲關閉時，固定 safeSleep 複驗改判�
     Utils.simClick = () => {};
     Utils.safeSleep = async ms => {
         safeSleepCalls.push(ms);
-        if (ms === 3000) dialogOpen = false;
+        if (ms === 3000) {
+            dialogOpen = false;
+            confirmDialog.isConnected = false;
+        }
     };
-    Utils.pollUntil = async () => {
+    Utils.pollUntil = async condition => {
         pollCount += 1;
         if (pollCount === 1) return { action: 'found', btn: blockButton };
-        if (pollCount === 2) return confirmButton;
+        if (pollCount === 2) return condition() || confirmButton;
         return null;
     };
     // beta28 regression fixture intentionally exercises the unchanged timeout
     // fallback; the beta29 observer helper has its own dedicated tests.
     Utils.waitForElementRemoval = async () => null;
     document.querySelectorAll = selector => {
-        if (selector === 'div[role="dialog"]') return dialogOpen ? [{}] : [];
+        if (selector === 'div[role="dialog"]') return dialogOpen ? [confirmDialog] : [];
         return [];
     };
 

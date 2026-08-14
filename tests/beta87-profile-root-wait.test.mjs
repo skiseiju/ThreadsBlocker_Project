@@ -148,7 +148,10 @@ test('green：封鎖側延遲 profile root 維持成功且不回退', async () =
     Utils.simClick = (element) => {
         if (element?.kind === 'profile') state.phase = 'menu';
         if (element?.kind === 'block') state.phase = 'confirm';
-        if (element?.kind === 'confirm') state.phase = 'closed';
+        if (element?.kind === 'confirm') {
+            state.phase = 'closed';
+            dialog.isConnected = false;
+        }
     };
     try {
         const result = await Worker.autoBlock('fixture_user');
