@@ -1,6 +1,7 @@
 // 相關 ADR：docs/adr/0001-unify-daily-block-limit.md、
 // docs/adr/0021-daily-block-window-success-only.md、
-// docs/adr/0025-pinyin-active-accounts-enter-review-list-with-badge.md。
+// docs/adr/0025-pinyin-active-accounts-enter-review-list-with-badge.md、
+// docs/adr/0028-english-name-mirror-username-entry-path.md。
 // Simple Adapter for LocalStorage / SessionStorage with Memory Cache
 import { BLOCK_RING_RETENTION_MS, CONFIG, THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES } from './config.js';
 
@@ -526,6 +527,7 @@ export const Storage = {
                         isThreeNo: item.isThreeNo === true || !Object.prototype.hasOwnProperty.call(item, 'isThreeNo'),
                         suspiciousUsername: item.suspiciousUsername === true && !legacyTaiwanMobileSuspicious,
                         pinyinNameMatch: item.pinyinNameMatch === true,
+                        englishNameMirrorMatch: item.englishNameMirrorMatch === true,
                         profileSignalsVersion: parseInt(item.profileSignalsVersion || '0', 10) || 0,
                         noPostsKnown: accountPrivate ? false : item.noPostsKnown === true,
                         noRepliesKnown: accountPrivate ? false : item.noRepliesKnown === true,
@@ -606,6 +608,7 @@ export const Storage = {
                         isThreeNo: item.isThreeNo === true || !Object.prototype.hasOwnProperty.call(item, 'isThreeNo'),
                         suspiciousUsername: item.suspiciousUsername === true && !legacyTaiwanMobileSuspicious,
                         pinyinNameMatch: item.pinyinNameMatch === true,
+                        englishNameMirrorMatch: item.englishNameMirrorMatch === true,
                         profileSignalsVersion: parseInt(item.profileSignalsVersion || '0', 10) || 0,
                         noPostsKnown: accountPrivate ? false : item.noPostsKnown === true,
                         noRepliesKnown: accountPrivate ? false : item.noRepliesKnown === true,

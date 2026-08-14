@@ -50,6 +50,7 @@
 | 31 | 2.8.4-beta3 | Codex 複核 2.8.4-beta1（2026-08-08） | 重載發出到新頁接手的空窗期，停止指令無法取消已發出的 reload | 小 | **Fixed**（2.8.4-beta3；重載前與初始化優先檢查停止） |
 | 32 | 2.8.4-beta5 | Codex 診斷複核（2026-08-10） | `renderTriggered` 在 reload 呼叫前只依 capability 寫成 true，若呼叫失敗或新頁未接手，診斷會誤稱已觸發 | 小 | **Fixed**（2.8.4-beta5；拆成要求／恢復，另記 unavailable／call failed） |
 | 34 | 2.8.4-beta31 | code review 2026-08-14（beta28-30 範圍，對抗性驗證） | 封鎖假成功家族：(a) beta29 關閉偵測只盯確認框元素且判定先於限流檢查，確認框被限流視窗換裝時誤判成功、限流斷路器被推遲（`worker.js:2978`）；(b) beta28 複驗把「頁上零 dialog」單獨當成功證據，且 3 秒複驗後未再查限流（`worker.js:3041`） | 中 | **Fixed**（beta31；(a) check 先查限流再判移除，(b) 複驗後補查限流＋零 dialog 需確認框確實卸載，診斷加 confirmDialogDetached；換裝時序有測試釘住） |
+| 39 | 2.8.4-beta32 | 使用者提供實機樣本（2026-08-14，四筆） | 網軍命名結構換代：顯示名去空白小寫恰為帳號名前綴，後接 2-4 字母亂碼與 5 碼數字（`Kenneth Berry` / `kennethberryaei31413`）。四筆全有盜用頭像，動物字典與 noAvatar 門檻都抓不到 | 中 | **Fixed**（beta32，ADR 0028；顯示名鏡像雙重吻合判定＋與拼音對稱進 isThreeNo，有活動者掛琥珀標籤。兩段式求值避免逐列 DOM 成本） |
 
 版號欄是預期值；若某編號實際跨多個 beta（修壞重來），總表如實更新，編號不變。
 

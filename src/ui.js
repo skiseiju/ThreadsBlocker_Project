@@ -1,4 +1,5 @@
 // 相關 ADR：docs/adr/0025-pinyin-active-accounts-enter-review-list-with-badge.md、
+// docs/adr/0028-english-name-mirror-username-entry-path.md、
 // docs/adr/0026-failure-verdict-recheck-and-failed-list-reverify.md、
 // docs/BLOCKING_ARCHITECTURE.md。
 import { CONFIG, THREE_NO_DENSITY_ALERT_MIN_RUN, buildDiagnosticStateSignature } from './config.js';
@@ -2183,6 +2184,9 @@ export const UI = {
                             item.pinyinNameMatch === true && item.isThreeNo !== true
                                 ? ['拼音命名・有活動', 'amber']
                                 : (review.pinyinName ? ['疑似簡體拼音', 'gray'] : null),
+                            item.englishNameMirrorMatch === true && item.isThreeNo !== true
+                                ? ['英文名鏡像・疑似批次註冊', 'amber']
+                                : (item.englishNameMirrorMatch === true ? ['英文名鏡像・疑似批次註冊', 'gray'] : null),
                             item.isNewAccount ? ['新帳號', 'blue'] : null,
                             item.accountAgeBucket ? [item.accountAgeBucket, 'blue'] : null,
                             countryTag ? [countryTag, regionMissing ? 'gray' : 'green'] : null,

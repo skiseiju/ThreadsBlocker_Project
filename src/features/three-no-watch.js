@@ -3,7 +3,8 @@
 // docs/adr/0022-three-no-formula-requires-confirmed-empty-content.md、
 // docs/adr/0023-three-no-storage-quota-resilience.md、
 // docs/adr/0024-pinyin-name-entry-path-bypasses-avatar-gate.md、
-// docs/adr/0025-pinyin-active-accounts-enter-review-list-with-badge.md。
+// docs/adr/0025-pinyin-active-accounts-enter-review-list-with-badge.md、
+// docs/adr/0028-english-name-mirror-username-entry-path.md。
 import { CONFIG, THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES } from '../config.js';
 import { Storage } from '../storage.js';
 import { Utils, isBackgroundWorkerBusy } from '../utils.js';
@@ -12,6 +13,86 @@ import { UI } from '../ui.js';
 import { Core } from '../core.js';
 import { ReportDebugContext } from '../report-debug-context.js';
 import { matchesPinyinName } from '../three-no-name-pattern.js';
+
+const normalizeEnglishNameMirrorUsername = (value = '') => {
+    try {
+        return String(value || '')
+            .replace(/^@+/, '')
+            .split('?')[0]
+            .split('/')[0]
+            .trim()
+            .replace(/[._-]/g, '')
+            .toLowerCase();
+    } catch (_) {
+        return '';
+    }
+};
+
+const normalizeEnglishNameMirrorDisplayName = (value = '') => {
+    try {
+        return String(value || '').replace(/[^a-z]/gi, '').toLowerCase();
+    } catch (_) {
+        return '';
+    }
+};
+
+const THREE_NO_ENGLISH_NAME_MIRROR_CHEAP_PATTERN = /^[a-z]{6,}\d{5,}$/;
+
+// ADR 0028 的第一段只做純字串形狀篩選；呼叫端可用它避免在逐列名冊上
+// 無條件觸發 followerListDisplayName 的 DOM 查詢與文字掃描。
+export const usernameLooksLikeEnglishNameMirrorShape = (username = '') => {
+    try {
+        const compact = normalizeEnglishNameMirrorUsername(username);
+        return THREE_NO_ENGLISH_NAME_MIRROR_CHEAP_PATTERN.test(compact);
+    } catch (_) {
+        return false;
+    }
+};
+
+// 顯示名鏡像完整比對：先跑便宜形狀，再正規化顯示名與驗證亂碼＋數字尾碼。
+// 所有輸入例外都 fail closed。
+export const matchesEnglishNameMirrorUsername = (username = '', displayName = '') => {
+    try {
+        const compact = normalizeEnglishNameMirrorUsername(username);
+        if (!usernameLooksLikeEnglishNameMirrorShape(compact)) return false;
+        const display = normalizeEnglishNameMirrorDisplayName(displayName);
+        const minDisplayLength = Math.max(1, parseInt(CONFIG.THREE_NO_ENGLISH_NAME_MIRROR_MIN_DISPLAY_LENGTH || '6', 10) || 6);
+        const minSuffixLetters = Math.max(1, parseInt(CONFIG.THREE_NO_ENGLISH_NAME_MIRROR_SUFFIX_MIN_LETTERS || '2', 10) || 2);
+        const maxSuffixLetters = Math.max(minSuffixLetters, parseInt(CONFIG.THREE_NO_ENGLISH_NAME_MIRROR_SUFFIX_MAX_LETTERS || '4', 10) || 4);
+        const minDigits = Math.max(1, parseInt(CONFIG.THREE_NO_ENGLISH_NAME_MIRROR_MIN_DIGITS || '5', 10) || 5);
+        if (display.length < minDisplayLength || !compact.startsWith(display)) return false;
+        const suffix = compact.slice(display.length);
+        return new RegExp(`^[a-z]{${minSuffixLetters},${maxSuffixLetters}}\\d{${minDigits},}$`).test(suffix);
+    } catch (_) {
+        return false;
+    }
+};
+
+// 名冊仍需保留既有顯示名取證，但非英文鏡像形狀的列不能再付出完整 DOM
+// 掃描成本；這個 fallback 只讀列本身已呈現的文字，供 beta 名冊欄位使用。
+const lightweightFollowerListDisplayName = (link, username = '') => {
+    try {
+        const row = link?.parentElement || link;
+        const normalized = normalizeEnglishNameMirrorUsername(username);
+        const usernamePattern = normalized
+            ? new RegExp(`@?${normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'ig')
+            : null;
+        const excluded = /^(?:追蹤|正在追蹤|追蹤中|Follow|Following|已追蹤|取消追蹤|訊息|Message)$/i;
+        const lines = String(row?.innerText || row?.textContent || '')
+            .split(/[\n\r·|]+/)
+            .map(value => {
+                let cleaned = String(value || '').replace(/\s+/g, ' ').trim();
+                if (usernamePattern) cleaned = cleaned.replace(usernamePattern, ' ');
+                return cleaned.replace(/追蹤中|正在追蹤|已追蹤|取消追蹤|Follow(?:ing)?|訊息|Message/ig, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+            })
+            .filter(value => value && !excluded.test(value) && !/^https?:\/\//i.test(value));
+        return String(lines[0] || '').slice(0, 160);
+    } catch (_) {
+        return '';
+    }
+};
 
 // Persistent three-no debug material follows the diagnostics lifecycle gate.
 // UI copy remains separately beta-visible through Utils.isBetaBuild() below.
@@ -60,9 +141,9 @@ const THREE_NO_METADATA_DEBUG_REASON_FIELDS = Object.freeze([
     'repostsSignalReason',
 ]);
 
-// Findings now include both confirmed three-no accounts and informational
-// pinyin-name matches. Keep the aggregate three-no count tied to the explicit
-// boolean signal rather than the review queue length.
+// Findings now include confirmed three-no accounts and informational naming
+// matches. Keep the aggregate three-no count tied to the explicit boolean
+// signal rather than the review queue length.
 export const countConfirmedThreeNoFindings = (findings = []) => (Array.isArray(findings) ? findings : [])
     .filter(item => item?.isThreeNo === true)
     .length;
@@ -76,6 +157,7 @@ const shrinkThreeNoResultMetadata = (users = []) => (Array.isArray(users) ? user
         ...user,
         isThreeNo: user.isThreeNo === true,
         pinyinNameMatch: user.pinyinNameMatch === true,
+        englishNameMirrorMatch: user.englishNameMirrorMatch === true,
         metadataDebug: Object.fromEntries(THREE_NO_METADATA_DEBUG_REASON_FIELDS.map(field => [
             field,
             String(metadataDebug[field] ?? ''),
@@ -430,6 +512,9 @@ Object.assign(Core, {
             .split('?')[0]
             .split('/')[0]
             .trim(),
+
+        usernameLooksLikeEnglishNameMirrorShape,
+        matchesEnglishNameMirrorUsername,
 
         profileUrl: (username) => `${window.location.origin}/@${encodeURIComponent(Core.ThreeNoWatch.normalizeUsername(username))}`,
 
@@ -1793,7 +1878,8 @@ Object.assign(Core, {
                     [Core.ThreeNoWatch.normalizeUsername(result.username).toLowerCase()]: Core.ThreeNoWatch.buildFollowerRosterProfileEvidence(result),
                 }
                 : {};
-            if ((result.isThreeNo || result.pinyinNameMatch) && !Storage.isThreeNoUserIgnored(result.username)) {
+            if ((result.isThreeNo || result.pinyinNameMatch || result.englishNameMirrorMatch)
+                && !Storage.isThreeNoUserIgnored(result.username)) {
                 findings.push({
                     username: result.username,
                     profileUrl: result.profileUrl,
@@ -1810,6 +1896,7 @@ Object.assign(Core, {
                     suspiciousUsername: result.suspiciousUsername,
                     isThreeNo: result.isThreeNo,
                     pinyinNameMatch: result.pinyinNameMatch,
+                    englishNameMirrorMatch: result.englishNameMirrorMatch,
                     profileSignalsVersion: result.profileSignalsVersion,
                     noPostsKnown: result.noPostsKnown,
                     noRepliesKnown: result.noRepliesKnown,
@@ -2324,15 +2411,16 @@ Object.assign(Core, {
                     Math.max(0, parseInt(rosterBase.processingStatusCounts[status] || '0', 10) || 0),
                 ]))
                 : Object.fromEntries(THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES.map(status => [status, 0]));
-            const noteRosterRow = (username, link, suspiciousUsername, isTriaged, hasVisibleAvatar, processingStatus) => {
+            const noteRosterRow = (username, link, suspiciousUsername, isTriaged, hasVisibleAvatar, processingStatus, displayName = '') => {
                 if (!rosterEnabled) return;
                 const key = String(username || '').toLowerCase();
                 if (!key || rosterKeys.has(key)) return;
                 const normalizedProcessingStatus = THREE_NO_FOLLOWER_ROSTER_PROCESSING_STATUSES.includes(processingStatus)
                     ? processingStatus
                     : 'triage_incomplete';
-                const displayName = Core.ThreeNoWatch.followerListDisplayName(link, username);
-                const nameSignals = Core.ThreeNoWatch.getFollowerRosterNameSignals(username, displayName);
+                const resolvedDisplayName = String(displayName || '')
+                    || lightweightFollowerListDisplayName(link, username);
+                const nameSignals = Core.ThreeNoWatch.getFollowerRosterNameSignals(username, resolvedDisplayName);
                 rosterObservedCount += 1;
                 rosterProcessingStatusCounts[normalizedProcessingStatus] += 1;
                 if (rosterRows.length >= THREE_NO_FOLLOWER_ROSTER_LIMIT) {
@@ -2341,7 +2429,7 @@ Object.assign(Core, {
                 }
                 rosterRows.push({
                     username,
-                    displayName,
+                    displayName: resolvedDisplayName,
                     sequence: rosterRows.length + 1,
                     hasVisibleAvatar: hasVisibleAvatar === true,
                     suspiciousUsername: suspiciousUsername === true,
@@ -2411,6 +2499,15 @@ Object.assign(Core, {
                     }
                     const prefilterHasVisibleAvatar = CONFIG.THREE_NO_SCAN_PREFILTER_AVATAR === true
                         && hasVisibleAvatar;
+                    const pinyinNameMatch = matchesPinyinName(u) === true;
+                    const englishNameMirrorShape = usernameLooksLikeEnglishNameMirrorShape(u);
+                    let englishNameMirrorMatch = false;
+                    let displayName = '';
+                    if (englishNameMirrorShape) {
+                        displayName = Core.ThreeNoWatch.followerListDisplayName(a, u);
+                        englishNameMirrorMatch = matchesEnglishNameMirrorUsername(u, displayName) === true;
+                    }
+                    const namingSignalMatch = pinyinNameMatch || englishNameMirrorMatch;
                     if (rosterEnabled) {
                         try {
                             noteRosterRow(
@@ -2419,15 +2516,16 @@ Object.assign(Core, {
                                 suspiciousUsername,
                                 true,
                                 hasVisibleAvatar,
-                                prefilterHasVisibleAvatar && !suspiciousUsername && !matchesPinyinName(u)
+                                prefilterHasVisibleAvatar && !suspiciousUsername && !namingSignalMatch
                                     ? 'skipped_visible_avatar'
                                     : 'triage_incomplete',
+                                displayName,
                             );
                         } catch (_) {}
                     }
                     triaged.add(u);
                     if (suspiciousUsername) suspiciousUsernameUsers.add(u);
-                    if (prefilterHasVisibleAvatar && !suspiciousUsername && !matchesPinyinName(u)) {
+                    if (prefilterHasVisibleAvatar && !suspiciousUsername && !namingSignalMatch) {
                         avatarSkippedUsers.add(u);
                         normalUsernameSkippedUsers.add(u);
                         return;
@@ -2880,6 +2978,7 @@ Object.assign(Core, {
             const bioCandidates = Core.ThreeNoWatch.getProfileBioCandidates(main, u, bioDebug);
             const hasBio = bioCandidates.length > 0;
             const profileTopText = Core.ThreeNoWatch.getProfileTopText(main, u);
+            const displayName = String(profileTopText[0] || '').trim();
             const privateSignal = Core.ThreeNoWatch.readProfilePrivateSignal(main);
             const accountPrivate = privateSignal.private === true;
             const profileCountSignals = accountPrivate
@@ -2923,6 +3022,7 @@ Object.assign(Core, {
                 bioCandidates,
                 bioDebug,
                 profileTopText,
+                displayName,
                 accountPrivate,
                 privateDetectedAt: accountPrivate ? 'base_profile' : '',
                 privateSignalReason: privateSignal.reason || '',
@@ -2987,6 +3087,13 @@ Object.assign(Core, {
             const noBio = base.noBio === true;
             const suspiciousUsername = base.suspiciousUsername === true;
             const pinyinNameMatch = matchesPinyinName(username) === true;
+            const displayName = String(
+                base.displayName
+                || base.profileDisplayName
+                || (Array.isArray(base.profileTopText) ? base.profileTopText[0] : '')
+                || '',
+            ).trim();
+            const englishNameMirrorMatch = matchesEnglishNameMirrorUsername(username, displayName) === true;
             return {
                 username: u,
                 profileUrl: `https://www.threads.com/@${u}`,
@@ -2999,6 +3106,7 @@ Object.assign(Core, {
                 accountPrivate: isPrivate,
                 suspiciousUsername,
                 pinyinNameMatch,
+                englishNameMirrorMatch,
                 profileSignalsVersion: Core.ThreeNoWatch.getProfileSignalsVersion(),
                 noPostsKnown: postsKnown,
                 noRepliesKnown: repliesKnown,
@@ -3044,9 +3152,13 @@ Object.assign(Core, {
                     privateSignalMatchedText: base.privateSignalMatchedText || '',
                     probesCompleted: Object.keys(probes).join(','),
                 },
-                // ADR 0024：拼音路徑不含 suspiciousUsername；私密帳號內容旗標沿用 ADR 0022 強制 false
+                // ADR 0022：無頭像路徑要求確認過的無內容（或 suspiciousUsername）；
+                // ADR 0024／0025：拼音命中路徑對稱採確認過的無內容；ADR 0028：
+                // 英文名鏡像命中路徑同樣採確認過的無內容。私密帳號內容旗標依
+                // ADR 0022 強制為 false，故不會藉任一路徑進入三無。
                 isThreeNo: (noAvatar && (noPosts || noReplies || noReposts || suspiciousUsername))
-                    || (pinyinNameMatch && (noPosts || noReplies || noReposts)),
+                    || (pinyinNameMatch && (noPosts || noReplies || noReposts))
+                    || (englishNameMirrorMatch && (noPosts || noReplies || noReposts)),
             };
         },
 
@@ -4079,6 +4191,7 @@ Object.assign(Core, {
                     suspiciousUsername: mergeBooleanSignal('suspiciousUsername'),
                     isThreeNo: mergeBooleanSignal('isThreeNo'),
                     pinyinNameMatch: mergeBooleanSignal('pinyinNameMatch'),
+                    englishNameMirrorMatch: mergeBooleanSignal('englishNameMirrorMatch'),
                     profileSignalsVersion: Math.max(
                         parseInt(existing?.profileSignalsVersion || '0', 10) || 0,
                         parseInt(item.profileSignalsVersion || '0', 10) || 0

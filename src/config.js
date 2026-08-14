@@ -9,6 +9,7 @@
 // docs/adr/0025-pinyin-active-accounts-enter-review-list-with-badge.md。
 // docs/adr/0026-failure-verdict-recheck-and-failed-list-reverify.md。
 // docs/adr/0027-dialog-close-detection-observer.md。
+// docs/adr/0028-english-name-mirror-username-entry-path.md。
 // 診斷簽章只保留能描述目前狀態的欄位。所有去重呼叫點都使用這份清單，
 // 量測值仍保留在診斷 fields，但不參與簽章比較。
 export const DIAGNOSTIC_SIGNATURE_MEASUREMENT_FIELDS = Object.freeze([
@@ -119,7 +120,7 @@ export const PINYIN_SURNAMES = Object.freeze([
 ]);
 
 export const CONFIG = {
-    VERSION: '2.8.4-beta31', // #34/#35a：封鎖假成功家族與複驗殘留鍵解鎖
+    VERSION: '2.8.4-beta32', // ADR 0028：英文名鏡像帳號名入口路徑
     BLOCK_RING_RETENTION_MS,
     // Confirmation dialog close detection is event-driven and deliberately not speed-scaled.
     CONFIRM_DIALOG_CLOSE_TIMEOUT_MS: 15000,
@@ -170,6 +171,11 @@ export const CONFIG = {
     THREE_NO_SCAN_STATS_UPLOAD_TIMEOUT_MS: 1500,
     THREE_NO_SCAN_PREFILTER_AVATAR: true,
     THREE_NO_SCAN_PROFILE_DELAY_MS: 1400,
+    // ADR 0028：顯示名鏡像帳號名的兩段式便宜形狀與完整尾碼門檻。
+    THREE_NO_ENGLISH_NAME_MIRROR_MIN_DISPLAY_LENGTH: 6,
+    THREE_NO_ENGLISH_NAME_MIRROR_SUFFIX_MIN_LETTERS: 2,
+    THREE_NO_ENGLISH_NAME_MIRROR_SUFFIX_MAX_LETTERS: 4,
+    THREE_NO_ENGLISH_NAME_MIRROR_MIN_DIGITS: 5,
     // 僅 beta 三無追蹤者取證。上限與既有 PERSIST_LIMIT 分開，保留單一目標
     // 實測一千五百人以上的名單，同時避免兩千人卡死讓記憶體或 storage 無界成長；
     // 超過上限只記錄 observedCount/truncated 與各處理狀態計數。
