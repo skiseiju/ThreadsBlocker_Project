@@ -129,7 +129,7 @@ test('beta29 confirm 段追蹤特定 dialog 並使用固定 15 秒 observer help
         readFile(new URL('../src/worker.js', import.meta.url), 'utf8'),
         readFile(new URL('../src/config.js', import.meta.url), 'utf8'),
     ]);
-    assert.equal(CONFIG.VERSION, '2.8.4-beta33');
+    assert.equal(CONFIG.VERSION, '2.8.4-beta34');
     assert.equal(CONFIG.CONFIRM_DIALOG_CLOSE_TIMEOUT_MS, 15000);
     assert.match(configSource, /CONFIRM_DIALOG_CLOSE_TIMEOUT_MS:\s*15000/);
     assert.match(workerSource, /confirmDialog\s*=\s*dialog/);

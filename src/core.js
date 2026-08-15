@@ -1053,6 +1053,126 @@ const safeCheckboxAccountRowCount = (ctx) => {
     try { return ctx?.querySelectorAll?.('a[href^="/@"]')?.length || 0; } catch (_) { return 0; }
 };
 
+// Inline post checkbox de-duplication must be scoped to the actual post and
+// host, not to an arbitrary ancestor that may contain several virtualized
+// posts.  Prefer platform-provided identifiers/permalinks; only fall back to
+// a per-DOM-root token when the page exposes no stable identifier at all.
+const INLINE_POST_ROOT_SELECTOR = 'article, [role="article"], [data-hege-post-card="true"], [data-testid*="post-card" i], [data-pressable-container="true"]';
+const inlinePostIdentityRoots = new WeakMap();
+let inlinePostIdentitySequence = 0;
+
+const normalizeInlinePostUsername = value => String(value || '').replace(/^@+/, '').split(/[/?#\s]/)[0].trim().toLowerCase();
+
+const inlinePostHash = value => {
+    let hash = 2166136261;
+    for (const char of String(value || '')) {
+        hash ^= char.charCodeAt(0);
+        hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+};
+
+const inlinePostAttributeParts = element => {
+    if (!element?.getAttribute) return [];
+    const parts = [];
+    for (const name of ['data-post-id', 'data-thread-id', 'data-postid', 'data-id', 'data-testid']) {
+        const value = element.getAttribute(name);
+        if (value) parts.push(`${name}:${String(value).trim()}`);
+    }
+    if (element.id) parts.push(`id:${String(element.id).trim()}`);
+    return parts.filter(Boolean);
+};
+
+const inlinePostPermalinkPart = root => {
+    try {
+        const link = root?.matches?.('a[href*="/post/"]')
+            ? root
+            : root?.querySelector?.('a[href*="/post/"]');
+        const href = link?.getAttribute?.('href') || '';
+        if (!href) return '';
+        return `permalink:${href.split(/[?#]/)[0]}`;
+    } catch (_) {
+        return '';
+    }
+};
+
+const findInlinePostIdentityRoot = (element, username = '') => {
+    if (!element) return null;
+    try {
+        const explicit = element.closest?.(INLINE_POST_ROOT_SELECTOR);
+        if (explicit) return explicit;
+    } catch (_) { /* continue with bounded semantic fallback */ }
+
+    const normalized = normalizeInlinePostUsername(username);
+    if (!normalized) return null;
+    const postTimePattern = /(?:剛剛|昨天|今日|今天|\d{4}[/-]\d{1,2}[/-]\d{1,2}|\d+\s*(?:秒|分鐘|分|小時|時|天|週|周|個月|月|年)|\d+\s*(?:s|m|h|d|w|mo|y)\b)/i;
+    for (let node = element.parentElement, depth = 0; node && depth < 8; node = node.parentElement, depth += 1) {
+        const moreCount = node.querySelectorAll?.(CONFIG.SELECTORS.MORE_SVG).length || 0;
+        if (moreCount > 1) continue;
+        const rawText = (node.innerText || node.textContent || '').trim();
+        const text = rawText.replace(/\s+/g, ' ').trim();
+        if (text.length <= 900 && text.toLowerCase().includes(normalized) && postTimePattern.test(text)) return node;
+    }
+    return null;
+};
+
+const getInlinePostIdentity = (element, username = '') => {
+    const normalized = normalizeInlinePostUsername(username);
+    const root = findInlinePostIdentityRoot(element, username);
+    const parts = [];
+    // A button-level post id is useful on compact/non-article layouts where
+    // several posts intentionally share a host element.
+    parts.push(...inlinePostAttributeParts(element));
+    if (root && root !== element) {
+        parts.push(inlinePostPermalinkPart(root));
+        parts.push(...inlinePostAttributeParts(root));
+        const timestamp = root.querySelector?.('time')?.getAttribute?.('datetime') || '';
+        if (timestamp) parts.push(`time:${timestamp}`);
+    }
+    const stableParts = parts.filter(Boolean);
+    if (stableParts.length > 0) return `post:${inlinePostHash(`${normalized}|${stableParts.join('|')}`)}`;
+
+    if (root) {
+        if (!inlinePostIdentityRoots.has(root)) {
+            inlinePostIdentitySequence += 1;
+            inlinePostIdentityRoots.set(root, `root:${inlinePostIdentitySequence}`);
+        }
+        return `post:${inlinePostHash(`${normalized}|${inlinePostIdentityRoots.get(root)}`)}`;
+    }
+
+    const host = element.parentElement;
+    if (host) {
+        if (!inlinePostIdentityRoots.has(host)) {
+            inlinePostIdentitySequence += 1;
+            inlinePostIdentityRoots.set(host, `host:${inlinePostIdentitySequence}`);
+        }
+        return `post:${inlinePostHash(`${normalized}|${inlinePostIdentityRoots.get(host)}`)}`;
+    }
+    return `post:${inlinePostHash(normalized || 'unknown')}`;
+};
+
+const isLiveInlineNode = node => !!node && (
+    node.isConnected === true
+    || (node.isConnected === undefined && !!node.parentElement)
+);
+
+const removeInlineNode = node => {
+    try {
+        if (node?.remove) node.remove();
+        else if (node?.parentElement?.removeChild) node.parentElement.removeChild(node);
+    } catch (_) { /* cleanup must never affect the scan */ }
+};
+
+const clearInlinePostMarker = btn => {
+    try {
+        btn?.removeAttribute?.('data-hege-checked');
+        if (btn?.dataset) {
+            delete btn.dataset.username;
+            delete btn.dataset.hegeInlinePostIdentity;
+        }
+    } catch (_) { /* marker cleanup must never abort scanning */ }
+};
+
 export const Core = {
     RuntimeDiagnostics,
     isDiagnosticFailureResult,
@@ -1487,6 +1607,8 @@ export const Core = {
         return false;
     },
 
+    getInlinePostIdentity: (element, username = '') => getInlinePostIdentity(element, username),
+
     isInlinePostCheckboxContext: (checkbox) => Core.isInlinePostElementContext(checkbox, checkbox?.dataset.username || '', true),
 
     syncInlineFakeAccountBadge: (checkbox, scanResults = null) => {
@@ -1563,14 +1685,22 @@ export const Core = {
     },
 
     createCheckboxContainer: (username = '', options = {}) => {
-        const operationId = RuntimeDiagnostics.begin('selection', { strategy: 'semantic_row', active: true });
-        RuntimeDiagnostics.record('selection', 'selection', {
+        // Feed scans can create hundreds of post checkboxes in one pass. The
+        // per-container lifecycle record that remains useful for dialog/profile
+        // work is intentionally skipped for inline post containers; scanAndInject
+        // emits one bounded aggregate record for its branch counters instead.
+        const recordFactoryDiagnostics = options.inlineBadgeContext !== 'post';
+        const operationId = recordFactoryDiagnostics
+            ? RuntimeDiagnostics.begin('selection', { strategy: 'semantic_row', active: true })
+            : null;
+        if (recordFactoryDiagnostics) RuntimeDiagnostics.record('selection', 'selection', {
             created: true, eligibleCount: username ? 1 : 0, rejectedCount: username ? 0 : 1,
             strategy: 'semantic_row', operationId,
         });
         const container = document.createElement('div');
         container.className = 'hege-checkbox-container';
         if (options.inlineBadge === true) container.dataset.hegeInlineBadge = 'true';
+        if (typeof options.inlineBadgeContext === 'string') container.dataset.hegeInlineBadgeContext = options.inlineBadgeContext;
         if (options.profileHeader === true) {
             container.classList.add('hege-profile-header-checkbox');
             container.dataset.hegeProfileBadge = 'true';
@@ -1596,7 +1726,7 @@ export const Core = {
         svgIcon.appendChild(rect); svgIcon.appendChild(path);
         container.appendChild(svgIcon);
         Core.bindCheckboxEvents(container);
-        RuntimeDiagnostics.end(operationId, 'finish', { reason: username ? 'success' : 'failure', ok: !!username, complete: true, created: true });
+        if (recordFactoryDiagnostics) RuntimeDiagnostics.end(operationId, 'finish', { reason: username ? 'success' : 'failure', ok: !!username, complete: true, created: true });
         return container;
     },
 
@@ -4727,156 +4857,195 @@ export const Core = {
         const cdq = checkboxSources.cdq instanceof Set ? checkboxSources.cdq : new Set(checkboxSources.cdq || []);
         const bgq = checkboxSources.bgq instanceof Set ? checkboxSources.bgq : new Set(checkboxSources.bgq || []);
 
-        moreSvgs.forEach(svg => {
-            const btn = svg.closest('div[role="button"]');
-            if (!btn || !btn.parentElement) return;
+        const inlineScanStats = {
+            dialogCount: 0,
+            svgCount: 0,
+            unknownCount: 0,
+            selfSkippedCount: 0,
+            profileRootCandidateCount: 0,
+            rejectedCount: 0,
+            checkboxContainerCount: 0,
+            eligibleCount: 0,
+            failedCount: 0,
+            didInject: false,
+            attached: false,
+            created: false,
+        };
+        const recordInlineScanStats = () => {
+            const hasObservation = inlineScanStats.dialogCount
+                || inlineScanStats.svgCount
+                || inlineScanStats.unknownCount
+                || inlineScanStats.selfSkippedCount
+                || inlineScanStats.profileRootCandidateCount
+                || inlineScanStats.rejectedCount
+                || inlineScanStats.checkboxContainerCount
+                || inlineScanStats.eligibleCount
+                || inlineScanStats.failedCount;
+            if (!hasObservation) return;
+            RuntimeDiagnostics.record('selection', 'selection', inlineScanStats);
+        };
 
-            // Dialog 內的 checkbox 由 injectDialogCheckboxes 處理，避免重複注入
-            if (btn.closest('div[role="dialog"]')) return;
-
-            // Check if already processed
-            if (btn.getAttribute('data-hege-checked') === 'true') return;
-            if (btn.parentElement.querySelector('.hege-checkbox-container')) {
-                btn.setAttribute('data-hege-checked', 'true');
-                return;
-            }
-
-            // SVG filtering
-            if (!svg.querySelector('circle') && !svg.querySelector('path')) {
-                Utils.diagLog(`[SKIP] SVG 無 circle/path, viewBox=${svg.getAttribute('viewBox')}`);
-                return;
-            }
-            const viewBox = svg.getAttribute('viewBox');
-            if (viewBox === '0 0 12 12' || viewBox === '0 0 13 12') return;
-            const width = svg.style.width ? parseInt(svg.style.width) : 24;
-            if (width < 16 && svg.clientWidth < 16) {
-                Utils.diagLog(`[SKIP] SVG 太小 w=${width}, clientW=${svg.clientWidth}`);
-                return;
-            }
-
-            let username = null;
-            try {
-                let p = btn.parentElement; let foundLink = null;
-                for (let i = 0; i < 5; i++) {
-                    if (!p) break;
-                    foundLink = p.querySelector('a[href^="/@"]');
-                    if (foundLink) break;
-                    p = p.parentElement;
+        try {
+            moreSvgs.forEach(svg => {
+                const btn = svg.closest('div[role="button"]');
+                if (!btn) {
+                    inlineScanStats.failedCount += 1;
+                    return;
                 }
-                if (foundLink) {
-                    username = foundLink.getAttribute('href').split('/@')[1].split('/')[0];
+                if (!btn.parentElement) {
+                    clearInlinePostMarker(btn);
+                    inlineScanStats.failedCount += 1;
+                    return;
                 }
-            } catch (e) { }
 
-            if (!username) {
-                Utils.diagLog(`[SKIP] 找不到 username, btn.parentClasses=${btn.parentElement?.className?.substring(0, 50)}`);
-                return;
-            }
+                // Dialog 內的 checkbox 由 injectDialogCheckboxes 處理，避免重複注入
+                if (btn.closest('div[role="dialog"]')) {
+                    inlineScanStats.dialogCount += 1;
+                    return;
+                }
 
-            if (username === Utils.getMyUsername()) {
-                // Checkbox should not appear for the user's own account
-                btn.setAttribute('data-hege-checked', 'true');
-                return;
-            }
+                // SVG filtering remains before username resolution. This keeps the
+                // old dialog/SVG gate semantics while moving de-duplication below
+                // the identity gates that it actually needs.
+                if (!svg.querySelector('circle') && !svg.querySelector('path')) {
+                    inlineScanStats.svgCount += 1;
+                    Utils.diagLog(`[SKIP] SVG 無 circle/path, viewBox=${svg.getAttribute('viewBox')}`);
+                    return;
+                }
+                const viewBox = svg.getAttribute('viewBox');
+                if (viewBox === '0 0 12 12' || viewBox === '0 0 13 12') {
+                    inlineScanStats.svgCount += 1;
+                    return;
+                }
+                const width = svg.style.width ? parseInt(svg.style.width) : 24;
+                if (width < 16 && svg.clientWidth < 16) {
+                    inlineScanStats.svgCount += 1;
+                    Utils.diagLog(`[SKIP] SVG 太小 w=${width}, clientW=${svg.clientWidth}`);
+                    return;
+                }
 
-            if (username === currentProfile && btn.getBoundingClientRect().top < profileHeaderBottom) {
-                btn.setAttribute('data-hege-checked', 'true');
-                return;
-            }
+                let username = null;
+                try {
+                    let p = btn.parentElement; let foundLink = null;
+                    for (let i = 0; i < 5; i++) {
+                        if (!p) break;
+                        foundLink = p.querySelector('a[href^="/@"]');
+                        if (foundLink) break;
+                        p = p.parentElement;
+                    }
+                    if (foundLink) {
+                        username = foundLink.getAttribute('href').split('/@')[1].split('/')[0];
+                    }
+                } catch (e) { }
 
-            if (!Core.isInlinePostElementContext(btn, username)) {
-                return;
-            }
+                if (!username) {
+                    inlineScanStats.unknownCount += 1;
+                    Utils.diagLog(`[SKIP] 找不到 username, btn.parentClasses=${btn.parentElement?.className?.substring(0, 50)}`);
+                    clearInlinePostMarker(btn);
+                    return;
+                }
 
-            btn.setAttribute('data-hege-checked', 'true');
+                if (username === Utils.getMyUsername()) {
+                    // Checkbox should not appear for the user's own account.
+                    // This marker is intentionally retained as an explicit skip.
+                    inlineScanStats.selfSkippedCount += 1;
+                    btn.setAttribute('data-hege-checked', 'true');
+                    return;
+                }
 
-            const container = document.createElement('div');
-            container.className = 'hege-checkbox-container';
-            container.dataset.hegeInlineBadge = 'true';
-            container.dataset.hegeInlineBadgeContext = 'post';
+                if (username === currentProfile && btn.getBoundingClientRect().top < profileHeaderBottom) {
+                    // Profile-header posts are deliberately skipped and keep their
+                    // historical marker semantics.
+                    inlineScanStats.profileRootCandidateCount += 1;
+                    btn.setAttribute('data-hege-checked', 'true');
+                    return;
+                }
 
-            const svgIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-            svgIcon.setAttribute("viewBox", "0 0 24 24");
-            svgIcon.classList.add("hege-svg-icon");
+                const parent = btn.parentElement;
+                if (!parent) {
+                    inlineScanStats.failedCount += 1;
+                    clearInlinePostMarker(btn);
+                    return;
+                }
+                const normalizedUsername = normalizeInlinePostUsername(username);
+                const postIdentity = Core.getInlinePostIdentity(btn, username);
+                const directPostContainers = Array.from(parent.children || [])
+                    .filter(container => container?.classList?.contains?.('hege-checkbox-container')
+                        && container.dataset?.hegeInlineBadgeContext === 'post');
+                const validContainer = directPostContainers.find(container => isLiveInlineNode(container)
+                    && container.parentElement === parent
+                    && normalizeInlinePostUsername(container.dataset?.username || '') === normalizedUsername
+                    && container.dataset?.hegeInlinePostIdentity === postIdentity);
+                if (validContainer) {
+                    inlineScanStats.checkboxContainerCount += 1;
+                    inlineScanStats.attached = true;
+                    btn.setAttribute('data-hege-checked', 'true');
+                    return;
+                }
 
-            const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-            rect.setAttribute("x", "2"); rect.setAttribute("y", "2");
-            rect.setAttribute("width", "20"); rect.setAttribute("height", "20");
-            rect.setAttribute("rx", "6"); rect.setAttribute("ry", "6");
-            rect.setAttribute("stroke", "currentColor"); rect.setAttribute("stroke-width", "2.5");
-            rect.setAttribute("fill", "none");
+                if (!Core.isInlinePostElementContext(btn, username)) {
+                    inlineScanStats.rejectedCount += 1;
+                    clearInlinePostMarker(btn);
+                    return;
+                }
 
-            const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            path.classList.add("hege-checkmark");
-            path.setAttribute("d", "M6 12 l4 4 l8 -8");
-            path.setAttribute("fill", "none");
+                // A recycled button can still own its previous container. Remove
+                // only containers explicitly created for this button; never remove
+                // a sibling post's valid checkbox merely because it shares a host.
+                directPostContainers
+                    .filter(container => container.__hegeInlinePostButton === btn)
+                    .forEach(removeInlineNode);
 
-            svgIcon.appendChild(rect); svgIcon.appendChild(path);
-            container.appendChild(svgIcon);
-
-            if (username) {
-                btn.dataset.username = username;
-                container.dataset.username = username;
-
+                const container = Core.createCheckboxContainer(username, { inlineBadge: true, inlineBadgeContext: 'post' });
+                container.dataset.hegeInlinePostIdentity = postIdentity;
+                container.__hegeInlinePostButton = btn;
                 const state = Core.resolveCheckboxState(username, { db, cdq, bgq });
                 Core.applyCheckboxState(container, state);
-                if (state === 'checked') Core.blockQueue.add(btn);
-            }
 
-            if (Utils.isMobile()) {
-                container.addEventListener('touchstart', (e) => {
-                    if (e.target.closest('.hege-checkbox-container')) {
-                        e.stopPropagation();
+                let appended = false;
+                try {
+                    // Re-read the parent immediately before mutation. React can
+                    // detach/reparent the button between the initial guard and
+                    // append; in that case abandon the whole injection and leave
+                    // no processed marker behind.
+                    const liveParent = btn.parentElement;
+                    if (!liveParent || liveParent !== parent || !isLiveInlineNode(btn)) {
+                        inlineScanStats.failedCount += 1;
+                        clearInlinePostMarker(btn);
+                        return;
                     }
-                }, { passive: false });
-
-                container.addEventListener('touchend', (e) => {
-                    if (e.target.closest('.hege-checkbox-container')) {
-                        if (CONFIG.DEBUG_MODE) console.log('[留友封] Checkbox Touchend detected');
-                        e.stopPropagation();
-                        // CRITICAL: Stop iOS from firing synthetic click that triggers Universal Link
-                        if (e.cancelable) e.preventDefault();
-
-                        // Manually trigger handleGlobalClick since we prevented the default synthetic click
-                        Core.handleGlobalClick(e);
-                    }
-                }, { passive: false, capture: true });
-            } else {
-                // Desktop (Chrome + Safari): intercept pointer/mouse events before React steals them
-                container.addEventListener('pointerdown', (e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                }, true);
-                container.addEventListener('pointerup', (e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                }, true);
-                container.addEventListener('mousedown', (e) => {
-                    e.stopPropagation();
-                    if (e.shiftKey) e.preventDefault();
-                }, true);
-                container.addEventListener('mouseup', (e) => {
-                    e.stopPropagation();
-                }, true);
-            }
-
-            // Bind directly to the element using a capture phase listener.
-            // This is the most bulletproof way to intercept clicks before React or <a> tags steal them.
-            container.addEventListener('click', Core.handleGlobalClick, true);
-
-            try {
-                const parent = btn.parentElement;
-                if (parent) {
-                    const ps = window.getComputedStyle(parent).position;
-                    if (ps === 'static') parent.style.position = 'relative';
-                    parent.style.setProperty('overflow', 'visible', 'important');
+                    const ps = window.getComputedStyle(liveParent).position;
+                    if (ps === 'static') liveParent.style.position = 'relative';
+                    liveParent.style.setProperty('overflow', 'visible', 'important');
                     // checkbox 用 absolute 定位在 button 左側
                     container.style.position = 'absolute';
                     container.style.right = '100%';
                     container.style.top = '50%';
                     container.style.transform = 'translateY(-50%)';
                     container.style.marginRight = '2px';
-                    parent.appendChild(container);
+                    liveParent.appendChild(container);
+                    appended = isLiveInlineNode(container)
+                        && container.parentElement === liveParent
+                        && isLiveInlineNode(btn)
+                        && btn.parentElement === liveParent;
+                    if (!appended) {
+                        inlineScanStats.failedCount += 1;
+                        clearInlinePostMarker(btn);
+                        removeInlineNode(container);
+                        return;
+                    }
+
+                    // The processed marker is written only after a successful,
+                    // connected append. A synchronous removal/append failure above
+                    // therefore cannot leave a stale marker behind.
+                    btn.dataset.username = username;
+                    btn.dataset.hegeInlinePostIdentity = postIdentity;
+                    btn.setAttribute('data-hege-checked', 'true');
+                    if (state === 'checked') Core.blockQueue.add(btn);
+                    inlineScanStats.eligibleCount += 1;
+                    inlineScanStats.didInject = true;
+                    inlineScanStats.attached = true;
+                    inlineScanStats.created = true;
                     recordCheckboxOverlapObservation({
                         path: 'inline_post_injection',
                         insideRoleDialog: safeCheckboxInsideRoleDialog(btn),
@@ -4884,9 +5053,17 @@ export const Core = {
                         didInject: true,
                     });
                     Core.syncInlineFakeAccountBadge(container, inlineThreeNoResults);
+                } catch (e) {
+                    inlineScanStats.failedCount += 1;
+                    if (!appended) {
+                        clearInlinePostMarker(btn);
+                        removeInlineNode(container);
+                    }
                 }
-            } catch (e) { }
-        });
+            });
+        } finally {
+            recordInlineScanStats();
+        }
     },
 
     handleGlobalClick: (e) => {

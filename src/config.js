@@ -120,7 +120,7 @@ export const PINYIN_SURNAMES = Object.freeze([
 ]);
 
 export const CONFIG = {
-    VERSION: '2.8.4-beta33', // 內嵌 badge 補上拼音與英文鏡像判定（ADR 0024/0028）
+    VERSION: '2.8.4-beta34', // 修正 virtualized post checkbox stale marker，統一 inline 注入路徑
     BLOCK_RING_RETENTION_MS,
     // Confirmation dialog close detection is event-driven and deliberately not speed-scaled.
     CONFIRM_DIALOG_CLOSE_TIMEOUT_MS: 15000,

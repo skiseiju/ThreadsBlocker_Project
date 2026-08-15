@@ -162,7 +162,7 @@ const makeFollowerFixture = () => {
 };
 
 test('beta32 英文名鏡像四筆樣本命中，真人與非英文顯示名不誤判', () => {
-    assert.equal(CONFIG.VERSION, '2.8.4-beta33');
+    assert.equal(CONFIG.VERSION, '2.8.4-beta34');
     const samples = [
         ['Kenneth Berry', 'kennethberryaei31413'],
         ['Laura Reed', 'laurareedbbb68029'],
