@@ -92,7 +92,7 @@ const withCleanState = (fn) => {
 };
 
 test('beta33: 內嵌 badge 版號斷言', () => {
-    assert.equal(CONFIG.VERSION, '2.8.4-beta34');
+    assert.equal(CONFIG.VERSION, '2.8.4-beta35');
 });
 
 test('beta33: 動物字典命名仍回命名可疑（既有行為不變）', () => {

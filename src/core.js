@@ -4834,20 +4834,11 @@ export const Core = {
         const checkboxSources = stateSources || Core.getCheckboxQueueStateSources();
         Core.injectProfileHeaderCheckbox(inlineThreeNoResults, checkboxSources);
         const currentProfile = Core.ThreeNoWatch?.getCurrentProfileUsername?.() || '';
-        const profileHeaderBottom = currentProfile ? (() => {
-            const tabLabels = new Set(['串文', 'Threads', '回覆', 'Replies', '影音內容', 'Media', '轉發', 'Reposts']);
-            const tabs = Array.from(document.querySelectorAll('[role="tab"], a, div, span'))
-                .filter(el => tabLabels.has((el.innerText || el.textContent || '').trim()))
-                .map(el => el.getBoundingClientRect())
-                .filter(rect => rect.width > 4 && rect.height > 4 && rect.top > 120)
-                .sort((a, b) => a.top - b.top);
-            return (tabs[0]?.top || 430) + 8;
-        })() : 0;
-        if (currentProfile) {
-            document.querySelectorAll('.hege-checkbox-container[data-hege-inline-badge-context="post"]').forEach(box => {
-                if (box.dataset.username === currentProfile && box.getBoundingClientRect().top < profileHeaderBottom) box.remove();
-            });
-        }
+        // 這裡原本會依「畫面上緣以內」把個人頁的貼文勾選框整批移除，與注入端的
+        // 座標判定是同一個錯誤的兩半：使用者往下捲時貼文 top 變小甚至為負，於是
+        // 已經正確注入的勾選框又被這段刪掉。標題區自己的勾選框走 profileHeader
+        // 路徑（dataset.hegeProfileBadge），本來就不帶 inline-badge-context="post"，
+        // 不會與貼文勾選框互相干擾，因此這段清除沒有存在的必要。
 
         const moreSvgs = document.querySelectorAll(CONFIG.SELECTORS.MORE_SVG);
         if (moreSvgs.length === 0) return;
@@ -4953,13 +4944,13 @@ export const Core = {
                     return;
                 }
 
-                if (username === currentProfile && btn.getBoundingClientRect().top < profileHeaderBottom) {
-                    // Profile-header posts are deliberately skipped and keep their
-                    // historical marker semantics.
-                    inlineScanStats.profileRootCandidateCount += 1;
-                    btn.setAttribute('data-hege-checked', 'true');
-                    return;
-                }
+                // 個人頁的標題區與貼文都屬於同一個帳號，過去靠「按鈕在畫面上緣以內」
+                // 來區分兩者。那是捲動就會失效的判準：貼文往上捲之後 top 會變小甚至
+                // 為負，於是每一則捲過頂端的貼文都被誤判成標題區、蓋上永久跳過印記，
+                // 使用者看到的就是「往下滑一滑，勾選框和標籤整排消失」。
+                // 標題區與貼文的真正差異在結構不在座標：貼文一定帶有作者名與時間，
+                // 標題區沒有，isInlinePostElementContext 已經能正確分辨（實機驗證：
+                // 標題區與粉絲數列判否、四則貼文皆判過），所以這裡不再用座標。
 
                 const parent = btn.parentElement;
                 if (!parent) {

@@ -120,7 +120,7 @@ export const PINYIN_SURNAMES = Object.freeze([
 ]);
 
 export const CONFIG = {
-    VERSION: '2.8.4-beta34', // 修正 virtualized post checkbox stale marker，統一 inline 注入路徑
+    VERSION: '2.8.4-beta35', // 移除個人頁座標式標題區判定（捲動即誤判）
     BLOCK_RING_RETENTION_MS,
     // Confirmation dialog close detection is event-driven and deliberately not speed-scaled.
     CONFIRM_DIALOG_CLOSE_TIMEOUT_MS: 15000,

@@ -292,7 +292,7 @@ test('beta31 B：複驗後限流成立時回 cooldown，不進成功路徑', asy
 });
 
 test('beta31 B：confirmDialogDetached 已進入診斷簽章白名單', () => {
-    assert.equal(CONFIG.VERSION, '2.8.4-beta34');
+    assert.equal(CONFIG.VERSION, '2.8.4-beta35');
     assert.ok(DIAGNOSTIC_SIGNATURE_STATUS_FIELDS.includes('confirmDialogDetached'));
     RuntimeDiagnostics.clear();
     const entry = RuntimeDiagnostics.record('blocking', 'confirm', {
