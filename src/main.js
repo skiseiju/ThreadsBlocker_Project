@@ -6,7 +6,7 @@ import { pruneThreeNoResetBackups } from './three-no-reset-backup.js';
 import { Storage } from './storage.js';
 import { Utils, isBackgroundWorkerRunning } from './utils.js';
 import { UI } from './ui.js';
-import { Core } from './core.js';
+import { Core, startLocalDiagnosticsPush } from './core.js';
 import { Worker } from './worker.js';
 import { BUNDLED_ANNOUNCEMENT_FEED } from './announcements.js';
 
@@ -1118,6 +1118,8 @@ import './features/three-no-watch.js';
             }
 
             Core.init();
+            // beta 專用：把診斷推到開發端本機接收程式，接收端沒開就靜默略過。
+            startLocalDiagnosticsPush();
 
             setTimeout(async () => {
                 try {

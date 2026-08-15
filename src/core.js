@@ -507,6 +507,42 @@ export const RuntimeDiagnostics = {
     },
 };
 
+// beta 專用：把診斷環直接推到開發端本機的接收程式（scripts/diag-receiver.mjs）。
+// 目的是讓「只在實機出現」的問題不必再靠使用者手動複製貼上；接收端沒開時
+// fetch 會失敗，靜默忽略即可，不影響任何產品行為。
+// 正式版 ENABLE_BETA_DIAGNOSTICS 為 false，這段完全不會執行，也不會有任何
+// 對外連線。推送內容就是 export() 的結果，受既有 _safeFields 白名單限制，
+// 只有數量與布林，不含帳號、選單文字或網址。
+const LOCAL_DIAG_PUSH_INTERVAL_MS = 4000;
+let localDiagPushTimer = null;
+let localDiagLastSignature = '';
+
+const pushLocalDiagnostics = () => {
+    try {
+        if (!CONFIG.ENABLE_BETA_DIAGNOSTICS || !CONFIG.LOCAL_DIAG_URL) return;
+        if (typeof fetch !== 'function') return;
+        const payload = RuntimeDiagnostics.export();
+        const entries = Array.isArray(payload?.entries) ? payload.entries : [];
+        if (entries.length === 0) return;
+        // 內容沒變就不重送，避免閒置時每 4 秒打一次。
+        const signature = `${entries.length}:${entries[entries.length - 1]?.timestamp || 0}`;
+        if (signature === localDiagLastSignature) return;
+        localDiagLastSignature = signature;
+        fetch(CONFIG.LOCAL_DIAG_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        }).catch(() => {});
+    } catch (_) {
+        // 診斷推送永遠不得影響主流程。
+    }
+};
+
+export const startLocalDiagnosticsPush = () => {
+    if (localDiagPushTimer || !CONFIG.ENABLE_BETA_DIAGNOSTICS || !CONFIG.LOCAL_DIAG_URL) return;
+    localDiagPushTimer = setInterval(pushLocalDiagnostics, LOCAL_DIAG_PUSH_INTERVAL_MS);
+};
+
 // Checkbox overlap diagnostics are intentionally narrower than the global
 // runtime ring. Repeated scanner passes should not evict unrelated evidence.
 const CHECKBOX_OVERLAP_OBSERVATION_LIMIT = 40;

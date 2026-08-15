@@ -125,7 +125,7 @@ test.after(() => {
 
 test('beta28 A：確認 dialog 延遲關閉時，固定 safeSleep 複驗改判成功', async () => {
     resetFixture();
-    assert.equal(CONFIG.VERSION, '2.8.4-beta35');
+    assert.equal(CONFIG.VERSION, '2.8.4-beta36');
     let dialogOpen = true;
     const safeSleepCalls = [];
     const diagnostics = [];

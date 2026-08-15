@@ -120,7 +120,7 @@ export const PINYIN_SURNAMES = Object.freeze([
 ]);
 
 export const CONFIG = {
-    VERSION: '2.8.4-beta35', // 移除個人頁座標式標題區判定（捲動即誤判）
+    VERSION: '2.8.4-beta36', // beta 診斷直送本機接收端，免手動複製
     BLOCK_RING_RETENTION_MS,
     // Confirmation dialog close detection is event-driven and deliberately not speed-scaled.
     CONFIRM_DIALOG_CLOSE_TIMEOUT_MS: 15000,
@@ -137,6 +137,9 @@ export const CONFIG = {
     DONATE_URL: 'https://api.payuni.com.tw/api/uop/receive_info/2/3/U012070036/885oqmRcNVU7OTwotE1HS',
     DEVELOPER_SITE_URL: 'https://skiseiju.com',
     OBSERVATION_PLATFORM_URL: 'https://threadsblocker.skiseiju.com/platform/',
+    // beta 專用診斷推送目的地（scripts/diag-receiver.mjs）。正式版 ENABLE_BETA_DIAGNOSTICS
+    // 為 false，不會有任何連線；設為空字串亦可完全停用。
+    LOCAL_DIAG_URL: 'http://127.0.0.1:8787/diag',
     BUG_REPORT_URL: 'https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/reports/bug',
     BUG_REPORT_FALLBACK_URLS: [
         'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec'

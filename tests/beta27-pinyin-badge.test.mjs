@@ -73,7 +73,7 @@ const profileResult = (username, base = {}, replies = {}, reposts = {}) => Core.
 });
 
 test('beta27 拼音活躍帳號進待審、三無計數分開', async () => {
-    assert.equal(CONFIG.VERSION, '2.8.4-beta35');
+    assert.equal(CONFIG.VERSION, '2.8.4-beta36');
     const active = profileResult('chenyuxin8661', {
         postsSignal: { known: true, hasContent: true },
     }, { known: true, hasContent: true }, { known: true, hasContent: true });
