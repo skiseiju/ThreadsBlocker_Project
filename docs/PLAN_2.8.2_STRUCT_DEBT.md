@@ -25,10 +25,14 @@
 | 11 | 2.8.2-beta17 | SSOT #2 | 三個佇列集合在 core 散讀 53 處、各自組 Set | 大 | 未動工 |
 | 12 | 2.8.2-beta18 | SSOT #3 | 平台上傳 payload 同一 UI 有兩份完整推導，欄位不一致 | 大 | 未動工 |
 | 6 | 2.8.2-beta12 | SSOT #4 | dialog context 兩套競爭取法混用（first-vs-last 斷層線） | 中 | 未動工 |
-| 7 | 2.8.2-beta13 | SSOT #5 | username 從 href 解析有多套互相矛盾的 parser | 中 | 未動工（順帶：`worker.js:1534` 的子字串路徑比對建議改用同檔 1653 的錨定 regex，code review 2026-08-14） |
+| 7 | 2.8.2-beta13 | SSOT #5 | username 從 href 解析有多套互相矛盾的 parser | 中 | 未動工（順帶：`worker.js:1534` 的子字串路徑比對建議改用同檔 1653 的錨定 regex，code review 2026-08-14；另 SSOT 複盤 2026-08-15 發現字串正規化又長出三份本地版：`core.js:1450`／`1497` 逐字相同的內聯 fallback 與 `core.js:4467` 第三套，見快照 B4） |
 | 9 | 2.8.2-beta15 | SSOT #6 | 貼文網址正規化有三套以上規則，同一貼文算成多則 | 中 | 未動工 |
 | 10 | 2.8.2-beta16 | SSOT #7 | scroll root 三套選擇規則，錯 root 造成空清單或漏帳號 | 中 | 未動工 |
 | 13 | 2.8.2-beta19 | SSOT #11 | skip-user 政策在過濾與 breakdown 各寫一份 | 中 | 未動工 |
+| 40 | 未定 | SSOT 複盤 2026-08-15 | 「元素是否可見」有 11 份判斷、門檻互不相同（有的看 opacity 有的不看、有的用 viewport 上界 520／620／760 各異）。小視窗或版面改版時同一顆按鈕在某些流程看得到、某些看不到，症狀是無錯誤訊息的靜默失敗 | 中 | 未動工。已分歧。位置全清單見 `docs/history/2026-08-15-ssot-rescan.md` B1；`more-locator.js:58` 註解已記錄過同款事故（197x327 全失敗） |
+| 41 | 未定 | SSOT 複盤 2026-08-15 | sweep sessionStorage 鍵散寫五個檔案，SSOT（`post-reservoir-engine.js` 的 `SWEEP_KEYS`）無任何檔案 import；`worker.js` 兩處清除各只清 5 個與 4 個（缺 lock／wait_started_at），且這些鍵不在 `CONFIG.KEYS` | 中 | 未動工。已分歧。後果：漏清留下舊鎖，下一趟掃描被擋或跳過等待，症狀是「停止後再開就不動了」。見快照 B2 |
+| 42 | 未定 | SSOT 複盤 2026-08-15 | 失敗原因代碼四份清單互不同步（診斷 ring 白名單、失敗名單列舉、worker 可重試內聯陣列、report-debug-context），新增代碼會被靜默丟棄或誤降級成 unknown 或意外變不可重試 | 中 | 未動工。已分歧。同款事故見本表 #21。見快照 B3 |
+| 43 | 未定 | SSOT 複盤 2026-08-15 | 小型清理三件：`three-no-watch.js:1815` 的內聯 fallback（1800）與 `config.js:173`（1400）不一致造成「改 config 不一定生效」的假象；`Utils.sleep` 是 `safeSleep` 的死複本且零呼叫者；`report-flow.js:485` 與 `more-locator.js:34` 兩套向上找可點祖先規則 | 小 | 未動工。尚未分歧（除 fallback 值那項）。見快照 B6／B7 |
 | 30 | 未定 | Codex 複核 2.8.4-beta1（2026-08-08） | 多個 worker 分頁同時跑時共用同一份重試標記，會互相覆寫造成額外重載 | 小 | 未動工，依附第 8 項 |
 | 37 | 未定 | code review 2026-08-14 | beta28/29 新增碼複本結構債：(a) 批次驗證重試三件組是 profile-root 三件組（`worker.js:195-238`）的逐行複本，卻裸用 sessionStorage、key 未進 CONFIG.KEYS（`worker.js:240`）；(b) reverify 內聯的 return-url＋replaceState＋reload 啟動序列是同檔第三份複本且已分歧（`core.js:1325`，另兩份 ~5578／~5609）；(c) `CONFIG.BLOCK_RING_RETENTION_MS` 鏡像無生產讀者 | 小 | 未動工（參數化 retry-marker helper、抽 Core.launchWorker(mode) 共用） |
 | 1 | 2.8.2-beta1 | 回報 #47 | worker 視窗撐大與暫停用兩套尺量，特定環境永遠暫停；補 resize 取證＋修量法錯位 | 中 | **Fixed**（使用者實測通過，`7ac4af1`） |
