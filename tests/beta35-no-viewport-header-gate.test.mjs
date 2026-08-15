@@ -6,7 +6,7 @@ const coreSource = await readFile(new URL('../src/core.js', import.meta.url), 'u
 const configSource = await readFile(new URL('../src/config.js', import.meta.url), 'utf8');
 
 test('beta35: 版號斷言', () => {
-    assert.match(configSource, /VERSION: '2\.8\.4-beta36'/);
+    assert.match(configSource, /VERSION: '2\.8\.4-beta37'/);
 });
 
 // 迴歸防線：個人頁的標題區與貼文屬於同一帳號，過去用「按鈕在畫面上緣以內」

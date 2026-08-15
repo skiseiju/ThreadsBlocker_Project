@@ -97,7 +97,7 @@ const profileResult = (username, base = {}, replies = {}, reposts = {}) => Core.
 });
 
 test('beta20 版本與三無公式回歸案例', () => {
-    assert.equal(CONFIG.VERSION, '2.8.4-beta36');
+    assert.equal(CONFIG.VERSION, '2.8.4-beta37');
 
     const noBioOnly = profileResult('ordinary-user', {
         noAvatar: true,

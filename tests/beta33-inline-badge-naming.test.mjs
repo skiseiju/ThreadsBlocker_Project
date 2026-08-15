@@ -92,7 +92,7 @@ const withCleanState = (fn) => {
 };
 
 test('beta33: 內嵌 badge 版號斷言', () => {
-    assert.equal(CONFIG.VERSION, '2.8.4-beta36');
+    assert.equal(CONFIG.VERSION, '2.8.4-beta37');
 });
 
 test('beta33: 動物字典命名仍回命名可疑（既有行為不變）', () => {
@@ -109,16 +109,78 @@ test('beta33: 拼音命名回命名可疑', () => {
     });
 });
 
-test('beta33: 英文名鏡像形狀回命名可疑（貼文情境只有帳號名）', () => {
+// beta37：形狀初判已收回。帳號名形狀無法區分真人（sweetrice039220412 的
+// 顯示名是「吳佳玲」，與 kennethberryaei31413 形狀完全相同），實機誤標了
+// 2.1 萬粉絲的真人帳號。改成只認「掃描已持久化的旗標」與「個人頁標題可取得
+// 顯示名時的雙重比對」兩條路。
+test('beta37: 只有帳號名時不得標記英文名鏡像', () => {
     withCleanState(() => {
         for (const username of [
             'kennethberryaei31413',
             'laurareedbbb68029',
-            'timothyhodgeyft36541',
-            'ernestlopezgei67416',
+            'sweetrice039220412',
         ]) {
-            const info = Core.getInlineFakeAccountBadgeInfo(username, { users: [] });
-            assert.deepEqual(info, { label: '命名可疑', tone: 'warning' }, username);
+            assert.equal(Core.getInlineFakeAccountBadgeInfo(username, { users: [] }), null, username);
+        }
+    });
+});
+
+test('beta37: 待審清單依是否為三無分流標籤強度', () => {
+    withCleanState(() => {
+        assert.equal(
+            Core.getInlineFakeAccountBadgeInfo('kennethberryaei31413', {
+                users: [{ username: 'other', englishNameMirrorMatch: false }],
+            }),
+            null,
+            '不在清單內不得標記',
+        );
+        assert.deepEqual(
+            Core.getInlineFakeAccountBadgeInfo('kennethberryaei31413', {
+                users: [{ username: 'kennethberryaei31413', isThreeNo: false, englishNameMirrorMatch: true }],
+            }),
+            { label: '命名可疑', tone: 'warning' },
+            '命名命中但非三無只掛提示強度',
+        );
+        assert.deepEqual(
+            Core.getInlineFakeAccountBadgeInfo('kennethberryaei31413', {
+                users: [{ username: 'kennethberryaei31413', isThreeNo: true, englishNameMirrorMatch: true }],
+            }),
+            { label: '疑似假帳號', tone: 'strong' },
+            '真三無維持強標籤',
+        );
+        assert.deepEqual(
+            Core.getInlineFakeAccountBadgeInfo('kennethberryaei31413', {
+                users: [{ username: 'kennethberryaei31413' }],
+            }),
+            { label: '疑似假帳號', tone: 'strong' },
+            '舊資料無 isThreeNo 欄位時維持既有行為',
+        );
+    });
+});
+
+test('beta37: 個人頁標題可取得顯示名時做雙重比對', () => {
+    withCleanState(() => {
+        const original = document.title;
+        try {
+            document.title = 'Kenneth Berry (@kennethberryaei31413) • Threads';
+            assert.deepEqual(
+                Core.getInlineFakeAccountBadgeInfo('kennethberryaei31413', { users: [] }),
+                { label: '命名可疑', tone: 'warning' },
+            );
+            document.title = '吳佳玲 (@sweetrice039220412) • Threads';
+            assert.equal(
+                Core.getInlineFakeAccountBadgeInfo('sweetrice039220412', { users: [] }),
+                null,
+                '中文顯示名不得命中',
+            );
+            document.title = 'Kenneth Berry (@kennethberryaei31413) • Threads';
+            assert.equal(
+                Core.getInlineFakeAccountBadgeInfo('sweetrice039220412', { users: [] }),
+                null,
+                '標題帳號與查詢帳號不符時不得採用該顯示名',
+            );
+        } finally {
+            document.title = original;
         }
     });
 });

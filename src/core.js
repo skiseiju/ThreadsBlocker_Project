@@ -1602,22 +1602,52 @@ export const Core = {
         return rawUsers.filter(u => !db.has(u) && !activeSet.has(u) && !Core.pendingUsers.has(u));
     },
 
+    // 只有停在該帳號的個人頁時才拿得到顯示名。Threads 的網頁標題格式是
+    // 「顯示名 (@帳號名) • Threads」，帳號名不吻合就回空字串，避免在別人的
+    // 頁面上拿到錯的顯示名去做比對。
+    getProfileDisplayNameFromTitle: (username = '') => {
+        try {
+            const target = String(username || '').toLowerCase();
+            if (!target || typeof document === 'undefined') return '';
+            const match = String(document.title || '').match(/^(.+?)\s*[（(]@([^)）]+)[）)]/);
+            if (!match) return '';
+            if (String(match[2] || '').trim().toLowerCase() !== target) return '';
+            return String(match[1] || '').trim();
+        } catch (_) {
+            return '';
+        }
+    },
+
     getInlineFakeAccountBadgeInfo: (username = '', scanResults = null) => {
         const normalize = Core.ThreeNoWatch?.normalizeUsername || ((value = '') => String(value || '').replace(/^@+/, '').split('?')[0].split('/')[0].trim());
         const u = normalize(username).toLowerCase();
         if (!u || Storage.isThreeNoUserSafe(u)) return null;
         const results = scanResults || Storage.getThreeNoScanResults();
-        const knownThreeNo = (results.users || []).some(item => normalize(item.username || '').toLowerCase() === u)
-            && !Storage.isThreeNoUserIgnored(u);
-        if (knownThreeNo) return { label: '疑似假帳號', tone: 'strong' };
-        // 三種命名訊號共用同一個提示標籤：動物字典（beta21／beta25）、拼音
-        // （ADR 0024）、英文名鏡像形狀（ADR 0028）。貼文卡片只呈現帳號名、沒有
-        // 顯示名，所以英文鏡像在這裡只能用帳號名形狀初判，比掃描時的顯示名
-        // 雙重吻合寬鬆；本標籤僅提示不封鎖，寬鬆側誤標的代價可接受。
-        const suspiciousName = Core.ThreeNoWatch?.usernameMatchesSuspiciousThreeNoCandidate?.(u)
-            || matchesPinyinName(u)
-            || Core.ThreeNoWatch?.usernameLooksLikeEnglishNameMirrorShape?.(u) === true;
-        if (suspiciousName) {
+        const persisted = (results.users || []).find(item => normalize(item.username || '').toLowerCase() === u);
+        if (persisted && !Storage.isThreeNoUserIgnored(u)) {
+            // 待審清單同時收「真三無」與「命名命中但仍有活動」兩種（ADR 0025／0028）。
+            // 後者不是三無，掛同一個強度的標籤會誇大結論，因此明確分流；
+            // 舊資料沒有 isThreeNo 欄位時維持原本的強標籤，不改變既有行為。
+            const namingOnly = persisted.isThreeNo === false
+                && (persisted.englishNameMirrorMatch === true || persisted.pinyinNameMatch === true);
+            return namingOnly
+                ? { label: '命名可疑', tone: 'warning' }
+                : { label: '疑似假帳號', tone: 'strong' };
+        }
+        // 動物字典（beta21／beta25）與拼音（ADR 0024）只需要帳號名，任何情境都能判定。
+        if (Core.ThreeNoWatch?.usernameMatchesSuspiciousThreeNoCandidate?.(u) || matchesPinyinName(u)) {
+            return { label: '命名可疑', tone: 'warning' };
+        }
+        // 英文名鏡像（ADR 0028）成立的條件是「顯示名去空白小寫恰為帳號名前綴」，
+        // 少了顯示名就只剩帳號名形狀，而形狀無法區分真人：sweetrice039220412
+        // （顯示名「吳佳玲」，2.1 萬粉絲的真人）與 kennethberryaei31413 形狀相同。
+        // beta33 曾為了讓貼文卡片也標記而採用形狀初判，實機即誤標真人，故收回。
+        // 這裡只走兩條有顯示名或有既有判定結果的路：
+        //   1. 掃描結果已持久化的旗標（上方 persisted 分流已處理）
+        //   2. 目前正停在該帳號的個人頁，網頁標題含顯示名，可即時雙重比對
+        const profileDisplayName = Core.getProfileDisplayNameFromTitle(u);
+        if (profileDisplayName
+            && Core.ThreeNoWatch?.matchesEnglishNameMirrorUsername?.(u, profileDisplayName) === true) {
             return { label: '命名可疑', tone: 'warning' };
         }
         return null;

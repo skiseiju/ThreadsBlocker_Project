@@ -120,7 +120,7 @@ export const PINYIN_SURNAMES = Object.freeze([
 ]);
 
 export const CONFIG = {
-    VERSION: '2.8.4-beta36', // beta 診斷直送本機接收端，免手動複製
+    VERSION: '2.8.4-beta37', // 收回 badge 形狀初判，改用顯示名雙重比對
     BLOCK_RING_RETENTION_MS,
     // Confirmation dialog close detection is event-driven and deliberately not speed-scaled.
     CONFIRM_DIALOG_CLOSE_TIMEOUT_MS: 15000,
