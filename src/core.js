@@ -15,6 +15,7 @@ import { Reporter } from './reporter.js';
 import { ReportDebugContext } from './report-debug-context.js';
 import { DialogCollector } from './dialog-collector.js';
 import { MoreLocator } from './more-locator.js';
+import { matchesPinyinName } from './three-no-name-pattern.js';
 
 // 清理名單的版面落地等待預算。Threads 的按讚名單是 lazy render，可見性過濾要等
 // 到 anchor 真的有尺寸才算數；等不到就維持 rows_missing，但不再幾百毫秒就放棄。
@@ -1453,7 +1454,13 @@ export const Core = {
         const knownThreeNo = (results.users || []).some(item => normalize(item.username || '').toLowerCase() === u)
             && !Storage.isThreeNoUserIgnored(u);
         if (knownThreeNo) return { label: '疑似假帳號', tone: 'strong' };
-        const suspiciousName = Core.ThreeNoWatch?.usernameMatchesSuspiciousThreeNoCandidate?.(u);
+        // 三種命名訊號共用同一個提示標籤：動物字典（beta21／beta25）、拼音
+        // （ADR 0024）、英文名鏡像形狀（ADR 0028）。貼文卡片只呈現帳號名、沒有
+        // 顯示名，所以英文鏡像在這裡只能用帳號名形狀初判，比掃描時的顯示名
+        // 雙重吻合寬鬆；本標籤僅提示不封鎖，寬鬆側誤標的代價可接受。
+        const suspiciousName = Core.ThreeNoWatch?.usernameMatchesSuspiciousThreeNoCandidate?.(u)
+            || matchesPinyinName(u)
+            || Core.ThreeNoWatch?.usernameLooksLikeEnglishNameMirrorShape?.(u) === true;
         if (suspiciousName) {
             return { label: '命名可疑', tone: 'warning' };
         }
