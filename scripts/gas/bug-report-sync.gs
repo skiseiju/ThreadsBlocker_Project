@@ -48,10 +48,11 @@ const COLUMNS = [
 const WORK_ITEM_COLUMNS = [
   '編號',
   '版本',
+  '上線',   // 使用者手上有沒有：v2.8.2／v2.8.3＝已上線，待發＝已修但未發布，—＝尚未修
   '來源',
   '一句話',
   '規模',
-  '狀態',
+  '狀態',   // 程式改好了沒。與「上線」是兩件事，盤點線上痛點要看「上線」欄
   '同步時間',
 ];
 
@@ -59,7 +60,7 @@ const SCRIPT_WRITTEN_COLUMNS = 8; // syncBugReports 新列只寫 A–H；K 由 s
 const FETCH_LIMIT = 200;          // 後端 clampInt 上限即為 200
 const TZ = 'Asia/Taipei';
 const WORK_ITEMS_PLAN_URL = 'https://raw.githubusercontent.com/skiseiju/ThreadsBlocker_Project/main/docs/PLAN_2.8.2_STRUCT_DEBT.md';
-const WORK_ITEM_HEADERS = ['編號', '版本', '來源', '一句話', '規模', '狀態'];
+const WORK_ITEM_HEADERS = ['編號', '版本', '上線', '來源', '一句話', '規模', '狀態'];
 const REPORT_WORK_ITEM_COLUMN = 11; // K
 const REPORT_WORK_ITEM_HEADER = '對應工作項';
 
@@ -394,13 +395,15 @@ function parseWorkItems_(markdown) {
       throw new Error(`PLAN 總表第 ${index + 1} 行欄數錯誤：預期 ${WORK_ITEM_HEADERS.length} 欄，實際 ${cells.length} 欄。`);
     }
 
+    // 索引對齊 WORK_ITEM_HEADERS；加欄時兩處必須一起改，否則整表錯位。
     items.push({
       id: cells[0],
       version: cells[1],
-      source: cells[2],
-      summary: cells[3],
-      size: cells[4],
-      status: cells[5].replace(/\*\*/g, '').trim(),
+      shipped: cells[2].replace(/\*\*/g, '').trim(),
+      source: cells[3],
+      summary: cells[4],
+      size: cells[5],
+      status: cells[6].replace(/\*\*/g, '').trim(),
     });
   }
 
@@ -464,11 +467,15 @@ function rewriteReportWorkItemLinks_(workItemsByReportId) {
 
 function applyWorkItemColors_(sheet, items) {
   items.forEach((item, index) => {
-    const color = item.status.includes('Fixed')
-      ? '#d9ead3'
-      : item.status.includes('未動工')
-        ? '#f4cccc'
-        : '';
+    // 以「使用者手上有沒有」為上色主軸：待發＝已修但線上痛點還活著（琥珀），
+    // 綠＝已上線的修正，紅＝還沒動工。只看狀態欄的 Fixed 會誤以為痛點已解。
+    const color = item.shipped.includes('待發')
+      ? '#fff2cc'
+      : item.status.includes('Fixed') || item.status.includes('已落地')
+        ? '#d9ead3'
+        : item.status.includes('未動工')
+          ? '#f4cccc'
+          : '';
     if (color) sheet.getRange(index + 2, 1, 1, WORK_ITEM_COLUMNS.length).setBackground(color);
   });
 }
@@ -482,6 +489,7 @@ function syncWorkItems() {
     const values = [WORK_ITEM_COLUMNS].concat(items.map(item => [
       item.id,
       item.version,
+      item.shipped,
       item.source,
       item.summary,
       item.size,
