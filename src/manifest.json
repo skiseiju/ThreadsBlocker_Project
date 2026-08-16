@@ -8,8 +8,7 @@
     "*://threads.net/*",
     "*://*.threads.com/*",
     "*://threads.com/*",
-    "https://threadsblocker.skiseiju.com/*",
-    "http://127.0.0.1:8787/*"
+    "https://threadsblocker.skiseiju.com/*"
   ],
   "content_scripts": [
     {

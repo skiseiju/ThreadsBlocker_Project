@@ -120,14 +120,14 @@ export const PINYIN_SURNAMES = Object.freeze([
 ]);
 
 export const CONFIG = {
-    VERSION: '2.8.4-beta37', // 收回 badge 形狀初判，改用顯示名雙重比對
+    VERSION: '2.8.4', // 正式版：beta1-37 全部累積
     BLOCK_RING_RETENTION_MS,
     // Confirmation dialog close detection is event-driven and deliberately not speed-scaled.
     CONFIRM_DIALOG_CLOSE_TIMEOUT_MS: 15000,
     // VERSION: '2.7.4-beta57' was the prior release baseline.
     // 手動 debug／export UI（複製診斷、清除診斷、三無 verbose log）。依 AGENTS.md
     // 正式版必須移除這類 UI，因此仍綁 beta 版號。
-    ENABLE_BETA_DIAGNOSTICS: true,
+    ENABLE_BETA_DIAGNOSTICS: false,
     // 輕量診斷 ring buffer 的總開關（ADR 0013）。所有版本都收集，內容受
     // RuntimeDiagnostics._safeFields 白名單限制，只有數量與布林，不含帳號、
     // 選單文字或網址。設 false 可完全停止收集，作為緊急關閉用。
@@ -139,7 +139,7 @@ export const CONFIG = {
     OBSERVATION_PLATFORM_URL: 'https://threadsblocker.skiseiju.com/platform/',
     // beta 專用診斷推送目的地（scripts/diag-receiver.mjs）。正式版 ENABLE_BETA_DIAGNOSTICS
     // 為 false，不會有任何連線；設為空字串亦可完全停用。
-    LOCAL_DIAG_URL: 'http://127.0.0.1:8787/diag',
+    LOCAL_DIAG_URL: '',
     BUG_REPORT_URL: 'https://threadsblocker-bug-admin.skiseiju.workers.dev/api/v1/reports/bug',
     BUG_REPORT_FALLBACK_URLS: [
         'https://script.google.com/macros/s/AKfycbxZ1cdDUST_8x2gpsYcV6gCENLqpxnb53VTaXW6MaeGV8Mbh8rcrDz9rYJkqwlYWeY4/exec'

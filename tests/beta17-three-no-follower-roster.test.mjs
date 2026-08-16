@@ -67,6 +67,8 @@ Object.defineProperty(globalThis, 'navigator', {
 });
 
 const { CONFIG } = await import('../src/config.js');
+// 本檔測的是 beta 才開的名冊／verbose log 行為；正式版 config 預設關閉，測試自行開啟（每個測試檔獨立行程，不外漏）。
+CONFIG.ENABLE_BETA_DIAGNOSTICS = true;
 const { Storage } = await import('../src/storage.js');
 const { Utils } = await import('../src/utils.js');
 const { UI } = await import('../src/ui.js');
